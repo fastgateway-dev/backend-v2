@@ -75,21 +75,28 @@ func TestClientModeJWT(t *testing.T) {
 		t.Fatalf("client mode jwt: generate token from jwt-server: %v", err)
 	}
 
-	// Positive first: proves the route AND the per-client JWT check have
-	// converged before the negative probe is trusted (see the package
-	// doc comment).
+	// NEGATIVE first, not positive. A 200 cannot prove convergence here:
+	// it is also exactly what this route returns while the SecurityPolicy
+	// is still being programmed, since an unpolicied route just forwards
+	// to the backend. Gating on 200 therefore lets the negative probe --
+	// which retries only on transport errors, not on a wrong status --
+	// read that same unconverged 200 and fail. The denial is the only
+	// status the unconverged state CANNOT produce, so it is the only
+	// sound gate.
+	denyProbe := func(ctx context.Context) (*harness.Response, error) {
+		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-client-id", client.ID.String()))
+	}
+	if _, err := waitForHTTPStatus(ctx, denyProbe, routeLiveTimeout, 401, 403); err != nil {
+		t.Fatalf("client mode jwt: without a token: %v", err)
+	}
+
+	// Positive: proves the JWT check accepts a valid token rather than
+	// denying everything.
 	allowProbe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path,
 			harness.WithHeader("Authorization", "Bearer "+token),
 			harness.WithHeader("x-client-id", client.ID.String()),
 		)
 	}
-	if _, err := waitForHTTPStatus(ctx, allowProbe, routeLiveTimeout, 200); err != nil {
-		t.Fatalf("client mode jwt: with valid token + client id: %v", err)
-	}
-
-	denyProbe := func(ctx context.Context) (*harness.Response, error) {
-		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-client-id", client.ID.String()))
-	}
-	requireStatus(t, ctx, denyProbe, 401, 403)
+	requireStatus(t, ctx, allowProbe, 200)
 }

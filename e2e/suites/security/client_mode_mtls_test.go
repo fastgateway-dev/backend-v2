@@ -168,26 +168,35 @@ func TestClientModeMTLS(t *testing.T) {
 		t.Fatalf("client mode mtls: attach client: %v", err)
 	}
 
-	// Positive first: proves the route, the client attachment, AND the
-	// domain-level mTLS listener config have all converged before either
-	// negative probe is trusted (see the package doc comment).
-	allowProbe := func(ctx context.Context) (*harness.Response, error) {
-		return env.GW.HTTP(ctx, "GET", path,
-			harness.WithHeader("x-client-id", client.ID.String()),
-			harness.WithClientCert(validCertPEM, validKeyPEM),
-		)
-	}
-	if _, err := waitForHTTPStatus(ctx, allowProbe, routeLiveTimeout, 200); err != nil {
-		t.Fatalf("client mode mtls: with valid client cert + client id: %v", err)
-	}
-
+	// NEGATIVE first, not positive. A 200 cannot prove convergence here:
+	// it is also exactly what this route returns while the client
+	// attachment's SecurityPolicy is still being programmed, since an
+	// unpolicied route just forwards to the backend. Gating on 200
+	// therefore lets the negative probes -- which retry only on transport
+	// errors, not on a wrong status -- read that same unconverged 200 and
+	// fail. The 403 is the only status the unconverged state CANNOT
+	// produce, so it is the only sound gate.
+	//
 	// Negative (app layer): no certificate at all, but a real client-id
 	// -- denied by the client attachment's SecurityPolicy, not by TLS
 	// (domain mTLS is optional; the handshake itself succeeds).
 	noCertProbe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-client-id", client.ID.String()))
 	}
-	requireStatus(t, ctx, noCertProbe, 403)
+	if _, err := waitForHTTPStatus(ctx, noCertProbe, routeLiveTimeout, 403); err != nil {
+		t.Fatalf("client mode mtls: with no client cert: %v", err)
+	}
+
+	// Positive: with the attachment proven to be enforcing, a valid
+	// certificate must still get through -- this is what rules out an
+	// attachment that denies everything.
+	allowProbe := func(ctx context.Context) (*harness.Response, error) {
+		return env.GW.HTTP(ctx, "GET", path,
+			harness.WithHeader("x-client-id", client.ID.String()),
+			harness.WithClientCert(validCertPEM, validKeyPEM),
+		)
+	}
+	requireStatus(t, ctx, allowProbe, 200)
 
 	// Negative (routing layer): a certificate IS presented, and under
 	// optional domain mTLS the handshake itself succeeds regardless (see
