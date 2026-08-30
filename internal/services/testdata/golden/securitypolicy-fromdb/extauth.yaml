@@ -1,0 +1,22 @@
+APIKeyAuth: null
+Authorization: null
+CORS: null
+ExtAuth:
+  http:
+    backendRef:
+      name: authz-svc
+      namespace: default
+      port: 9191
+    path: /authorize
+  type: http
+ExtAuthBackendName: ""
+GatewayID: 22222222-2222-2222-2222-222222222222
+JWT: null
+Name: secpol-11111111-security
+Namespace: gateway-ns
+OIDC: null
+RouteID: 11111111-1111-1111-1111-111111111111
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: HTTPRoute
+  Name: secpol-11111111

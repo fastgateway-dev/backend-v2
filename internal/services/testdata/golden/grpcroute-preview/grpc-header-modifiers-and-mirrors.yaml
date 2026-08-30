@@ -1,0 +1,47 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: fastgateway
+    fastgateway.dev/gateway-id: 22222222-2222-2222-2222-222222222222
+    fastgateway.dev/route-id: 11111111-1111-1111-1111-111111111111
+  name: grpc-headers-mirrors-11111111
+  namespace: gateway-ns
+spec:
+  hostnames:
+  - example.com
+  parentRefs:
+  - name: eg
+    namespace: gateway-ns
+  rules:
+  - backendRefs:
+    - name: my-svc
+      namespace: default
+      port: 8080
+    filters:
+    - requestHeaderModifier:
+        add:
+        - name: x-add
+          value: b
+        set:
+        - name: x-set
+          value: a
+      type: RequestHeaderModifier
+    - responseHeaderModifier:
+        set:
+        - name: x-resp
+          value: c
+      type: ResponseHeaderModifier
+    - requestMirror:
+        backendRef:
+          name: grpc-shadow-svc
+          namespace: default
+          port: 9000
+      type: RequestMirror
+    matches:
+    - method:
+        method: Ping
+        service: echo.Echo
+        type: Exact
+status:
+  parents: null

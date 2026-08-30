@@ -20,7 +20,7 @@ import (
 
 func TestApprovalService_GetByID_Success(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	id := uuid.New()
 	expected := &models.Approval{ID: id, Status: models.ApprovalStatusPending}
@@ -36,7 +36,7 @@ func TestApprovalService_GetByID_Success(t *testing.T) {
 
 func TestApprovalService_GetByID_NotFound(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	id := uuid.New()
 	approvalRepo.On("GetByID", id).Return(nil, errors.New("not found"))
@@ -54,7 +54,7 @@ func TestApprovalService_ListByProjectID_NoRoutes(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	domainRepo := new(mocks.MockDomainRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil, services.WAFConfig{})
 
 	projectID := uuid.New()
 	approvals := []models.Approval{
@@ -74,7 +74,7 @@ func TestApprovalService_ListByProjectID_WithRouteEnrichment(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	domainRepo := new(mocks.MockDomainRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil, services.WAFConfig{})
 
 	projectID := uuid.New()
 	routeID := uuid.New()
@@ -101,7 +101,7 @@ func TestApprovalService_ListByProjectID_WithRouteEnrichment(t *testing.T) {
 
 func TestApprovalService_ListByProjectID_RepoError(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	projectID := uuid.New()
 	approvalRepo.On("ListByProjectID", projectID, 1, 10, "", "").Return([]models.Approval(nil), int64(0), errors.New("db error"))
@@ -117,7 +117,7 @@ func TestApprovalService_ListByProjectID_RepoError(t *testing.T) {
 
 func TestApprovalService_CountPendingByProjectID(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	projectID := uuid.New()
 	approvalRepo.On("CountPendingByProjectID", projectID).Return(int64(5), nil)
@@ -135,7 +135,7 @@ func TestApprovalService_CountPendingByProjectID(t *testing.T) {
 
 func TestApprovalService_ListPolicies(t *testing.T) {
 	policyRepo := new(mocks.MockApprovalPolicyRepository)
-	svc := services.NewApprovalService(nil, policyRepo, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(nil, policyRepo, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	projectID := uuid.New()
 	policies := []models.ApprovalPolicy{
@@ -156,7 +156,7 @@ func TestApprovalService_ListPolicies(t *testing.T) {
 
 func TestApprovalService_UpsertPolicy(t *testing.T) {
 	policyRepo := new(mocks.MockApprovalPolicyRepository)
-	svc := services.NewApprovalService(nil, policyRepo, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(nil, policyRepo, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	policy := &models.ApprovalPolicy{
 		ID:        uuid.New(),
@@ -179,7 +179,7 @@ func TestApprovalService_ApproveStage_SingleStage_Success(t *testing.T) {
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -230,7 +230,7 @@ func TestApprovalService_ApproveStage_MultiStage_Success(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, nil, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, nil, projectRepo, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	stage1ID := uuid.New()
@@ -267,7 +267,7 @@ func TestApprovalService_ApproveStage_MultiStage_Success(t *testing.T) {
 
 func TestApprovalService_ApproveStage_SubmitterCannotApprove(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	userID := uuid.New()
 	approvalID := uuid.New()
@@ -293,7 +293,7 @@ func TestApprovalService_ApproveStage_SubmitterCannotApprove(t *testing.T) {
 
 func TestApprovalService_ApproveStage_NotPending(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	approval := &models.Approval{
@@ -310,7 +310,7 @@ func TestApprovalService_ApproveStage_NotPending(t *testing.T) {
 
 func TestApprovalService_ApproveStage_StageNotFound(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	submitterID := uuid.New()
@@ -333,7 +333,7 @@ func TestApprovalService_ApproveStage_WrongPermission(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, nil, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, nil, projectRepo, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -372,7 +372,7 @@ func TestApprovalService_ApproveStage_ClientAttachment_Complete(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, services.WAFConfig{})
 
 	// Create a client attachment service and wire it in
 	casSvc := services.NewClientAttachmentService(attachmentRepo, approvalRepo, nil, nil, routeRepo, nil, nil, nil)
@@ -427,7 +427,7 @@ func TestApprovalService_RejectStage_Success(t *testing.T) {
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -464,7 +464,7 @@ func TestApprovalService_RejectStage_Success(t *testing.T) {
 }
 
 func TestApprovalService_RejectStage_EmptyComment(t *testing.T) {
-	svc := services.NewApprovalService(nil, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(nil, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	_, err := svc.RejectStage(uuid.New(), uuid.New(), &models.User{ID: uuid.New()}, "")
 
@@ -474,7 +474,7 @@ func TestApprovalService_RejectStage_EmptyComment(t *testing.T) {
 
 func TestApprovalService_RejectStage_AlreadyRejected(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	approval := &models.Approval{
@@ -499,7 +499,7 @@ func TestApprovalService_RejectStage_ClientAttachment(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, services.WAFConfig{})
 
 	casSvc := services.NewClientAttachmentService(attachmentRepo, approvalRepo, nil, nil, nil, nil, nil, nil)
 	svc.SetClientAttachmentService(casSvc)
@@ -549,7 +549,7 @@ func TestApprovalService_RejectStage_Route_UpdateAction(t *testing.T) {
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -595,7 +595,7 @@ func TestApprovalService_ApproveStage_Route_UpdateAction(t *testing.T) {
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -648,7 +648,7 @@ func TestApprovalService_ApproveStage_Route_DeleteAction(t *testing.T) {
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -693,7 +693,7 @@ func TestApprovalService_CancelApproval_Success_BySubmitter(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	projectRepo := new(mocks.MockProjectRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, projectRepo, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	userID := uuid.New()
@@ -725,7 +725,7 @@ func TestApprovalService_CancelApproval_Success_BySubmitter(t *testing.T) {
 
 func TestApprovalService_CancelApproval_NotPending(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	approval := &models.Approval{
@@ -745,7 +745,7 @@ func TestApprovalService_CancelApproval_NoPermission(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	submitterID := uuid.New()
@@ -783,7 +783,7 @@ func TestApprovalService_CancelApproval_UpdateAction_RevertsToActive(t *testing.
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	projectRepo := new(mocks.MockProjectRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, projectRepo, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	userID := uuid.New()
@@ -823,7 +823,7 @@ func TestApprovalService_CancelApproval_ClientAttachment(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, projectRepo, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, projectRepo, nil, nil, services.WAFConfig{})
 
 	casSvc := services.NewClientAttachmentService(attachmentRepo, approvalRepo, nil, nil, nil, nil, nil, nil)
 	svc.SetClientAttachmentService(casSvc)
@@ -867,7 +867,7 @@ func TestApprovalService_GetDiff_CreateAction(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	domainRepo := new(mocks.MockDomainRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	entityID := uuid.New()
@@ -919,7 +919,7 @@ func TestApprovalService_GetDiff_UpdateAction(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	domainRepo := new(mocks.MockDomainRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	entityID := uuid.New()
@@ -975,7 +975,7 @@ func TestApprovalService_GetDiff_UpdateAction(t *testing.T) {
 
 func TestApprovalService_GetDiff_NonRouteEntity(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	approval := &models.Approval{
@@ -995,7 +995,7 @@ func TestApprovalService_GetDiff_DeleteAction(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	domainRepo := new(mocks.MockDomainRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	entityID := uuid.New()
@@ -1042,7 +1042,7 @@ func TestApprovalService_GetDiff_DeleteAction(t *testing.T) {
 
 func TestApprovalService_UpdateAIReview_Success(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	aiReview := json.RawMessage(`{"summary":"looks good"}`)
@@ -1061,7 +1061,7 @@ func TestApprovalService_UpdateAIReview_Success(t *testing.T) {
 
 func TestApprovalService_UpdateAIReview_Error(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil)
+	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, services.WAFConfig{})
 
 	approvalID := uuid.New()
 	approval := &models.Approval{ID: approvalID}

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/google/uuid"
@@ -76,8 +77,9 @@ func NewDomainService(domainRepo repository.DomainRepositoryInterface, projectRe
 	}
 }
 
-// FastGatewayNamespace is the namespace where all Gateway objects are deployed
-const FastGatewayNamespace = "fastgateway-system"
+// FastGatewayNamespace is the namespace where all Gateway objects are deployed.
+// Alias to the extracted manifest package; callers migrate incrementally.
+const FastGatewayNamespace = kubernetes.FastGatewayNamespace
 
 // CreateDomainInput represents input for creating a domain
 type CreateDomainInput struct {

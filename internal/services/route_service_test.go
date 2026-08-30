@@ -29,7 +29,7 @@ func newTestRouteService() (
 	policyRepo := new(mocks.MockApprovalPolicyRepository)
 	domainRepo := new(mocks.MockDomainRepository)
 	teamRepo := new(mocks.MockTeamRepository)
-	svc := services.NewRouteService(routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo)
+	svc := services.NewRouteService(routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo, services.WAFConfig{})
 	return svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo
 }
 
@@ -5377,13 +5377,13 @@ func TestRouteService_Deploy_CreateHTTPRoute_Success(t *testing.T) {
 	setupDeployMocksForCreate(routeRepo, approvalRepo, domainRepo, secRepo, btpRepo, eepRepo, wafRepo, caRepo, k8sMock, route, domain)
 
 	// K8s: create HTTPRoute
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 
 	result, err := svc.Deploy(routeID, deployedBy)
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig"))
+	k8sMock.AssertCalled(t, "CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig"))
 }
 
 func TestRouteService_Deploy_CreateGRPCRoute_Success(t *testing.T) {
@@ -5408,13 +5408,13 @@ func TestRouteService_Deploy_CreateGRPCRoute_Success(t *testing.T) {
 
 	setupDeployMocksForCreate(routeRepo, approvalRepo, domainRepo, secRepo, btpRepo, eepRepo, wafRepo, caRepo, k8sMock, route, domain)
 
-	k8sMock.On("CreateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*services.GRPCRouteConfig")).Return(nil)
+	k8sMock.On("CreateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GRPCRouteConfig")).Return(nil)
 
 	result, err := svc.Deploy(routeID, deployedBy)
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "CreateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*services.GRPCRouteConfig"))
+	k8sMock.AssertCalled(t, "CreateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GRPCRouteConfig"))
 	k8sMock.AssertNotCalled(t, "CreateHTTPRoute", mock.Anything, mock.Anything, mock.Anything)
 }
 
@@ -5443,7 +5443,7 @@ func TestRouteService_Deploy_UpdateHTTPRoute_Success(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
@@ -5454,7 +5454,7 @@ func TestRouteService_Deploy_UpdateHTTPRoute_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig"))
+	k8sMock.AssertCalled(t, "UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig"))
 }
 
 func TestRouteService_Deploy_K8sServiceNil(t *testing.T) {
@@ -5561,8 +5561,8 @@ func TestRouteService_Deploy_WithSecurityPolicy_General(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
-	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig")).Return(nil)
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
 	routeRepo.On("Update", mock.Anything).Return(nil)
@@ -5571,7 +5571,7 @@ func TestRouteService_Deploy_WithSecurityPolicy_General(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig"))
+	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig"))
 }
 
 func TestRouteService_Deploy_WithBackendTrafficPolicy(t *testing.T) {
@@ -5611,18 +5611,18 @@ func TestRouteService_Deploy_WithBackendTrafficPolicy(t *testing.T) {
 	}
 	btpRepo.On("GetByRouteID", routeID).Return(btp, nil)
 
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
-	k8sMock.On("UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.BackendTrafficPolicyConfig")).Return(nil)
+	k8sMock.On("UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendTrafficPolicyConfig")).Return(nil)
 	routeRepo.On("Update", mock.Anything).Return(nil)
 
 	result, err := svc.Deploy(routeID, deployedBy)
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.BackendTrafficPolicyConfig"))
+	k8sMock.AssertCalled(t, "UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendTrafficPolicyConfig"))
 }
 
 func TestRouteService_Deploy_WithDirectResponse(t *testing.T) {
@@ -5659,9 +5659,9 @@ func TestRouteService_Deploy_WithDirectResponse(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*services.DirectResponseConfigMapConfig")).Return(nil)
-	k8sMock.On("ApplyHTTPRouteFilter", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteFilterConfig")).Return(nil)
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.DirectResponseConfigMapConfig")).Return(nil)
+	k8sMock.On("ApplyHTTPRouteFilter", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteFilterConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
@@ -5671,8 +5671,8 @@ func TestRouteService_Deploy_WithDirectResponse(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*services.DirectResponseConfigMapConfig"))
-	k8sMock.AssertCalled(t, "ApplyHTTPRouteFilter", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteFilterConfig"))
+	k8sMock.AssertCalled(t, "ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.DirectResponseConfigMapConfig"))
+	k8sMock.AssertCalled(t, "ApplyHTTPRouteFilter", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteFilterConfig"))
 }
 
 func TestRouteService_Deploy_WithExternalBackend(t *testing.T) {
@@ -5707,8 +5707,8 @@ func TestRouteService_Deploy_WithExternalBackend(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*services.BackendConfig")).Return(nil)
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
@@ -5718,7 +5718,7 @@ func TestRouteService_Deploy_WithExternalBackend(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*services.BackendConfig"))
+	k8sMock.AssertCalled(t, "UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig"))
 }
 
 func TestRouteService_Deploy_PendingDeploy_NoApproval(t *testing.T) {
@@ -5747,7 +5747,7 @@ func TestRouteService_Deploy_PendingDeploy_NoApproval(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
@@ -5783,7 +5783,7 @@ func TestRouteService_Deploy_CreateHTTPRoute_K8sError(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
 	// K8s create fails
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(errors.New("k8s connection refused"))
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(errors.New("k8s connection refused"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -6243,7 +6243,7 @@ func TestRouteService_Deploy_UpdateGRPCRoute_Success(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("UpdateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*services.GRPCRouteConfig")).Return(nil)
+	k8sMock.On("UpdateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GRPCRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
@@ -6254,7 +6254,7 @@ func TestRouteService_Deploy_UpdateGRPCRoute_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*services.GRPCRouteConfig"))
+	k8sMock.AssertCalled(t, "UpdateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GRPCRouteConfig"))
 }
 
 func TestRouteService_Deploy_DeployBackends_Error(t *testing.T) {
@@ -6287,7 +6287,7 @@ func TestRouteService_Deploy_DeployBackends_Error(t *testing.T) {
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
-	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*services.BackendConfig")).Return(errors.New("backend CRD failed"))
+	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).Return(errors.New("backend CRD failed"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -6323,8 +6323,8 @@ func TestRouteService_Deploy_SecurityPolicyDeploy_Error(t *testing.T) {
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
-	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig")).Return(errors.New("SP apply failed"))
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig")).Return(errors.New("SP apply failed"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -6360,10 +6360,10 @@ func TestRouteService_Deploy_BackendTrafficPolicy_Error(t *testing.T) {
 		},
 	}, nil)
 
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
-	k8sMock.On("UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.BackendTrafficPolicyConfig")).Return(errors.New("BTP apply failed"))
+	k8sMock.On("UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendTrafficPolicyConfig")).Return(errors.New("BTP apply failed"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -6403,7 +6403,7 @@ func TestRouteService_Deploy_DirectResponse_Error(t *testing.T) {
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
-	k8sMock.On("ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*services.DirectResponseConfigMapConfig")).Return(errors.New("configmap failed"))
+	k8sMock.On("ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.DirectResponseConfigMapConfig")).Return(errors.New("configmap failed"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -6440,7 +6440,7 @@ func TestRouteService_Deploy_EnvoyExtensionPolicy_Error(t *testing.T) {
 		},
 	}, nil)
 
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
 	k8sMock.On("UpdateEnvoyExtensionPolicy", mock.Anything, projectID, mock.Anything).Return(errors.New("EEP apply failed"))
@@ -6484,9 +6484,9 @@ func TestRouteService_Deploy_Update_WithDirectResponseAndBackends(t *testing.T) 
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*services.DirectResponseConfigMapConfig")).Return(nil)
-	k8sMock.On("ApplyHTTPRouteFilter", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteFilterConfig")).Return(nil)
-	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.DirectResponseConfigMapConfig")).Return(nil)
+	k8sMock.On("ApplyHTTPRouteFilter", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteFilterConfig")).Return(nil)
+	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
@@ -6497,8 +6497,8 @@ func TestRouteService_Deploy_Update_WithDirectResponseAndBackends(t *testing.T) 
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*services.DirectResponseConfigMapConfig"))
-	k8sMock.AssertCalled(t, "ApplyHTTPRouteFilter", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteFilterConfig"))
+	k8sMock.AssertCalled(t, "ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.DirectResponseConfigMapConfig"))
+	k8sMock.AssertCalled(t, "ApplyHTTPRouteFilter", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteFilterConfig"))
 }
 
 func TestRouteService_Deploy_Update_WithExternalBackends(t *testing.T) {
@@ -6532,9 +6532,9 @@ func TestRouteService_Deploy_Update_WithExternalBackends(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*services.BackendConfig")).Return(nil)
+	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).Return(nil)
 	k8sMock.On("DeleteStaleBackendsByRoute", mock.Anything, projectID, "fastgateway-system", routeID.String(), mock.Anything).Return(nil)
-	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
@@ -6544,7 +6544,7 @@ func TestRouteService_Deploy_Update_WithExternalBackends(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*services.BackendConfig"))
+	k8sMock.AssertCalled(t, "UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig"))
 	k8sMock.AssertCalled(t, "DeleteStaleBackendsByRoute", mock.Anything, projectID, "fastgateway-system", routeID.String(), mock.Anything)
 }
 
@@ -6582,9 +6582,9 @@ func TestRouteService_Deploy_Update_WithSecurityPolicyAndBTP(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
-	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig")).Return(nil)
-	k8sMock.On("UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.BackendTrafficPolicyConfig")).Return(nil)
+	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig")).Return(nil)
+	k8sMock.On("UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendTrafficPolicyConfig")).Return(nil)
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
 	k8sMock.On("DeleteStaleBackendsByRoute", mock.Anything, projectID, "fastgateway-system", routeID.String(), mock.Anything).Return(nil)
@@ -6594,9 +6594,9 @@ func TestRouteService_Deploy_Update_WithSecurityPolicyAndBTP(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig"))
-	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig"))
-	k8sMock.AssertCalled(t, "UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.BackendTrafficPolicyConfig"))
+	k8sMock.AssertCalled(t, "UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig"))
+	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig"))
+	k8sMock.AssertCalled(t, "UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendTrafficPolicyConfig"))
 }
 
 func TestRouteService_Deploy_Update_WithEnvoyExtensionPolicy(t *testing.T) {
@@ -6628,7 +6628,7 @@ func TestRouteService_Deploy_Update_WithEnvoyExtensionPolicy(t *testing.T) {
 		},
 	}, nil)
 
-	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
 	k8sMock.On("DeleteStaleBackendsByRoute", mock.Anything, projectID, "fastgateway-system", routeID.String(), mock.Anything).Return(nil)
@@ -6672,7 +6672,7 @@ func TestRouteService_Deploy_Update_DeployBackendsError(t *testing.T) {
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
-	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*services.BackendConfig")).Return(errors.New("backend update failed"))
+	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).Return(errors.New("backend update failed"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -6713,7 +6713,7 @@ func TestRouteService_Deploy_Update_DirectResponseError(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
 	k8sMock.On("DeleteStaleBackendsByRoute", mock.Anything, projectID, "fastgateway-system", routeID.String(), mock.Anything).Return(nil)
-	k8sMock.On("ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*services.DirectResponseConfigMapConfig")).Return(errors.New("cm update failed"))
+	k8sMock.On("ApplyDirectResponseConfigMap", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.DirectResponseConfigMapConfig")).Return(errors.New("cm update failed"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -6744,7 +6744,7 @@ func TestRouteService_Deploy_Update_UpdateHTTPRouteError(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
 	k8sMock.On("DeleteStaleBackendsByRoute", mock.Anything, projectID, "fastgateway-system", routeID.String(), mock.Anything).Return(nil)
-	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(errors.New("update failed"))
+	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(errors.New("update failed"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -6781,7 +6781,7 @@ func TestRouteService_Deploy_Update_UpdateGRPCRouteError(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
 	k8sMock.On("DeleteStaleBackendsByRoute", mock.Anything, projectID, "fastgateway-system", routeID.String(), mock.Anything).Return(nil)
-	k8sMock.On("UpdateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*services.GRPCRouteConfig")).Return(errors.New("grpc update failed"))
+	k8sMock.On("UpdateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GRPCRouteConfig")).Return(errors.New("grpc update failed"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -6818,8 +6818,8 @@ func TestRouteService_Deploy_Update_SecurityPolicyError(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
 	k8sMock.On("DeleteStaleBackendsByRoute", mock.Anything, projectID, "fastgateway-system", routeID.String(), mock.Anything).Return(nil)
-	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
-	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig")).Return(errors.New("SP update failed"))
+	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig")).Return(errors.New("SP update failed"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -6856,10 +6856,10 @@ func TestRouteService_Deploy_Update_BackendTrafficPolicyError(t *testing.T) {
 	}, nil)
 
 	k8sMock.On("DeleteStaleBackendsByRoute", mock.Anything, projectID, "fastgateway-system", routeID.String(), mock.Anything).Return(nil)
-	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
-	k8sMock.On("UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.BackendTrafficPolicyConfig")).Return(errors.New("BTP update failed"))
+	k8sMock.On("UpdateBackendTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendTrafficPolicyConfig")).Return(errors.New("BTP update failed"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -6896,7 +6896,7 @@ func TestRouteService_Deploy_Update_EnvoyExtensionPolicyError(t *testing.T) {
 	}, nil)
 
 	k8sMock.On("DeleteStaleBackendsByRoute", mock.Anything, projectID, "fastgateway-system", routeID.String(), mock.Anything).Return(nil)
-	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
 	k8sMock.On("UpdateEnvoyExtensionPolicy", mock.Anything, projectID, mock.Anything).Return(errors.New("EEP update failed"))
@@ -6925,7 +6925,7 @@ func TestRouteService_Deploy_Create_GRPCRouteError(t *testing.T) {
 
 	setupDeployMocksForCreate(routeRepo, approvalRepo, domainRepo, secRepo, btpRepo, eepRepo, wafRepo, caRepo, k8sMock, route, domain)
 
-	k8sMock.On("CreateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*services.GRPCRouteConfig")).Return(errors.New("grpc create failed"))
+	k8sMock.On("CreateGRPCRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GRPCRouteConfig")).Return(errors.New("grpc create failed"))
 
 	result, err := svc.Deploy(routeID, uuid.New())
 
@@ -7053,7 +7053,7 @@ func TestRouteService_Deploy_ClientMode_Deny_NoClients(t *testing.T) {
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// K8s expectations
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	// No CORS, no authorization → should delete security policy
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil)
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
@@ -7106,9 +7106,9 @@ func TestRouteService_Deploy_ClientMode_Deny_WithClients(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	// Should create deny-all SecurityPolicy
-	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig")).Return(nil)
+	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig")).Return(nil)
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
 	k8sMock.On("DeleteStaleAPIKeyResources", mock.Anything, projectID, "fastgateway-system", routeID.String(), route.K8sRouteName, mock.Anything).Return(nil).Maybe()
@@ -7118,7 +7118,7 @@ func TestRouteService_Deploy_ClientMode_Deny_WithClients(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig"))
+	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig"))
 }
 
 // Test 3: Client mode, deny policy, has clients with IP allowlisting → deny + IP allow rules
@@ -7166,8 +7166,8 @@ func TestRouteService_Deploy_ClientMode_Deny_WithIPClients(t *testing.T) {
 		{CIDR: "192.168.1.0/24"},
 	}, nil)
 
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
-	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig")).Return(nil)
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
 	k8sMock.On("DeleteStaleAPIKeyResources", mock.Anything, projectID, "fastgateway-system", routeID.String(), route.K8sRouteName, mock.Anything).Return(nil).Maybe()
@@ -7177,7 +7177,7 @@ func TestRouteService_Deploy_ClientMode_Deny_WithIPClients(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig"))
+	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig"))
 }
 
 // Test 4: Client mode, require_ip_allowlist policy → merges defaultAllowedCIDRs + client IPs
@@ -7224,8 +7224,8 @@ func TestRouteService_Deploy_ClientMode_RequireIPAllowlist(t *testing.T) {
 		{CIDR: "10.0.0.0/24"},
 	}, nil)
 
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
-	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig")).Return(nil)
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
 	k8sMock.On("DeleteStaleAPIKeyResources", mock.Anything, projectID, "fastgateway-system", routeID.String(), route.K8sRouteName, mock.Anything).Return(nil).Maybe()
@@ -7235,7 +7235,7 @@ func TestRouteService_Deploy_ClientMode_RequireIPAllowlist(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig"))
+	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig"))
 }
 
 // Test 5: Client mode, allow_all, has per-client auth (API key) → deny-all base route
@@ -7277,9 +7277,9 @@ func TestRouteService_Deploy_ClientMode_AllowAll_WithPerClientAuth(t *testing.T)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	// hasPerClientAuth=true, authConfig=nil → deny-all
-	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig")).Return(nil)
+	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig")).Return(nil)
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
 	k8sMock.On("DeleteStaleAPIKeyResources", mock.Anything, projectID, "fastgateway-system", routeID.String(), route.K8sRouteName, mock.Anything).Return(nil).Maybe()
@@ -7289,7 +7289,7 @@ func TestRouteService_Deploy_ClientMode_AllowAll_WithPerClientAuth(t *testing.T)
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig"))
+	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig"))
 }
 
 // Test 6: Client mode, allow_all, has IP-only clients, no per-client auth → SecurityPolicy with IP rules
@@ -7335,9 +7335,9 @@ func TestRouteService_Deploy_ClientMode_AllowAll_NoPerClientAuth(t *testing.T) {
 		{CIDR: "10.0.0.0/24"},
 	}, nil)
 
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	// IP-only client → authConfig has IP rules; no per-client auth → allow_all doesn't override
-	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig")).Return(nil)
+	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig")).Return(nil)
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
 	k8sMock.On("DeleteStaleAPIKeyResources", mock.Anything, projectID, "fastgateway-system", routeID.String(), route.K8sRouteName, mock.Anything).Return(nil).Maybe()
@@ -7347,7 +7347,7 @@ func TestRouteService_Deploy_ClientMode_AllowAll_NoPerClientAuth(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig"))
+	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig"))
 }
 
 // Test 7: Client mode with CORS from DB SecurityPolicy
@@ -7392,9 +7392,9 @@ func TestRouteService_Deploy_ClientMode_WithCORS(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	// CORS present → should UpdateSecurityPolicy (even though no authorization)
-	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig")).Return(nil)
+	k8sMock.On("UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig")).Return(nil)
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
 	k8sMock.On("DeleteStaleAPIKeyResources", mock.Anything, projectID, "fastgateway-system", routeID.String(), route.K8sRouteName, mock.Anything).Return(nil).Maybe()
@@ -7404,7 +7404,7 @@ func TestRouteService_Deploy_ClientMode_WithCORS(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
-	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.SecurityPolicyConfig"))
+	k8sMock.AssertCalled(t, "UpdateSecurityPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.SecurityPolicyConfig"))
 }
 
 // =========================================================================
@@ -7447,12 +7447,12 @@ func TestRouteService_Deploy_WithFailoverBackends(t *testing.T) {
 
 	// Both backends should get UpdateBackend calls (failover enabled → all get Backend CRDs)
 	var capturedBackends []*services.BackendConfig
-	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*services.BackendConfig")).
+	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).
 		Run(func(args mock.Arguments) {
 			bc := args.Get(2).(*services.BackendConfig)
 			capturedBackends = append(capturedBackends, bc)
 		}).Return(nil)
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
@@ -7524,11 +7524,11 @@ func TestRouteService_Deploy_WithExternalBackend_TLS(t *testing.T) {
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	var capturedBackend *services.BackendConfig
-	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*services.BackendConfig")).
+	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).
 		Run(func(args mock.Arguments) {
 			capturedBackend = args.Get(2).(*services.BackendConfig)
 		}).Return(nil)
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
@@ -7599,11 +7599,11 @@ func TestRouteService_Deploy_WithExternalBackend_TLS_MTLS(t *testing.T) {
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	var capturedBackend *services.BackendConfig
-	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*services.BackendConfig")).
+	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).
 		Run(func(args mock.Arguments) {
 			capturedBackend = args.Get(2).(*services.BackendConfig)
 		}).Return(nil)
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()
@@ -7666,12 +7666,12 @@ func TestRouteService_Deploy_WithFailover_EmptyNamespace(t *testing.T) {
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	var capturedBackends []*services.BackendConfig
-	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*services.BackendConfig")).
+	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).
 		Run(func(args mock.Arguments) {
 			bc := args.Get(2).(*services.BackendConfig)
 			capturedBackends = append(capturedBackends, bc)
 		}).Return(nil)
-	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*services.HTTPRouteConfig")).Return(nil)
+	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
 	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-eep").Return(nil).Maybe()
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", mock.Anything).Return(nil).Maybe()

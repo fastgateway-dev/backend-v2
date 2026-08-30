@@ -46,6 +46,90 @@ func previewRouteConfig(t *testing.T) (name, path string, cfg services.CreateRou
 	return name, path, cfg
 }
 
+// previewDirectResponseRouteConfig is a directResponse-type route that ALSO
+// sets URLRewrite and RequestHeaderModifier -- fields the deployed
+// HTTPRoute for a directResponse route never carries (there is no backend
+// to rewrite the path for, or forward a modified request header to).
+//
+// A directResponse route's HTTPRoute must instead carry an extensionRef
+// filter pointing at the route's HTTPRouteFilter (where the actual
+// direct-response body/status live), and must NOT carry urlRewrite or
+// requestHeaderModifier even though the submitted Config sets them. A
+// direct-response fixture that leaves those two fields unset would let a
+// preview path that wrongly includes them, or omits the extensionRef,
+// pass just as happily as a correct one -- which is exactly the bug this
+// test exists to catch.
+func previewDirectResponseRouteConfig(t *testing.T) (name, path string, cfg services.CreateRouteInput) {
+	t.Helper()
+	name, path = uniquePath(t)
+	cfg = services.CreateRouteInput{
+		Name:   name,
+		TeamID: teamID(t),
+		Config: models.RouteConfig{
+			RouteType: models.RouteTypeDirectResponse,
+			Matches: []models.RouteMatch{
+				{Path: &models.PathMatch{Type: "Prefix", Value: path}},
+			},
+			DirectResponse: &models.DirectResponseConfig{
+				StatusCode:  200,
+				ContentType: "application/json",
+				Body: &models.DirectResponseBody{
+					Type:   models.DirectResponseBodyTypeInline,
+					Inline: `{"status":"ok"}`,
+				},
+			},
+			// These two must NOT surface on the deployed (or correctly
+			// previewed) HTTPRoute for a directResponse route -- they are
+			// only meaningful for backend routes with something to
+			// forward a request to. Set here specifically so a preview
+			// that wrongly includes them fails this test.
+			URLRewrite: rewriteTo("/"),
+			RequestHeaderModifier: &models.HeaderModifier{
+				Set: []models.HeaderValue{{Name: "X-E2E-Preview-Request", Value: "yes"}},
+			},
+		},
+	}
+	return name, path, cfg
+}
+
+// TestPreviewCreateDirectResponseMatchesDeployedManifests guards the
+// directResponse preview bug: preview used to omit the extensionRef filter
+// pointing at the route's HTTPRouteFilter, and wrongly included urlRewrite
+// and requestHeaderModifier filters that the deployed route never has. The
+// deploy path was always correct, so comparing preview against deployed
+// output (rather than against a hand-written expectation) catches any
+// future regression that reintroduces the divergence.
+//
+// TestPreviewCreateMatchesDeployedManifests (below) exercises only a plain
+// backend route, which is exactly why it never caught this bug: a backend
+// route legitimately carries urlRewrite and requestHeaderModifier, so
+// preview and deploy agreeing on those fields proves nothing about whether
+// preview correctly special-cases directResponse routes.
+func TestPreviewCreateDirectResponseMatchesDeployedManifests(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	_, _, cfg := previewDirectResponseRouteConfig(t)
+
+	var preview services.PreviewCreateResult
+	previewPath := "/projects/" + env.ProjectID + "/domains/" + env.DomainID + "/routes/preview"
+	if _, err := env.Editor.Do(ctx, http.MethodPost, previewPath, cfg, &preview); err != nil {
+		t.Fatalf("preview create (directResponse): %v", err)
+	}
+	if strings.TrimSpace(preview.ProposedYAML) == "" {
+		t.Fatal("preview create (directResponse): proposedYaml is empty")
+	}
+
+	fx := harness.NewFixture(t, env)
+	route := fx.Route(cfg)
+
+	requireSameObject(t, "HTTPRoute",
+		parseYAMLObject(t, "preview HTTPRoute (directResponse)", preview.ProposedYAML),
+		deployedObject(t, ctx, httpRouteGVR, route.ID.String()))
+}
+
 // TestPreviewCreateMatchesDeployedManifests is the assertion the preview
 // endpoints exist for: what the reviewer is shown before approving must be
 // what the cluster actually gets.

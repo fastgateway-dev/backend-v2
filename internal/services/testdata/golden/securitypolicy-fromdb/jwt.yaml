@@ -1,0 +1,24 @@
+APIKeyAuth: null
+Authorization: null
+CORS: null
+ExtAuth: null
+ExtAuthBackendName: ""
+GatewayID: 22222222-2222-2222-2222-222222222222
+JWT:
+  Providers:
+  - Audiences:
+    - api
+    ClaimToHeaders:
+    - Claim: sub
+      Header: x-user-id
+    Issuer: https://issuer.example.com
+    JWKSURL: https://issuer.example.com/jwks
+    Name: route-jwt
+Name: secpol-11111111-security
+Namespace: gateway-ns
+OIDC: null
+RouteID: 11111111-1111-1111-1111-111111111111
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: HTTPRoute
+  Name: secpol-11111111

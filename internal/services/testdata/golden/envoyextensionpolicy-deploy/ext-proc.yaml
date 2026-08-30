@@ -1,0 +1,21 @@
+|
+  apiVersion: gateway.envoyproxy.io/v1alpha1
+  kind: EnvoyExtensionPolicy
+  metadata:
+    labels:
+      app.kubernetes.io/managed-by: fastgateway
+      fastgateway.dev/gateway-id: 22222222-2222-2222-2222-222222222222
+      fastgateway.dev/route-id: 11111111-1111-1111-1111-111111111111
+    name: eep-11111111-eep
+    namespace: gateway-ns
+  spec:
+    extProc:
+    - backendRefs:
+      - group: ""
+        kind: Backend
+        name: ext-proc-backend-11111111-1111-1111-1111-111111111111
+        namespace: gateway-ns
+    targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: eep-11111111

@@ -93,7 +93,8 @@ func main() {
 	domainService := services.NewDomainService(domainRepo, projectRepo, domainTemplateRepo, k8sService)
 	domainService.SetDomainSettingsRepository(domainSettingsRepo)
 	domainService.SetClientAttachmentRepository(clientAttachmentRepo) // Set client attachment repo for mTLS CA merging
-	routeService := services.NewRouteService(routeRepo, approvalRepo, approvalPolicyRepo, domainRepo, teamRepo)
+	wafConfig := services.WAFConfig{Image: cfg.WAFImage, Tag: cfg.WAFTag}
+	routeService := services.NewRouteService(routeRepo, approvalRepo, approvalPolicyRepo, domainRepo, teamRepo, wafConfig)
 	routeService.SetKubernetesService(k8sService)                            // Set K8s service for route deployment
 	routeService.SetProjectNamespaceRepository(projectNamespaceRepo)         // Set namespace repo for validation
 	routeService.SetSecurityPolicyRepository(securityPolicyRepo)             // Set security policy repo for Envoy SecurityPolicy
@@ -113,7 +114,7 @@ func main() {
 	routeVersionService.SetWafPolicyRepo(wafPolicyRepo)
 	routeVersionService.SetRouteService(routeService)
 	routeService.SetRouteVersionService(routeVersionService)
-	approvalService := services.NewApprovalService(approvalRepo, approvalPolicyRepo, teamRepo, routeRepo, projectRepo, domainRepo, k8sService)
+	approvalService := services.NewApprovalService(approvalRepo, approvalPolicyRepo, teamRepo, routeRepo, projectRepo, domainRepo, k8sService, wafConfig)
 	approvalService.SetSecurityPolicyRepository(securityPolicyRepo)             // Set security policy repo for diff generation
 	approvalService.SetBackendTrafficPolicyRepository(backendTrafficPolicyRepo) // Set backend traffic policy repo for diff generation
 	approvalService.SetStageReviewRepository(approvalStageReviewRepo)           // Set stage review repo for multi-approver support

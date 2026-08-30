@@ -1,7 +1,6 @@
 package services
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -71,21 +70,9 @@ func TestInternalNormalizeCIDR(t *testing.T) {
 	}
 }
 
-// ─── generateRouteK8sName ──────────────────────────────────────────────────
-
-func TestInternalGenerateRouteK8sName(t *testing.T) {
-	id := uuid.MustParse("abcdef12-3456-7890-abcd-ef1234567890")
-	name := generateRouteK8sName("my-route", id)
-	assert.Equal(t, "my-route-abcdef12", name)
-}
-
-func TestInternalGenerateRouteK8sName_LongName(t *testing.T) {
-	id := uuid.MustParse("abcdef12-3456-7890-abcd-ef1234567890")
-	longName := strings.Repeat("a", 80)
-	name := generateRouteK8sName(longName, id)
-	assert.LessOrEqual(t, len(name), 63)
-	assert.True(t, strings.HasSuffix(name, "abcdef12"))
-}
+// generateRouteK8sName was deleted; route_service.go now delegates to
+// kubernetes.RouteK8sName, which is covered by internal/kubernetes/naming_test.go
+// (TestRouteK8sName, TestRouteK8sNameAlwaysWithinLimit).
 
 // ─── isValidK8sName ────────────────────────────────────────────────────────
 
@@ -122,21 +109,15 @@ func TestInternalGetRouteKind(t *testing.T) {
 	assert.Equal(t, "HTTPRoute", getRouteKind(models.RouteProtocol("unknown")))
 }
 
-// ─── getCorazaWasmImageURL ─────────────────────────────────────────────────
+// ─── WAFConfig.ImageURL ─────────────────────────────────────────────────────
 
-func TestInternalGetCorazaWasmImageURL_Default(t *testing.T) {
-	os.Unsetenv("WAF_IMAGE")
-	os.Unsetenv("WAF_TAG")
-	url := getCorazaWasmImageURL()
+func TestInternalWAFConfigImageURL_Default(t *testing.T) {
+	url := WAFConfig{}.ImageURL()
 	assert.Equal(t, "ghcr.io/corazawaf/coraza-proxy-wasm:0.6.0", url)
 }
 
-func TestInternalGetCorazaWasmImageURL_Custom(t *testing.T) {
-	os.Setenv("WAF_IMAGE", "custom-image")
-	os.Setenv("WAF_TAG", "1.0.0")
-	defer os.Unsetenv("WAF_IMAGE")
-	defer os.Unsetenv("WAF_TAG")
-	url := getCorazaWasmImageURL()
+func TestInternalWAFConfigImageURL_Custom(t *testing.T) {
+	url := WAFConfig{Image: "custom-image", Tag: "1.0.0"}.ImageURL()
 	assert.Equal(t, "custom-image:1.0.0", url)
 }
 
@@ -749,7 +730,7 @@ func TestInternalGenerateEEPYAML_Wasm(t *testing.T) {
 func TestInternalGenerateEEPYAMLWithWaf_NilInputs(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateEnvoyExtensionPolicyYAMLWithWaf(route, domain, nil, nil)
+	result := generateEnvoyExtensionPolicyYAMLWithWaf(route, domain, nil, nil, WAFConfig{})
 	assert.Empty(t, result)
 }
 
@@ -760,7 +741,7 @@ func TestInternalGenerateEEPYAMLWithWaf_WafOnly(t *testing.T) {
 		Mode:     "block",
 		Rulesets: []string{"owasp-crs"},
 	}
-	result := generateEnvoyExtensionPolicyYAMLWithWaf(route, domain, nil, wafInput)
+	result := generateEnvoyExtensionPolicyYAMLWithWaf(route, domain, nil, wafInput, WAFConfig{})
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
@@ -780,7 +761,7 @@ func TestInternalGenerateEEPYAMLWithWaf_LuaPlusWaf(t *testing.T) {
 		Mode:     "detect",
 		Rulesets: []string{"owasp-crs"},
 	}
-	result := generateEnvoyExtensionPolicyYAMLWithWaf(route, domain, extInput, wafInput)
+	result := generateEnvoyExtensionPolicyYAMLWithWaf(route, domain, extInput, wafInput, WAFConfig{})
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
@@ -1330,7 +1311,7 @@ func TestInternalGenerateEEPYAMLFromDB_WithWasm(t *testing.T) {
 func TestInternalGenerateEEPYAMLFromSnapshot_Empty(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, nil, nil)
+	result := generateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, nil, nil, WAFConfig{})
 	assert.Empty(t, result)
 }
 
@@ -1343,7 +1324,7 @@ func TestInternalGenerateEEPYAMLFromSnapshot_WithWaf(t *testing.T) {
 			Rulesets: []string{"owasp-crs"},
 		},
 	}
-	result := generateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, nil, wafPolicy)
+	result := generateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, nil, wafPolicy, WAFConfig{})
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
@@ -1367,7 +1348,7 @@ func TestInternalGenerateEEPYAMLFromSnapshot_ExtAndWaf(t *testing.T) {
 			Rulesets: []string{"owasp-crs"},
 		},
 	}
-	result := generateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, extPolicy, wafPolicy)
+	result := generateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, extPolicy, wafPolicy, WAFConfig{})
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
