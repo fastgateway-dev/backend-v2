@@ -3,18 +3,6 @@ version: "2"
 run:
   timeout: 5m
 
-# Starting linter set for Phase 0 of the OSS relaunch.
-#
-# The originally suggested set (errcheck, govet, ineffassign, staticcheck,
-# unused, gofmt) was tried against the inherited codebase and currently
-# reports pre-existing issues that are out of scope to fix in this phase:
-#   errcheck:    81 issues (mostly ignored Close()/best-effort errors)
-#   ineffassign:  2 issues
-#   staticcheck: 45 issues (mostly style suggestions)
-#   unused:       8 issues (dead code)
-# Enabling those now would make CI fail on day one, so only the linters
-# that are currently clean are enabled here. Re-enable the others
-# incrementally as the underlying issues are cleaned up.
 linters:
   default: none
   enable:

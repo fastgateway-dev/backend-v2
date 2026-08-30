@@ -65,7 +65,7 @@ func (r *ClientAttachmentRepository) ListByClientID(clientID uuid.UUID) ([]model
 		Preload("Route").Preload("Route.Team").Preload("Route.Domain").
 		Preload("Creator").
 		Where("client_id = ? AND status != ?", clientID, models.AttachmentStatusRemoved).
-		Order("created_at DESC").
+		Order("created_at DESC, id").
 		Find(&attachments).Error
 	return attachments, err
 }
@@ -77,7 +77,7 @@ func (r *ClientAttachmentRepository) ListByRouteID(routeID uuid.UUID) ([]models.
 		Preload("Route").Preload("Route.Team").
 		Preload("Creator").
 		Where("route_id = ? AND status != ?", routeID, models.AttachmentStatusRemoved).
-		Order("created_at DESC").
+		Order("created_at DESC, id").
 		Find(&attachments).Error
 	return attachments, err
 }
@@ -87,6 +87,7 @@ func (r *ClientAttachmentRepository) ListActiveByRouteID(routeID uuid.UUID) ([]m
 	var attachments []models.ClientRouteAttachment
 	err := r.db.Preload("Client").Preload("Client.Team").
 		Where("route_id = ? AND status = ?", routeID, models.AttachmentStatusActive).
+		Order("created_at, id").
 		Find(&attachments).Error
 	return attachments, err
 }
@@ -95,6 +96,7 @@ func (r *ClientAttachmentRepository) ListActiveByRouteID(routeID uuid.UUID) ([]m
 func (r *ClientAttachmentRepository) ListApprovedByRouteID(routeID uuid.UUID) ([]models.ClientRouteAttachment, error) {
 	var attachments []models.ClientRouteAttachment
 	err := r.db.Where("route_id = ? AND status = ?", routeID, models.AttachmentStatusApproved).
+		Order("created_at, id").
 		Find(&attachments).Error
 	return attachments, err
 }
@@ -120,6 +122,7 @@ func (r *ClientAttachmentRepository) ListActiveByClientIDWithIPAllowlist(clientI
 	var attachments []models.ClientRouteAttachment
 	err := r.db.Preload("Route").
 		Where("client_id = ? AND status = ? AND enable_ip_allowlist = ?", clientID, models.AttachmentStatusActive, true).
+		Order("created_at, id").
 		Find(&attachments).Error
 	return attachments, err
 }
@@ -129,6 +132,7 @@ func (r *ClientAttachmentRepository) ListActiveByClientIDWithAPIKey(clientID uui
 	var attachments []models.ClientRouteAttachment
 	err := r.db.Preload("Route").
 		Where("client_id = ? AND status = ? AND enable_api_key = ?", clientID, models.AttachmentStatusActive, true).
+		Order("created_at, id").
 		Find(&attachments).Error
 	return attachments, err
 }
@@ -138,6 +142,7 @@ func (r *ClientAttachmentRepository) ListActiveByClientIDWithJWT(clientID uuid.U
 	var attachments []models.ClientRouteAttachment
 	err := r.db.Preload("Route").
 		Where("client_id = ? AND status = ? AND enable_jwt = ?", clientID, models.AttachmentStatusActive, true).
+		Order("created_at, id").
 		Find(&attachments).Error
 	return attachments, err
 }
@@ -180,6 +185,7 @@ func (r *ClientAttachmentRepository) ListActiveByClientIDWithMTLS(clientID uuid.
 	var attachments []models.ClientRouteAttachment
 	err := r.db.Preload("Route").
 		Where("client_id = ? AND status = ? AND enable_mtls = ?", clientID, models.AttachmentStatusActive, true).
+		Order("created_at, id").
 		Find(&attachments).Error
 	return attachments, err
 }
@@ -189,6 +195,7 @@ func (r *ClientAttachmentRepository) ListActiveByClientIDWithHeaderAuth(clientID
 	var attachments []models.ClientRouteAttachment
 	err := r.db.Preload("Route").
 		Where("client_id = ? AND status = ? AND enable_header_auth = ?", clientID, models.AttachmentStatusActive, true).
+		Order("created_at, id").
 		Find(&attachments).Error
 	return attachments, err
 }

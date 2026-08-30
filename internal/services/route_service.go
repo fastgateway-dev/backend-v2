@@ -8,45 +8,16 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
-	"regexp"
 	"strings"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
 )
-
-// getCorazaWasmImageURL returns the coraza-proxy-wasm image URL
-// Configurable via WAF_IMAGE and WAF_TAG environment variables
-func getCorazaWasmImageURL() string {
-	image := os.Getenv("WAF_IMAGE")
-	if image == "" {
-		image = "ghcr.io/corazawaf/coraza-proxy-wasm"
-	}
-	tag := os.Getenv("WAF_TAG")
-	if tag == "" {
-		tag = "0.6.0"
-	}
-	return image + ":" + tag
-}
-
-// normalizeCIDR ensures a CIDR has a prefix. If it's a plain IP, adds /32 for IPv4 or /128 for IPv6.
-func normalizeCIDR(cidr string) string {
-	if strings.Contains(cidr, "/") {
-		return cidr // Already has a prefix
-	}
-	ip := net.ParseIP(cidr)
-	if ip == nil {
-		return cidr // Invalid IP, return as-is (validation will catch it)
-	}
-	if ip.To4() != nil {
-		return cidr + "/32" // IPv4
-	}
-	return cidr + "/128" // IPv6
-}
 
 // RouteService handles route business logic
 type RouteService struct {
@@ -68,6 +39,13 @@ type RouteService struct {
 	k8sService               KubernetesServiceInterface
 	domainService            *DomainService
 	routeVersionService      *RouteVersionService
+	wafConfig                WAFConfig
+
+	// idgen mints route IDs. Injected so the preview path is deterministic under
+	// test: the first 8 hex characters of the ID minted in PreviewCreate are
+	// embedded in every previewed resource name. Nil means uuid.New (see
+	// newID in route_service_idgen.go).
+	idgen func() uuid.UUID
 }
 
 // NewRouteService creates a new route service
@@ -77,6 +55,7 @@ func NewRouteService(
 	policyRepo repository.ApprovalPolicyRepositoryInterface,
 	domainRepo repository.DomainRepositoryInterface,
 	teamRepo repository.TeamRepositoryInterface,
+	wafConfig WAFConfig,
 ) *RouteService {
 	return &RouteService{
 		routeRepo:    routeRepo,
@@ -84,6 +63,7 @@ func NewRouteService(
 		policyRepo:   policyRepo,
 		domainRepo:   domainRepo,
 		teamRepo:     teamRepo,
+		wafConfig:    wafConfig,
 	}
 }
 
@@ -446,14 +426,6 @@ func (s *RouteService) validateBackendRequiredFields(config *models.RouteConfig)
 	return nil
 }
 
-// getRouteKind returns the K8s Kind for SecurityPolicy/BTP targetRef based on protocol
-func getRouteKind(protocol models.RouteProtocol) string {
-	if protocol == models.RouteProtocolGRPC {
-		return "GRPCRoute"
-	}
-	return "HTTPRoute"
-}
-
 // validateGRPCRouteConfig validates that gRPC routes don't use HTTP-only features
 func validateGRPCRouteConfig(config *models.RouteConfig) error {
 	// gRPC only supports backend route type for now
@@ -757,48 +729,6 @@ func (s *RouteService) CheckMatcherConflicts(domainID uuid.UUID, match models.Ro
 	return conflicts, nil
 }
 
-// SecurityPolicyInput represents security policy configuration input
-type SecurityPolicyInput struct {
-	CORS          *models.CORSConfig    `json:"cors,omitempty"`
-	Authorization *AuthorizationInput   `json:"authorization,omitempty"` // General mode: IP allowlisting
-	APIKeyAuth    *APIKeyAuthInput      `json:"apiKeyAuth,omitempty"`    // General mode: API key auth
-	JWT           *JWTInput             `json:"jwt,omitempty"`           // General mode: JWT validation
-	OIDC          *OIDCInput            `json:"oidc,omitempty"`          // General mode: OIDC/SSO login
-	ExtAuth       *models.ExtAuthConfig `json:"extAuth,omitempty"`       // Both modes: external authorization
-}
-
-// AuthorizationInput represents authorization input for general mode
-type AuthorizationInput struct {
-	AllowedCIDRs []string                          `json:"allowedCIDRs"`
-	Headers      []models.AuthorizationHeaderMatch `json:"headers,omitempty"`
-	Methods      []string                          `json:"methods,omitempty"`
-}
-
-// APIKeyAuthInput represents API key authentication input for general mode
-type APIKeyAuthInput struct {
-	SecretName string `json:"secretName"`
-	HeaderName string `json:"headerName"`
-}
-
-// JWTInput represents JWT validation input for general mode
-type JWTInput struct {
-	Issuer         string                      `json:"issuer"`
-	JWKSURL        string                      `json:"jwksUrl"`
-	Audiences      []string                    `json:"audiences,omitempty"`
-	ClaimToHeaders []models.SPJWTClaimToHeader `json:"claimToHeaders,omitempty"`
-}
-
-// OIDCInput represents OIDC/SSO login input for general mode
-type OIDCInput struct {
-	Issuer           string   `json:"issuer"`
-	ClientID         string   `json:"clientId"`
-	ClientSecretName string   `json:"clientSecretName"`
-	RedirectURL      string   `json:"redirectURL"`
-	LogoutPath       string   `json:"logoutPath"`
-	Scopes           []string `json:"scopes,omitempty"`
-	CookieDomain     string   `json:"cookieDomain,omitempty"`
-}
-
 // validateSecurityModeGeneral validates that general mode security input is valid
 func validateSecurityModeGeneral(input *SecurityPolicyInput) error {
 	if input == nil {
@@ -907,47 +837,6 @@ func validateSecurityModeClient(input *SecurityPolicyInput) error {
 		}
 	}
 	return nil
-}
-
-// BackendTrafficPolicyInput represents backend traffic policy configuration input
-type BackendTrafficPolicyInput struct {
-	Compression      []models.CompressionConfig    `json:"compression,omitempty"`
-	Retry            *models.RetryConfig           `json:"retry,omitempty"`
-	LoadBalancer     *models.LoadBalancerConfig    `json:"loadBalancer,omitempty"`
-	CircuitBreaker   *models.CircuitBreakerConfig  `json:"circuitBreaker,omitempty"`
-	HealthCheck      *models.HealthCheckConfig     `json:"healthCheck,omitempty"`
-	FaultInjection   *models.FaultInjectionConfig  `json:"faultInjection,omitempty"`
-	RateLimit        *models.RateLimitConfig       `json:"rateLimit,omitempty"`
-	RequestBuffer    *models.RequestBufferConfig   `json:"requestBuffer,omitempty"`
-	ResponseOverride []models.ResponseOverrideRule `json:"responseOverride,omitempty"`
-	Timeout          *models.BTPTimeoutConfig      `json:"timeout,omitempty"`
-}
-
-// HasContent checks if the input has any features configured
-func (i *BackendTrafficPolicyInput) HasContent() bool {
-	return len(i.Compression) > 0 || i.Retry != nil || i.LoadBalancer != nil || i.CircuitBreaker != nil || i.HealthCheck != nil || i.FaultInjection != nil || i.RateLimit != nil || i.RequestBuffer != nil || len(i.ResponseOverride) > 0 || i.Timeout != nil
-}
-
-// EnvoyExtensionPolicyInput represents input for Envoy extension policy creation
-type EnvoyExtensionPolicyInput struct {
-	Lua     *models.LuaExtensionConfig     `json:"lua,omitempty"`
-	Wasm    *models.WasmExtensionConfig    `json:"wasm,omitempty"`
-	ExtProc *models.ExtProcExtensionConfig `json:"extProc,omitempty"`
-}
-
-// HasContent checks if the input has any extensions configured
-func (i *EnvoyExtensionPolicyInput) HasContent() bool {
-	return i.Lua != nil || i.Wasm != nil || i.ExtProc != nil
-}
-
-// WafPolicyInput represents WAF policy input for route operations
-type WafPolicyInput struct {
-	Mode             string   `json:"mode"`
-	Rulesets         []string `json:"rulesets,omitempty"`
-	AnomalyThreshold *int     `json:"anomalyThreshold,omitempty"`
-	ParanoiaLevel    *int     `json:"paranoiaLevel,omitempty"`
-	DisabledRuleIDs  []int    `json:"disabledRuleIDs,omitempty"`
-	CustomDirectives []string `json:"customDirectives,omitempty"`
 }
 
 // CreateRouteInput represents input for creating a route
@@ -1157,10 +1046,13 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 	}
 
 	// Generate route UUID first so we can use it for K8s resource name
-	routeID := uuid.New()
+	routeID := s.newID()
 
-	// Generate K8s resource name: {route-name}-{first-8-chars-of-route-uuid}
-	k8sRouteName := generateRouteK8sName(input.Name, routeID)
+	// Generate K8s resource name: {route-name}-{first-8-chars-of-route-uuid}.
+	// Safe only because input.Name was already validated by isValidK8sName above
+	// (see the comment on that function) - kubernetes.RouteK8sName sanitizes
+	// differently than isValidK8sName rejects, so they only agree on validated input.
+	k8sRouteName := kubernetes.RouteK8sName(input.Name, routeID.String())
 
 	// Validate labels
 	if input.Labels != nil {
@@ -2394,32 +2286,7 @@ func (s *RouteService) deploySecurityPolicy(ctx context.Context, route *models.R
 	}
 
 	// Build base SecurityPolicy config
-	config := &SecurityPolicyConfig{
-		Name:      route.K8sRouteName + "-security",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: SecurityPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Add CORS from DB security policy (applies to all traffic)
-	if policy != nil && policy.Config.CORS != nil {
-		config.CORS = &CORSPolicyConfig{
-			AllowOrigins:     policy.Config.CORS.AllowOrigins,
-			AllowMethods:     policy.Config.CORS.AllowMethods,
-			AllowHeaders:     policy.Config.CORS.AllowHeaders,
-			ExposeHeaders:    policy.Config.CORS.ExposeHeaders,
-			MaxAge:           policy.Config.CORS.MaxAge,
-			AllowCredentials: policy.Config.CORS.AllowCredentials,
-		}
-	}
-
-	// Add authorization (merged direct IPs + IP-only client IPs, or DefaultTrafficPolicy override)
-	config.Authorization = authConfig
+	config := securityPolicyConfigForDeploy(route, domain, policy, authConfig)
 
 	// Check if there's actually anything to deploy
 	if config.CORS == nil && config.Authorization == nil {
@@ -2436,7 +2303,7 @@ func (s *RouteService) deploySecurityPolicy(ctx context.Context, route *models.R
 func (s *RouteService) deployGeneralSecurityPolicy(ctx context.Context, route *models.Route, domain *models.Domain, policy *models.SecurityPolicy) error {
 	config := securityPolicyConfigFromDB(route, domain, policy)
 	if config == nil {
-		policyName := route.K8sRouteName + "-security"
+		policyName := kubernetes.SecurityPolicyName(route.K8sRouteName)
 		// Also clean up ext-auth backend if it exists (legacy cleanup)
 		extAuthBackendName := GenerateExtAuthBackendName(route.ID.String(), "")
 		_ = s.k8sService.DeleteBackend(ctx, domain.ProjectID, domain.Namespace, extAuthBackendName)
@@ -2866,7 +2733,7 @@ func (s *RouteService) updateClientAttachmentStatuses(routeID uuid.UUID) {
 // deleteSecurityPolicy deletes SecurityPolicy from Kubernetes
 func (s *RouteService) deleteSecurityPolicy(ctx context.Context, route *models.Route, domain *models.Domain) error {
 	// Build the security policy name
-	securityPolicyName := route.K8sRouteName + "-security"
+	securityPolicyName := kubernetes.SecurityPolicyName(route.K8sRouteName)
 
 	// Always delete from Kubernetes (client-mode routes create k8s SecurityPolicies
 	// without a DB security_policies record, so we can't gate on DB lookup)
@@ -2900,7 +2767,7 @@ func (s *RouteService) deployBackendTrafficPolicy(ctx context.Context, route *mo
 	}
 
 	// Build BackendTrafficPolicy config for Kubernetes
-	btpConfig := s.buildBackendTrafficPolicyConfig(route, domain, policy)
+	btpConfig := buildBackendTrafficPolicyConfig(route, domain, policy)
 	if btpConfig == nil {
 		return nil
 	}
@@ -2923,7 +2790,7 @@ func (s *RouteService) deleteBackendTrafficPolicy(ctx context.Context, route *mo
 	}
 
 	// Build the backend traffic policy name
-	btpName := route.K8sRouteName + "-btp"
+	btpName := kubernetes.BackendTrafficPolicyName(route.K8sRouteName)
 
 	// Delete from Kubernetes
 	if err := s.k8sService.DeleteBackendTrafficPolicy(ctx, domain.ProjectID, domain.Namespace, btpName); err != nil {
@@ -2978,7 +2845,7 @@ func (s *RouteService) deployEnvoyExtensionPolicy(ctx context.Context, route *mo
 	extConfig := s.buildEnvoyExtensionPolicyConfig(route, domain, policy, wafPolicy)
 	if extConfig == nil {
 		// No extensions to deploy - delete any existing policy if present
-		eepName := route.K8sRouteName + "-eep"
+		eepName := kubernetes.EnvoyExtensionPolicyName(route.K8sRouteName)
 		s.k8sService.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName)
 		return nil
 	}
@@ -3023,7 +2890,7 @@ func (s *RouteService) deleteEnvoyExtensionPolicy(ctx context.Context, route *mo
 	_ = s.k8sService.DeleteBackend(ctx, domain.ProjectID, domain.Namespace, extProcBackendName)
 
 	// Build the envoy extension policy name
-	eepName := route.K8sRouteName + "-eep"
+	eepName := kubernetes.EnvoyExtensionPolicyName(route.K8sRouteName)
 
 	// Delete from Kubernetes (the CRD contains both Lua/Wasm and WAF configurations)
 	if err := s.k8sService.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName); err != nil {
@@ -3038,31 +2905,6 @@ func (s *RouteService) deleteEnvoyExtensionPolicy(ctx context.Context, route *mo
 	return nil
 }
 
-// buildExtProcPolicyConfig converts a model ExtProcExtensionConfig to the K8s policy config
-func buildExtProcPolicyConfig(extProc *models.ExtProcExtensionConfig) ExtProcPolicyConfig {
-	if extProc == nil {
-		return ExtProcPolicyConfig{}
-	}
-	cfg := ExtProcPolicyConfig{
-		BackendRef: ExtProcBackendRefPolicyConfig{
-			Name:      extProc.BackendRef.Name,
-			Namespace: extProc.BackendRef.Namespace,
-			Port:      extProc.BackendRef.Port,
-		},
-		FailOpen: extProc.FailOpen,
-	}
-	if extProc.ProcessingMode != nil {
-		cfg.ProcessingMode = &ExtProcProcessingModeConfig{}
-		if extProc.ProcessingMode.Request != nil {
-			cfg.ProcessingMode.Request = &ExtProcBodyModeConfig{Body: extProc.ProcessingMode.Request.Body}
-		}
-		if extProc.ProcessingMode.Response != nil {
-			cfg.ProcessingMode.Response = &ExtProcBodyModeConfig{Body: extProc.ProcessingMode.Response.Body}
-		}
-	}
-	return cfg
-}
-
 // buildEnvoyExtensionPolicyConfig builds EnvoyExtensionPolicyK8sConfig from database model
 func (s *RouteService) buildEnvoyExtensionPolicyConfig(route *models.Route, domain *models.Domain, policy *models.EnvoyExtensionPolicy, wafPolicy *models.WafPolicy) *EnvoyExtensionPolicyK8sConfig {
 	// Check if we have any extensions to deploy
@@ -3074,7 +2916,7 @@ func (s *RouteService) buildEnvoyExtensionPolicyConfig(route *models.Route, doma
 	}
 
 	config := &EnvoyExtensionPolicyK8sConfig{
-		Name:      route.K8sRouteName + "-eep",
+		Name:      kubernetes.EnvoyExtensionPolicyName(route.K8sRouteName),
 		Namespace: domain.Namespace,
 		GatewayID: domain.ID.String(),
 		RouteID:   route.ID.String(),
@@ -3151,7 +2993,7 @@ func (s *RouteService) buildEnvoyExtensionPolicyConfig(route *models.Route, doma
 				Code: WasmCodeSourcePolicyConfig{
 					Type: "Image",
 					Image: &WasmImageSourcePolicyConfig{
-						URL: getCorazaWasmImageURL(),
+						URL: s.wafConfig.ImageURL(),
 					},
 				},
 				Config: &corazaConfig,
@@ -3170,7 +3012,7 @@ func (s *RouteService) deployDirectResponse(ctx context.Context, route *models.R
 		return nil
 	}
 
-	hrfName := route.K8sRouteName + "-hrf"
+	hrfName := kubernetes.HTTPRouteFilterName(route.K8sRouteName)
 	cmName := route.K8sRouteName + "-dr-cm"
 
 	// Check if we need a ConfigMap (body is provided)
@@ -3227,7 +3069,7 @@ func (s *RouteService) deleteDirectResponse(ctx context.Context, route *models.R
 		return nil
 	}
 
-	hrfName := route.K8sRouteName + "-hrf"
+	hrfName := kubernetes.HTTPRouteFilterName(route.K8sRouteName)
 	cmName := route.K8sRouteName + "-dr-cm"
 
 	// Delete HTTPRouteFilter
@@ -3241,318 +3083,6 @@ func (s *RouteService) deleteDirectResponse(ctx context.Context, route *models.R
 	}
 
 	return nil
-}
-
-// buildBackendTrafficPolicyConfig builds BackendTrafficPolicyConfig from route, domain and policy
-func (s *RouteService) buildBackendTrafficPolicyConfig(route *models.Route, domain *models.Domain, policy *models.BackendTrafficPolicy) *BackendTrafficPolicyConfig {
-	if policy == nil {
-		return nil
-	}
-
-	// Check if any feature is configured
-	if policy.Config.IsEmpty() {
-		return nil
-	}
-
-	config := &BackendTrafficPolicyConfig{
-		Name:      route.K8sRouteName + "-btp",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: BackendTrafficPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Add compression configuration
-	if len(policy.Config.Compression) > 0 {
-		config.Compression = make([]CompressionPolicyConfig, 0, len(policy.Config.Compression))
-		for _, comp := range policy.Config.Compression {
-			policyComp := CompressionPolicyConfig{
-				Type: string(comp.Type),
-			}
-			switch comp.Type {
-			case models.CompressionTypeGzip:
-				policyComp.Gzip = &GzipPolicyConfig{}
-			case models.CompressionTypeBrotli:
-				policyComp.Brotli = &BrotliPolicyConfig{}
-			case models.CompressionTypeZstd:
-				policyComp.Zstd = &ZstdPolicyConfig{}
-			}
-			config.Compression = append(config.Compression, policyComp)
-		}
-	}
-
-	// Add retry configuration
-	if policy.Config.Retry != nil {
-		config.Retry = mapRetryConfigToPolicy(policy.Config.Retry)
-	}
-
-	// Add load balancer configuration
-	if policy.Config.LoadBalancer != nil {
-		config.LoadBalancer = mapLoadBalancerConfigToPolicy(policy.Config.LoadBalancer)
-	}
-
-	// Add circuit breaker configuration
-	if policy.Config.CircuitBreaker != nil {
-		config.CircuitBreaker = mapCircuitBreakerConfigToPolicy(policy.Config.CircuitBreaker)
-	}
-
-	// Add health check configuration
-	if policy.Config.HealthCheck != nil {
-		config.HealthCheck = mapHealthCheckConfigToPolicy(policy.Config.HealthCheck)
-	}
-
-	// Add fault injection configuration
-	if policy.Config.FaultInjection != nil {
-		config.FaultInjection = mapFaultInjectionConfigToPolicy(policy.Config.FaultInjection)
-	}
-
-	// Add rate limit configuration
-	if policy.Config.RateLimit != nil {
-		config.RateLimit = mapRateLimitConfigToPolicy(policy.Config.RateLimit)
-	}
-
-	// Add request buffer configuration
-	if policy.Config.RequestBuffer != nil {
-		config.RequestBuffer = &RequestBufferPolicyConfig{
-			Limit: policy.Config.RequestBuffer.Limit,
-		}
-	}
-
-	// Add response override configuration
-	if len(policy.Config.ResponseOverride) > 0 {
-		config.ResponseOverride = mapResponseOverrideToPolicy(policy.Config.ResponseOverride)
-	}
-
-	// Add timeout configuration
-	if policy.Config.Timeout != nil {
-		config.Timeout = mapTimeoutConfigToPolicy(policy.Config.Timeout)
-	}
-
-	return config
-}
-
-// mapRateLimitConfigToPolicy converts model RateLimitConfig to k8s-side RateLimitPolicyConfig
-func mapRateLimitConfigToPolicy(rl *models.RateLimitConfig) *RateLimitPolicyConfig {
-	if rl == nil || rl.Global == nil {
-		return nil
-	}
-
-	rules := make([]RateLimitRulePolicyConfig, 0, len(rl.Global.Rules))
-	for _, rule := range rl.Global.Rules {
-		policyRule := RateLimitRulePolicyConfig{
-			Limit: RateLimitValuePolicyConfig{
-				Requests: rule.Limit.Requests,
-				Unit:     rule.Limit.Unit,
-			},
-		}
-		if len(rule.ClientSelectors) > 0 {
-			selectors := make([]RateLimitSelectorPolicyConfig, 0, len(rule.ClientSelectors))
-			for _, sel := range rule.ClientSelectors {
-				policySel := RateLimitSelectorPolicyConfig{}
-				if len(sel.Headers) > 0 {
-					headers := make([]RateLimitHeaderMatchPolicyConfig, 0, len(sel.Headers))
-					for _, h := range sel.Headers {
-						headers = append(headers, RateLimitHeaderMatchPolicyConfig{
-							Name:   h.Name,
-							Value:  h.Value,
-							Type:   h.Type,
-							Invert: h.Invert,
-						})
-					}
-					policySel.Headers = headers
-				}
-				if sel.SourceCIDR != nil {
-					policySel.SourceCIDR = &RateLimitSourceCIDRPolicyConfig{
-						Value: sel.SourceCIDR.Value,
-						Type:  sel.SourceCIDR.Type,
-					}
-				}
-				if sel.Path != nil {
-					policySel.Path = &RateLimitPathMatchPolicyConfig{
-						Value: sel.Path.Value,
-						Type:  sel.Path.Type,
-					}
-				}
-				if len(sel.Methods) > 0 {
-					policySel.Methods = sel.Methods
-				}
-				selectors = append(selectors, policySel)
-			}
-			policyRule.ClientSelectors = selectors
-		}
-		rules = append(rules, policyRule)
-	}
-
-	return &RateLimitPolicyConfig{
-		Global: &GlobalRateLimitPolicyConfig{
-			Rules: rules,
-		},
-	}
-}
-
-// mapCircuitBreakerConfigToPolicy converts model CircuitBreakerConfig to k8s-side CircuitBreakerPolicyConfig
-func mapCircuitBreakerConfigToPolicy(cb *models.CircuitBreakerConfig) *CircuitBreakerPolicyConfig {
-	if cb == nil {
-		return nil
-	}
-	return &CircuitBreakerPolicyConfig{
-		MaxConnections:           cb.MaxConnections,
-		MaxPendingRequests:       cb.MaxPendingRequests,
-		MaxParallelRequests:      cb.MaxParallelRequests,
-		MaxParallelRetries:       cb.MaxParallelRetries,
-		MaxRequestsPerConnection: cb.MaxRequestsPerConnection,
-	}
-}
-
-// mapHealthCheckConfigToPolicy converts model HealthCheckConfig to k8s-side HealthCheckPolicyConfig
-func mapHealthCheckConfigToPolicy(hc *models.HealthCheckConfig) *HealthCheckPolicyConfig {
-	if hc == nil {
-		return nil
-	}
-	result := &HealthCheckPolicyConfig{
-		PanicThreshold: hc.PanicThreshold,
-	}
-	if hc.Active != nil {
-		result.Active = &ActiveHealthCheckPolicyConfig{
-			Timeout:            hc.Active.Timeout,
-			Interval:           hc.Active.Interval,
-			UnhealthyThreshold: hc.Active.UnhealthyThreshold,
-			HealthyThreshold:   hc.Active.HealthyThreshold,
-			Type:               hc.Active.Type,
-		}
-		// Always create the type-specific config based on Type, as the CRD requires it
-		switch hc.Active.Type {
-		case "HTTP":
-			if hc.Active.HTTP != nil {
-				result.Active.HTTP = &HTTPActiveHealthCheckPolicyConfig{
-					Path:             hc.Active.HTTP.Path,
-					Method:           hc.Active.HTTP.Method,
-					ExpectedStatuses: hc.Active.HTTP.ExpectedStatuses,
-				}
-			} else {
-				result.Active.HTTP = &HTTPActiveHealthCheckPolicyConfig{}
-			}
-		case "TCP":
-			result.Active.TCP = &TCPActiveHealthCheckPolicyConfig{}
-			if hc.Active.TCP != nil {
-				if hc.Active.TCP.Send != nil && hc.Active.TCP.Send.Text != nil {
-					result.Active.TCP.SendText = hc.Active.TCP.Send.Text
-				}
-				if hc.Active.TCP.Receive != nil && hc.Active.TCP.Receive.Text != nil {
-					result.Active.TCP.ReceiveText = hc.Active.TCP.Receive.Text
-				}
-			}
-		case "GRPC":
-			if hc.Active.GRPC != nil {
-				result.Active.GRPC = &GRPCActiveHealthCheckPolicyConfig{
-					Service: hc.Active.GRPC.Service,
-				}
-			} else {
-				result.Active.GRPC = &GRPCActiveHealthCheckPolicyConfig{}
-			}
-		}
-	}
-	if hc.Passive != nil {
-		result.Passive = &PassiveHealthCheckPolicyConfig{
-			ConsecutiveGatewayErrors:       hc.Passive.ConsecutiveGatewayErrors,
-			Consecutive5xxErrors:           hc.Passive.Consecutive5xxErrors,
-			ConsecutiveLocalOriginFailures: hc.Passive.ConsecutiveLocalOriginFailures,
-			Interval:                       hc.Passive.Interval,
-			BaseEjectionTime:               hc.Passive.BaseEjectionTime,
-			MaxEjectionPercent:             hc.Passive.MaxEjectionPercent,
-			SplitExternalLocalOriginErrors: hc.Passive.SplitExternalLocalOriginErrors,
-		}
-	}
-	return result
-}
-
-// mapFaultInjectionConfigToPolicy converts model FaultInjectionConfig to k8s-side FaultInjectionPolicyConfig
-func mapFaultInjectionConfigToPolicy(fi *models.FaultInjectionConfig) *FaultInjectionPolicyConfig {
-	if fi == nil {
-		return nil
-	}
-	result := &FaultInjectionPolicyConfig{}
-	if fi.Delay != nil {
-		result.Delay = &FaultInjectionDelayPolicyConfig{
-			FixedDelay: fi.Delay.FixedDelay,
-			Percentage: fi.Delay.Percentage,
-		}
-	}
-	if fi.Abort != nil {
-		result.Abort = &FaultInjectionAbortPolicyConfig{
-			HTTPStatus: fi.Abort.HTTPStatus,
-			GRPCStatus: fi.Abort.GRPCStatus,
-			Percentage: fi.Abort.Percentage,
-		}
-	}
-	return result
-}
-
-// mapLoadBalancerConfigToPolicy converts model LoadBalancerConfig to k8s-side LoadBalancerPolicyConfig
-func mapLoadBalancerConfigToPolicy(lb *models.LoadBalancerConfig) *LoadBalancerPolicyConfig {
-	if lb == nil {
-		return nil
-	}
-
-	result := &LoadBalancerPolicyConfig{
-		Type: string(lb.Type),
-	}
-
-	if lb.ConsistentHash != nil {
-		result.ConsistentHash = &ConsistentHashPolicyConfig{
-			Type: string(lb.ConsistentHash.Type),
-		}
-		if lb.ConsistentHash.Header != nil {
-			result.ConsistentHash.Header = &ConsistentHashHeaderPolicyConfig{
-				Name: lb.ConsistentHash.Header.Name,
-			}
-		}
-		if lb.ConsistentHash.Cookie != nil {
-			result.ConsistentHash.Cookie = &ConsistentHashCookiePolicyConfig{
-				Name:       lb.ConsistentHash.Cookie.Name,
-				TTL:        lb.ConsistentHash.Cookie.TTL,
-				Attributes: lb.ConsistentHash.Cookie.Attributes,
-			}
-		}
-	}
-
-	return result
-}
-
-// mapRetryConfigToPolicy converts model RetryConfig to k8s-side RetryPolicyConfig
-func mapRetryConfigToPolicy(retry *models.RetryConfig) *RetryPolicyConfig {
-	if retry == nil {
-		return nil
-	}
-
-	result := &RetryPolicyConfig{
-		NumRetries: retry.NumRetries,
-	}
-
-	if retry.RetryOn != nil {
-		result.RetryOn = &RetryOnPolicyConfig{
-			HTTPStatusCodes: retry.RetryOn.HTTPStatusCodes,
-			Triggers:        retry.RetryOn.Triggers,
-		}
-	}
-
-	if retry.PerRetryPolicy != nil {
-		result.PerRetry = &PerRetryPolicyConfig{
-			Timeout: retry.PerRetryPolicy.Timeout,
-		}
-		if retry.PerRetryPolicy.BackOff != nil {
-			result.PerRetry.BackOff = &BackOffPolicyConfig{
-				BaseInterval: retry.PerRetryPolicy.BackOff.BaseInterval,
-				MaxInterval:  retry.PerRetryPolicy.BackOff.MaxInterval,
-			}
-		}
-	}
-
-	return result
 }
 
 // deployBackends creates or updates Backend CRDs for external backends,
@@ -3689,124 +3219,6 @@ func (s *RouteService) cleanupStaleAPIKeyRoutes(ctx context.Context, route *mode
 	return s.k8sService.DeleteStaleAPIKeyResources(ctx, domain.ProjectID, domain.Namespace, route.ID.String(), route.K8sRouteName, expectedClientPrefixes)
 }
 
-// securityPolicyConfigFromDB converts DB security policy model to SecurityPolicyConfig for K8s CRD building.
-// Shared by buildSecurityPolicyConfig, deployGeneralSecurityPolicy, and generateSecurityPolicyYAMLFromDB.
-func securityPolicyConfigFromDB(route *models.Route, domain *models.Domain, policy *models.SecurityPolicy) *SecurityPolicyConfig {
-	if policy == nil || !policy.Config.HasAnyConfig() {
-		return nil
-	}
-
-	config := &SecurityPolicyConfig{
-		Name:      route.K8sRouteName + "-security",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: SecurityPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// CORS
-	if policy.Config.CORS != nil {
-		config.CORS = &CORSPolicyConfig{
-			AllowOrigins:     policy.Config.CORS.AllowOrigins,
-			AllowMethods:     policy.Config.CORS.AllowMethods,
-			AllowHeaders:     policy.Config.CORS.AllowHeaders,
-			ExposeHeaders:    policy.Config.CORS.ExposeHeaders,
-			MaxAge:           policy.Config.CORS.MaxAge,
-			AllowCredentials: policy.Config.CORS.AllowCredentials,
-		}
-	}
-
-	// Authorization (IP allowlisting, headers, methods)
-	if policy.Config.Authorization != nil {
-		authRules := make([]AuthorizationRulePolicyConfig, 0, len(policy.Config.Authorization.Rules))
-		for _, rule := range policy.Config.Authorization.Rules {
-			policyRule := AuthorizationRulePolicyConfig{
-				Action:      rule.Action,
-				ClientCIDRs: rule.Principal.ClientCIDRs,
-			}
-			if len(rule.Principal.Headers) > 0 {
-				for _, h := range rule.Principal.Headers {
-					policyRule.Headers = append(policyRule.Headers, HeaderMatchPolicyConfig{
-						Name:   h.Name,
-						Values: h.Values,
-					})
-				}
-			}
-			if rule.Operation != nil && len(rule.Operation.Methods) > 0 {
-				policyRule.Methods = rule.Operation.Methods
-			}
-			authRules = append(authRules, policyRule)
-		}
-		config.Authorization = &AuthorizationPolicyConfig{
-			DefaultAction: policy.Config.Authorization.DefaultAction,
-			Rules:         authRules,
-		}
-	}
-
-	// API Key Auth
-	if policy.Config.APIKeyAuth != nil {
-		credRefs := make([]SecretRefConfig, 0, len(policy.Config.APIKeyAuth.CredentialRefs))
-		for _, ref := range policy.Config.APIKeyAuth.CredentialRefs {
-			credRefs = append(credRefs, SecretRefConfig{Name: ref.Name, Namespace: ref.Namespace})
-		}
-		extractFrom := make([]APIKeyExtractFromConfig, 0, len(policy.Config.APIKeyAuth.ExtractFrom))
-		for _, ef := range policy.Config.APIKeyAuth.ExtractFrom {
-			extractFrom = append(extractFrom, APIKeyExtractFromConfig{Headers: ef.Headers})
-		}
-		config.APIKeyAuth = &APIKeyAuthPolicyConfig{CredentialRefs: credRefs, ExtractFrom: extractFrom}
-	}
-
-	// JWT
-	if policy.Config.JWT != nil {
-		providers := make([]JWTProviderPolicyConfig, 0, len(policy.Config.JWT.Providers))
-		for _, p := range policy.Config.JWT.Providers {
-			provider := JWTProviderPolicyConfig{Name: p.Name, Issuer: p.Issuer, Audiences: p.Audiences}
-			if p.RemoteJWKS != nil {
-				provider.JWKSURL = p.RemoteJWKS.URI
-			}
-			for _, cth := range p.ClaimToHeaders {
-				provider.ClaimToHeaders = append(provider.ClaimToHeaders, JWTClaimToHeaderPolicyConfig{Claim: cth.Claim, Header: cth.Header})
-			}
-			providers = append(providers, provider)
-		}
-		config.JWT = &JWTAuthPolicyConfig{Providers: providers}
-	}
-
-	// OIDC
-	if policy.Config.OIDC != nil {
-		config.OIDC = &OIDCPolicyConfig{
-			ClientID:     policy.Config.OIDC.ClientID,
-			RedirectURL:  policy.Config.OIDC.RedirectURL,
-			LogoutPath:   policy.Config.OIDC.LogoutPath,
-			Scopes:       policy.Config.OIDC.Scopes,
-			CookieDomain: policy.Config.OIDC.CookieDomain,
-		}
-		if policy.Config.OIDC.Provider != nil {
-			config.OIDC.Issuer = policy.Config.OIDC.Provider.Issuer
-		}
-		if policy.Config.OIDC.ClientSecret != nil {
-			config.OIDC.ClientSecretName = policy.Config.OIDC.ClientSecret.Name
-			config.OIDC.ClientSecretNS = policy.Config.OIDC.ClientSecret.Namespace
-		}
-		// Fallback to FastGatewayNamespace if clientSecret namespace is empty
-		if config.OIDC.ClientSecretNS == "" {
-			config.OIDC.ClientSecretNS = FastGatewayNamespace
-		}
-	}
-
-	// ExtAuth
-	if policy.Config.ExtAuth != nil {
-		config.ExtAuth = policy.Config.ExtAuth
-		// ExtAuthBackendName will be set by the deploy function
-	}
-
-	return config
-}
-
 // buildSecurityPolicyConfig builds SecurityPolicyConfig from route, domain and security policy
 // Note: This builds from DB only (CORS + stored authorization). For deploy, use deploySecurityPolicy()
 // which also computes authorization from active client attachments.
@@ -3875,363 +3287,14 @@ func (s *RouteService) GetEffectiveIPAllowlist(routeID uuid.UUID) ([]EffectiveIP
 	return entries, nil
 }
 
-// buildAuthorizationConfigFromInput converts AuthorizationInput to models.AuthorizationConfig
-func buildAuthorizationConfigFromInput(input *AuthorizationInput) *models.AuthorizationConfig {
-	if input == nil {
-		return nil
-	}
-
-	hasCIDRs := len(input.AllowedCIDRs) > 0
-	hasHeaders := len(input.Headers) > 0
-	hasMethods := len(input.Methods) > 0
-	if !hasCIDRs && !hasHeaders && !hasMethods {
-		return nil
-	}
-
-	rule := models.AuthorizationRule{
-		Action: "Allow",
-	}
-
-	if hasCIDRs {
-		cidrs := make([]string, 0, len(input.AllowedCIDRs))
-		for _, cidr := range input.AllowedCIDRs {
-			cidrs = append(cidrs, normalizeCIDR(cidr))
-		}
-		rule.Principal.ClientCIDRs = cidrs
-	}
-
-	if hasHeaders {
-		rule.Principal.Headers = input.Headers
-	}
-
-	if hasMethods {
-		methods := make([]string, 0, len(input.Methods))
-		for _, m := range input.Methods {
-			methods = append(methods, strings.ToUpper(m))
-		}
-		rule.Operation = &models.AuthorizationOperation{Methods: methods}
-	}
-
-	return &models.AuthorizationConfig{
-		DefaultAction: "Deny",
-		Rules:         []models.AuthorizationRule{rule},
-	}
-}
-
-// buildAPIKeyAuthConfigFromInput converts APIKeyAuthInput to models.APIKeyAuthConfig
-func buildAPIKeyAuthConfigFromInput(input *APIKeyAuthInput) *models.APIKeyAuthConfig {
-	if input == nil {
-		return nil
-	}
-	return &models.APIKeyAuthConfig{
-		CredentialRefs: []models.SecretRef{{
-			Name:      input.SecretName,
-			Namespace: FastGatewayNamespace,
-		}},
-		ExtractFrom: []models.APIKeyExtractFrom{{
-			Headers: []string{input.HeaderName},
-		}},
-	}
-}
-
-// buildJWTConfigFromInput converts JWTInput to models.JWTConfig
-func buildJWTConfigFromInput(input *JWTInput) *models.JWTConfig {
-	if input == nil {
-		return nil
-	}
-	return &models.JWTConfig{
-		Providers: []models.JWTProvider{{
-			Name:   "route-jwt",
-			Issuer: input.Issuer,
-			RemoteJWKS: &models.RemoteJWKS{
-				URI: input.JWKSURL,
-			},
-			Audiences:      input.Audiences,
-			ClaimToHeaders: input.ClaimToHeaders,
-		}},
-	}
-}
-
-// buildOIDCConfigFromInput converts OIDCInput to models.OIDCConfig
-func buildOIDCConfigFromInput(input *OIDCInput) *models.OIDCConfig {
-	if input == nil {
-		return nil
-	}
-	return &models.OIDCConfig{
-		Provider: &models.OIDCProvider{
-			Issuer: input.Issuer,
-		},
-		ClientID: input.ClientID,
-		ClientSecret: &models.SecretRef{
-			Name:      input.ClientSecretName,
-			Namespace: FastGatewayNamespace,
-		},
-		RedirectURL:  input.RedirectURL,
-		LogoutPath:   input.LogoutPath,
-		Scopes:       input.Scopes,
-		CookieDomain: input.CookieDomain,
-	}
-}
-
-// convertPathTypeToGatewayAPI converts frontend path types to Gateway API path types
-func convertPathTypeToGatewayAPI(pathType string) string {
-	switch pathType {
-	case "Prefix":
-		return "PathPrefix"
-	case "Exact":
-		return "Exact"
-	case "RegularExpression":
-		return "RegularExpression"
-	default:
-		return "PathPrefix" // Default to PathPrefix
-	}
-}
-
 // buildHTTPRouteConfig builds HTTPRouteConfig from route and domain
 func (s *RouteService) buildHTTPRouteConfig(route *models.Route, domain *models.Domain) *HTTPRouteConfig {
-	rules := make([]HTTPRouteRule, 0, len(route.Config.Matches))
-
-	for _, match := range route.Config.Matches {
-		rule := HTTPRouteRule{
-			BackendRefs: make([]BackendRef, 0, len(route.Config.Backends)),
-		}
-
-		// Path matching
-		if match.Path != nil {
-			rule.PathType = convertPathTypeToGatewayAPI(string(match.Path.Type))
-			rule.PathValue = match.Path.Value
-		}
-
-		// Header matching
-		if len(match.Headers) > 0 {
-			rule.Headers = make([]HeaderMatch, 0, len(match.Headers))
-			for _, h := range match.Headers {
-				rule.Headers = append(rule.Headers, HeaderMatch{
-					Name:  h.Name,
-					Type:  h.Type,
-					Value: h.Value,
-				})
-			}
-		}
-
-		// Method matching
-		if match.Method != "" {
-			rule.Method = match.Method
-		}
-
-		// Query param matching
-		if len(match.QueryParams) > 0 {
-			rule.QueryParams = make([]QueryParamMatch, 0, len(match.QueryParams))
-			for _, qp := range match.QueryParams {
-				rule.QueryParams = append(rule.QueryParams, QueryParamMatch{
-					Name:  qp.Name,
-					Type:  qp.Type,
-					Value: qp.Value,
-				})
-			}
-		}
-
-		// Backend refs (only for non-redirect and non-direct-response routes)
-		if route.Config.Redirect == nil && route.Config.DirectResponse == nil {
-			hasFailover := route.Config.HasFailover()
-			for i, backend := range route.Config.Backends {
-				// Use Backend CRD if external OR failover is enabled
-				if backend.Type == models.BackendTypeExternal || hasFailover || backend.TLS != nil {
-					// Reference Backend CRD
-					backendName := fmt.Sprintf("%s-backend-%d", route.K8sRouteName, i)
-					rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-						Name:       backendName,
-						Namespace:  domain.Namespace,
-						Port:       backend.Port,
-						Weight:     backend.Weight,
-						IsExternal: true,
-						Group:      "gateway.envoyproxy.io",
-						Kind:       "Backend",
-					})
-				} else {
-					// Kubernetes service backend - reference Service directly
-					rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-						Name:      backend.Service,
-						Namespace: backend.Namespace,
-						Port:      backend.Port,
-						Weight:    backend.Weight,
-					})
-				}
-			}
-		}
-
-		rules = append(rules, rule)
-	}
-
-	config := &HTTPRouteConfig{
-		Name:        route.K8sRouteName,
-		Namespace:   domain.Namespace,
-		GatewayName: domain.K8sGatewayName,
-		GatewayID:   domain.ID.String(),
-		RouteID:     route.ID.String(),
-		Hostname:    domain.Hostname,
-		Rules:       rules,
-	}
-
-	// Add header modifiers (request modifier only for non-direct-response routes)
-	if route.Config.RequestHeaderModifier != nil && route.Config.DirectResponse == nil {
-		config.RequestHeaderModifier = convertHeaderModifier(route.Config.RequestHeaderModifier)
-	}
-	if route.Config.ResponseHeaderModifier != nil {
-		config.ResponseHeaderModifier = convertHeaderModifier(route.Config.ResponseHeaderModifier)
-	}
-
-	// Add URL rewrite (only for non-redirect and non-direct-response routes)
-	if route.Config.URLRewrite != nil && route.Config.Redirect == nil && route.Config.DirectResponse == nil {
-		config.URLRewrite = convertURLRewrite(route.Config.URLRewrite)
-	}
-
-	// Add redirect
-	if route.Config.Redirect != nil {
-		config.Redirect = convertRedirect(route.Config.Redirect)
-	}
-
-	// Add HTTPRouteFilter name for direct response routes
-	if route.Config.DirectResponse != nil {
-		config.HTTPRouteFilterName = route.K8sRouteName + "-hrf"
-	}
-
-	// Add mirror refs (only for backend routes, not redirect or direct response)
-	if route.Config.Redirect == nil && route.Config.DirectResponse == nil && len(route.Config.Mirrors) > 0 {
-		config.Mirrors = make([]MirrorRef, 0, len(route.Config.Mirrors))
-		for _, mirror := range route.Config.Mirrors {
-			config.Mirrors = append(config.Mirrors, MirrorRef{
-				Name:      mirror.Service,
-				Namespace: mirror.Namespace,
-				Port:      mirror.Port,
-			})
-		}
-	}
-
-	// Note: CORS is now handled via SecurityPolicy (separate from HTTPRoute)
-
-	return config
+	return buildHTTPRouteConfigUnified(route, domain)
 }
 
 // buildGRPCRouteConfig builds GRPCRouteConfig from route and domain
 func (s *RouteService) buildGRPCRouteConfig(route *models.Route, domain *models.Domain) *GRPCRouteConfig {
-	rules := make([]GRPCRouteRule, 0)
-
-	for _, match := range route.Config.Matches {
-		rule := GRPCRouteRule{}
-
-		// Convert gRPC service/method matches
-		if match.GRPCService != nil {
-			rule.GRPCService = &GRPCMethodMatchConfig{
-				Type:  match.GRPCService.Type,
-				Value: match.GRPCService.Value,
-			}
-		}
-		if match.GRPCMethod != nil {
-			rule.GRPCMethod = &GRPCMethodMatchConfig{
-				Type:  match.GRPCMethod.Type,
-				Value: match.GRPCMethod.Value,
-			}
-		}
-
-		// Convert header matches
-		if len(match.Headers) > 0 {
-			rule.Headers = make([]HeaderMatch, 0, len(match.Headers))
-			for _, h := range match.Headers {
-				rule.Headers = append(rule.Headers, HeaderMatch{
-					Name:  h.Name,
-					Type:  h.Type,
-					Value: h.Value,
-				})
-			}
-		}
-
-		// Convert backend refs
-		hasFailover := route.Config.HasFailover()
-		for i, backend := range route.Config.Backends {
-			if backend.Type == models.BackendTypeExternal || hasFailover || backend.TLS != nil {
-				backendName := fmt.Sprintf("%s-backend-%d", route.K8sRouteName, i)
-				rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-					Name:       backendName,
-					Namespace:  domain.Namespace,
-					Port:       backend.Port,
-					Weight:     backend.Weight,
-					IsExternal: true,
-					Group:      "gateway.envoyproxy.io",
-					Kind:       "Backend",
-				})
-			} else {
-				rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-					Name:      backend.Service,
-					Namespace: backend.Namespace,
-					Port:      backend.Port,
-					Weight:    backend.Weight,
-				})
-			}
-		}
-
-		rules = append(rules, rule)
-	}
-
-	// If no matches defined, add a single rule with just backends (match all)
-	if len(rules) == 0 && len(route.Config.Backends) > 0 {
-		rule := GRPCRouteRule{}
-		hasFailover := route.Config.HasFailover()
-		for i, backend := range route.Config.Backends {
-			if backend.Type == models.BackendTypeExternal || hasFailover || backend.TLS != nil {
-				backendName := fmt.Sprintf("%s-backend-%d", route.K8sRouteName, i)
-				rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-					Name:       backendName,
-					Namespace:  domain.Namespace,
-					Port:       backend.Port,
-					Weight:     backend.Weight,
-					IsExternal: true,
-					Group:      "gateway.envoyproxy.io",
-					Kind:       "Backend",
-				})
-			} else {
-				rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-					Name:      backend.Service,
-					Namespace: backend.Namespace,
-					Port:      backend.Port,
-					Weight:    backend.Weight,
-				})
-			}
-		}
-		rules = append(rules, rule)
-	}
-
-	config := &GRPCRouteConfig{
-		Name:        route.K8sRouteName,
-		Namespace:   domain.Namespace,
-		GatewayName: domain.K8sGatewayName,
-		GatewayID:   domain.ID.String(),
-		RouteID:     route.ID.String(),
-		Hostname:    domain.Hostname,
-		Rules:       rules,
-	}
-
-	// Add header modifiers
-	if route.Config.RequestHeaderModifier != nil {
-		config.RequestHeaderModifier = convertHeaderModifier(route.Config.RequestHeaderModifier)
-	}
-	if route.Config.ResponseHeaderModifier != nil {
-		config.ResponseHeaderModifier = convertHeaderModifier(route.Config.ResponseHeaderModifier)
-	}
-
-	// Add mirrors
-	if len(route.Config.Mirrors) > 0 {
-		config.Mirrors = make([]MirrorRef, 0, len(route.Config.Mirrors))
-		for _, m := range route.Config.Mirrors {
-			config.Mirrors = append(config.Mirrors, MirrorRef{
-				Name:      m.Service,
-				Namespace: m.Namespace,
-				Port:      m.Port,
-			})
-		}
-	}
-
-	return config
+	return buildGRPCRouteConfigUnified(route, domain)
 }
 
 // buildAPIKeyGRPCRouteConfig builds GRPCRoute config for a client with API key/JWT auth
@@ -4271,82 +3334,6 @@ func (s *RouteService) buildAPIKeyGRPCRouteConfig(route *models.Route, domain *m
 	)
 
 	return baseConfig
-}
-
-// convertRedirect converts models.RedirectConfig to HTTPRedirectConfig
-func convertRedirect(redirect *models.RedirectConfig) *HTTPRedirectConfig {
-	if redirect == nil {
-		return nil
-	}
-
-	result := &HTTPRedirectConfig{
-		Scheme:     redirect.Scheme,
-		Hostname:   redirect.Hostname,
-		Port:       redirect.Port,
-		StatusCode: redirect.StatusCode,
-	}
-
-	if redirect.Path != nil {
-		result.Path = &HTTPPathRewrite{
-			Type:               redirect.Path.Type,
-			ReplacePrefixMatch: redirect.Path.ReplacePrefixMatch,
-			ReplaceFullPath:    redirect.Path.ReplaceFullPath,
-		}
-	}
-
-	return result
-}
-
-// convertHeaderModifier converts models.HeaderModifier to HTTPHeaderModifier
-func convertHeaderModifier(mod *models.HeaderModifier) *HTTPHeaderModifier {
-	if mod == nil {
-		return nil
-	}
-
-	result := &HTTPHeaderModifier{}
-
-	if len(mod.Set) > 0 {
-		result.Set = make([]HTTPHeaderValue, 0, len(mod.Set))
-		for _, h := range mod.Set {
-			result.Set = append(result.Set, HTTPHeaderValue{Name: h.Name, Value: h.Value})
-		}
-	}
-
-	if len(mod.Add) > 0 {
-		result.Add = make([]HTTPHeaderValue, 0, len(mod.Add))
-		for _, h := range mod.Add {
-			result.Add = append(result.Add, HTTPHeaderValue{Name: h.Name, Value: h.Value})
-		}
-	}
-
-	if len(mod.Remove) > 0 {
-		result.Remove = mod.Remove
-	}
-
-	return result
-}
-
-// convertURLRewrite converts models.URLRewrite to HTTPURLRewrite
-func convertURLRewrite(rewrite *models.URLRewrite) *HTTPURLRewrite {
-	if rewrite == nil {
-		return nil
-	}
-
-	result := &HTTPURLRewrite{}
-
-	if rewrite.Hostname != nil {
-		result.Hostname = rewrite.Hostname
-	}
-
-	if rewrite.Path != nil {
-		result.Path = &HTTPPathRewrite{
-			Type:               rewrite.Path.Type,
-			ReplacePrefixMatch: rewrite.Path.ReplacePrefixMatch,
-			ReplaceFullPath:    rewrite.Path.ReplaceFullPath,
-		}
-	}
-
-	return result
 }
 
 // GenerateYAML generates the Kubernetes YAML for a route
@@ -4431,19 +3418,14 @@ func (s *RouteService) GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error) {
 				mergedConfig = securityPolicyConfigFromDB(route, domain, policy)
 			}
 
-			// If no DB policy but we have client auth, create a minimal config
+			// If no DB policy but we have client auth, create a minimal config.
+			// This is identity-only (name + targetRef); it goes through the same
+			// assembler so those fields cannot drift away from the deploy path.
 			if mergedConfig == nil && clientAuthConfig != nil {
-				mergedConfig = &SecurityPolicyConfig{
-					Name:      route.K8sRouteName + "-security",
-					Namespace: domain.Namespace,
-					GatewayID: domain.ID.String(),
-					RouteID:   route.ID.String(),
-					TargetRef: SecurityPolicyTargetRef{
-						Group: "gateway.networking.k8s.io",
-						Kind:  getRouteKind(route.Protocol),
-						Name:  route.K8sRouteName,
-					},
-				}
+				mergedConfig = assembleSecurityPolicyConfig(securityPolicyAssembly{
+					Route:  route,
+					Domain: domain,
+				})
 			}
 
 			// Merge client IP authorization if present and no DB authorization exists
@@ -4641,203 +3623,17 @@ func (s *RouteService) buildAPIKeyHTTPRouteConfigRedacted(route *models.Route, d
 	return baseConfig
 }
 
-// generateAPIKeyBackendTrafficPolicyYAML generates BTP YAML for a per-client HTTPRoute
-func generateAPIKeyBackendTrafficPolicyYAML(route *models.Route, domain *models.Domain, btpPolicy *models.BackendTrafficPolicy, routeName string, rateLimitConfig *models.RateLimitConfig) string {
-	hasBasePolicy := btpPolicy != nil && !btpPolicy.Config.IsEmpty()
-	hasRateLimit := rateLimitConfig != nil
-
-	if !hasBasePolicy && !hasRateLimit {
-		return ""
-	}
-
-	btpConfig := &BackendTrafficPolicyConfig{
-		Name:      routeName + "-btp",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: BackendTrafficPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  routeName,
-		},
-	}
-
-	// Copy base BTP config if present
-	if hasBasePolicy {
-		// Copy compression config from base BTP
-		if len(btpPolicy.Config.Compression) > 0 {
-			btpConfig.Compression = make([]CompressionPolicyConfig, 0, len(btpPolicy.Config.Compression))
-			for _, comp := range btpPolicy.Config.Compression {
-				policyComp := CompressionPolicyConfig{
-					Type: string(comp.Type),
-				}
-				switch comp.Type {
-				case models.CompressionTypeGzip:
-					policyComp.Gzip = &GzipPolicyConfig{}
-				case models.CompressionTypeBrotli:
-					policyComp.Brotli = &BrotliPolicyConfig{}
-				case models.CompressionTypeZstd:
-					policyComp.Zstd = &ZstdPolicyConfig{}
-				}
-				btpConfig.Compression = append(btpConfig.Compression, policyComp)
-			}
-		}
-
-		// Copy retry config from base BTP
-		if btpPolicy.Config.Retry != nil {
-			btpConfig.Retry = mapRetryConfigToPolicy(btpPolicy.Config.Retry)
-		}
-
-		// Copy load balancer config from base BTP
-		if btpPolicy.Config.LoadBalancer != nil {
-			btpConfig.LoadBalancer = mapLoadBalancerConfigToPolicy(btpPolicy.Config.LoadBalancer)
-		}
-
-		// Copy circuit breaker config from base BTP
-		if btpPolicy.Config.CircuitBreaker != nil {
-			btpConfig.CircuitBreaker = mapCircuitBreakerConfigToPolicy(btpPolicy.Config.CircuitBreaker)
-		}
-
-		// Copy health check config from base BTP
-		if btpPolicy.Config.HealthCheck != nil {
-			btpConfig.HealthCheck = mapHealthCheckConfigToPolicy(btpPolicy.Config.HealthCheck)
-		}
-
-		// Copy fault injection config from base BTP
-		if btpPolicy.Config.FaultInjection != nil {
-			btpConfig.FaultInjection = mapFaultInjectionConfigToPolicy(btpPolicy.Config.FaultInjection)
-		}
-
-		// Copy base route rate limit (may be overridden by per-client below)
-		if btpPolicy.Config.RateLimit != nil {
-			btpConfig.RateLimit = mapRateLimitConfigToPolicy(btpPolicy.Config.RateLimit)
-		}
-
-		// Copy request buffer config from base BTP
-		if btpPolicy.Config.RequestBuffer != nil {
-			btpConfig.RequestBuffer = &RequestBufferPolicyConfig{
-				Limit: btpPolicy.Config.RequestBuffer.Limit,
-			}
-		}
-
-		// Copy response override config from base BTP
-		if len(btpPolicy.Config.ResponseOverride) > 0 {
-			btpConfig.ResponseOverride = mapResponseOverrideToPolicy(btpPolicy.Config.ResponseOverride)
-		}
-
-		// Copy timeout config from base BTP
-		if btpPolicy.Config.Timeout != nil {
-			btpConfig.Timeout = mapTimeoutConfigToPolicy(btpPolicy.Config.Timeout)
-		}
-	}
-
-	// Override with per-client rate limit from attachment if present
-	if hasRateLimit {
-		btpConfig.RateLimit = mapRateLimitConfigToPolicy(rateLimitConfig)
-	}
-
-	btp := BuildBackendTrafficPolicy(btpConfig)
-	if btp == nil {
-		return ""
-	}
-
-	yamlBytes, err := yaml.Marshal(btp.Object)
-	if err != nil {
-		return ""
-	}
-
-	return string(yamlBytes)
-}
-
-// generateAPIKeyEnvoyExtensionPolicyYAML generates EnvoyExtensionPolicy YAML for a per-client HTTPRoute
-func generateAPIKeyEnvoyExtensionPolicyYAML(route *models.Route, domain *models.Domain, extPolicy *models.EnvoyExtensionPolicy, routeName string) string {
-	if extPolicy == nil || extPolicy.Config.IsEmpty() {
-		return ""
-	}
-
-	extConfig := &EnvoyExtensionPolicyK8sConfig{
-		Name:      routeName + "-eep",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  routeName,
-		},
-	}
-
-	// Copy Lua extension from base policy
-	if extPolicy.Config.Lua != nil {
-		luaConfig := LuaExtensionPolicyConfig{
-			Type:   extPolicy.Config.Lua.Type,
-			Inline: extPolicy.Config.Lua.Inline,
-		}
-		if extPolicy.Config.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &ValueRefPolicyConfig{
-				Group:     extPolicy.Config.Lua.ValueRef.Group,
-				Kind:      extPolicy.Config.Lua.ValueRef.Kind,
-				Name:      extPolicy.Config.Lua.ValueRef.Name,
-				Namespace: extPolicy.Config.Lua.ValueRef.Namespace,
-			}
-		}
-		extConfig.Lua = append(extConfig.Lua, luaConfig)
-	}
-
-	// Copy Wasm extension from base policy
-	if extPolicy.Config.Wasm != nil {
-		wasmConfig := WasmExtensionPolicyConfig{
-			Name:   extPolicy.Config.Wasm.Name,
-			RootID: extPolicy.Config.Wasm.RootID,
-			Code: WasmCodeSourcePolicyConfig{
-				Type: extPolicy.Config.Wasm.Code.Type,
-			},
-			Config: extPolicy.Config.Wasm.Config,
-		}
-		if extPolicy.Config.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &WasmHTTPSourcePolicyConfig{
-				URL:    extPolicy.Config.Wasm.Code.HTTP.URL,
-				SHA256: extPolicy.Config.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if extPolicy.Config.Wasm.Code.Image != nil {
-			imageConfig := &WasmImageSourcePolicyConfig{
-				URL:    extPolicy.Config.Wasm.Code.Image.URL,
-				SHA256: extPolicy.Config.Wasm.Code.Image.SHA256,
-			}
-			if extPolicy.Config.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &ValueRefPolicyConfig{
-					Group:     extPolicy.Config.Wasm.Code.Image.PullSecret.Group,
-					Kind:      extPolicy.Config.Wasm.Code.Image.PullSecret.Kind,
-					Name:      extPolicy.Config.Wasm.Code.Image.PullSecret.Name,
-					Namespace: extPolicy.Config.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		extConfig.Wasm = append(extConfig.Wasm, wasmConfig)
-	}
-
-	// Add ExtProc extension
-	if extPolicy.Config.ExtProc != nil {
-		extConfig.ExtProc = append(extConfig.ExtProc, buildExtProcPolicyConfig(extPolicy.Config.ExtProc))
-	}
-
-	eep := BuildEnvoyExtensionPolicy(extConfig)
-	if eep == nil {
-		return ""
-	}
-
-	yamlBytes, err := yaml.Marshal(eep.Object)
-	if err != nil {
-		return ""
-	}
-
-	return string(yamlBytes)
-}
-
 // isValidK8sName checks if a name is valid for Kubernetes resources
 // Must be lowercase alphanumeric with dashes, start with letter, end with alphanumeric
+//
+// This validator is load-bearing beyond input validation: kubernetes.RouteK8sName
+// (used to derive the K8s resource name) sanitizes its input differently than this
+// function rejects it (e.g. it lowercases/replaces underscores and trims a trailing
+// dash instead of erroring). The two only agree because every caller of
+// kubernetes.RouteK8sName validates with isValidK8sName first, so the inputs that
+// would make them disagree (leading dash, trailing dash, underscore, uppercase)
+// never reach it. Relaxing this validator without checking kubernetes.RouteK8sName's
+// sanitize() behavior first can silently change generated resource names.
 func isValidK8sName(name string) bool {
 	if len(name) == 0 || len(name) > 63 {
 		return false
@@ -4862,27 +3658,6 @@ func isValidK8sName(name string) bool {
 	}
 
 	return true
-}
-
-// generateRouteK8sName generates a valid Kubernetes resource name for a route
-// Format: {route-name}-{first-8-chars-of-route-uuid}
-func generateRouteK8sName(routeName string, routeID uuid.UUID) string {
-	// Get first 8 characters of UUID (without dashes)
-	shortID := strings.ReplaceAll(routeID.String(), "-", "")[:8]
-
-	// Combine route name and short UUID
-	k8sName := fmt.Sprintf("%s-%s", routeName, shortID)
-	k8sName = strings.ToLower(k8sName)
-
-	// Truncate to 63 characters (K8s name limit)
-	if len(k8sName) > 63 {
-		// Truncate route name part, keep the UUID suffix
-		maxRouteNameLen := 63 - 9 // 8 chars for UUID + 1 dash
-		k8sName = fmt.Sprintf("%s-%s", routeName[:maxRouteNameLen], shortID)
-		k8sName = strings.TrimRight(k8sName, "-")
-	}
-
-	return k8sName
 }
 
 // PreviewCreateResult represents the result of a create preview
@@ -4939,8 +3714,11 @@ func (s *RouteService) PreviewCreate(domainID uuid.UUID, input *CreateRouteInput
 	}
 
 	// Generate a temporary route ID for preview
-	tempRouteID := uuid.New()
-	k8sRouteName := generateRouteK8sName(input.Name, tempRouteID)
+	tempRouteID := s.newID()
+	// Safe only because input.Name was already validated by isValidK8sName above
+	// (see the comment on that function) - kubernetes.RouteK8sName sanitizes
+	// differently than isValidK8sName rejects, so they only agree on validated input.
+	k8sRouteName := kubernetes.RouteK8sName(input.Name, tempRouteID.String())
 
 	protocol := input.Protocol
 	if protocol == "" {
@@ -4978,7 +3756,7 @@ func (s *RouteService) PreviewCreate(domainID uuid.UUID, input *CreateRouteInput
 	}
 
 	// Generate EnvoyExtensionPolicy YAML if configured (extension policy and/or WAF)
-	proposedEnvoyExtensionPolicyYAML := generateEnvoyExtensionPolicyYAMLWithWaf(tempRoute, domain, input.ExtensionPolicy, input.WafPolicy)
+	proposedEnvoyExtensionPolicyYAML := generateEnvoyExtensionPolicyYAMLWithWaf(tempRoute, domain, input.ExtensionPolicy, input.WafPolicy, s.wafConfig)
 
 	return &PreviewCreateResult{
 		ProposedYAML:                     proposedYAML,
@@ -5082,7 +3860,7 @@ func (s *RouteService) PreviewUpdate(routeID uuid.UUID, input *UpdateRouteInput)
 	}
 
 	// Generate proposed EnvoyExtensionPolicy YAML if configured (extension policy and/or WAF)
-	proposedEnvoyExtensionPolicyYAML := generateEnvoyExtensionPolicyYAMLWithWaf(proposedRoute, domain, input.ExtensionPolicy, input.WafPolicy)
+	proposedEnvoyExtensionPolicyYAML := generateEnvoyExtensionPolicyYAMLWithWaf(proposedRoute, domain, input.ExtensionPolicy, input.WafPolicy, s.wafConfig)
 
 	return &PreviewUpdateResult{
 		CurrentYAML:                      currentYAML,
@@ -5171,915 +3949,6 @@ func (s *RouteService) PreviewDelete(routeID uuid.UUID) (*PreviewDeleteResult, e
 	}, nil
 }
 
-// generateHTTPRouteYAML generates HTTPRoute YAML using typed Gateway API structs
-// This ensures the preview YAML matches exactly what will be deployed to Kubernetes
-func generateHTTPRouteYAML(route *models.Route, domain *models.Domain) string {
-	if route.Protocol == models.RouteProtocolGRPC {
-		config := buildGRPCRouteConfigForYAML(route, domain)
-		grpcRoute := BuildGRPCRouteObject(config)
-		yamlBytes, err := yaml.Marshal(grpcRoute)
-		if err != nil {
-			return fmt.Sprintf("# Error generating YAML: %v", err)
-		}
-		return string(yamlBytes)
-	}
-
-	// Build HTTPRouteConfig from route and domain
-	config := buildHTTPRouteConfigForYAML(route, domain)
-
-	// Use the same typed struct builder as Kubernetes deployment
-	httpRoute := BuildHTTPRouteObject(config)
-
-	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(httpRoute)
-	if err != nil {
-		return fmt.Sprintf("# Error generating YAML: %v", err)
-	}
-
-	return string(yamlBytes)
-}
-
-// generateBackendYAMLs generates Backend CRD YAML for external backends,
-// or for ALL backends when failover is enabled
-func generateBackendYAMLs(route *models.Route, domain *models.Domain) string {
-	hasFailover := route.Config.HasFailover()
-	var yamls []string
-	for i, backend := range route.Config.Backends {
-		// Generate Backend CRD if external, failover is enabled, or TLS is configured
-		if backend.Type == models.BackendTypeExternal || hasFailover || backend.TLS != nil {
-			backendName := fmt.Sprintf("%s-backend-%d", route.K8sRouteName, i)
-
-			var addressType, address string
-			if backend.Type == models.BackendTypeExternal {
-				addressType = string(backend.AddressType)
-				address = backend.Address
-			} else {
-				// Kubernetes service - use FQDN format for Backend CRD
-				addressType = "fqdn"
-				ns := backend.Namespace
-				if ns == "" {
-					ns = "default"
-				}
-				address = fmt.Sprintf("%s.%s.svc.cluster.local", backend.Service, ns)
-			}
-
-			config := &BackendConfig{
-				Name:        backendName,
-				Namespace:   domain.Namespace,
-				RouteID:     route.ID.String(),
-				GatewayID:   domain.ID.String(),
-				AddressType: addressType,
-				Address:     address,
-				Port:        int32(backend.Port),
-				Fallback:    backend.Fallback,
-			}
-
-			// Add TLS configuration if present
-			if backend.TLS != nil {
-				config.TLS = &BackendTLSPolicyConfig{
-					InsecureSkipVerify: backend.TLS.InsecureSkipVerify,
-					SNI:                backend.TLS.SNI,
-				}
-
-				// Map CA certificate refs (only when not insecureSkipVerify)
-				if !backend.TLS.InsecureSkipVerify && len(backend.TLS.CACertificateRefs) > 0 {
-					config.TLS.CACertificateRefs = make([]BackendCertificateRefConfig, len(backend.TLS.CACertificateRefs))
-					for j, ref := range backend.TLS.CACertificateRefs {
-						config.TLS.CACertificateRefs[j] = BackendCertificateRefConfig{
-							Kind:      ref.Kind,
-							Name:      ref.Name,
-							Namespace: ref.Namespace,
-						}
-					}
-				}
-
-				// Map client certificate ref for mTLS
-				if backend.TLS.ClientCertificateRef != nil {
-					config.TLS.ClientCertificateRef = &BackendSecretRefConfig{
-						Name:      backend.TLS.ClientCertificateRef.Name,
-						Namespace: backend.TLS.ClientCertificateRef.Namespace,
-					}
-				}
-			}
-
-			obj := BuildBackend(config)
-			yamlBytes, err := yaml.Marshal(obj.Object)
-			if err == nil {
-				yamls = append(yamls, string(yamlBytes))
-			}
-		}
-	}
-	if len(yamls) == 0 {
-		return ""
-	}
-	return strings.Join(yamls, "---\n")
-}
-
-// generateDirectResponseYAMLs generates HTTPRouteFilter and ConfigMap YAML for direct response routes
-func generateDirectResponseYAMLs(route *models.Route, domain *models.Domain) (string, string) {
-	if route.Config.DirectResponse == nil {
-		return "", ""
-	}
-
-	hrfName := route.K8sRouteName + "-hrf"
-	cmName := route.K8sRouteName + "-dr-cm"
-
-	var configMapYAML string
-	// Generate ConfigMap YAML if body is provided
-	if route.Config.DirectResponse.Body != nil && route.Config.DirectResponse.Body.Inline != "" {
-		cmConfig := &DirectResponseConfigMapConfig{
-			Name:        cmName,
-			Namespace:   domain.Namespace,
-			GatewayID:   domain.ID.String(),
-			RouteID:     route.ID.String(),
-			BodyContent: route.Config.DirectResponse.Body.Inline,
-		}
-		cmObj := BuildDirectResponseConfigMap(cmConfig)
-		if cmObj != nil {
-			yamlBytes, err := yaml.Marshal(cmObj.Object)
-			if err == nil {
-				configMapYAML = string(yamlBytes)
-			}
-		}
-	}
-
-	// Generate HTTPRouteFilter YAML
-	hrfConfig := &HTTPRouteFilterConfig{
-		Name:      hrfName,
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		DirectResponse: &DirectResponseFilterConfig{
-			StatusCode:  route.Config.DirectResponse.StatusCode,
-			ContentType: route.Config.DirectResponse.ContentType,
-		},
-	}
-
-	// Set body configuration
-	if route.Config.DirectResponse.Body != nil && route.Config.DirectResponse.Body.Inline != "" {
-		hrfConfig.DirectResponse.Body = &DirectResponseBodyFilterConfig{
-			Type: "ValueRef",
-			ValueRef: &DirectResponseValueRef{
-				Group: "",
-				Kind:  "ConfigMap",
-				Name:  cmName,
-			},
-		}
-	}
-
-	var httpRouteFilterYAML string
-	hrfObj := BuildHTTPRouteFilter(hrfConfig)
-	if hrfObj != nil {
-		yamlBytes, err := yaml.Marshal(hrfObj.Object)
-		if err == nil {
-			httpRouteFilterYAML = string(yamlBytes)
-		}
-	}
-
-	return httpRouteFilterYAML, configMapYAML
-}
-
-// generateSecurityPolicyYAML generates SecurityPolicy YAML for CORS and client IP allowlist
-// clientCIDRs parameter allows including client IPs in the preview (for accurate representation)
-func generateSecurityPolicyYAML(route *models.Route, domain *models.Domain, securityInput *SecurityPolicyInput, clientCIDRs []string) string {
-	hasCORS := securityInput != nil && securityInput.CORS != nil
-	hasClientIPs := len(clientCIDRs) > 0
-	hasGeneralAuth := securityInput != nil && securityInput.Authorization != nil
-	hasAPIKeyAuth := securityInput != nil && securityInput.APIKeyAuth != nil
-	hasJWT := securityInput != nil && securityInput.JWT != nil
-	hasOIDC := securityInput != nil && securityInput.OIDC != nil
-	hasExtAuth := securityInput != nil && securityInput.ExtAuth != nil
-
-	if !hasCORS && !hasClientIPs && !hasGeneralAuth && !hasAPIKeyAuth && !hasJWT && !hasOIDC && !hasExtAuth {
-		return ""
-	}
-
-	// Build SecurityPolicyConfig
-	config := &SecurityPolicyConfig{
-		Name:      route.K8sRouteName + "-security",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: SecurityPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Convert CORS config
-	if hasCORS {
-		config.CORS = &CORSPolicyConfig{
-			AllowOrigins:     securityInput.CORS.AllowOrigins,
-			AllowMethods:     securityInput.CORS.AllowMethods,
-			AllowHeaders:     securityInput.CORS.AllowHeaders,
-			ExposeHeaders:    securityInput.CORS.ExposeHeaders,
-			MaxAge:           securityInput.CORS.MaxAge,
-			AllowCredentials: securityInput.CORS.AllowCredentials,
-		}
-	}
-
-	// Build authorization config from client IPs (client mode) - mutually exclusive with general mode auth
-	if hasClientIPs && !hasGeneralAuth {
-		seen := make(map[string]bool)
-		uniqueCIDRs := make([]string, 0, len(clientCIDRs))
-		for _, cidr := range clientCIDRs {
-			normalized := normalizeCIDR(cidr)
-			if !seen[normalized] {
-				seen[normalized] = true
-				uniqueCIDRs = append(uniqueCIDRs, normalized)
-			}
-		}
-		config.Authorization = &AuthorizationPolicyConfig{
-			DefaultAction: "Deny",
-			Rules: []AuthorizationRulePolicyConfig{{
-				Action:      "Allow",
-				ClientCIDRs: uniqueCIDRs,
-			}},
-		}
-	}
-
-	// General mode: authorization from input (takes precedence over client IPs)
-	if hasGeneralAuth {
-		rule := AuthorizationRulePolicyConfig{
-			Action: "Allow",
-		}
-		if len(securityInput.Authorization.AllowedCIDRs) > 0 {
-			cidrs := make([]string, 0, len(securityInput.Authorization.AllowedCIDRs))
-			for _, cidr := range securityInput.Authorization.AllowedCIDRs {
-				cidrs = append(cidrs, normalizeCIDR(cidr))
-			}
-			rule.ClientCIDRs = cidrs
-		}
-		if len(securityInput.Authorization.Headers) > 0 {
-			for _, h := range securityInput.Authorization.Headers {
-				rule.Headers = append(rule.Headers, HeaderMatchPolicyConfig{Name: h.Name, Values: h.Values})
-			}
-		}
-		if len(securityInput.Authorization.Methods) > 0 {
-			rule.Methods = securityInput.Authorization.Methods
-		}
-		config.Authorization = &AuthorizationPolicyConfig{
-			DefaultAction: "Deny",
-			Rules:         []AuthorizationRulePolicyConfig{rule},
-		}
-	}
-
-	// General mode: API Key Auth from input
-	if hasAPIKeyAuth {
-		config.APIKeyAuth = &APIKeyAuthPolicyConfig{
-			CredentialRefs: []SecretRefConfig{{
-				Name:      securityInput.APIKeyAuth.SecretName,
-				Namespace: FastGatewayNamespace,
-			}},
-			ExtractFrom: []APIKeyExtractFromConfig{{
-				Headers: []string{securityInput.APIKeyAuth.HeaderName},
-			}},
-		}
-	}
-
-	// General mode: JWT from input
-	if hasJWT {
-		provider := JWTProviderPolicyConfig{
-			Name:   "route-jwt",
-			Issuer: securityInput.JWT.Issuer,
-		}
-		if securityInput.JWT.JWKSURL != "" {
-			provider.JWKSURL = securityInput.JWT.JWKSURL
-		}
-		if len(securityInput.JWT.Audiences) > 0 {
-			provider.Audiences = securityInput.JWT.Audiences
-		}
-		for _, cth := range securityInput.JWT.ClaimToHeaders {
-			provider.ClaimToHeaders = append(provider.ClaimToHeaders, JWTClaimToHeaderPolicyConfig{
-				Claim:  cth.Claim,
-				Header: cth.Header,
-			})
-		}
-		config.JWT = &JWTAuthPolicyConfig{
-			Providers: []JWTProviderPolicyConfig{provider},
-		}
-	}
-
-	// General mode: OIDC from input
-	if hasOIDC {
-		config.OIDC = &OIDCPolicyConfig{
-			Issuer:           securityInput.OIDC.Issuer,
-			ClientID:         securityInput.OIDC.ClientID,
-			ClientSecretName: securityInput.OIDC.ClientSecretName,
-			ClientSecretNS:   FastGatewayNamespace,
-			RedirectURL:      securityInput.OIDC.RedirectURL,
-			LogoutPath:       securityInput.OIDC.LogoutPath,
-			Scopes:           securityInput.OIDC.Scopes,
-			CookieDomain:     securityInput.OIDC.CookieDomain,
-		}
-	}
-
-	// Both modes: ExtAuth from input
-	if hasExtAuth {
-		// Generate a backend name for the ext-auth service (route-level, no client ID)
-		backendName := GenerateExtAuthBackendName(route.ID.String(), "")
-		config.ExtAuth = securityInput.ExtAuth
-		config.ExtAuthBackendName = backendName
-	}
-
-	// Build the SecurityPolicy object
-	securityPolicy := BuildSecurityPolicy(config)
-	if securityPolicy == nil {
-		return ""
-	}
-
-	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(securityPolicy.Object)
-	if err != nil {
-		return fmt.Sprintf("# Error generating SecurityPolicy YAML: %v", err)
-	}
-
-	return string(yamlBytes)
-}
-
-// generateSecurityPolicyYAMLFromDB generates SecurityPolicy YAML from database model
-func generateSecurityPolicyYAMLFromDB(route *models.Route, domain *models.Domain, policy *models.SecurityPolicy) string {
-	config := securityPolicyConfigFromDB(route, domain, policy)
-	if config == nil {
-		return ""
-	}
-
-	// Set ExtAuthBackendName if ExtAuth is configured
-	if config.ExtAuth != nil {
-		config.ExtAuthBackendName = GenerateExtAuthBackendName(route.ID.String(), "")
-	}
-
-	// Build the SecurityPolicy object
-	securityPolicy := BuildSecurityPolicy(config)
-	if securityPolicy == nil {
-		return ""
-	}
-
-	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(securityPolicy.Object)
-	if err != nil {
-		return fmt.Sprintf("# Error generating SecurityPolicy YAML: %v", err)
-	}
-
-	return string(yamlBytes)
-}
-
-// generateBackendTrafficPolicyYAML generates BackendTrafficPolicy YAML for compression, retry and other features
-func generateBackendTrafficPolicyYAML(route *models.Route, domain *models.Domain, btpInput *BackendTrafficPolicyInput) string {
-	if btpInput == nil || !btpInput.HasContent() {
-		return ""
-	}
-
-	// Build BackendTrafficPolicyConfig
-	config := &BackendTrafficPolicyConfig{
-		Name:      route.K8sRouteName + "-btp",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: BackendTrafficPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Convert compression config
-	if len(btpInput.Compression) > 0 {
-		config.Compression = make([]CompressionPolicyConfig, 0, len(btpInput.Compression))
-		for _, comp := range btpInput.Compression {
-			policyComp := CompressionPolicyConfig{
-				Type: string(comp.Type),
-			}
-			switch comp.Type {
-			case models.CompressionTypeGzip:
-				policyComp.Gzip = &GzipPolicyConfig{}
-			case models.CompressionTypeBrotli:
-				policyComp.Brotli = &BrotliPolicyConfig{}
-			case models.CompressionTypeZstd:
-				policyComp.Zstd = &ZstdPolicyConfig{}
-			}
-			config.Compression = append(config.Compression, policyComp)
-		}
-	}
-
-	// Convert retry config
-	if btpInput.Retry != nil {
-		config.Retry = mapRetryConfigToPolicy(btpInput.Retry)
-	}
-
-	// Convert load balancer config
-	if btpInput.LoadBalancer != nil {
-		config.LoadBalancer = mapLoadBalancerConfigToPolicy(btpInput.LoadBalancer)
-	}
-
-	// Convert circuit breaker config
-	if btpInput.CircuitBreaker != nil {
-		config.CircuitBreaker = mapCircuitBreakerConfigToPolicy(btpInput.CircuitBreaker)
-	}
-
-	// Convert health check config
-	if btpInput.HealthCheck != nil {
-		config.HealthCheck = mapHealthCheckConfigToPolicy(btpInput.HealthCheck)
-	}
-
-	// Convert fault injection config
-	if btpInput.FaultInjection != nil {
-		config.FaultInjection = mapFaultInjectionConfigToPolicy(btpInput.FaultInjection)
-	}
-
-	// Convert rate limit config
-	if btpInput.RateLimit != nil {
-		config.RateLimit = mapRateLimitConfigToPolicy(btpInput.RateLimit)
-	}
-
-	// Convert request buffer config
-	if btpInput.RequestBuffer != nil {
-		config.RequestBuffer = &RequestBufferPolicyConfig{
-			Limit: btpInput.RequestBuffer.Limit,
-		}
-	}
-
-	// Convert response override config
-	if len(btpInput.ResponseOverride) > 0 {
-		config.ResponseOverride = mapResponseOverrideToPolicy(btpInput.ResponseOverride)
-	}
-
-	// Convert timeout config
-	if btpInput.Timeout != nil {
-		config.Timeout = mapTimeoutConfigToPolicy(btpInput.Timeout)
-	}
-
-	// Build the BackendTrafficPolicy object
-	backendTrafficPolicy := BuildBackendTrafficPolicy(config)
-	if backendTrafficPolicy == nil {
-		return ""
-	}
-
-	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(backendTrafficPolicy.Object)
-	if err != nil {
-		return fmt.Sprintf("# Error generating BackendTrafficPolicy YAML: %v", err)
-	}
-
-	return string(yamlBytes)
-}
-
-// generateBackendTrafficPolicyYAMLFromDB generates BackendTrafficPolicy YAML from database model
-func generateBackendTrafficPolicyYAMLFromDB(route *models.Route, domain *models.Domain, policy *models.BackendTrafficPolicy) string {
-	if policy == nil || policy.Config.IsEmpty() {
-		return ""
-	}
-
-	// Build BackendTrafficPolicyConfig
-	config := &BackendTrafficPolicyConfig{
-		Name:      route.K8sRouteName + "-btp",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: BackendTrafficPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Convert compression config
-	if len(policy.Config.Compression) > 0 {
-		config.Compression = make([]CompressionPolicyConfig, 0, len(policy.Config.Compression))
-		for _, comp := range policy.Config.Compression {
-			policyComp := CompressionPolicyConfig{
-				Type: string(comp.Type),
-			}
-			switch comp.Type {
-			case models.CompressionTypeGzip:
-				policyComp.Gzip = &GzipPolicyConfig{}
-			case models.CompressionTypeBrotli:
-				policyComp.Brotli = &BrotliPolicyConfig{}
-			case models.CompressionTypeZstd:
-				policyComp.Zstd = &ZstdPolicyConfig{}
-			}
-			config.Compression = append(config.Compression, policyComp)
-		}
-	}
-
-	// Convert retry config
-	if policy.Config.Retry != nil {
-		config.Retry = mapRetryConfigToPolicy(policy.Config.Retry)
-	}
-
-	// Convert load balancer config
-	if policy.Config.LoadBalancer != nil {
-		config.LoadBalancer = mapLoadBalancerConfigToPolicy(policy.Config.LoadBalancer)
-	}
-
-	// Convert circuit breaker config
-	if policy.Config.CircuitBreaker != nil {
-		config.CircuitBreaker = mapCircuitBreakerConfigToPolicy(policy.Config.CircuitBreaker)
-	}
-
-	// Convert health check config
-	if policy.Config.HealthCheck != nil {
-		config.HealthCheck = mapHealthCheckConfigToPolicy(policy.Config.HealthCheck)
-	}
-
-	// Convert fault injection config
-	if policy.Config.FaultInjection != nil {
-		config.FaultInjection = mapFaultInjectionConfigToPolicy(policy.Config.FaultInjection)
-	}
-
-	// Convert rate limit config
-	if policy.Config.RateLimit != nil {
-		config.RateLimit = mapRateLimitConfigToPolicy(policy.Config.RateLimit)
-	}
-
-	// Convert request buffer config
-	if policy.Config.RequestBuffer != nil {
-		config.RequestBuffer = &RequestBufferPolicyConfig{
-			Limit: policy.Config.RequestBuffer.Limit,
-		}
-	}
-
-	// Convert response override config
-	if len(policy.Config.ResponseOverride) > 0 {
-		config.ResponseOverride = mapResponseOverrideToPolicy(policy.Config.ResponseOverride)
-	}
-
-	// Add timeout configuration
-	if policy.Config.Timeout != nil {
-		config.Timeout = mapTimeoutConfigToPolicy(policy.Config.Timeout)
-	}
-
-	// Build the BackendTrafficPolicy object
-	backendTrafficPolicy := BuildBackendTrafficPolicy(config)
-	if backendTrafficPolicy == nil {
-		return ""
-	}
-
-	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(backendTrafficPolicy.Object)
-	if err != nil {
-		return fmt.Sprintf("# Error generating BackendTrafficPolicy YAML: %v", err)
-	}
-
-	return string(yamlBytes)
-}
-
-// mapResponseOverrideToPolicy converts model ResponseOverrideRule to policy config
-func mapResponseOverrideToPolicy(rules []models.ResponseOverrideRule) []ResponseOverridePolicyConfig {
-	result := make([]ResponseOverridePolicyConfig, 0, len(rules))
-	for _, rule := range rules {
-		statusCodes := make([]StatusCodeMatchPolicyConfig, 0, len(rule.Match.StatusCodes))
-		for _, sc := range rule.Match.StatusCodes {
-			match := StatusCodeMatchPolicyConfig{Type: sc.Type, Value: sc.Value}
-			if sc.Range != nil {
-				match.Range = &StatusCodeRangePolicyConfig{Start: sc.Range.Start, End: sc.Range.End}
-			}
-			statusCodes = append(statusCodes, match)
-		}
-
-		body := ResponseOverrideBodyPolicyConfig{Type: rule.Response.Body.Type, Inline: rule.Response.Body.Inline}
-		if rule.Response.Body.ValueRef != nil {
-			body.ValueRef = &ValueRefPolicyConfig{
-				Group:     rule.Response.Body.ValueRef.Group,
-				Kind:      rule.Response.Body.ValueRef.Kind,
-				Name:      rule.Response.Body.ValueRef.Name,
-				Namespace: rule.Response.Body.ValueRef.Namespace,
-			}
-		}
-
-		result = append(result, ResponseOverridePolicyConfig{
-			Match:    ResponseOverrideMatchPolicyConfig{StatusCodes: statusCodes},
-			Response: ResponseOverrideResponsePolicyConfig{ContentType: rule.Response.ContentType, Body: body},
-		})
-	}
-	return result
-}
-
-// mapTimeoutConfigToPolicy converts model BTPTimeoutConfig to k8s-side BTPTimeoutPolicyConfig
-func mapTimeoutConfigToPolicy(t *models.BTPTimeoutConfig) *BTPTimeoutPolicyConfig {
-	if t == nil {
-		return nil
-	}
-	result := &BTPTimeoutPolicyConfig{}
-	if t.TCP != nil {
-		result.TCP = &BTPTCPTimeoutPolicyConfig{
-			ConnectTimeout: t.TCP.ConnectTimeout,
-		}
-	}
-	if t.HTTP != nil {
-		result.HTTP = &BTPHTTPTimeoutPolicyConfig{
-			RequestTimeout:        t.HTTP.RequestTimeout,
-			ConnectionIdleTimeout: t.HTTP.ConnectionIdleTimeout,
-			MaxConnectionDuration: t.HTTP.MaxConnectionDuration,
-			MaxStreamDuration:     t.HTTP.MaxStreamDuration,
-		}
-	}
-	return result
-}
-
-// generateEnvoyExtensionPolicyYAML generates EnvoyExtensionPolicy YAML from input
-func generateEnvoyExtensionPolicyYAML(route *models.Route, domain *models.Domain, extInput *EnvoyExtensionPolicyInput) string {
-	if extInput == nil || !extInput.HasContent() {
-		return ""
-	}
-
-	// Build EnvoyExtensionPolicyK8sConfig
-	config := &EnvoyExtensionPolicyK8sConfig{
-		Name:      route.K8sRouteName + "-eep",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Convert Lua extension
-	if extInput.Lua != nil {
-		luaConfig := LuaExtensionPolicyConfig{
-			Type:   extInput.Lua.Type,
-			Inline: extInput.Lua.Inline,
-		}
-		if extInput.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &ValueRefPolicyConfig{
-				Group:     extInput.Lua.ValueRef.Group,
-				Kind:      extInput.Lua.ValueRef.Kind,
-				Name:      extInput.Lua.ValueRef.Name,
-				Namespace: extInput.Lua.ValueRef.Namespace,
-			}
-		}
-		config.Lua = append(config.Lua, luaConfig)
-	}
-
-	// Convert Wasm extension
-	if extInput.Wasm != nil {
-		wasmConfig := WasmExtensionPolicyConfig{
-			Name:   extInput.Wasm.Name,
-			RootID: extInput.Wasm.RootID,
-			Code: WasmCodeSourcePolicyConfig{
-				Type: extInput.Wasm.Code.Type,
-			},
-			Config: extInput.Wasm.Config,
-		}
-		if extInput.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &WasmHTTPSourcePolicyConfig{
-				URL:    extInput.Wasm.Code.HTTP.URL,
-				SHA256: extInput.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if extInput.Wasm.Code.Image != nil {
-			imageConfig := &WasmImageSourcePolicyConfig{
-				URL:    extInput.Wasm.Code.Image.URL,
-				SHA256: extInput.Wasm.Code.Image.SHA256,
-			}
-			if extInput.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &ValueRefPolicyConfig{
-					Group:     extInput.Wasm.Code.Image.PullSecret.Group,
-					Kind:      extInput.Wasm.Code.Image.PullSecret.Kind,
-					Name:      extInput.Wasm.Code.Image.PullSecret.Name,
-					Namespace: extInput.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		config.Wasm = append(config.Wasm, wasmConfig)
-	}
-
-	// Add ExtProc extension
-	if extInput != nil && extInput.ExtProc != nil {
-		config.ExtProc = append(config.ExtProc, buildExtProcPolicyConfig(extInput.ExtProc))
-	}
-
-	// Build the EnvoyExtensionPolicy object
-	extensionPolicy := BuildEnvoyExtensionPolicy(config)
-	if extensionPolicy == nil {
-		return ""
-	}
-
-	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(extensionPolicy.Object)
-	if err != nil {
-		return fmt.Sprintf("# Error generating EnvoyExtensionPolicy YAML: %v", err)
-	}
-
-	return string(yamlBytes)
-}
-
-// generateEnvoyExtensionPolicyYAMLFromDB generates EnvoyExtensionPolicy YAML from database model
-func generateEnvoyExtensionPolicyYAMLFromDB(route *models.Route, domain *models.Domain, policy *models.EnvoyExtensionPolicy) string {
-	if policy == nil || policy.Config.IsEmpty() {
-		return ""
-	}
-
-	// Build EnvoyExtensionPolicyK8sConfig
-	config := &EnvoyExtensionPolicyK8sConfig{
-		Name:      route.K8sRouteName + "-eep",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Convert Lua extension
-	if policy.Config.Lua != nil {
-		luaConfig := LuaExtensionPolicyConfig{
-			Type:   policy.Config.Lua.Type,
-			Inline: policy.Config.Lua.Inline,
-		}
-		if policy.Config.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &ValueRefPolicyConfig{
-				Group:     policy.Config.Lua.ValueRef.Group,
-				Kind:      policy.Config.Lua.ValueRef.Kind,
-				Name:      policy.Config.Lua.ValueRef.Name,
-				Namespace: policy.Config.Lua.ValueRef.Namespace,
-			}
-		}
-		config.Lua = append(config.Lua, luaConfig)
-	}
-
-	// Convert Wasm extension
-	if policy.Config.Wasm != nil {
-		wasmConfig := WasmExtensionPolicyConfig{
-			Name:   policy.Config.Wasm.Name,
-			RootID: policy.Config.Wasm.RootID,
-			Code: WasmCodeSourcePolicyConfig{
-				Type: policy.Config.Wasm.Code.Type,
-			},
-			Config: policy.Config.Wasm.Config,
-		}
-		if policy.Config.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &WasmHTTPSourcePolicyConfig{
-				URL:    policy.Config.Wasm.Code.HTTP.URL,
-				SHA256: policy.Config.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if policy.Config.Wasm.Code.Image != nil {
-			imageConfig := &WasmImageSourcePolicyConfig{
-				URL:    policy.Config.Wasm.Code.Image.URL,
-				SHA256: policy.Config.Wasm.Code.Image.SHA256,
-			}
-			if policy.Config.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &ValueRefPolicyConfig{
-					Group:     policy.Config.Wasm.Code.Image.PullSecret.Group,
-					Kind:      policy.Config.Wasm.Code.Image.PullSecret.Kind,
-					Name:      policy.Config.Wasm.Code.Image.PullSecret.Name,
-					Namespace: policy.Config.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		config.Wasm = append(config.Wasm, wasmConfig)
-	}
-
-	// Add ExtProc extension
-	if policy.Config.ExtProc != nil {
-		config.ExtProc = append(config.ExtProc, buildExtProcPolicyConfig(policy.Config.ExtProc))
-	}
-
-	// Build the EnvoyExtensionPolicy object
-	extensionPolicy := BuildEnvoyExtensionPolicy(config)
-	if extensionPolicy == nil {
-		return ""
-	}
-
-	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(extensionPolicy.Object)
-	if err != nil {
-		return fmt.Sprintf("# Error generating EnvoyExtensionPolicy YAML: %v", err)
-	}
-
-	return string(yamlBytes)
-}
-
-// generateEnvoyExtensionPolicyYAMLWithWaf generates EnvoyExtensionPolicy YAML from input with WAF support
-func generateEnvoyExtensionPolicyYAMLWithWaf(route *models.Route, domain *models.Domain, extInput *EnvoyExtensionPolicyInput, wafInput *WafPolicyInput) string {
-	// Check if we have any content
-	hasExtensions := extInput != nil && extInput.HasContent()
-	hasWaf := wafInput != nil && wafInput.Mode != ""
-
-	if !hasExtensions && !hasWaf {
-		return ""
-	}
-
-	// Build EnvoyExtensionPolicyK8sConfig
-	config := &EnvoyExtensionPolicyK8sConfig{
-		Name:      route.K8sRouteName + "-eep",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Convert Lua extension
-	if hasExtensions && extInput.Lua != nil {
-		luaConfig := LuaExtensionPolicyConfig{
-			Type:   extInput.Lua.Type,
-			Inline: extInput.Lua.Inline,
-		}
-		if extInput.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &ValueRefPolicyConfig{
-				Group:     extInput.Lua.ValueRef.Group,
-				Kind:      extInput.Lua.ValueRef.Kind,
-				Name:      extInput.Lua.ValueRef.Name,
-				Namespace: extInput.Lua.ValueRef.Namespace,
-			}
-		}
-		config.Lua = append(config.Lua, luaConfig)
-	}
-
-	// Convert Wasm extension
-	if hasExtensions && extInput.Wasm != nil {
-		wasmConfig := WasmExtensionPolicyConfig{
-			Name:   extInput.Wasm.Name,
-			RootID: extInput.Wasm.RootID,
-			Code: WasmCodeSourcePolicyConfig{
-				Type: extInput.Wasm.Code.Type,
-			},
-			Config: extInput.Wasm.Config,
-		}
-		if extInput.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &WasmHTTPSourcePolicyConfig{
-				URL:    extInput.Wasm.Code.HTTP.URL,
-				SHA256: extInput.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if extInput.Wasm.Code.Image != nil {
-			imageConfig := &WasmImageSourcePolicyConfig{
-				URL:    extInput.Wasm.Code.Image.URL,
-				SHA256: extInput.Wasm.Code.Image.SHA256,
-			}
-			if extInput.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &ValueRefPolicyConfig{
-					Group:     extInput.Wasm.Code.Image.PullSecret.Group,
-					Kind:      extInput.Wasm.Code.Image.PullSecret.Kind,
-					Name:      extInput.Wasm.Code.Image.PullSecret.Name,
-					Namespace: extInput.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		config.Wasm = append(config.Wasm, wasmConfig)
-	}
-
-	// Add ExtProc extension
-	if hasExtensions && extInput.ExtProc != nil {
-		config.ExtProc = append(config.ExtProc, buildExtProcPolicyConfig(extInput.ExtProc))
-	}
-
-	// Add WAF (coraza) WASM entry if WAF is configured
-	if hasWaf {
-		// Build a temporary WafPolicyConfig to use BuildCorazaDirectives
-		wafConfig := &models.WafPolicyConfig{
-			Mode:             wafInput.Mode,
-			Rulesets:         wafInput.Rulesets,
-			AnomalyThreshold: wafInput.AnomalyThreshold,
-			ParanoiaLevel:    wafInput.ParanoiaLevel,
-			DisabledRuleIDs:  wafInput.DisabledRuleIDs,
-			CustomDirectives: wafInput.CustomDirectives,
-		}
-		corazaConfig, err := BuildCorazaDirectives(wafConfig)
-		if err == nil && corazaConfig != "" {
-			wasmConfig := WasmExtensionPolicyConfig{
-				Name:   "coraza-waf",
-				RootID: "",
-				Code: WasmCodeSourcePolicyConfig{
-					Type: "Image",
-					Image: &WasmImageSourcePolicyConfig{
-						URL: getCorazaWasmImageURL(),
-					},
-				},
-				Config: &corazaConfig,
-			}
-			config.Wasm = append(config.Wasm, wasmConfig)
-		}
-	}
-
-	// Build the EnvoyExtensionPolicy object
-	extensionPolicy := BuildEnvoyExtensionPolicy(config)
-	if extensionPolicy == nil {
-		return ""
-	}
-
-	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(extensionPolicy.Object)
-	if err != nil {
-		return fmt.Sprintf("# Error generating EnvoyExtensionPolicy YAML: %v", err)
-	}
-
-	return string(yamlBytes)
-}
-
 // generateEnvoyExtensionPolicyYAMLFromDBWithWaf generates EnvoyExtensionPolicy YAML from database models with WAF support
 func (s *RouteService) generateEnvoyExtensionPolicyYAMLFromDBWithWaf(route *models.Route, domain *models.Domain, policy *models.EnvoyExtensionPolicy, wafPolicy *models.WafPolicy) string {
 	// Use buildEnvoyExtensionPolicyConfig which already handles WAF merging
@@ -6101,422 +3970,6 @@ func (s *RouteService) generateEnvoyExtensionPolicyYAMLFromDBWithWaf(route *mode
 	}
 
 	return string(yamlBytes)
-}
-
-// generateEnvoyExtensionPolicyYAMLFromSnapshot generates EnvoyExtensionPolicy YAML from policy models
-// This is a standalone function that can be called from approval_service.go for YAML diff generation
-func generateEnvoyExtensionPolicyYAMLFromSnapshot(route *models.Route, domain *models.Domain, extPolicy *models.EnvoyExtensionPolicy, wafPolicy *models.WafPolicy) string {
-	// Check if we have any extensions to deploy
-	hasGenericExtensions := extPolicy != nil && !extPolicy.Config.IsEmpty()
-	hasWaf := wafPolicy != nil && !wafPolicy.Config.IsEmpty()
-
-	if !hasGenericExtensions && !hasWaf {
-		return ""
-	}
-
-	config := &EnvoyExtensionPolicyK8sConfig{
-		Name:      route.K8sRouteName + "-eep",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Add Lua extension configuration (only if policy exists)
-	if hasGenericExtensions && extPolicy.Config.Lua != nil {
-		luaConfig := LuaExtensionPolicyConfig{
-			Type:   extPolicy.Config.Lua.Type,
-			Inline: extPolicy.Config.Lua.Inline,
-		}
-		if extPolicy.Config.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &ValueRefPolicyConfig{
-				Group:     extPolicy.Config.Lua.ValueRef.Group,
-				Kind:      extPolicy.Config.Lua.ValueRef.Kind,
-				Name:      extPolicy.Config.Lua.ValueRef.Name,
-				Namespace: extPolicy.Config.Lua.ValueRef.Namespace,
-			}
-		}
-		config.Lua = append(config.Lua, luaConfig)
-	}
-
-	// Add Wasm extension configuration (only if policy exists)
-	if hasGenericExtensions && extPolicy.Config.Wasm != nil {
-		wasmConfig := WasmExtensionPolicyConfig{
-			Name:   extPolicy.Config.Wasm.Name,
-			RootID: extPolicy.Config.Wasm.RootID,
-			Code: WasmCodeSourcePolicyConfig{
-				Type: extPolicy.Config.Wasm.Code.Type,
-			},
-			Config: extPolicy.Config.Wasm.Config,
-		}
-		if extPolicy.Config.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &WasmHTTPSourcePolicyConfig{
-				URL:    extPolicy.Config.Wasm.Code.HTTP.URL,
-				SHA256: extPolicy.Config.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if extPolicy.Config.Wasm.Code.Image != nil {
-			imageConfig := &WasmImageSourcePolicyConfig{
-				URL:    extPolicy.Config.Wasm.Code.Image.URL,
-				SHA256: extPolicy.Config.Wasm.Code.Image.SHA256,
-			}
-			if extPolicy.Config.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &ValueRefPolicyConfig{
-					Group:     extPolicy.Config.Wasm.Code.Image.PullSecret.Group,
-					Kind:      extPolicy.Config.Wasm.Code.Image.PullSecret.Kind,
-					Name:      extPolicy.Config.Wasm.Code.Image.PullSecret.Name,
-					Namespace: extPolicy.Config.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		config.Wasm = append(config.Wasm, wasmConfig)
-	}
-
-	// Add ExtProc extension configuration (only if policy exists)
-	if hasGenericExtensions && extPolicy.Config.ExtProc != nil {
-		config.ExtProc = append(config.ExtProc, buildExtProcPolicyConfig(extPolicy.Config.ExtProc))
-	}
-
-	// Add WAF (coraza) WASM entry if WAF is configured
-	if hasWaf {
-		corazaConfig, err := BuildCorazaDirectives(&wafPolicy.Config)
-		if err == nil && corazaConfig != "" {
-			wasmConfig := WasmExtensionPolicyConfig{
-				Name:   "coraza-waf",
-				RootID: "",
-				Code: WasmCodeSourcePolicyConfig{
-					Type: "Image",
-					Image: &WasmImageSourcePolicyConfig{
-						URL: getCorazaWasmImageURL(),
-					},
-				},
-				Config: &corazaConfig,
-			}
-			config.Wasm = append(config.Wasm, wasmConfig)
-		}
-	}
-
-	// Build the EnvoyExtensionPolicy object
-	extensionPolicy := BuildEnvoyExtensionPolicy(config)
-	if extensionPolicy == nil {
-		return ""
-	}
-
-	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(extensionPolicy.Object)
-	if err != nil {
-		return fmt.Sprintf("# Error generating EnvoyExtensionPolicy YAML: %v", err)
-	}
-
-	return string(yamlBytes)
-}
-
-// buildHTTPRouteConfigForYAML builds HTTPRouteConfig for YAML generation
-// This is similar to buildHTTPRouteConfig but can be called without RouteService
-func buildHTTPRouteConfigForYAML(route *models.Route, domain *models.Domain) *HTTPRouteConfig {
-	rules := make([]HTTPRouteRule, 0, len(route.Config.Matches))
-
-	for _, match := range route.Config.Matches {
-		rule := HTTPRouteRule{
-			BackendRefs: make([]BackendRef, 0, len(route.Config.Backends)),
-		}
-
-		// Path matching
-		if match.Path != nil {
-			rule.PathType = convertPathTypeToGatewayAPI(string(match.Path.Type))
-			rule.PathValue = match.Path.Value
-		}
-
-		// Header matching
-		if len(match.Headers) > 0 {
-			rule.Headers = make([]HeaderMatch, 0, len(match.Headers))
-			for _, h := range match.Headers {
-				rule.Headers = append(rule.Headers, HeaderMatch{
-					Name:  h.Name,
-					Type:  h.Type,
-					Value: h.Value,
-				})
-			}
-		}
-
-		// Method matching
-		if match.Method != "" {
-			rule.Method = match.Method
-		}
-
-		// Query param matching
-		if len(match.QueryParams) > 0 {
-			rule.QueryParams = make([]QueryParamMatch, 0, len(match.QueryParams))
-			for _, qp := range match.QueryParams {
-				rule.QueryParams = append(rule.QueryParams, QueryParamMatch{
-					Name:  qp.Name,
-					Type:  qp.Type,
-					Value: qp.Value,
-				})
-			}
-		}
-
-		// Backend refs (only for non-redirect and non-direct-response routes)
-		if route.Config.Redirect == nil && route.Config.DirectResponse == nil {
-			hasFailover := route.Config.HasFailover()
-			for i, backend := range route.Config.Backends {
-				// Use Backend CRD if external OR failover is enabled
-				if backend.Type == models.BackendTypeExternal || hasFailover || backend.TLS != nil {
-					// Reference Backend CRD
-					backendName := fmt.Sprintf("%s-backend-%d", route.K8sRouteName, i)
-					rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-						Name:       backendName,
-						Namespace:  domain.Namespace,
-						Port:       backend.Port,
-						Weight:     backend.Weight,
-						IsExternal: true,
-						Group:      "gateway.envoyproxy.io",
-						Kind:       "Backend",
-					})
-				} else {
-					// Kubernetes service backend - reference Service directly
-					rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-						Name:      backend.Service,
-						Namespace: backend.Namespace,
-						Port:      backend.Port,
-						Weight:    backend.Weight,
-					})
-				}
-			}
-		}
-
-		rules = append(rules, rule)
-	}
-
-	config := &HTTPRouteConfig{
-		Name:        route.K8sRouteName,
-		Namespace:   domain.Namespace,
-		GatewayName: domain.K8sGatewayName,
-		GatewayID:   domain.ID.String(),
-		RouteID:     route.ID.String(),
-		Hostname:    domain.Hostname,
-		Rules:       rules,
-	}
-
-	// Add header modifiers
-	if route.Config.RequestHeaderModifier != nil {
-		config.RequestHeaderModifier = convertHeaderModifier(route.Config.RequestHeaderModifier)
-	}
-	if route.Config.ResponseHeaderModifier != nil {
-		config.ResponseHeaderModifier = convertHeaderModifier(route.Config.ResponseHeaderModifier)
-	}
-
-	// Add URL rewrite (only for non-redirect routes - redirect and rewrite are mutually exclusive)
-	if route.Config.URLRewrite != nil && route.Config.Redirect == nil {
-		config.URLRewrite = convertURLRewrite(route.Config.URLRewrite)
-	}
-
-	// Add redirect
-	if route.Config.Redirect != nil {
-		config.Redirect = convertRedirect(route.Config.Redirect)
-	}
-
-	// Add mirror refs (only for backend routes, not redirect or direct response)
-	if route.Config.Redirect == nil && route.Config.DirectResponse == nil && len(route.Config.Mirrors) > 0 {
-		config.Mirrors = make([]MirrorRef, 0, len(route.Config.Mirrors))
-		for _, mirror := range route.Config.Mirrors {
-			config.Mirrors = append(config.Mirrors, MirrorRef{
-				Name:      mirror.Service,
-				Namespace: mirror.Namespace,
-				Port:      mirror.Port,
-			})
-		}
-	}
-
-	// Note: CORS is now handled via SecurityPolicy (separate from HTTPRoute)
-
-	return config
-}
-
-// buildGRPCRouteConfigForYAML builds GRPCRouteConfig for YAML generation (standalone, no RouteService)
-func buildGRPCRouteConfigForYAML(route *models.Route, domain *models.Domain) *GRPCRouteConfig {
-	rules := make([]GRPCRouteRule, 0)
-
-	for _, match := range route.Config.Matches {
-		rule := GRPCRouteRule{}
-
-		if match.GRPCService != nil {
-			rule.GRPCService = &GRPCMethodMatchConfig{
-				Type:  match.GRPCService.Type,
-				Value: match.GRPCService.Value,
-			}
-		}
-		if match.GRPCMethod != nil {
-			rule.GRPCMethod = &GRPCMethodMatchConfig{
-				Type:  match.GRPCMethod.Type,
-				Value: match.GRPCMethod.Value,
-			}
-		}
-
-		if len(match.Headers) > 0 {
-			rule.Headers = make([]HeaderMatch, 0, len(match.Headers))
-			for _, h := range match.Headers {
-				rule.Headers = append(rule.Headers, HeaderMatch{
-					Name:  h.Name,
-					Type:  h.Type,
-					Value: h.Value,
-				})
-			}
-		}
-
-		hasFailover := route.Config.HasFailover()
-		for i, backend := range route.Config.Backends {
-			if backend.Type == models.BackendTypeExternal || hasFailover || backend.TLS != nil {
-				backendName := fmt.Sprintf("%s-backend-%d", route.K8sRouteName, i)
-				rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-					Name:       backendName,
-					Namespace:  domain.Namespace,
-					Port:       backend.Port,
-					Weight:     backend.Weight,
-					IsExternal: true,
-					Group:      "gateway.envoyproxy.io",
-					Kind:       "Backend",
-				})
-			} else {
-				rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-					Name:      backend.Service,
-					Namespace: backend.Namespace,
-					Port:      backend.Port,
-					Weight:    backend.Weight,
-				})
-			}
-		}
-
-		rules = append(rules, rule)
-	}
-
-	if len(rules) == 0 && len(route.Config.Backends) > 0 {
-		rule := GRPCRouteRule{}
-		hasFailover := route.Config.HasFailover()
-		for i, backend := range route.Config.Backends {
-			if backend.Type == models.BackendTypeExternal || hasFailover || backend.TLS != nil {
-				backendName := fmt.Sprintf("%s-backend-%d", route.K8sRouteName, i)
-				rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-					Name:       backendName,
-					Namespace:  domain.Namespace,
-					Port:       backend.Port,
-					Weight:     backend.Weight,
-					IsExternal: true,
-					Group:      "gateway.envoyproxy.io",
-					Kind:       "Backend",
-				})
-			} else {
-				rule.BackendRefs = append(rule.BackendRefs, BackendRef{
-					Name:      backend.Service,
-					Namespace: backend.Namespace,
-					Port:      backend.Port,
-					Weight:    backend.Weight,
-				})
-			}
-		}
-		rules = append(rules, rule)
-	}
-
-	config := &GRPCRouteConfig{
-		Name:        route.K8sRouteName,
-		Namespace:   domain.Namespace,
-		GatewayName: domain.K8sGatewayName,
-		GatewayID:   domain.ID.String(),
-		RouteID:     route.ID.String(),
-		Hostname:    domain.Hostname,
-		Rules:       rules,
-	}
-
-	if route.Config.RequestHeaderModifier != nil {
-		config.RequestHeaderModifier = convertHeaderModifier(route.Config.RequestHeaderModifier)
-	}
-	if route.Config.ResponseHeaderModifier != nil {
-		config.ResponseHeaderModifier = convertHeaderModifier(route.Config.ResponseHeaderModifier)
-	}
-
-	if len(route.Config.Mirrors) > 0 {
-		config.Mirrors = make([]MirrorRef, 0, len(route.Config.Mirrors))
-		for _, m := range route.Config.Mirrors {
-			config.Mirrors = append(config.Mirrors, MirrorRef{
-				Name:      m.Service,
-				Namespace: m.Namespace,
-				Port:      m.Port,
-			})
-		}
-	}
-
-	return config
-}
-
-// ClientAuthCategory represents the auth type for a client attachment
-type ClientAuthCategory struct {
-	ClientID           uuid.UUID
-	ClientName         string
-	EnableIP           bool
-	EnableAPIKey       bool
-	EnableJWT          bool
-	EnableMTLS         bool
-	APIKey             string   // Plaintext API key from K8s Secret (only for API key clients)
-	APIKeyHeaderName   string   // Header to extract API key from (e.g., "x-api-key")
-	ClientIDHeaderName string   // Header for client identification/routing (e.g., "x-client-id")
-	IPCIDRs            []string // Client's IP CIDRs (only for IP clients)
-	// JWT fields
-	JWTIssuer         string                    // JWT issuer (iss claim)
-	JWTJWKSURL        string                    // URL to fetch JWKS
-	JWTAudiences      []string                  // Allowed audiences (aud claim)
-	JWTRequiredClaims []models.JWTRequiredClaim // Required claims for authorization
-	JWTClaimToHeaders []models.JWTClaimToHeader // Map claims to headers
-	// Header/Method fields
-	EnableHeaderAuth bool
-	HeaderMatches    []models.AuthorizationHeaderMatch // Client's headers for authorization
-	AllowedMethods   []string                          // Client-level allowed methods
-	// mTLS fields
-	MTLSSANs   []models.MTLSSANEntry // Client SANs for XFCC matching
-	MTLSHashes []string              // Client certificate hashes for XFCC matching
-	MTLSCAPem  string                // Client CA PEM for creating K8s secret at deploy time
-	// Rate limit config from attachment
-	RateLimitConfig *models.RateLimitConfig
-	// External auth config from attachment
-	ExtAuth            *models.ExtAuthConfig
-	ExtAuthBackendName string // Name of Backend CRD for ext-auth (set during deployment)
-}
-
-// buildMTLSXFCCHeaderMatches builds a single XFCC header match for mTLS client routing.
-// Multiple hashes/SANs are combined into one regex with alternation (OR logic)
-// so that any one of the client's certificate identifiers can match.
-func buildMTLSXFCCHeaderMatches(client ClientAuthCategory) []HeaderMatch {
-	if !client.EnableMTLS {
-		return nil
-	}
-
-	// Collect all patterns — each hash or SAN is an OR alternative
-	var patterns []string
-
-	for _, hash := range client.MTLSHashes {
-		patterns = append(patterns, fmt.Sprintf("Hash=%s", regexp.QuoteMeta(hash)))
-	}
-
-	for _, san := range client.MTLSSANs {
-		patterns = append(patterns, fmt.Sprintf("%s=%s", san.Type, regexp.QuoteMeta(san.Value)))
-	}
-
-	if len(patterns) == 0 {
-		return nil
-	}
-
-	// Single header match with alternation: .*(Hash=abc|DNS=example\.com).*
-	// The .* anchors are needed because Envoy regex header matching requires
-	// the regex to match the entire header value, not just a substring.
-	return []HeaderMatch{{
-		Name:  "x-forwarded-client-cert",
-		Type:  "RegularExpression",
-		Value: ".*(" + strings.Join(patterns, "|") + ").*",
-	}}
 }
 
 // categorizeClientAttachments groups attachments by auth type for deployment
@@ -6774,7 +4227,7 @@ func (s *RouteService) deployAPIKeyRoutes(ctx context.Context, route *models.Rou
 		}
 
 		// Build and deploy BackendTrafficPolicy if configured (base policy or attachment rate limit)
-		btpConfig := s.buildAPIKeyBackendTrafficPolicyConfig(route, domain, *client, policy)
+		btpConfig := buildAPIKeyBackendTrafficPolicyConfig(route, domain, *client, policy)
 		if btpConfig != nil {
 			if err := s.k8sService.UpdateBackendTrafficPolicy(ctx, domain.ProjectID, btpConfig); err != nil {
 				return fmt.Errorf("failed to create/update per-client BackendTrafficPolicy for client %s: %w", client.ClientName, err)
@@ -6839,260 +4292,30 @@ func (s *RouteService) buildAPIKeyHTTPRouteConfig(route *models.Route, domain *m
 func (s *RouteService) buildAPIKeySecurityPolicyConfig(route *models.Route, domain *models.Domain, client ClientAuthCategory, requireIP bool, secPolicy *models.SecurityPolicy) *SecurityPolicyConfig {
 	routeName := route.K8sRouteName + "-ak-" + client.ClientID.String()[:8]
 
-	config := &SecurityPolicyConfig{
-		Name:      routeName + "-security",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: SecurityPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  routeName,
-		},
+	// Only CORS is copied from the route-level SecurityPolicy on this path.
+	var cors *models.CORSConfig
+	if secPolicy != nil {
+		cors = secPolicy.Config.CORS
 	}
 
-	// Copy CORS config from route's SecurityPolicy (if any)
-	if secPolicy != nil && secPolicy.Config.CORS != nil {
-		config.CORS = &CORSPolicyConfig{
-			AllowOrigins:     secPolicy.Config.CORS.AllowOrigins,
-			AllowMethods:     secPolicy.Config.CORS.AllowMethods,
-			AllowHeaders:     secPolicy.Config.CORS.AllowHeaders,
-			ExposeHeaders:    secPolicy.Config.CORS.ExposeHeaders,
-			MaxAge:           secPolicy.Config.CORS.MaxAge,
-			AllowCredentials: secPolicy.Config.CORS.AllowCredentials,
-		}
-	}
-
-	// Add API key auth config if enabled
+	// The only impure step in this site: deriving the client's API key Secret
+	// name needs s.k8sService. It stays behind the same guard it has always
+	// had, so a client without an API key never touches the interface -- which
+	// is what keeps this function callable on a zero-value RouteService.
+	var apiKeySecretName string
 	if client.EnableAPIKey && client.APIKey != "" {
-		secretName := s.k8sService.GetAPIKeySecretName(client.ClientID)
-		config.APIKeyAuth = &APIKeyAuthPolicyConfig{
-			CredentialRefs: []SecretRefConfig{
-				{Name: secretName, Namespace: FastGatewayNamespace},
-			},
-			ExtractFrom: []APIKeyExtractFromConfig{
-				{Headers: []string{client.APIKeyHeaderName}},
-			},
-		}
+		apiKeySecretName = s.k8sService.GetAPIKeySecretName(client.ClientID)
 	}
 
-	// Add JWT auth config if enabled
-	if client.EnableJWT && client.JWTIssuer != "" {
-		providerName := "client-" + client.ClientID.String()[:8]
-		provider := JWTProviderPolicyConfig{
-			Name:      providerName,
-			Issuer:    client.JWTIssuer,
-			JWKSURL:   client.JWTJWKSURL,
-			Audiences: client.JWTAudiences,
-		}
-
-		// Add claim-to-headers if configured
-		if len(client.JWTClaimToHeaders) > 0 {
-			for _, cth := range client.JWTClaimToHeaders {
-				provider.ClaimToHeaders = append(provider.ClaimToHeaders, JWTClaimToHeaderPolicyConfig{
-					Claim:  cth.Claim,
-					Header: cth.Header,
-				})
-			}
-		}
-
-		config.JWT = &JWTAuthPolicyConfig{
-			Providers: []JWTProviderPolicyConfig{provider},
-		}
-
-		// Add JWT claim authorization if required claims are set
-		if len(client.JWTRequiredClaims) > 0 {
-			jwtPrincipal := &JWTPrincipalPolicyConfig{
-				Provider: providerName,
-			}
-			for _, claim := range client.JWTRequiredClaims {
-				jwtPrincipal.Claims = append(jwtPrincipal.Claims, JWTClaimRulePolicyConfig{
-					Name:      claim.Name,
-					Values:    claim.Values,
-					ValueType: claim.ValueType,
-				})
-			}
-
-			// If authorization already exists (from IP), add JWT to it
-			// Otherwise create new authorization
-			if config.Authorization == nil {
-				config.Authorization = &AuthorizationPolicyConfig{
-					DefaultAction: "Deny",
-					Rules:         []AuthorizationRulePolicyConfig{},
-				}
-			}
-
-			// Add JWT claim rule
-			rule := AuthorizationRulePolicyConfig{
-				Action: "Allow",
-				JWT:    jwtPrincipal,
-			}
-
-			// If IP is also required, add CIDRs to the same rule (AND logic)
-			if requireIP && len(client.IPCIDRs) > 0 {
-				rule.ClientCIDRs = client.IPCIDRs
-			}
-
-			config.Authorization.Rules = append(config.Authorization.Rules, rule)
-		} else if requireIP && len(client.IPCIDRs) > 0 {
-			// JWT without required claims but with IP check
-			config.Authorization = &AuthorizationPolicyConfig{
-				DefaultAction: "Deny",
-				Rules: []AuthorizationRulePolicyConfig{
-					{
-						Action:      "Allow",
-						ClientCIDRs: client.IPCIDRs,
-					},
-				},
-			}
-		}
-	} else if requireIP && len(client.IPCIDRs) > 0 {
-		// No JWT, just API key with IP check
-		config.Authorization = &AuthorizationPolicyConfig{
-			DefaultAction: "Deny",
-			Rules: []AuthorizationRulePolicyConfig{
-				{
-					Action:      "Allow",
-					ClientCIDRs: client.IPCIDRs,
-				},
-			},
-		}
-	}
-
-	// Add header/method authorization to existing rules (AND logic with other principals)
-	hasHeaderOrMethod := (client.EnableHeaderAuth && len(client.HeaderMatches) > 0) || len(client.AllowedMethods) > 0
-	if hasHeaderOrMethod {
-		// Ensure authorization config exists
-		if config.Authorization == nil {
-			config.Authorization = &AuthorizationPolicyConfig{
-				DefaultAction: "Deny",
-				Rules:         []AuthorizationRulePolicyConfig{{Action: "Allow"}},
-			}
-		}
-
-		// Add headers and methods to each rule
-		for i := range config.Authorization.Rules {
-			if client.EnableHeaderAuth && len(client.HeaderMatches) > 0 {
-				for _, h := range client.HeaderMatches {
-					config.Authorization.Rules[i].Headers = append(config.Authorization.Rules[i].Headers, HeaderMatchPolicyConfig{
-						Name:   h.Name,
-						Values: h.Values,
-					})
-				}
-			}
-			if len(client.AllowedMethods) > 0 {
-				config.Authorization.Rules[i].Methods = client.AllowedMethods
-			}
-		}
-	}
-
-	// Add ExtAuth config if client has ext-auth configured
-	if client.ExtAuth != nil && client.ExtAuthBackendName != "" {
-		config.ExtAuth = client.ExtAuth
-		config.ExtAuthBackendName = client.ExtAuthBackendName
-	}
-
-	return config
-}
-
-// buildAPIKeyBackendTrafficPolicyConfig builds BackendTrafficPolicy for a client with API key auth
-func (s *RouteService) buildAPIKeyBackendTrafficPolicyConfig(route *models.Route, domain *models.Domain, client ClientAuthCategory, policy *models.BackendTrafficPolicy) *BackendTrafficPolicyConfig {
-	hasBasePolicy := policy != nil && !policy.Config.IsEmpty()
-	hasRateLimit := client.RateLimitConfig != nil
-
-	if !hasBasePolicy && !hasRateLimit {
-		return nil
-	}
-
-	routeName := route.K8sRouteName + "-ak-" + client.ClientID.String()[:8]
-
-	config := &BackendTrafficPolicyConfig{
-		Name:      routeName + "-btp",
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: BackendTrafficPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  getRouteKind(route.Protocol),
-			Name:  routeName,
-		},
-	}
-
-	// Copy base policy features if present
-	if hasBasePolicy {
-		// Add compression configuration
-		if len(policy.Config.Compression) > 0 {
-			config.Compression = make([]CompressionPolicyConfig, 0, len(policy.Config.Compression))
-			for _, comp := range policy.Config.Compression {
-				policyComp := CompressionPolicyConfig{
-					Type: string(comp.Type),
-				}
-				switch comp.Type {
-				case models.CompressionTypeGzip:
-					policyComp.Gzip = &GzipPolicyConfig{}
-				case models.CompressionTypeBrotli:
-					policyComp.Brotli = &BrotliPolicyConfig{}
-				case models.CompressionTypeZstd:
-					policyComp.Zstd = &ZstdPolicyConfig{}
-				}
-				config.Compression = append(config.Compression, policyComp)
-			}
-		}
-
-		// Add retry configuration
-		if policy.Config.Retry != nil {
-			config.Retry = mapRetryConfigToPolicy(policy.Config.Retry)
-		}
-
-		// Add load balancer configuration
-		if policy.Config.LoadBalancer != nil {
-			config.LoadBalancer = mapLoadBalancerConfigToPolicy(policy.Config.LoadBalancer)
-		}
-
-		// Add circuit breaker configuration
-		if policy.Config.CircuitBreaker != nil {
-			config.CircuitBreaker = mapCircuitBreakerConfigToPolicy(policy.Config.CircuitBreaker)
-		}
-
-		// Add health check configuration
-		if policy.Config.HealthCheck != nil {
-			config.HealthCheck = mapHealthCheckConfigToPolicy(policy.Config.HealthCheck)
-		}
-
-		// Add fault injection configuration
-		if policy.Config.FaultInjection != nil {
-			config.FaultInjection = mapFaultInjectionConfigToPolicy(policy.Config.FaultInjection)
-		}
-
-		// Add rate limit from base policy
-		if policy.Config.RateLimit != nil {
-			config.RateLimit = mapRateLimitConfigToPolicy(policy.Config.RateLimit)
-		}
-
-		// Add request buffer configuration
-		if policy.Config.RequestBuffer != nil {
-			config.RequestBuffer = &RequestBufferPolicyConfig{
-				Limit: policy.Config.RequestBuffer.Limit,
-			}
-		}
-
-		// Add response override configuration
-		if len(policy.Config.ResponseOverride) > 0 {
-			config.ResponseOverride = mapResponseOverrideToPolicy(policy.Config.ResponseOverride)
-		}
-
-		// Add timeout configuration
-		if policy.Config.Timeout != nil {
-			config.Timeout = mapTimeoutConfigToPolicy(policy.Config.Timeout)
-		}
-	}
-
-	// Add rate limit from attachment (overrides base policy rate limit for per-client mode)
-	if hasRateLimit {
-		config.RateLimit = mapRateLimitConfigToPolicy(client.RateLimitConfig)
-	}
-
-	return config
+	return assembleSecurityPolicyConfig(securityPolicyAssembly{
+		Route:            route,
+		Domain:           domain,
+		TargetName:       routeName,
+		CORS:             cors,
+		Client:           &client,
+		RequireIP:        requireIP,
+		APIKeySecretName: apiKeySecretName,
+	})
 }
 
 // buildAPIKeyEnvoyExtensionPolicyConfig builds EnvoyExtensionPolicy config for a per-client route
@@ -7104,7 +4327,7 @@ func (s *RouteService) buildAPIKeyEnvoyExtensionPolicyConfig(route *models.Route
 	routeName := route.K8sRouteName + "-ak-" + client.ClientID.String()[:8]
 
 	config := &EnvoyExtensionPolicyK8sConfig{
-		Name:      routeName + "-eep",
+		Name:      kubernetes.EnvoyExtensionPolicyName(routeName),
 		Namespace: domain.Namespace,
 		GatewayID: domain.ID.String(),
 		RouteID:   route.ID.String(),
@@ -7202,19 +4425,19 @@ func (s *RouteService) deleteAPIKeyRoutes(ctx context.Context, route *models.Rou
 		routeName := route.K8sRouteName + "-ak-" + attachment.ClientID.String()[:8]
 
 		// Delete BackendTrafficPolicy first
-		btpName := routeName + "-btp"
+		btpName := kubernetes.BackendTrafficPolicyName(routeName)
 		if err := s.k8sService.DeleteBackendTrafficPolicy(ctx, domain.ProjectID, domain.Namespace, btpName); err != nil {
 			log.Printf("Failed to delete API key BackendTrafficPolicy %s: %v", btpName, err)
 		}
 
 		// Delete EnvoyExtensionPolicy
-		eepName := routeName + "-eep"
+		eepName := kubernetes.EnvoyExtensionPolicyName(routeName)
 		if err := s.k8sService.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName); err != nil {
 			log.Printf("Failed to delete API key EnvoyExtensionPolicy %s: %v", eepName, err)
 		}
 
 		// Delete SecurityPolicy
-		securityName := routeName + "-security"
+		securityName := kubernetes.SecurityPolicyName(routeName)
 		if err := s.k8sService.DeleteSecurityPolicy(ctx, domain.ProjectID, domain.Namespace, securityName); err != nil {
 			log.Printf("Failed to delete API key SecurityPolicy %s: %v", securityName, err)
 		}
@@ -7271,3 +4494,65 @@ func (s *RouteService) GetApprovalIDForEntity(entityType models.ApprovalEntityTy
 	}
 	return nil, fmt.Errorf("no approval found")
 }
+
+// ─── Aliases to the extracted internal/routeplan package ────────────────────
+// The pure route-plan assemblers and their input DTOs now live in
+// internal/routeplan. These aliases keep the existing call sites in this
+// package compiling; they are removed in a later pass as callers migrate.
+
+type (
+	WAFConfig                 = routeplan.WAFConfig
+	SecurityPolicyInput       = routeplan.SecurityPolicyInput
+	AuthorizationInput        = routeplan.AuthorizationInput
+	APIKeyAuthInput           = routeplan.APIKeyAuthInput
+	JWTInput                  = routeplan.JWTInput
+	OIDCInput                 = routeplan.OIDCInput
+	BackendTrafficPolicyInput = routeplan.BackendTrafficPolicyInput
+	EnvoyExtensionPolicyInput = routeplan.EnvoyExtensionPolicyInput
+	WafPolicyInput            = routeplan.WafPolicyInput
+	ClientAuthCategory        = routeplan.ClientAuthCategory
+	securityPolicyAssembly    = routeplan.SecurityPolicyAssembly
+)
+
+var (
+	getRouteKind                                 = routeplan.GetRouteKind
+	normalizeCIDR                                = routeplan.NormalizeCIDR
+	buildHTTPRouteConfigUnified                  = routeplan.BuildHTTPRouteConfig
+	buildHTTPRouteConfigForYAML                  = routeplan.BuildHTTPRouteConfigForYAML
+	buildMTLSXFCCHeaderMatches                   = routeplan.BuildMTLSXFCCHeaderMatches
+	generateHTTPRouteYAML                        = routeplan.GenerateHTTPRouteYAML
+	buildGRPCRouteConfigUnified                  = routeplan.BuildGRPCRouteConfig
+	buildGRPCRouteConfigForYAML                  = routeplan.BuildGRPCRouteConfigForYAML
+	assembleSecurityPolicyConfig                 = routeplan.AssembleSecurityPolicyConfig
+	securityPolicyConfigFromDB                   = routeplan.SecurityPolicyConfigFromDB
+	securityPolicyConfigForDeploy                = routeplan.SecurityPolicyConfigForDeploy
+	generateSecurityPolicyYAML                   = routeplan.GenerateSecurityPolicyYAML
+	generateSecurityPolicyYAMLFromDB             = routeplan.GenerateSecurityPolicyYAMLFromDB
+	buildAuthorizationConfigFromInput            = routeplan.BuildAuthorizationConfigFromInput
+	buildAPIKeyAuthConfigFromInput               = routeplan.BuildAPIKeyAuthConfigFromInput
+	buildJWTConfigFromInput                      = routeplan.BuildJWTConfigFromInput
+	buildOIDCConfigFromInput                     = routeplan.BuildOIDCConfigFromInput
+	buildBackendTrafficPolicyConfig              = routeplan.BuildBackendTrafficPolicyConfig
+	buildAPIKeyBackendTrafficPolicyConfig        = routeplan.BuildAPIKeyBackendTrafficPolicyConfig
+	generateBackendTrafficPolicyYAML             = routeplan.GenerateBackendTrafficPolicyYAML
+	generateBackendTrafficPolicyYAMLFromDB       = routeplan.GenerateBackendTrafficPolicyYAMLFromDB
+	generateAPIKeyBackendTrafficPolicyYAML       = routeplan.GenerateAPIKeyBackendTrafficPolicyYAML
+	mapRateLimitConfigToPolicy                   = routeplan.MapRateLimitConfigToPolicy
+	mapCircuitBreakerConfigToPolicy              = routeplan.MapCircuitBreakerConfigToPolicy
+	mapHealthCheckConfigToPolicy                 = routeplan.MapHealthCheckConfigToPolicy
+	mapFaultInjectionConfigToPolicy              = routeplan.MapFaultInjectionConfigToPolicy
+	mapLoadBalancerConfigToPolicy                = routeplan.MapLoadBalancerConfigToPolicy
+	mapRetryConfigToPolicy                       = routeplan.MapRetryConfigToPolicy
+	mapResponseOverrideToPolicy                  = routeplan.MapResponseOverrideToPolicy
+	mapTimeoutConfigToPolicy                     = routeplan.MapTimeoutConfigToPolicy
+	buildExtProcPolicyConfig                     = routeplan.BuildExtProcPolicyConfig
+	generateEnvoyExtensionPolicyYAML             = routeplan.GenerateEnvoyExtensionPolicyYAML
+	generateEnvoyExtensionPolicyYAMLFromDB       = routeplan.GenerateEnvoyExtensionPolicyYAMLFromDB
+	generateEnvoyExtensionPolicyYAMLWithWaf      = routeplan.GenerateEnvoyExtensionPolicyYAMLWithWaf
+	generateEnvoyExtensionPolicyYAMLFromSnapshot = routeplan.GenerateEnvoyExtensionPolicyYAMLFromSnapshot
+	generateAPIKeyEnvoyExtensionPolicyYAML       = routeplan.GenerateAPIKeyEnvoyExtensionPolicyYAML
+	generateBackendYAMLs                         = routeplan.GenerateBackendYAMLs
+	generateDirectResponseYAMLs                  = routeplan.GenerateDirectResponseYAMLs
+	BuildCorazaDirectives                        = routeplan.BuildCorazaDirectives
+	mapBackendTrafficPolicyConfigToInput         = routeplan.MapBackendTrafficPolicyConfigToInput
+)

@@ -283,22 +283,6 @@ func mapSecurityPolicyConfigToInput(cfg *models.SecurityPolicyConfig) *SecurityP
 	return input
 }
 
-// mapBackendTrafficPolicyConfigToInput converts a stored BackendTrafficPolicyConfig back to BackendTrafficPolicyInput
-func mapBackendTrafficPolicyConfigToInput(cfg *models.BackendTrafficPolicyConfig) *BackendTrafficPolicyInput {
-	return &BackendTrafficPolicyInput{
-		Compression:      cfg.Compression,
-		Retry:            cfg.Retry,
-		LoadBalancer:     cfg.LoadBalancer,
-		CircuitBreaker:   cfg.CircuitBreaker,
-		HealthCheck:      cfg.HealthCheck,
-		FaultInjection:   cfg.FaultInjection,
-		RateLimit:        cfg.RateLimit,
-		RequestBuffer:    cfg.RequestBuffer,
-		ResponseOverride: cfg.ResponseOverride,
-		Timeout:          cfg.Timeout,
-	}
-}
-
 // mapEnvoyExtensionPolicyConfigToInput converts a stored EnvoyExtensionPolicyConfig back to EnvoyExtensionPolicyInput
 func mapEnvoyExtensionPolicyConfigToInput(cfg *models.EnvoyExtensionPolicyConfig) *EnvoyExtensionPolicyInput {
 	return &EnvoyExtensionPolicyInput{

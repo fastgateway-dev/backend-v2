@@ -485,7 +485,7 @@ func TestDomainService_UpdateDomainSettings_MTLSEnabledNoCAs_SkipsRegenerate(t *
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 	settingsRepo.On("Upsert", mock.AnythingOfType("*models.DomainSettings")).Return(nil)
 	// Only applyEnvoyGatewayClientTrafficPolicy called (no regenerate since no CAs)
-	k8sMock.On("CreateClientTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.ClientTrafficPolicyConfig")).Return(nil)
+	k8sMock.On("CreateClientTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.ClientTrafficPolicyConfig")).Return(nil)
 	// BTP and extension policy are nil → delete path
 	k8sMock.On("DeleteBackendTrafficPolicy", mock.Anything, projectID, "fastgateway-system", "test-gw-btp").Return(nil)
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", "test-gw-eep-extproc").Return(nil)
@@ -522,7 +522,7 @@ func TestDomainService_UpdateDomainSettings_NoMTLS_SkipsRegenerate(t *testing.T)
 	}
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 	settingsRepo.On("Upsert", mock.AnythingOfType("*models.DomainSettings")).Return(nil)
-	k8sMock.On("CreateClientTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*services.ClientTrafficPolicyConfig")).Return(nil)
+	k8sMock.On("CreateClientTrafficPolicy", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.ClientTrafficPolicyConfig")).Return(nil)
 	// BTP and extension policy are nil → delete path
 	k8sMock.On("DeleteBackendTrafficPolicy", mock.Anything, projectID, "fastgateway-system", "test-gw-btp").Return(nil)
 	k8sMock.On("DeleteBackend", mock.Anything, projectID, "fastgateway-system", "test-gw-eep-extproc").Return(nil)

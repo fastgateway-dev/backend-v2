@@ -25,6 +25,7 @@ type ApprovalService struct {
 	backendTrafficPolicyRepo repository.BackendTrafficPolicyRepositoryInterface
 	clientAttachmentService  *ClientAttachmentService
 	stageReviewRepo          repository.ApprovalStageReviewRepositoryInterface
+	wafConfig                WAFConfig
 }
 
 // NewApprovalService creates a new approval service
@@ -36,6 +37,7 @@ func NewApprovalService(
 	projectRepo repository.ProjectRepositoryInterface,
 	domainRepo repository.DomainRepositoryInterface,
 	k8sService KubernetesServiceInterface,
+	wafConfig WAFConfig,
 ) *ApprovalService {
 	return &ApprovalService{
 		approvalRepo: approvalRepo,
@@ -45,6 +47,7 @@ func NewApprovalService(
 		projectRepo:  projectRepo,
 		domainRepo:   domainRepo,
 		k8sService:   k8sService,
+		wafConfig:    wafConfig,
 	}
 }
 
@@ -708,7 +711,7 @@ func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 			}
 		}
 
-		return generateEnvoyExtensionPolicyYAMLFromSnapshot(tempRoute, domain, extPolicy, wafPolicy)
+		return generateEnvoyExtensionPolicyYAMLFromSnapshot(tempRoute, domain, extPolicy, wafPolicy, s.wafConfig)
 	}
 
 	// Parse config snapshot and previous config from json.RawMessage

@@ -41,7 +41,7 @@ func (r *ClientHeaderRepository) ListByClientID(clientID uuid.UUID) ([]models.Cl
 	var headers []models.ClientHeader
 	err := r.db.Preload("Creator").
 		Where("client_id = ?", clientID).
-		Order("created_at ASC").
+		Order("created_at ASC, id").
 		Find(&headers).Error
 	return headers, err
 }

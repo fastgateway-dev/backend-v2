@@ -41,7 +41,7 @@ func (r *ClientIPRepository) ListByClientID(clientID uuid.UUID) ([]models.Client
 	var ips []models.ClientIPAddress
 	err := r.db.Preload("Creator").
 		Where("client_id = ?", clientID).
-		Order("created_at ASC").
+		Order("created_at ASC, id").
 		Find(&ips).Error
 	return ips, err
 }
