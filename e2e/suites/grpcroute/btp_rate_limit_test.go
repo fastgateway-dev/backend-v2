@@ -71,26 +71,36 @@ func TestGRPCBTPRateLimit(t *testing.T) {
 		t.Fatalf("rate limit: route never became live: %v", err)
 	}
 
-	gotLimited := false
+	// Polled rather than read once: the policy that produces this outcome
+	// is a separate Kubernetes object Envoy Gateway programs AFTER the
+	// route, so the route serves traffic un-policied for a short window
+	// after deploy -- and WaitForRouteLive/waitForGRPCLive return on the
+	// first answer they see, which in that window is the un-policied one.
+	// harness.Fixture already waits for the policy to report Accepted;
+	// this closes the remaining xDS-push tail. Bounded by routeLiveTimeout,
+	// so a policy that never takes effect still fails the test.
 	const burst = 20
+	deadline := time.Now().Add(routeLiveTimeout)
 	var lastCode codes.Code
 	var lastHeaders string
-	for i := 0; i < burst; i++ {
-		res, _, err := echoCall(ctx, "hello", callOpt)
-		if err != nil {
-			t.Fatalf("rate limit: request %d: %v", i, err)
+	for {
+		for i := 0; i < burst; i++ {
+			res, _, err := echoCall(ctx, "hello", callOpt)
+			if err != nil {
+				t.Fatalf("rate limit: request %d: %v", i, err)
+			}
+			lastCode = res.Code
+			if res.Code == codes.Unavailable && rateLimitHeaderPresent(res) {
+				return
+			}
+			lastHeaders = fmt.Sprintf("header=%v trailer=%v", res.Header, res.Trailer)
 		}
-		lastCode = res.Code
-		if res.Code == codes.Unavailable && rateLimitHeaderPresent(res) {
-			gotLimited = true
+		if !time.Now().Before(deadline) {
 			break
 		}
-		lastHeaders = fmt.Sprintf("header=%v trailer=%v", res.Header, res.Trailer)
 	}
-	if !gotLimited {
-		t.Fatalf("rate limit: no request among %d got code %v carrying a rate-limit header (e.g. x-ratelimit-limit), want at least one (last observed code: %v, last headers: %s)",
-			burst, codes.Unavailable, lastCode, lastHeaders)
-	}
+	t.Fatalf("rate limit: no request among %d got code %v carrying a rate-limit header (e.g. x-ratelimit-limit) within %s, want at least one (last observed code: %v, last headers: %s)",
+		burst, codes.Unavailable, routeLiveTimeout, lastCode, lastHeaders)
 }
 
 // rateLimitHeaderPresent reports whether res carries one of the

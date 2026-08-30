@@ -90,22 +90,30 @@ func TestGRPCClientModeRateLimit(t *testing.T) {
 		t.Fatalf("client mode rate limit: first authenticated request got code %v, want %v", res.Code, codes.OK)
 	}
 
-	gotLimited := false
+	// The burst is retried until the limiter engages, rather than fired
+	// once: rate limiting lives in the client's BackendTrafficPolicy, a
+	// separate object Envoy Gateway programs AFTER the GRPCRoute, so a
+	// burst sent the moment the route goes live is served by an Envoy with
+	// no limiter attached and every call legitimately returns OK. Bounded
+	// by routeLiveTimeout -- a limiter that never engages still fails.
 	const burst = 20
+	deadline := time.Now().Add(routeLiveTimeout)
 	var lastCode codes.Code
-	for i := 0; i < burst; i++ {
-		res, _, err := echoCall(ctx, "hello", authOpts...)
-		if err != nil {
-			t.Fatalf("client mode rate limit: request %d: %v", i, err)
+	for {
+		for i := 0; i < burst; i++ {
+			res, _, err := echoCall(ctx, "hello", authOpts...)
+			if err != nil {
+				t.Fatalf("client mode rate limit: request %d: %v", i, err)
+			}
+			lastCode = res.Code
+			if res.Code == codes.ResourceExhausted || res.Code == codes.Unavailable {
+				return
+			}
 		}
-		lastCode = res.Code
-		if res.Code == codes.ResourceExhausted || res.Code == codes.Unavailable {
-			gotLimited = true
+		if !time.Now().Before(deadline) {
 			break
 		}
 	}
-	if !gotLimited {
-		t.Fatalf("client mode rate limit: no request among %d got %v or %v, want rate limiting after exceeding 3/minute (last observed code: %v)",
-			burst, codes.ResourceExhausted, codes.Unavailable, lastCode)
-	}
+	t.Fatalf("client mode rate limit: no request among %d got %v or %v, want rate limiting after exceeding 3/minute within %s (last observed code: %v)",
+		burst, codes.ResourceExhausted, codes.Unavailable, routeLiveTimeout, lastCode)
 }

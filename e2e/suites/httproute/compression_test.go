@@ -50,12 +50,26 @@ func TestCompression(t *testing.T) {
 	probe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("Accept-Encoding", "gzip"))
 	}
-	resp, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout)
-	if err != nil {
+	if _, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout); err != nil {
 		t.Fatalf("compression: route never became live: %v", err)
 	}
 
-	if got := resp.Header.Get("Content-Encoding"); got != "gzip" {
-		t.Fatalf("compression: got Content-Encoding %q, want %q", got, "gzip")
+	// Polled rather than read once: the policy that produces this outcome
+	// is a separate Kubernetes object Envoy Gateway programs AFTER the
+	// route, so the route serves traffic un-policied for a short window
+	// after deploy -- and WaitForRouteLive/waitForGRPCLive return on the
+	// first answer they see, which in that window is the un-policied one.
+	// harness.Fixture already waits for the policy to report Accepted;
+	// this closes the remaining xDS-push tail. Bounded by routeLiveTimeout,
+	// so a policy that never takes effect still fails the test.
+	resp, err := harness.WaitForResponse(ctx, probe, func(r *harness.Response) bool {
+		return r.Header.Get("Content-Encoding") == "gzip"
+	}, routeLiveTimeout)
+	if err != nil {
+		got := ""
+		if resp != nil {
+			got = resp.Header.Get("Content-Encoding")
+		}
+		t.Fatalf("compression: got Content-Encoding %q, want %q: %v", got, "gzip", err)
 	}
 }

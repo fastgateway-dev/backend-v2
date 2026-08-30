@@ -81,32 +81,49 @@ func TestCircuitBreaker(t *testing.T) {
 	}
 
 	const burst = 20
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	statuses := make([]int, 0, burst)
-	for i := 0; i < burst; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			resp, err := env.GW.HTTP(ctx, "GET", path)
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				statuses = append(statuses, -1)
+
+	// Polled rather than read once: the policy that produces this outcome
+	// is a separate Kubernetes object Envoy Gateway programs AFTER the
+	// route, so the route serves traffic un-policied for a short window
+	// after deploy -- and WaitForRouteLive/waitForGRPCLive return on the
+	// first answer they see, which in that window is the un-policied one.
+	// harness.Fixture already waits for the policy to report Accepted;
+	// this closes the remaining xDS-push tail. Bounded by routeLiveTimeout,
+	// so a policy that never takes effect still fails the test.
+	fireBurst := func() []int {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		statuses := make([]int, 0, burst)
+		for i := 0; i < burst; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				resp, err := env.GW.HTTP(ctx, "GET", path)
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					statuses = append(statuses, -1)
+					return
+				}
+				statuses = append(statuses, resp.StatusCode)
+			}()
+		}
+		wg.Wait()
+		return statuses
+	}
+
+	deadline := time.Now().Add(routeLiveTimeout)
+	var statuses []int
+	for {
+		statuses = fireBurst()
+		for _, s := range statuses {
+			if s == 503 {
 				return
 			}
-			statuses = append(statuses, resp.StatusCode)
-		}()
-	}
-	wg.Wait()
-
-	got503 := 0
-	for _, s := range statuses {
-		if s == 503 {
-			got503++
+		}
+		if !time.Now().Before(deadline) {
+			break
 		}
 	}
-	if got503 == 0 {
-		t.Fatalf("circuit breaker: got statuses %v from %d concurrent requests, want at least one 503 (circuit breaker never tripped)", statuses, burst)
-	}
+	t.Fatalf("circuit breaker: got statuses %v from %d concurrent requests, want at least one 503 (circuit breaker never tripped within %s)", statuses, burst, routeLiveTimeout)
 }

@@ -57,11 +57,22 @@ func TestTimeoutBTP(t *testing.T) {
 	probe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path)
 	}
-	resp, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout)
+	// Polled rather than read once: the policy that produces this outcome
+	// is a separate Kubernetes object Envoy Gateway programs AFTER the
+	// route, so the route serves traffic un-policied for a short window
+	// after deploy -- and WaitForRouteLive/waitForGRPCLive return on the
+	// first answer they see, which in that window is the un-policied one.
+	// harness.Fixture already waits for the policy to report Accepted;
+	// this closes the remaining xDS-push tail. Bounded by routeLiveTimeout,
+	// so a policy that never takes effect still fails the test.
+	resp, err := harness.WaitForResponse(ctx, probe, func(r *harness.Response) bool {
+		return r.StatusCode == 504
+	}, routeLiveTimeout)
 	if err != nil {
-		t.Fatalf("timeout btp: route never became live: %v", err)
-	}
-	if resp.StatusCode != 504 {
-		t.Fatalf("timeout btp: got status %d, want 504 (backend delays 5s, timeout is 2s)", resp.StatusCode)
+		got := 0
+		if resp != nil {
+			got = resp.StatusCode
+		}
+		t.Fatalf("timeout btp: got status %d, want 504 (backend delays 5s, timeout is 2s): %v", got, err)
 	}
 }

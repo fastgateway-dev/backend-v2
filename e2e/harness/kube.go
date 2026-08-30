@@ -217,3 +217,21 @@ func (k *Kube) WaitDeploymentAvailable(ctx context.Context, ns, name string, tim
 	}
 	return fmt.Errorf("deployment %s/%s not available within %s: %w", ns, name, timeout, lastErr)
 }
+
+// ListUnstructuredByLabel returns every object of gvr in ns matching
+// labelSelector. Unlike GetUnstructuredByLabel it does not require exactly
+// one match: a single route can own several objects of the same kind --
+// client-mode security produces one SecurityPolicy per attached client --
+// and a readiness gate has to require ALL of them, not pick one.
+func (k *Kube) ListUnstructuredByLabel(ctx context.Context, gvr schema.GroupVersionResource, ns, labelSelector string) ([]unstructured.Unstructured, error) {
+	ri := k.Dynamic.Resource(gvr)
+	var lister dynamic.ResourceInterface = ri
+	if ns != "" {
+		lister = ri.Namespace(ns)
+	}
+	list, err := lister.List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return nil, fmt.Errorf("list %s in %s matching %q: %w", gvr.Resource, ns, labelSelector, err)
+	}
+	return list.Items, nil
+}

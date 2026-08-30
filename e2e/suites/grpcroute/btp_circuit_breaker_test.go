@@ -99,33 +99,52 @@ func TestGRPCBTPCircuitBreaker(t *testing.T) {
 
 	const burst = 20
 	const burstDelaySeconds = 2
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	codesSeen := make([]codes.Code, 0, burst)
-	for i := 0; i < burst; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			res, err := delayCall(ctx, burstDelaySeconds)
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				codesSeen = append(codesSeen, codes.Unknown)
+
+	// One burst is retried until the breaker trips, rather than fired once
+	// and asserted on: the CircuitBreaker lives in a BackendTrafficPolicy,
+	// a separate object Envoy Gateway programs AFTER the GRPCRoute, so a
+	// burst sent the moment the route goes live hits an Envoy with no
+	// breaker configured and all 20 calls legitimately return OK. That
+	// race is what made this test fail non-deterministically in ~2.4s
+	// while passing whenever the route happened to take longer to settle.
+	// The retry is bounded by routeLiveTimeout -- a breaker that never
+	// engages still fails the test, with every code seen on the last
+	// attempt reported.
+	fireBurst := func() []codes.Code {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		codesSeen := make([]codes.Code, 0, burst)
+		for i := 0; i < burst; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				res, err := delayCall(ctx, burstDelaySeconds)
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					codesSeen = append(codesSeen, codes.Unknown)
+					return
+				}
+				codesSeen = append(codesSeen, res.Code)
+			}()
+		}
+		wg.Wait()
+		return codesSeen
+	}
+
+	deadline := time.Now().Add(routeLiveTimeout)
+	var codesSeen []codes.Code
+	for {
+		codesSeen = fireBurst()
+		for _, c := range codesSeen {
+			if c == codes.Unavailable {
 				return
 			}
-			codesSeen = append(codesSeen, res.Code)
-		}()
-	}
-	wg.Wait()
-
-	gotUnavailable := 0
-	for _, c := range codesSeen {
-		if c == codes.Unavailable {
-			gotUnavailable++
+		}
+		if !time.Now().Before(deadline) {
+			break
 		}
 	}
-	if gotUnavailable == 0 {
-		t.Fatalf("circuit breaker: got codes %v from %d concurrent requests, want at least one %v (circuit breaker never tripped)",
-			codesSeen, burst, codes.Unavailable)
-	}
+	t.Fatalf("circuit breaker: got codes %v from %d concurrent requests, want at least one %v (circuit breaker never tripped within %s)",
+		codesSeen, burst, codes.Unavailable, routeLiveTimeout)
 }

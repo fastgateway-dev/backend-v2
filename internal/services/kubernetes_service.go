@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/retry"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -5242,6 +5243,36 @@ func (s *KubernetesService) CreateClientTrafficPolicy(ctx context.Context, proje
 	return nil
 }
 
+// updateUnstructuredWithRetry performs a read-modify-write update of the
+// object called name, retrying on a Kubernetes optimistic-concurrency
+// conflict.
+//
+// Kubernetes rejects an Update whose resourceVersion is stale
+// ("Operation cannot be fulfilled ...: the object has been modified"),
+// which is what happens whenever two operations touch the same object
+// concurrently. Objects scoped to a DOMAIN rather than a route --
+// the ClientTrafficPolicy, the mTLS CA Secret, a client's API-key Secret
+// -- are exactly that: every mTLS CA add/remove, TLS change and
+// client-connection change on one domain rewrites the same object, so two
+// admins working on a domain at the same time (or, in the e2e suite, two
+// parallel tests) reliably produced a user-visible 400. Re-reading the
+// current resourceVersion and retrying resolves it; desired is rebuilt
+// from the caller's config each attempt, so the last writer still wins,
+// it just no longer fails spuriously.
+func updateUnstructuredWithRetry(ctx context.Context, ri dynamic.ResourceInterface, name string, desired *unstructured.Unstructured) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := ri.Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		obj := desired.DeepCopy()
+		obj.SetResourceVersion(existing.GetResourceVersion())
+		obj.SetUID(existing.GetUID())
+		_, err = ri.Update(ctx, obj, metav1.UpdateOptions{})
+		return err
+	})
+}
+
 // UpdateClientTrafficPolicy updates an Envoy Gateway ClientTrafficPolicy resource in Kubernetes
 func (s *KubernetesService) UpdateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *ClientTrafficPolicyConfig) error {
 	client, err := s.getClient(projectID)
@@ -5257,22 +5288,14 @@ func (s *KubernetesService) UpdateClientTrafficPolicy(ctx context.Context, proje
 		return s.DeleteClientTrafficPolicy(ctx, projectID, config.Namespace, config.Name)
 	}
 
-	// Get the existing ClientTrafficPolicy to preserve resourceVersion
-	existing, err := client.Resource(gvr).Namespace(config.Namespace).Get(ctx, config.Name, metav1.GetOptions{})
-	if err != nil {
-		// If not found, create it
-		if strings.Contains(err.Error(), "not found") {
+	// Re-reads resourceVersion on every attempt: this object is
+	// domain-scoped, so concurrent mTLS/TLS/client-connection changes on
+	// the same domain race each other. See updateUnstructuredWithRetry.
+	ri := client.Resource(gvr).Namespace(config.Namespace)
+	if err := updateUnstructuredWithRetry(ctx, ri, config.Name, clientTrafficPolicy); err != nil {
+		if k8serrors.IsNotFound(err) {
 			return s.CreateClientTrafficPolicy(ctx, projectID, config)
 		}
-		return fmt.Errorf("failed to get existing clienttrafficpolicy: %w", err)
-	}
-
-	// Preserve the resourceVersion from existing object
-	clientTrafficPolicy.SetResourceVersion(existing.GetResourceVersion())
-	clientTrafficPolicy.SetUID(existing.GetUID())
-
-	_, err = client.Resource(gvr).Namespace(config.Namespace).Update(ctx, clientTrafficPolicy, metav1.UpdateOptions{})
-	if err != nil {
 		return fmt.Errorf("failed to update clienttrafficpolicy: %w", err)
 	}
 
@@ -5371,14 +5394,10 @@ func (s *KubernetesService) CreateAPIKeySecret(ctx context.Context, projectID uu
 	_, err = client.Resource(gvr).Namespace(namespace).Create(ctx, secret, metav1.CreateOptions{})
 	if err != nil {
 		if k8serrors.IsAlreadyExists(err) {
-			// Get existing to preserve resourceVersion
-			existing, getErr := client.Resource(gvr).Namespace(namespace).Get(ctx, secretName, metav1.GetOptions{})
-			if getErr != nil {
-				return fmt.Errorf("failed to get existing secret: %w", getErr)
-			}
-			secret.SetResourceVersion(existing.GetResourceVersion())
-			_, err = client.Resource(gvr).Namespace(namespace).Update(ctx, secret, metav1.UpdateOptions{})
-			if err != nil {
+			// Retries on conflict: this Secret is rewritten by every
+			// change to the client, so concurrent updates race.
+			ri := client.Resource(gvr).Namespace(namespace)
+			if err := updateUnstructuredWithRetry(ctx, ri, secretName, secret); err != nil {
 				return fmt.Errorf("failed to update api key secret: %w", err)
 			}
 		} else {
@@ -5502,14 +5521,10 @@ func (s *KubernetesService) CreateOrUpdateSecret(ctx context.Context, projectID 
 	_, err = client.Resource(gvr).Namespace(namespace).Create(ctx, secret, metav1.CreateOptions{})
 	if err != nil {
 		if k8serrors.IsAlreadyExists(err) {
-			// Get existing to preserve resourceVersion
-			existing, getErr := client.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
-			if getErr != nil {
-				return fmt.Errorf("failed to get existing secret: %w", getErr)
-			}
-			secret.SetResourceVersion(existing.GetResourceVersion())
-			_, err = client.Resource(gvr).Namespace(namespace).Update(ctx, secret, metav1.UpdateOptions{})
-			if err != nil {
+			// Retries on conflict: this Secret holds ALL of the domain's
+			// mTLS CAs, so adding and removing CAs concurrently races.
+			ri := client.Resource(gvr).Namespace(namespace)
+			if err := updateUnstructuredWithRetry(ctx, ri, name, secret); err != nil {
 				return fmt.Errorf("failed to update secret: %w", err)
 			}
 		} else {

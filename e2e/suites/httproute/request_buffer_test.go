@@ -70,12 +70,26 @@ func TestRequestBuffer(t *testing.T) {
 		t.Fatalf("request buffer: under-limit body (100 bytes < 1Ki) got status %d, want 200", resp.StatusCode)
 	}
 
+	// Polled rather than read once: the policy that produces this outcome
+	// is a separate Kubernetes object Envoy Gateway programs AFTER the
+	// route, so the route serves traffic un-policied for a short window
+	// after deploy -- and WaitForRouteLive/waitForGRPCLive return on the
+	// first answer they see, which in that window is the un-policied one.
+	// harness.Fixture already waits for the policy to report Accepted;
+	// this closes the remaining xDS-push tail. Bounded by routeLiveTimeout,
+	// so a policy that never takes effect still fails the test.
 	overBody := bytes.Repeat([]byte("a"), 4096)
-	resp, err = env.GW.HTTP(ctx, "POST", path, harness.WithBody(overBody))
-	if err != nil {
-		t.Fatalf("request buffer: over-limit request: %v", err)
+	overProbe := func(ctx context.Context) (*harness.Response, error) {
+		return env.GW.HTTP(ctx, "POST", path, harness.WithBody(overBody))
 	}
-	if resp.StatusCode != 413 {
-		t.Fatalf("request buffer: over-limit body (4096 bytes > 1Ki) got status %d, want 413", resp.StatusCode)
+	resp, err = harness.WaitForResponse(ctx, overProbe, func(r *harness.Response) bool {
+		return r.StatusCode == 413
+	}, routeLiveTimeout)
+	if err != nil {
+		got := 0
+		if resp != nil {
+			got = resp.StatusCode
+		}
+		t.Fatalf("request buffer: over-limit body (4096 bytes > 1Ki) got status %d, want 413: %v", got, err)
 	}
 }

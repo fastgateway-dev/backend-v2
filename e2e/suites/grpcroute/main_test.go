@@ -252,6 +252,7 @@ func waitForGRPCLive(
 	deadline := time.Now().Add(timeout)
 	var last *harness.GRPCResult
 	var lastErr error
+	var graceDeadline time.Time
 
 	for time.Now().Before(deadline) {
 		res, err := call(ctx)
@@ -261,6 +262,20 @@ func waitForGRPCLive(
 		case grpcNotReady(res.Code):
 			last = res
 			lastErr = fmt.Errorf("code=%s message=%q (route likely not programmed yet)", res.Code, res.Message)
+		case res.Code == codes.Unknown && withinUnknownGrace(&graceDeadline):
+			// codes.Unknown is what an Envoy HTTP 500 becomes: 500 is
+			// not in Envoy's httpToGrpcStatus table, so it falls through
+			// to Unknown. Gateway API mandates a 500 for a parentRef
+			// whose backendRef is not resolvable yet, which for a
+			// freshly deployed GRPCRoute (particularly one carrying a
+			// RequestMirror filter, whose shadow cluster is programmed
+			// after the primary) is a transient state, not the route's
+			// real answer. Tolerate it for the same bounded window
+			// harness.WaitForRouteLive gives an HTTP 5xx, then report it
+			// like any other final code so a genuinely broken route
+			// still fails rather than spinning out the full timeout.
+			last = res
+			lastErr = fmt.Errorf("code=%s message=%q (backend not resolved yet)", res.Code, res.Message)
 		default:
 			return res, nil
 		}
@@ -274,6 +289,66 @@ func waitForGRPCLive(
 		return last, fmt.Errorf("route did not settle within %s: %w", timeout, lastErr)
 	}
 	return nil, fmt.Errorf("route did not become live within %s: %w", timeout, lastErr)
+}
+
+// grpcBackendGraceWindow is the gRPC counterpart to
+// harness.backendGraceWindow: how long waitForGRPCLive tolerates a
+// codes.Unknown (Envoy HTTP 500, "backendRef not resolvable yet") before
+// accepting it as the route's genuine answer. The clock starts when the
+// first such code is seen, not at waitForGRPCLive's own start.
+var grpcBackendGraceWindow = 15 * time.Second
+
+// withinUnknownGrace starts the grace clock on first call and reports
+// whether it is still open.
+func withinUnknownGrace(deadline *time.Time) bool {
+	if deadline.IsZero() {
+		*deadline = time.Now().Add(grpcBackendGraceWindow)
+	}
+	return time.Now().Before(*deadline)
+}
+
+// waitForGRPCResult polls call until want reports the result is the one
+// the caller actually means to assert on, returning it. On timeout it
+// returns the LAST observed result together with an error, so the caller's
+// failure message reports what the gateway really did.
+//
+// This is the gRPC form of harness.WaitForResponse and exists for the same
+// reason: waitForGRPCLive returns on the first "route seems programmed"
+// answer, which is the wrong gate for any assertion that depends on a
+// BackendTrafficPolicy / EnvoyExtensionPolicy / SecurityPolicy, since
+// those are separate objects Envoy Gateway programs after the route
+// itself. harness.Fixture now waits for those policies to report Accepted,
+// but Accepted is a Kubernetes-API fact -- it does not prove Envoy has
+// finished the xDS push -- so assertions on a policy's observable effect
+// poll for that effect here rather than reading it once and hoping.
+func waitForGRPCResult(
+	ctx context.Context,
+	call func(context.Context) (*harness.GRPCResult, error),
+	want func(*harness.GRPCResult) bool,
+	timeout time.Duration,
+) (*harness.GRPCResult, error) {
+	deadline := time.Now().Add(timeout)
+	var last *harness.GRPCResult
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		res, err := call(ctx)
+		if err != nil {
+			lastErr = err
+		} else {
+			last = res
+			if want(res) {
+				return res, nil
+			}
+			lastErr = fmt.Errorf("got code %s, which is not the expected outcome", res.Code)
+		}
+		select {
+		case <-ctx.Done():
+			return last, ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	return last, fmt.Errorf("expected result never observed within %s: %w", timeout, lastErr)
 }
 
 // uniqueMatch returns a route name (via harness.UniqueName) and a
