@@ -24,8 +24,11 @@ func TestGoldenHTTPRouteDeploy(t *testing.T) {
 }
 
 // TestGoldenHTTPRoutePreview snapshots the HTTPRoute the PREVIEW/YAML path
-// produces. For fixtures with a KnownDrift these files record WRONG output on
-// purpose -- see spec §2.4. Task 7 corrects them.
+// produces. For fixtures with a KnownDrift these files would record WRONG
+// output on purpose, capturing a preview/deploy divergence deliberately --
+// no fixture currently sets KnownDrift, since the divergences that
+// mechanism existed for have been fixed (see BuildHTTPRouteConfig's doc
+// comment in internal/routeplan/httproute.go).
 func TestGoldenHTTPRoutePreview(t *testing.T) {
 	for _, f := range goldenFixtures() {
 		if f.Route.Protocol != "" && f.Route.Protocol != "http" {
@@ -40,16 +43,16 @@ func TestGoldenHTTPRoutePreview(t *testing.T) {
 
 // TestDifferentialHTTPRoute is a re-divergence guard, not a live comparison.
 //
-// Since Task 7, both (*RouteService).buildHTTPRouteConfig and
-// buildHTTPRouteConfigForYAML delegate to the single buildHTTPRouteConfigUnified
-// function, so this test currently compares f(x) against f(x): the
-// require.Equal below is trivially true and cannot fail as things stand.
+// Both (*RouteService).buildHTTPRouteConfig and buildHTTPRouteConfigForYAML
+// delegate to the single buildHTTPRouteConfigUnified function, so this test
+// currently compares f(x) against f(x): the require.Equal below is
+// trivially true and cannot fail as things stand.
 //
-// Its value is prospective: if a future change (e.g. the Task 11/12 move
-// into internal/routeplan) reintroduces two separate assembly paths that
-// drift apart again, this test starts failing and catches it. Keep it, and
-// keep the two entry points delegating to one function -- that is what keeps
-// the assertion trivially true rather than silently wrong.
+// Its value is prospective: if a future change (e.g. moving this assembly
+// elsewhere in internal/routeplan) reintroduces two separate assembly paths
+// that drift apart again, this test starts failing and catches it. Keep it,
+// and keep the two entry points delegating to one function -- that is what
+// keeps the assertion trivially true rather than silently wrong.
 //
 // KnownDrift is still supported by this loop for exactly the inverse
 // situation -- a deliberately-reintroduced, tracked divergence -- but no
@@ -136,11 +139,13 @@ func TestDifferentialGRPCRoute(t *testing.T) {
 }
 
 // --- generateDirectResponseYAMLs: the HTTPRouteFilter + ConfigMap that the
-// extensionRef filter (spec §2.4 defect 1a) actually points at. It was
-// already unit-tested (route_service_yaml_internal_test.go:240-276 --
+// extensionRef filter (set on the deploy path only when DirectResponse != nil,
+// see BuildHTTPRouteConfig's doc comment) actually points at. It was already
+// unit-tested (route_service_yaml_internal_test.go:240-276 --
 // TestInternalGenerateDirectResponseYAMLs_WithBody/_NoBody/_Nil), so this is a
 // snapshot gap rather than an untested-code gap; snapshots are what protect
-// the Task 11/12 package moves, so it gets golden coverage here.
+// this assembly as it moves around internal/routeplan, so it gets golden
+// coverage here.
 //
 // Only the Inline body shape is covered. The model also defines
 // models.DirectResponseBodyTypeValueRef (models/route.go), but

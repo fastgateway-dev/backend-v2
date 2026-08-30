@@ -9,10 +9,11 @@ import (
 )
 
 // buildBackendTrafficPolicyConfigFromInput is the single unified assembler
-// behind every BackendTrafficPolicyConfig construction site (Task 10 collapses
-// what used to be five independently-written copies of this same field
-// mapping into this one function). Callers resolve everything site-specific
-// before calling in:
+// behind every BackendTrafficPolicyConfig construction site, replacing what
+// used to be five independently-written copies of this same field mapping.
+// Having one copy of the mapping is what keeps the deploy, preview and
+// per-client YAML paths from drifting from each other again. Callers resolve
+// everything site-specific before calling in:
 //   - routeK8sName is the TargetRef/Name value. It is route.K8sRouteName for
 //     the base-route sites, but a synthetic per-client name for the
 //     per-client sites (they target a different Kubernetes object).
@@ -102,9 +103,9 @@ func buildBackendTrafficPolicyConfigFromInput(routeK8sName string, protocol mode
 }
 
 // BuildBackendTrafficPolicyConfig is the deploy-path assembler (formerly a
-// (*RouteService) method -- it never used its receiver, so Task 10 makes it
-// a plain function). Deploy is authoritative where the four pre-collapse
-// bodies disagreed.
+// (*RouteService) method; it never used its receiver, so it is now a plain
+// function). Deploy is authoritative where the four pre-collapse bodies
+// disagreed.
 func BuildBackendTrafficPolicyConfig(route *models.Route, domain *models.Domain, policy *models.BackendTrafficPolicy) *kubernetes.BackendTrafficPolicyConfig {
 	if policy == nil {
 		return nil
@@ -120,13 +121,13 @@ func BuildBackendTrafficPolicyConfig(route *models.Route, domain *models.Domain,
 
 // GenerateAPIKeyBackendTrafficPolicyYAML generates BTP YAML for a per-client HTTPRoute
 // GenerateAPIKeyBackendTrafficPolicyYAML is the per-client pre-persist YAML
-// site -- not one of the four named in the original collapse plan, but
-// discovered during Task 10 implementation: it duplicates
-// BuildAPIKeyBackendTrafficPolicyConfig's exact same three divergences
-// (existence gate, per-client naming, rate-limit override precedence) in
-// YAML-returning form, so it reuses the same unified assembler. Note its one
-// genuine (and preserved) quirk versus the other three YAML-returning sites:
-// on a marshal error it returns "" rather than a "# Error ..." comment.
+// site. It duplicates BuildAPIKeyBackendTrafficPolicyConfig's exact same
+// three divergences from the base-route assemblers (existence gate,
+// per-client naming, rate-limit override precedence) in YAML-returning form,
+// so it reuses the same unified assembler rather than re-deriving them. Note
+// its one genuine (and preserved) quirk versus the other three
+// YAML-returning sites: on a marshal error it returns "" rather than a
+// "# Error ..." comment.
 func GenerateAPIKeyBackendTrafficPolicyYAML(route *models.Route, domain *models.Domain, btpPolicy *models.BackendTrafficPolicy, routeName string, rateLimitConfig *models.RateLimitConfig) string {
 	hasBasePolicy := btpPolicy != nil && !btpPolicy.Config.IsEmpty()
 	hasRateLimit := rateLimitConfig != nil
@@ -205,9 +206,9 @@ func GenerateBackendTrafficPolicyYAMLFromDB(route *models.Route, domain *models.
 }
 
 // BuildAPIKeyBackendTrafficPolicyConfig is the per-client deploy-path
-// assembler (formerly a (*RouteService) method -- it never used its
-// receiver). Task 10 collapses its field-copy logic into the shared
-// buildBackendTrafficPolicyConfigFromInput, but preserves its three
+// assembler (formerly a (*RouteService) method; it never used its
+// receiver). Its field-copy logic now goes through the shared
+// buildBackendTrafficPolicyConfigFromInput, but it preserves its three
 // deliberate divergences from the base-route assemblers exactly:
 //  1. Existence gate: a config is produced when client.RateLimitConfig is
 //     set even with no base policy at all (a client may have only a

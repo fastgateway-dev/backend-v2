@@ -692,7 +692,10 @@ func (s *TopologyService) GetProjectTopology(ctx context.Context, projectID uuid
 		})
 	}
 
-	// IP rows: route-level + client-level (Task 8)
+	// IP rows: one set sourced from route-level SecurityPolicy authorization
+	// rules, another from client-level attachments with EnableIPAllowlist set
+	// -- tracked separately below because they key by different IDs (route
+	// vs. client) before both feed into resp.IPs.
 	type clientReach struct {
 		clientID  uuid.UUID
 		routeIDs  []uuid.UUID
