@@ -363,12 +363,49 @@ jobs:
             ' "$f" 2>/dev/null | head -100 || echo "  (jq failed)"
           done
 
-      - name: Envoy Gateway logs (on failure)
+      - name: Envoy Gateway + proxy config (on failure)
         if: failure()
         run: |
-          kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=500 2>&1 \
-            | command grep -iE 'wasm|coraza|oci|lua|mirror|translat|error|unable|fail' \
-            | tail -80 || echo "  (no envoy-gateway logs)"
+          echo "=== envoy-gateway controller logs ==="
+          # No grep filter: the previous filtered version captured nothing at
+          # all, so we could not tell whether the controller was silent or the
+          # command failed. Dump raw and let the reader search.
+          kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=300 2>&1 | tail -120 \
+            || echo "  (kubectl logs failed)"
+
+          echo
+          echo "=== envoy proxy: is the filter actually programmed? ==="
+          # The policies all report Accepted=True while their features do not
+          # take effect, so the question is no longer "did EG accept the
+          # policy" but "did the filter reach the proxy". Accepted only means
+          # the targetRef resolved and the spec validated -- a filter can still
+          # fail to load in Envoy itself.
+          POD="$(kubectl -n envoy-gateway-system get pod \
+                  -l gateway.envoyproxy.io/owning-gateway-namespace=fastgateway-system \
+                  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+          if [ -z "$POD" ]; then
+            echo "  (no envoy proxy pod found)"
+            kubectl -n envoy-gateway-system get pods 2>&1 | head -20
+          else
+            echo "proxy pod: $POD"
+            kubectl -n envoy-gateway-system exec "$POD" -c envoy -- \
+              curl -s localhost:19000/config_dump 2>/dev/null > /tmp/diag/config_dump.json \
+              || echo "  (config_dump failed)"
+            if [ -s /tmp/diag/config_dump.json ]; then
+              echo "--- http filters present (name @type) ---"
+              jq -r '.. | .http_filters? // empty | .[]? | "\(.name)  \(.typed_config."@type" // "-")"' \
+                /tmp/diag/config_dump.json 2>/dev/null | sort -u | head -40
+              echo "--- lua / buffer / circuit-breaker / mirror mentions ---"
+              command grep -oiE '"(lua|buffer|circuit_breakers|request_mirror_policies)[^"]*"' \
+                /tmp/diag/config_dump.json | sort | uniq -c | head -20
+              echo "--- inline lua source (should contain x-lua-custom) ---"
+              command grep -o 'x-lua-custom' /tmp/diag/config_dump.json | head -3 \
+                || echo "  x-lua-custom NOT present in proxy config"
+            fi
+            echo "--- envoy proxy logs ---"
+            kubectl -n envoy-gateway-system logs "$POD" -c envoy --tail=200 2>&1 \
+              | command grep -iE 'lua|buffer|filter|error|reject|warn' | tail -40 || true
+          fi
       - name: Delete kind cluster
         if: always()
         run: kind delete cluster --name "$KIND_CLUSTER" || true
