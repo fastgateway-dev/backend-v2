@@ -1,0 +1,58 @@
+User:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    username:
+      type: string
+    email:
+      type: string
+      format: email
+    role:
+      type: string
+      enum: [owner, user]
+    isActive:
+      type: boolean
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+UserList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/User'
+    pagination:
+      $ref: './common.yaml#/Pagination'
+
+CreateUserRequest:
+  type: object
+  required: [username, email, password, role]
+  properties:
+    username:
+      type: string
+    email:
+      type: string
+      format: email
+    password:
+      type: string
+    role:
+      type: string
+      enum: [owner, user]
+
+UpdateUserRequest:
+  type: object
+  properties:
+    email:
+      type: string
+      format: email
+    password:
+      type: string
+    isActive:
+      type: boolean

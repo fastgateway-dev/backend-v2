@@ -1,0 +1,400 @@
+Client:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    teamId:
+      type: string
+      format: uuid
+    name:
+      type: string
+    description:
+      type: string
+    contactName:
+      type: string
+    contactEmail:
+      type: string
+    ipAddressCount:
+      type: integer
+    attachmentCount:
+      type: integer
+    apiKeyEnabled:
+      type: boolean
+      description: Whether the client has an API key configured
+    apiKeyPrefix:
+      type: string
+      description: First few characters of the API key (e.g., "fg_live_xxxx")
+    apiKeyHeaderName:
+      type: string
+      description: Header name used to send the API key (default "x-api-key")
+    apiKeyCreatedAt:
+      type: string
+      format: date-time
+      description: When the API key was generated
+    apiKeyCreatedBy:
+      type: string
+      format: uuid
+      description: User who generated the API key
+    clientIdHeaderName:
+      type: string
+      description: Header name for client ID routing (default "x-client-id")
+    # JWT Authentication
+    jwtEnabled:
+      type: boolean
+      description: Whether the client has JWT authentication configured
+    jwtIssuer:
+      type: string
+      description: JWT issuer URL
+    jwtJwksUrl:
+      type: string
+      description: URL to fetch JWKS for JWT validation
+    jwtAudiences:
+      type: array
+      items:
+        type: string
+      description: Expected JWT audience values
+    jwtRequiredClaims:
+      type: array
+      items:
+        $ref: '#/JWTRequiredClaim'
+      description: Required JWT claims for authorization
+    jwtClaimToHeaders:
+      type: array
+      items:
+        $ref: '#/JWTClaimToHeader'
+      description: JWT claims to map to HTTP headers
+    jwtCreatedAt:
+      type: string
+      format: date-time
+      description: When JWT was configured
+    jwtCreatedBy:
+      type: string
+      format: uuid
+      description: User who configured JWT
+    jwtCreator:
+      $ref: './user.yaml#/User'
+    # mTLS Authentication
+    mtlsEnabled:
+      type: boolean
+      description: Whether the client has mTLS authentication configured
+    mtlsCaName:
+      type: string
+      description: mTLS CA certificate name
+    mtlsCaSecret:
+      type: string
+      description: K8s Secret name containing CA cert
+    mtlsCaSecretKey:
+      type: string
+      description: Key within the Secret
+    mtlsSans:
+      type: array
+      items:
+        $ref: './domain.yaml#/MTLSSANEntry'
+      description: Subject Alternative Names for mTLS
+    mtlsHashes:
+      type: array
+      items:
+        type: string
+      description: Certificate hash whitelist for mTLS
+    mtlsCreatedAt:
+      type: string
+      format: date-time
+      description: When mTLS was configured
+    mtlsCreatedBy:
+      type: string
+      format: uuid
+      description: User who configured mTLS
+    mtlsCreator:
+      $ref: './user.yaml#/User'
+    # Header & Method Authorization
+    allowedMethods:
+      type: array
+      items:
+        type: string
+        enum: [GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS]
+      description: Allowed HTTP methods for authorization
+    headers:
+      type: array
+      items:
+        $ref: '#/ClientHeader'
+      description: Header authorization rules
+    createdBy:
+      type: string
+      format: uuid
+    team:
+      $ref: './team.yaml#/Team'
+    creator:
+      $ref: './user.yaml#/User'
+    apiKeyCreator:
+      $ref: './user.yaml#/User'
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+ClientList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/Client'
+    pagination:
+      $ref: './common.yaml#/Pagination'
+
+CreateClientRequest:
+  type: object
+  required: [name, teamId]
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+    teamId:
+      type: string
+      format: uuid
+    contactName:
+      type: string
+    contactEmail:
+      type: string
+    clientIdHeaderName:
+      type: string
+      description: Header name for client ID routing (default "x-client-id")
+
+UpdateClientRequest:
+  type: object
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+    contactName:
+      type: string
+    contactEmail:
+      type: string
+    clientIdHeaderName:
+      type: string
+      description: Header name for client ID routing (default "x-client-id")
+
+ClientIPAddress:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    clientId:
+      type: string
+      format: uuid
+    cidr:
+      type: string
+      description: IP address or CIDR range (e.g. 10.0.0.1/32, 192.168.0.0/24)
+    description:
+      type: string
+    createdBy:
+      type: string
+      format: uuid
+    creator:
+      $ref: './user.yaml#/User'
+    createdAt:
+      type: string
+      format: date-time
+
+CreateClientIPRequest:
+  type: object
+  required: [cidr]
+  properties:
+    cidr:
+      type: string
+      description: IP address or CIDR range
+    description:
+      type: string
+
+GenerateAPIKeyRequest:
+  type: object
+  properties:
+    headerName:
+      type: string
+      description: Header name to send the API key in requests (default "x-api-key")
+      default: x-api-key
+      example: x-api-key
+
+GenerateAPIKeyResponse:
+  type: object
+  properties:
+    apiKey:
+      type: string
+      description: The generated API key (shown only once)
+      example: fg_live_aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2u
+    prefix:
+      type: string
+      description: First few characters of the key for display
+      example: fg_live_aB3c
+    headerName:
+      type: string
+      description: Header name to use when sending the key
+      example: x-api-key
+    createdAt:
+      type: string
+      format: date-time
+      description: When the key was generated
+
+JWTRequiredClaim:
+  type: object
+  properties:
+    name:
+      type: string
+      description: JWT claim name (e.g., "scope", "role")
+    values:
+      type: array
+      items:
+        type: string
+      description: Required values for the claim
+    valueType:
+      type: string
+      enum: [Exact, StringContains]
+      default: Exact
+      description: How to match claim values
+
+JWTClaimToHeader:
+  type: object
+  properties:
+    claim:
+      type: string
+      description: JWT claim name to extract
+    header:
+      type: string
+      description: HTTP header name to set with the claim value
+
+ConfigureJWTRequest:
+  type: object
+  required: [issuer, jwksUrl]
+  properties:
+    issuer:
+      type: string
+      description: JWT issuer URL
+      example: https://accounts.google.com
+    jwksUrl:
+      type: string
+      description: URL to fetch JWKS for JWT validation
+      example: https://www.googleapis.com/oauth2/v3/certs
+    audiences:
+      type: array
+      items:
+        type: string
+      description: Expected JWT audience values
+    requiredClaims:
+      type: array
+      items:
+        $ref: '#/JWTRequiredClaim'
+      description: Required JWT claims for authorization
+    claimToHeaders:
+      type: array
+      items:
+        $ref: '#/JWTClaimToHeader'
+      description: JWT claims to map to HTTP headers
+
+ConfigureJWTResponse:
+  type: object
+  properties:
+    jwtEnabled:
+      type: boolean
+    jwtIssuer:
+      type: string
+    jwtJwksUrl:
+      type: string
+    jwtAudiences:
+      type: array
+      items:
+        type: string
+    jwtRequiredClaims:
+      type: array
+      items:
+        $ref: '#/JWTRequiredClaim'
+    jwtClaimToHeaders:
+      type: array
+      items:
+        $ref: '#/JWTClaimToHeader'
+    jwtCreatedAt:
+      type: string
+      format: date-time
+    jwtCreatedBy:
+      type: string
+      format: uuid
+
+ClientHeader:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    clientId:
+      type: string
+      format: uuid
+    name:
+      type: string
+      description: Header name (e.g., "x-user-id")
+    values:
+      type: array
+      items:
+        type: string
+      description: Allowed values for this header
+    description:
+      type: string
+    createdBy:
+      type: string
+      format: uuid
+    creator:
+      $ref: './user.yaml#/User'
+    createdAt:
+      type: string
+      format: date-time
+
+CreateClientHeaderRequest:
+  type: object
+  required: [name, values]
+  properties:
+    name:
+      type: string
+      description: Header name (e.g., "x-user-id")
+    values:
+      type: array
+      items:
+        type: string
+      description: Allowed values for this header
+    description:
+      type: string
+
+SetAllowedMethodsRequest:
+  type: object
+  required: [methods]
+  properties:
+    methods:
+      type: array
+      items:
+        type: string
+        enum: [GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS]
+      description: Allowed HTTP methods for this client
+
+UpdateClientMTLSRequest:
+  type: object
+  description: Request to configure mTLS for a client
+  properties:
+    enabled:
+      type: boolean
+    caName:
+      type: string
+      description: CA certificate name
+    caPem:
+      type: string
+      description: CA certificate PEM content
+    sans:
+      type: array
+      items:
+        $ref: './domain.yaml#/MTLSSANEntry'
+    hashes:
+      type: array
+      items:
+        type: string

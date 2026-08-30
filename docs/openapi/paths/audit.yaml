@@ -1,0 +1,113 @@
+audit:
+  get:
+    tags: [Audit]
+    summary: List audit logs
+    description: Requires audit.view permission, Owner, or Project Admin role.
+    operationId: listAuditLogs
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+      - name: resourceType
+        in: query
+        schema:
+          type: string
+          enum: [domain, domain_template, route, team, user, project_namespace]
+      - name: action
+        in: query
+        schema:
+          type: string
+          enum: [create, update, delete, approve, reject, deploy]
+      - name: userId
+        in: query
+        schema:
+          type: string
+          format: uuid
+    responses:
+      '200':
+        description: List of audit logs
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/audit.yaml#/AuditLogList'
+
+audit-export:
+  get:
+    tags: [Audit]
+    summary: Export audit logs as CSV
+    description: >
+      Exports all matching audit logs as a CSV file. Supports the same filters
+      as the list endpoint but returns all results without pagination.
+      Requires audit.view permission, Owner, or Project Admin role.
+    operationId: exportAuditLogs
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - name: resourceType
+        in: query
+        schema:
+          type: string
+          enum: [domain, domain_template, route, team, user, project_namespace]
+      - name: action
+        in: query
+        schema:
+          type: string
+          enum: [create, update, delete, approve, reject, deploy]
+      - name: userId
+        in: query
+        schema:
+          type: string
+          format: uuid
+    responses:
+      '200':
+        description: CSV file download
+        headers:
+          Content-Disposition:
+            schema:
+              type: string
+              example: 'attachment; filename=audit-log.csv'
+        content:
+          text/csv:
+            schema:
+              type: string
+              description: |
+                CSV with columns: Timestamp, Username, Action, Resource Type, Resource Name, Resource ID, IP Address, Details
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+audit-cleanup:
+  delete:
+    tags: [Audit]
+    summary: Delete old audit logs
+    description: >
+      Permanently deletes audit logs older than the specified number of days.
+      This action cannot be undone. Requires Owner or Project Admin role.
+    operationId: cleanupAuditLogs
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/audit.yaml#/AuditCleanupRequest'
+    responses:
+      '200':
+        description: Cleanup result
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/audit.yaml#/AuditCleanupResponse'
+      '400':
+        description: Invalid request (days must be >= 1)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'

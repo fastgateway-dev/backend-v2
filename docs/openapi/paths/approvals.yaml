@@ -1,0 +1,307 @@
+client-approvals:
+  get:
+    tags: [Client Approvals]
+    summary: List client attachment approvals for a project
+    operationId: listClientApprovals
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [pending, approved, rejected]
+          default: pending
+    responses:
+      '200':
+        description: List of client attachment approvals
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval.yaml#/ApprovalList'
+
+client-approval:
+  get:
+    tags: [Client Approvals]
+    summary: Get client attachment approval by ID
+    operationId: getClientApproval
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/approvalId'
+    responses:
+      '200':
+        description: Client attachment approval details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval.yaml#/Approval'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+client-approve-stage:
+  post:
+    tags: [Client Approvals]
+    summary: Approve a stage of client attachment approval
+    operationId: approveClientAttachmentStage
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/approvalId'
+      - $ref: '../components/parameters.yaml#/stageId'
+    responses:
+      '200':
+        description: Stage approved
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval.yaml#/Approval'
+      '400':
+        description: Cannot approve (submitter, already approved, etc.)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+client-reject-stage:
+  post:
+    tags: [Client Approvals]
+    summary: Reject a stage of client attachment approval
+    operationId: rejectClientAttachmentStage
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/approvalId'
+      - $ref: '../components/parameters.yaml#/stageId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/approval.yaml#/RejectRequest'
+    responses:
+      '200':
+        description: Stage rejected
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval.yaml#/Approval'
+      '400':
+        description: Cannot reject
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+approvals:
+  get:
+    tags: [Approvals]
+    summary: List pending approvals
+    operationId: listApprovals
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [pending, approved, rejected]
+      - name: entityType
+        in: query
+        schema:
+          type: string
+          enum: [route, client_attachment]
+    responses:
+      '200':
+        description: List of approval requests
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval.yaml#/ApprovalList'
+
+approval:
+  get:
+    tags: [Approvals]
+    summary: Get approval request by ID
+    operationId: getApproval
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/approvalId'
+    responses:
+      '200':
+        description: Approval request details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval.yaml#/Approval'
+
+approval-diff:
+  get:
+    tags: [Approvals]
+    summary: Get YAML diff for approval request
+    operationId: getApprovalDiff
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/approvalId'
+    responses:
+      '200':
+        description: Approval diff with current and proposed YAML
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval.yaml#/ApprovalDiffResponse'
+
+approve-stage:
+  post:
+    tags: [Approvals]
+    summary: Approve a stage of an approval request
+    operationId: approveRequestStage
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/approvalId'
+      - $ref: '../components/parameters.yaml#/stageId'
+    responses:
+      '200':
+        description: Stage approved
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval.yaml#/Approval'
+
+reject-stage:
+  post:
+    tags: [Approvals]
+    summary: Reject a stage of an approval request
+    operationId: rejectRequestStage
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/approvalId'
+      - $ref: '../components/parameters.yaml#/stageId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/approval.yaml#/RejectRequest'
+    responses:
+      '200':
+        description: Stage rejected
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval.yaml#/Approval'
+
+approval-comments:
+  get:
+    tags: [Approvals]
+    summary: List comments on an approval
+    operationId: listApprovalComments
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/approvalId'
+    responses:
+      '200':
+        description: List of comments
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/comment.yaml#/CommentList'
+  post:
+    tags: [Approvals]
+    summary: Add comment to an approval
+    operationId: createApprovalComment
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/approvalId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/comment.yaml#/CreateCommentRequest'
+    responses:
+      '201':
+        description: Comment created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/comment.yaml#/ApprovalComment'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+approval-ai-review:
+  post:
+    tags: [Approvals]
+    summary: Trigger AI review for an approval
+    operationId: triggerApprovalAIReview
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/approvalId'
+    responses:
+      '200':
+        description: AI review result
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/ai.yaml#/AIReviewResult'
+      '409':
+        description: AI review already exists
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '429':
+        description: Rate limit exceeded
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '503':
+        description: AI service unavailable
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+approval-cancel:
+  post:
+    tags: [Approvals]
+    summary: Cancel an approval request
+    operationId: cancelApproval
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/approvalId'
+    responses:
+      '200':
+        description: Approval cancelled
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval.yaml#/Approval'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'

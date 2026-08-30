@@ -1,0 +1,132 @@
+status:
+  get:
+    tags: [AI]
+    summary: Check AI service availability
+    operationId: getAIStatus
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: AI status
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/ai.yaml#/AIStatus'
+
+generate:
+  post:
+    tags: [AI]
+    summary: Generate routes using AI (SSE stream)
+    operationId: aiGenerateRoutes
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/ai.yaml#/AIGenerateRequest'
+    responses:
+      '200':
+        description: SSE stream of generation chunks
+        content:
+          text/event-stream:
+            schema:
+              type: string
+      '429':
+        description: Rate limit exceeded
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '503':
+        description: AI service unavailable
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+chat:
+  post:
+    tags: [AI]
+    summary: Chat with AI assistant (SSE stream)
+    description: |
+      Interactive AI chat with context about routes and domains. Supports
+      conversation history. Returns Server-Sent Events (SSE) stream.
+      Enterprise-only feature.
+    operationId: aiChat
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/ai.yaml#/AIChatRequest'
+    responses:
+      '200':
+        description: SSE stream of chat response chunks
+        content:
+          text/event-stream:
+            schema:
+              type: string
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '429':
+        description: Rate limit exceeded
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '503':
+        description: AI service unavailable
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+review:
+  post:
+    tags: [AI]
+    summary: Review route YAML changes using AI
+    description: Sends current and/or proposed YAML configurations to AI for structured review. Returns summary, risks, security notes, suggestions, and config highlights. Enterprise-only feature.
+    operationId: aiReviewYaml
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/ai.yaml#/AIReviewRequest'
+    responses:
+      '200':
+        description: Structured AI review result
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/ai.yaml#/AIReviewResult'
+      '400':
+        description: Invalid request (missing YAML content)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '429':
+        description: Rate limit exceeded
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '503':
+        description: AI service unavailable
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package token;
+option go_package = "./token";
+
+message TokenRequest {}
+
+message TokenResponse {
+    string token = 1;
+    string expiresAt = 2;
+    string message = 3;
+}
+
+service TokenService {
+    rpc TokenGenerate(TokenRequest) returns (TokenResponse) {}
+    rpc TokenValidate(TokenRequest) returns (TokenResponse) {}
+}

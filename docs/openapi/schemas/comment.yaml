@@ -1,0 +1,37 @@
+ApprovalComment:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    approvalId:
+      type: string
+      format: uuid
+    userId:
+      type: string
+      format: uuid
+    body:
+      type: string
+    createdAt:
+      type: string
+      format: date-time
+    user:
+      $ref: './user.yaml#/User'
+
+CreateCommentRequest:
+  type: object
+  required: [body]
+  properties:
+    body:
+      type: string
+      maxLength: 10000
+
+CommentList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/ApprovalComment'
+    total:
+      type: integer

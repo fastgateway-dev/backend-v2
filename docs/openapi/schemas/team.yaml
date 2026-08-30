@@ -1,0 +1,94 @@
+Team:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    description:
+      type: string
+    memberCount:
+      type: integer
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+TeamList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/Team'
+    pagination:
+      $ref: './common.yaml#/Pagination'
+
+CreateTeamRequest:
+  type: object
+  required: [name]
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+
+UpdateTeamRequest:
+  type: object
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+
+AddTeamMemberRequest:
+  type: object
+  required: [userId]
+  properties:
+    userId:
+      type: string
+      format: uuid
+
+AddMemberByEmailRequest:
+  type: object
+  required: [email]
+  properties:
+    email:
+      type: string
+      format: email
+
+AddMemberResult:
+  type: object
+  properties:
+    type:
+      type: string
+      enum: [added, invited]
+    user:
+      $ref: '#/Team'
+    invite:
+      $ref: '#/TeamEmailInvite'
+
+TeamEmailInvite:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    teamId:
+      type: string
+      format: uuid
+    email:
+      type: string
+    invitedBy:
+      type: string
+      format: uuid
+    createdAt:
+      type: string
+      format: date-time
+    team:
+      $ref: '#/Team'
+    inviter:
+      $ref: './user.yaml#/User'

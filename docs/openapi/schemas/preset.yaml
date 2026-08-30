@@ -1,0 +1,50 @@
+PermissionPreset:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    name:
+      type: string
+    description:
+      type: string
+    permissions:
+      type: array
+      items:
+        type: string
+    isBuiltin:
+      type: boolean
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+CreatePresetRequest:
+  type: object
+  required: [name, permissions]
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+    permissions:
+      type: array
+      items:
+        type: string
+
+UpdatePresetRequest:
+  type: object
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+    permissions:
+      type: array
+      items:
+        type: string

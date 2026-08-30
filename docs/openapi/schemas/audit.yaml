@@ -1,0 +1,61 @@
+AuditLog:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    userId:
+      type: string
+      format: uuid
+    username:
+      type: string
+    action:
+      type: string
+    resourceType:
+      type: string
+    resourceId:
+      type: string
+      format: uuid
+    resourceName:
+      type: string
+    details:
+      type: object
+    ipAddress:
+      type: string
+    createdAt:
+      type: string
+      format: date-time
+
+AuditLogList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/AuditLog'
+    pagination:
+      $ref: './common.yaml#/Pagination'
+
+AuditCleanupRequest:
+  type: object
+  required: [days]
+  properties:
+    days:
+      type: integer
+      minimum: 1
+      description: Delete audit logs older than this many days
+      example: 90
+
+AuditCleanupResponse:
+  type: object
+  properties:
+    deleted:
+      type: integer
+      description: Number of audit log entries deleted
+    message:
+      type: string
+      description: Human-readable result message
+      example: 'Deleted 42 audit logs older than 90 days'

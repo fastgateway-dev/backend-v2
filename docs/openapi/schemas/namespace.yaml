@@ -1,0 +1,54 @@
+ProjectNamespace:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    namespace:
+      type: string
+    capabilities:
+      type: array
+      description: Roles this namespace can play in the project.
+      items:
+        $ref: '#/NamespaceCapability'
+    referenceGrantCreated:
+      type: boolean
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+NamespaceCapability:
+  type: string
+  enum: [deploy_gateway, backend_service, tls_secret]
+  description: |
+    - `deploy_gateway`: Gateway / HTTPRoute / GRPCRoute can be deployed in this namespace.
+    - `backend_service`: HTTPRoutes can forward to Services in this namespace.
+    - `tls_secret`: Gateway can mount TLS Secrets stored in this namespace.
+
+CreateProjectNamespaceRequest:
+  type: object
+  required: [namespace, capabilities]
+  properties:
+    namespace:
+      type: string
+    capabilities:
+      type: array
+      minItems: 1
+      items:
+        $ref: '#/NamespaceCapability'
+
+UpdateProjectNamespaceRequest:
+  type: object
+  required: [capabilities]
+  properties:
+    capabilities:
+      type: array
+      minItems: 1
+      items:
+        $ref: '#/NamespaceCapability'

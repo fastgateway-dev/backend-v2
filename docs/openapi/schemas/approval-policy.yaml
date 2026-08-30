@@ -1,0 +1,79 @@
+ApprovalPolicy:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    entityType:
+      type: string
+      enum: [route, client_attachment]
+      description: Type of entity this policy applies to
+    action:
+      type: string
+      description: Specific action this policy applies to (optional)
+    stages:
+      type: array
+      items:
+        $ref: '#/PolicyStageTemplate'
+      description: Approval stages defined by this policy
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+PolicyStageTemplate:
+  type: object
+  properties:
+    order:
+      type: integer
+      description: Stage order (1-based)
+    requiredPermission:
+      type: string
+      description: Permission required to approve this stage (e.g., "route.approve")
+    teamScope:
+      type: string
+      enum: [any, other_team, submitter_team]
+      description: Which team members can approve this stage
+    minApprovers:
+      type: integer
+      description: Minimum number of approvers required for this stage
+
+ApprovalPolicyInput:
+  type: object
+  required: [entityType, stages]
+  properties:
+    entityType:
+      type: string
+      enum: [route, client_attachment]
+      description: Type of entity this policy applies to
+    action:
+      type: string
+      description: Specific action this policy applies to (optional)
+    stages:
+      type: array
+      items:
+        $ref: '#/PolicyStageInput'
+      description: Approval stages to configure
+
+PolicyStageInput:
+  type: object
+  required: [requiredPermission, teamScope]
+  properties:
+    order:
+      type: integer
+      description: Stage order (auto-assigned if omitted)
+    requiredPermission:
+      type: string
+      description: Permission required to approve this stage
+    teamScope:
+      type: string
+      enum: [any, other_team, submitter_team]
+      description: Which team members can approve this stage
+    minApprovers:
+      type: integer
+      description: Minimum number of approvers required

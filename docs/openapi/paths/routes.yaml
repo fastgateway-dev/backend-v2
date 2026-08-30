@@ -1,0 +1,386 @@
+routes:
+  get:
+    tags: [Routes]
+    summary: List routes for domain
+    operationId: listRoutes
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+      - name: teamId
+        in: query
+        schema:
+          type: string
+          format: uuid
+        description: Filter by team
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [pending_create, pending_update, pending_delete, approved, pending_deploy, active, rejected]
+    responses:
+      '200':
+        description: List of routes
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/RouteList'
+
+  post:
+    tags: [Routes]
+    summary: Create route (submits for approval)
+    operationId: createRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/route.yaml#/CreateRouteRequest'
+    responses:
+      '201':
+        description: Route created and pending approval
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/Route'
+
+routes_{routeId}:
+  get:
+    tags: [Routes]
+    summary: Get route by ID
+    operationId: getRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Route details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/Route'
+
+  put:
+    tags: [Routes]
+    summary: Update route (submits for approval)
+    operationId: updateRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/route.yaml#/UpdateRouteRequest'
+    responses:
+      '200':
+        description: Route update pending approval
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/Route'
+
+  delete:
+    tags: [Routes]
+    summary: Delete route (submits for approval)
+    operationId: deleteRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Route deletion pending approval
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/Route'
+
+route-yaml:
+  get:
+    tags: [Routes]
+    summary: Get route as Kubernetes YAML (HTTPRoute only)
+    operationId: getRouteYaml
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Route as YAML
+        content:
+          text/yaml:
+            schema:
+              type: string
+
+route-yamls:
+  get:
+    tags: [Routes]
+    summary: Get all Kubernetes YAMLs for route (HTTPRoute, SecurityPolicy, BackendTrafficPolicy)
+    operationId: getRouteYamls
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Route YAMLs
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/RouteYAMLsResponse'
+
+preview-create:
+  post:
+    tags: [Routes]
+    summary: Preview route creation (generate YAML without creating)
+    operationId: previewCreateRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/route.yaml#/CreateRouteRequest'
+    responses:
+      '200':
+        description: Preview of route YAML
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/PreviewCreateResponse'
+
+preview-update:
+  post:
+    tags: [Routes]
+    summary: Preview route update (compare current vs proposed YAML)
+    operationId: previewUpdateRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/route.yaml#/UpdateRouteRequest'
+    responses:
+      '200':
+        description: Preview of route update
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/PreviewUpdateResponse'
+
+preview-delete:
+  get:
+    tags: [Routes]
+    summary: Preview route deletion (show what will be deleted)
+    operationId: previewDeleteRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Preview of route deletion
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/PreviewDeleteResponse'
+
+deploy:
+  post:
+    tags: [Routes]
+    summary: Deploy approved route to Kubernetes
+    operationId: deployRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Route deployed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/Route'
+      '400':
+        description: Route not in deployable state
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+route-versions:
+  get:
+    tags: [Routes]
+    summary: List route version history
+    operationId: listRouteVersions
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+    responses:
+      '200':
+        description: Route version history
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route-version.yaml#/RouteVersionList'
+
+route-version:
+  get:
+    tags: [Routes]
+    summary: Get specific route version
+    operationId: getRouteVersion
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: integer
+    responses:
+      '200':
+        description: Route version details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route-version.yaml#/RouteVersion'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+route-version-rollback:
+  post:
+    tags: [Routes]
+    summary: Rollback route to a previous version
+    operationId: rollbackRouteVersion
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: integer
+    responses:
+      '200':
+        description: Route rolled back
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/Route'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+project-routes:
+  get:
+    tags: [Routes]
+    summary: List routes across all domains in a project
+    description: |
+      Lists routes in a project, optionally filtered by backend service and
+      namespace. When `backend_service` and `backend_namespace` are both set,
+      only routes whose `config.backends[]` (and optionally `config.mirrors[]`
+      when `include_mirrors=true`) contain a Kubernetes backend with that
+      service+namespace are returned. Useful for answering "where is this
+      service used?".
+    operationId: listProjectRoutes
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - name: backend_service
+        in: query
+        schema:
+          type: string
+        description: Match routes whose backends contain a Kubernetes backend with this service name. Must be paired with backend_namespace.
+      - name: backend_namespace
+        in: query
+        schema:
+          type: string
+        description: Match routes whose backends contain a Kubernetes backend in this namespace. Must be paired with backend_service.
+      - name: include_mirrors
+        in: query
+        schema:
+          type: boolean
+          default: false
+        description: When true, also match against config.mirrors[].
+      - name: status
+        in: query
+        schema:
+          type: string
+        description: Comma-separated list of statuses (pending_create, pending_update, pending_delete, approved, pending_deploy, active, rejected).
+      - name: team_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: domain_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - $ref: '../components/parameters.yaml#/page'
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 50
+          maximum: 200
+    responses:
+      '200':
+        description: Paginated list of routes
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/RouteList'
+      '400':
+        description: Invalid filter (e.g., backend_service without backend_namespace)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

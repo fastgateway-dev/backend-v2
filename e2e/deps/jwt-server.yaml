@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jwt-server
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jwt-server
+  template:
+    metadata:
+      labels:
+        app: jwt-server
+    spec:
+      containers:
+        - name: jwt-server
+          image: fastgateway-jwt-server:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 9000
+          env:
+            - name: PORT
+              value: "9000"
+            - name: JWT_SERVER_HOST
+              value: "http://jwt-server.default.svc.cluster.local:9000"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jwt-server
+  namespace: default
+spec:
+  selector:
+    app: jwt-server
+  ports:
+    - protocol: TCP
+      port: 9000
+      targetPort: 9000

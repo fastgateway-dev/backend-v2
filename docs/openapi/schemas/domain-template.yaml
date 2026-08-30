@@ -1,0 +1,209 @@
+DomainTemplate:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    name:
+      type: string
+    description:
+      type: string
+    controllerName:
+      type: string
+    exposureType:
+      type: string
+      enum: [LoadBalancer, ClusterIP]
+    tlsMode:
+      type: string
+      enum: [tls_only, no_tls, both]
+    httpPort:
+      type: integer
+    httpsPort:
+      type: integer
+    tlsPolicy:
+      type: string
+      enum: [terminate, passthrough]
+    externalTrafficPolicy:
+      type: string
+      enum: [Cluster, Local]
+    loadBalancerClass:
+      type: string
+    annotations:
+      type: object
+      additionalProperties:
+        type: string
+    status:
+      type: string
+      enum: [pending, active, error]
+    statusMessage:
+      type: string
+    k8sGatewayClassName:
+      type: string
+    k8sEnvoyProxyName:
+      type: string
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+DomainTemplateList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/DomainTemplate'
+    pagination:
+      $ref: './common.yaml#/Pagination'
+
+CreateDomainTemplateRequest:
+  type: object
+  required: [name, exposureType, tlsMode]
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+    controllerName:
+      type: string
+      default: gateway.envoyproxy.io/gatewayclass-controller
+    exposureType:
+      type: string
+      enum: [LoadBalancer, ClusterIP]
+    tlsMode:
+      type: string
+      enum: [tls_only, no_tls, both]
+    httpPort:
+      type: integer
+      default: 80
+    httpsPort:
+      type: integer
+      default: 443
+    tlsPolicy:
+      type: string
+      enum: [terminate, passthrough]
+      default: terminate
+    externalTrafficPolicy:
+      type: string
+      enum: [Cluster, Local]
+    loadBalancerClass:
+      type: string
+    annotations:
+      type: object
+      additionalProperties:
+        type: string
+
+UpdateDomainTemplateRequest:
+  type: object
+  properties:
+    description:
+      type: string
+    externalTrafficPolicy:
+      type: string
+      enum: [Cluster, Local]
+    loadBalancerClass:
+      type: string
+    annotations:
+      type: object
+      additionalProperties:
+        type: string
+
+DomainTemplateManifests:
+  type: object
+  properties:
+    gatewayClassYaml:
+      type: string
+    envoyProxyYaml:
+      type: string
+
+DomainTemplateCreatePreviewRequest:
+  type: object
+  required: [name, exposureType, tlsMode]
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+    controllerName:
+      type: string
+    exposureType:
+      type: string
+      enum: [LoadBalancer, ClusterIP]
+    tlsMode:
+      type: string
+      enum: [tls_only, no_tls, both]
+    httpPort:
+      type: integer
+    httpsPort:
+      type: integer
+    tlsPolicy:
+      type: string
+      enum: [terminate, passthrough]
+    externalTrafficPolicy:
+      type: string
+      enum: [Cluster, Local]
+    loadBalancerClass:
+      type: string
+    annotations:
+      type: object
+      additionalProperties:
+        type: string
+    podAnnotations:
+      type: object
+      additionalProperties:
+        type: string
+    includeAIReview:
+      type: boolean
+    changeDescription:
+      type: string
+
+DomainTemplateCreatePreviewResult:
+  type: object
+  properties:
+    gatewayClassYaml:
+      type: string
+    envoyProxyYaml:
+      type: string
+    gatewayYaml:
+      type: string
+      description: Example Gateway manifest showing TLS configuration impact
+    aiReview:
+      $ref: './ai.yaml#/AIReviewResult'
+
+DomainTemplatePreviewChangesRequest:
+  type: object
+  properties:
+    description:
+      type: string
+    externalTrafficPolicy:
+      type: string
+      enum: [Cluster, Local]
+    loadBalancerClass:
+      type: string
+    annotations:
+      type: object
+      additionalProperties:
+        type: string
+    podAnnotations:
+      type: object
+      additionalProperties:
+        type: string
+    includeAIReview:
+      type: boolean
+    changeDescription:
+      type: string
+
+DomainTemplatePreviewResult:
+  type: object
+  properties:
+    currentEnvoyProxyYaml:
+      type: string
+    proposedEnvoyProxyYaml:
+      type: string
+    aiReview:
+      $ref: './ai.yaml#/AIReviewResult'

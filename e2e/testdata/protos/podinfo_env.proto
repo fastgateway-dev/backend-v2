@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package env;
+option go_package = "./env";
+
+message EnvRequest {}
+
+message EnvResponse {
+    repeated string envVars = 1;
+}
+
+service EnvService {
+    rpc Env(EnvRequest) returns (EnvResponse) {}
+}

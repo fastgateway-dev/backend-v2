@@ -1,0 +1,350 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  unit:
+    name: Build, test, lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./... -count=1
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  # Builds and pushes the backend-v2 image to
+  # ghcr.io. Gated on `unit` -- deliberately NOT on `e2e` -- so a failing
+  # build/test/lint never gets published, without serializing behind the
+  # ~30-minute e2e job in front of every image push.
+  image:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    needs: unit
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      # Set up QEMU (multi-platform build support)
+      # https://github.com/docker/setup-qemu-action
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      # Set up BuildKit Docker container builder to be able to build
+      # multi-platform images and export cache
+      # https://github.com/docker/setup-buildx-action
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+      # Login against a Docker registry except on PR
+      # https://github.com/docker/login-action
+      - name: Log into registry ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Extract metadata (tags, labels) for Docker
+      # https://github.com/docker/metadata-action
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 # v5.0.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+      # Build and push Docker image with Buildx (don't push on PR)
+      # https://github.com/docker/build-push-action
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
+        with:
+          context: .
+          provenance: false
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  # e2e stands up a real kind cluster + Envoy Gateway and runs the Go e2e
+  # suite (e2e/suites/...) against it. No docker-compose: every dependency
+  # is orchestrated directly by this job (see docs/superpowers/specs/
+  # 2026-08-29-backend-v2-design.md §5.3-5.4).
+  #
+  # Version pinning: Envoy Gateway 1.6.2 and 1.7.0, both on Gateway API
+  # 1.4.1 -- the SupportedVersionPairs called out in the design spec. EG
+  # 1.8.0/Gateway API 1.5.1 is intentionally NOT run here; it runs only in
+  # the manual e2e-version-matrix.yml workflow until it has been verified
+  # against real infrastructure.
+  e2e:
+    name: E2E (Envoy Gateway ${{ matrix.envoy-gateway-version }})
+    runs-on: ubuntu-latest
+    needs: unit
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - envoy-gateway-version: "1.6.2"
+            gateway-api-version: "1.4.1"
+          - envoy-gateway-version: "1.7.0"
+            gateway-api-version: "1.4.1"
+    services:
+      # PostgreSQL as a GitHub Actions services: container -- no
+      # docker-compose. Port 5432 is published to the runner's own
+      # localhost, which is what DATABASE_HOST=localhost below relies on.
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: fastgateway
+          POSTGRES_PASSWORD: fastgateway
+          POSTGRES_DB: fastgateway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fastgateway -d fastgateway"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      KIND_CLUSTER: fastgateway-e2e
+      GATEWAY_API_VERSION: ${{ matrix.gateway-api-version }}
+      ENVOY_GATEWAY_VERSION: ${{ matrix.envoy-gateway-version }}
+      KIND_VERSION: "v0.27.0"
+      CLOUD_PROVIDER_KIND_VERSION: "0.6.0"
+      STEP_CLI_VERSION: "0.28.7"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: go.sum
+
+      - name: Install kind
+        run: |
+          curl -Lo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
+
+      - name: Create kind cluster
+        run: kind create cluster --name "$KIND_CLUSTER" --wait 120s
+
+      # cloud-provider-kind gives Services of type LoadBalancer (which is
+      # exactly what FastGateway's "default-public" domain template
+      # requests for its Gateway, see cmd/e2e-seed) a real, reachable
+      # external IP inside the kind docker network. Without it the
+      # Envoy-managed Service would stay Pending forever and GATEWAY_IP
+      # (required by e2e/harness/config.go) could never be resolved.
+      - name: Start cloud-provider-kind (LoadBalancer support)
+        run: |
+          arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+          curl -Lo /tmp/cpk.tar.gz "https://github.com/kubernetes-sigs/cloud-provider-kind/releases/download/v${CLOUD_PROVIDER_KIND_VERSION}/cloud-provider-kind_Linux_${arch}.tar.gz"
+          tar -xzf /tmp/cpk.tar.gz -C /tmp cloud-provider-kind
+          chmod +x /tmp/cloud-provider-kind
+          sudo mv /tmp/cloud-provider-kind /usr/local/bin/cloud-provider-kind
+          sudo nohup cloud-provider-kind > /tmp/cloud-provider-kind.log 2>&1 &
+          sleep 3
+
+      # `kind create cluster` above already left "kind-${KIND_CLUSTER}" as
+      # the kubeconfig's current context, so every kubectl/helm call below
+      # runs unqualified -- e2e/deps/create-secrets.sh honours the same
+      # "current context" default via its optional KUBE_CONTEXT env var
+      # (see that script's header comment).
+      - name: Install Gateway API CRDs
+        run: |
+          kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/standard-install.yaml"
+
+      # Redis backend for Envoy Gateway's global rate limiting (the same
+      # role docker-compose.yaml's now-deleted "ratelimit-redis" service
+      # played) -- deployed in-cluster per the design spec, NOT as a
+      # sibling container.
+      - name: Deploy Redis for Envoy Gateway rate limiting
+        run: |
+          kubectl create namespace envoy-gateway-system --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n envoy-gateway-system create deployment redis --image=redis:6-alpine --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n envoy-gateway-system expose deployment redis --port=6379 --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n envoy-gateway-system rollout status deployment/redis --timeout=120s
+
+      - name: Install Envoy Gateway (Helm)
+        run: |
+          cat > /tmp/envoy-gateway-values.yaml <<'EOF'
+          config:
+            envoyGateway:
+              apiVersion: gateway.envoyproxy.io/v1alpha1
+              kind: EnvoyGateway
+              provider:
+                type: Kubernetes
+              gateway:
+                controllerName: gateway.envoyproxy.io/gatewayclass-controller
+              rateLimit:
+                backend:
+                  type: Redis
+                  redis:
+                    url: redis.envoy-gateway-system.svc.cluster.local:6379
+          EOF
+          helm install eg oci://docker.io/envoyproxy/gateway-helm \
+            --version "v${ENVOY_GATEWAY_VERSION}" \
+            -n envoy-gateway-system --create-namespace \
+            -f /tmp/envoy-gateway-values.yaml
+          kubectl -n envoy-gateway-system rollout status deployment/envoy-gateway --timeout=180s
+
+      # e2e/testdata/certificate/*.key is gitignored (only *.crt is
+      # tracked), so the private keys create-secrets.sh needs must be
+      # regenerated here, same as a contributor would run locally.
+      - name: Generate e2e test certificates
+        run: |
+          curl -Lo /tmp/step.tar.gz "https://github.com/smallstep/cli/releases/download/v${STEP_CLI_VERSION}/step_linux_${STEP_CLI_VERSION}_amd64.tar.gz"
+          tar -xzf /tmp/step.tar.gz -C /tmp
+          sudo mv "/tmp/step_${STEP_CLI_VERSION}/bin/step" /usr/local/bin/step
+          (cd e2e/testdata/certificate && chmod +x generate.sh && ./generate.sh)
+
+      - name: Apply RBAC and create secrets
+        run: |
+          kubectl apply -f e2e/deps/rbac.yaml
+          kubectl -n fastgateway-system wait --for=jsonpath='{.data.token}' secret/fastgateway-token --timeout=60s
+          bash e2e/deps/create-secrets.sh
+
+      - name: Deploy static e2e dependencies (nginx, podinfo, backend TLS/mTLS)
+        run: |
+          kubectl apply -f e2e/deps/nginx.yaml
+          kubectl apply -f e2e/deps/podinfo.yaml
+          kubectl apply -f e2e/deps/backend-tls-server.yaml
+          kubectl apply -f e2e/deps/backend-mtls-server.yaml
+          kubectl -n default rollout status deployment/nginx-deployment --timeout=120s
+          kubectl -n default rollout status deployment/podinfo --timeout=120s
+          kubectl -n default rollout status deployment/backend-tls-server-1 --timeout=120s
+          kubectl -n default rollout status deployment/backend-mtls-server-1 --timeout=120s
+
+      # The four Go test doubles (e2e/servers/<name>) have no public image;
+      # build them from source and `kind load` them so the in-cluster
+      # Deployments (imagePullPolicy: Never, see e2e/deps/*.yaml) can start.
+      - name: Build and load the four test doubles into kind
+        run: |
+          for svc in jwt-server external-auth grpc-external-auth ext-proc-server; do
+            docker build -t "fastgateway-${svc}:latest" "e2e/servers/${svc}"
+            kind load docker-image "fastgateway-${svc}:latest" --name "$KIND_CLUSTER"
+          done
+          kubectl apply -f e2e/deps/jwt-server.yaml
+          kubectl apply -f e2e/deps/external-auth.yaml
+          kubectl apply -f e2e/deps/grpc-external-auth.yaml
+          kubectl apply -f e2e/deps/ext-proc-server.yaml
+          kubectl -n default rollout status deployment/jwt-server --timeout=120s
+          kubectl -n default rollout status deployment/external-auth --timeout=120s
+          kubectl -n default rollout status deployment/grpc-external-auth --timeout=120s
+          kubectl -n default rollout status deployment/ext-proc-server --timeout=120s
+
+      - name: Resolve kind API server URL and FastGateway service-account token
+        id: kube-creds
+        run: |
+          api_url="$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}')"
+          token="$(kubectl -n fastgateway-system get secret fastgateway-token -o jsonpath='{.data.token}' | base64 -d)"
+          echo "::add-mask::${token}"
+          echo "api_url=${api_url}" >> "$GITHUB_OUTPUT"
+          echo "token=${token}" >> "$GITHUB_OUTPUT"
+
+      # The backend runs directly on the runner (go run ./cmd/server), not
+      # as a container -- it reaches Postgres via localhost (the services:
+      # container above) and reaches the kind cluster via the resolved
+      # API URL/token (project.ConnectionType=api_token, TLS verification
+      # left at its "" default, which ProjectService.processAPIToken
+      # treats as skip-verify -- kind's API server cert is not in any
+      # trust store the backend process has).
+      - name: Run backend (go run ./cmd/server)
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: "5432"
+          DATABASE_USER: fastgateway
+          DATABASE_PASSWORD: fastgateway
+          DATABASE_NAME: fastgateway
+          API_PORT: "8081"
+          JWT_SECRET: e2e-ci-jwt-secret-not-for-production-use
+          ENCRYPTION_KEY: e2e-ci-encryption-key-not-for-prod
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: admin123
+          ADMIN_EMAIL: admin@fastgateway.local
+        run: |
+          nohup go run ./cmd/server > /tmp/backend.log 2>&1 &
+          echo $! > /tmp/backend.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8081/health > /dev/null; then
+              echo "backend is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "backend never became healthy" >&2
+          cat /tmp/backend.log >&2
+          exit 1
+
+      # Replaces bootstrap.py: seeds the project/users/teams/domain/clients
+      # the Go e2e suite expects (see cmd/e2e-seed's package doc comment).
+      - name: Seed FastGateway (go run ./cmd/e2e-seed)
+        env:
+          FASTGATEWAY_API_URL: http://localhost:8081/api/v1
+          K8S_API_URL: ${{ steps.kube-creds.outputs.api_url }}
+          K8S_TOKEN: ${{ steps.kube-creds.outputs.token }}
+        run: go run ./cmd/e2e-seed
+
+      # e2e-seed's domain creation triggers RouteService/KubernetesService
+      # to create a Gateway API Gateway (ExposureType: LoadBalancer). Wait
+      # for it to be Programmed, then resolve the LoadBalancer IP
+      # cloud-provider-kind assigned to Envoy's generated proxy Service --
+      # that IP is GATEWAY_IP, required by e2e/harness/config.go.
+      - name: Wait for the seeded Gateway and resolve GATEWAY_IP
+        run: |
+          gw="$(kubectl -n default get gateway -o jsonpath='{.items[0].metadata.name}')"
+          if [ -z "$gw" ]; then
+            echo "no Gateway found in namespace default after seeding" >&2
+            exit 1
+          fi
+          kubectl -n default wait --for=condition=Programmed "gateway/${gw}" --timeout=180s
+          ip=""
+          for i in $(seq 1 30); do
+            ip="$(kubectl -n envoy-gateway-system get svc \
+              -l "gateway.envoyproxy.io/owning-gateway-name=${gw},gateway.envoyproxy.io/owning-gateway-namespace=default" \
+              -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null)"
+            [ -n "$ip" ] && break
+            sleep 2
+          done
+          if [ -z "$ip" ]; then
+            echo "Gateway LoadBalancer IP never appeared" >&2
+            kubectl -n envoy-gateway-system get svc >&2
+            exit 1
+          fi
+          echo "GATEWAY_IP=${ip}" >> "$GITHUB_ENV"
+
+      # -p 1 is NOT optional: e2e/suites/httproute's health-check and
+      # load-balancing tests scale the shared podinfo Deployment to 0 and
+      # 3 replicas. `go test ./e2e/...` runs packages concurrently by
+      # default, which would corrupt any other suite's traffic against
+      # podinfo running at the same time. See progress.md's "-p 1" ruling.
+      - name: Run e2e suite (go test -tags e2e ./e2e/... -p 1)
+        run: go test -tags e2e ./e2e/... -p 1 -count=1 -v
+
+      - name: Backend log (always, for debugging)
+        if: always()
+        run: cat /tmp/backend.log || true
+
+      - name: Delete kind cluster
+        if: always()
+        run: kind delete cluster --name "$KIND_CLUSTER" || true

@@ -1,0 +1,232 @@
+name: E2E Version Matrix
+
+# Manual only -- this is the full compatibility matrix across every
+# Envoy Gateway / Gateway API pair FastGateway is designed to support,
+# including EG 1.8.0 / Gateway API 1.5.1, which is not yet verified
+# against real infrastructure and therefore does not run on every push
+# (see ci.yml's `e2e` job, which only runs today's SupportedVersionPairs:
+# EG 1.6.2 and 1.7.0, both on Gateway API 1.4.1).
+#
+# Retires the manual E2E_TEST-v1.6.2-v1.4.1.md process: run this before a
+# release instead of hand-testing against a cluster and writing up the
+# results in a markdown log.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  # Steps are intentionally identical to ci.yml's `e2e` job -- only the
+  # matrix (widened to the full support surface) and the trigger (manual
+  # only, no push/pull_request) differ. See ci.yml for the rationale
+  # behind each step.
+  e2e:
+    name: E2E (Envoy Gateway ${{ matrix.envoy-gateway-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - envoy-gateway-version: "1.6.2"
+            gateway-api-version: "1.4.1"
+          - envoy-gateway-version: "1.7.0"
+            gateway-api-version: "1.4.1"
+          - envoy-gateway-version: "1.8.0"
+            gateway-api-version: "1.5.1"
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: fastgateway
+          POSTGRES_PASSWORD: fastgateway
+          POSTGRES_DB: fastgateway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fastgateway -d fastgateway"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      KIND_CLUSTER: fastgateway-e2e
+      GATEWAY_API_VERSION: ${{ matrix.gateway-api-version }}
+      ENVOY_GATEWAY_VERSION: ${{ matrix.envoy-gateway-version }}
+      KIND_VERSION: "v0.27.0"
+      CLOUD_PROVIDER_KIND_VERSION: "0.6.0"
+      STEP_CLI_VERSION: "0.28.7"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: go.sum
+
+      - name: Install kind
+        run: |
+          curl -Lo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
+
+      - name: Create kind cluster
+        run: kind create cluster --name "$KIND_CLUSTER" --wait 120s
+
+      - name: Start cloud-provider-kind (LoadBalancer support)
+        run: |
+          arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+          curl -Lo /tmp/cpk.tar.gz "https://github.com/kubernetes-sigs/cloud-provider-kind/releases/download/v${CLOUD_PROVIDER_KIND_VERSION}/cloud-provider-kind_Linux_${arch}.tar.gz"
+          tar -xzf /tmp/cpk.tar.gz -C /tmp cloud-provider-kind
+          chmod +x /tmp/cloud-provider-kind
+          sudo mv /tmp/cloud-provider-kind /usr/local/bin/cloud-provider-kind
+          sudo nohup cloud-provider-kind > /tmp/cloud-provider-kind.log 2>&1 &
+          sleep 3
+
+      - name: Install Gateway API CRDs
+        run: |
+          kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/standard-install.yaml"
+
+      - name: Deploy Redis for Envoy Gateway rate limiting
+        run: |
+          kubectl create namespace envoy-gateway-system --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n envoy-gateway-system create deployment redis --image=redis:6-alpine --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n envoy-gateway-system expose deployment redis --port=6379 --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n envoy-gateway-system rollout status deployment/redis --timeout=120s
+
+      - name: Install Envoy Gateway (Helm)
+        run: |
+          cat > /tmp/envoy-gateway-values.yaml <<'EOF'
+          config:
+            envoyGateway:
+              apiVersion: gateway.envoyproxy.io/v1alpha1
+              kind: EnvoyGateway
+              provider:
+                type: Kubernetes
+              gateway:
+                controllerName: gateway.envoyproxy.io/gatewayclass-controller
+              rateLimit:
+                backend:
+                  type: Redis
+                  redis:
+                    url: redis.envoy-gateway-system.svc.cluster.local:6379
+          EOF
+          helm install eg oci://docker.io/envoyproxy/gateway-helm \
+            --version "v${ENVOY_GATEWAY_VERSION}" \
+            -n envoy-gateway-system --create-namespace \
+            -f /tmp/envoy-gateway-values.yaml
+          kubectl -n envoy-gateway-system rollout status deployment/envoy-gateway --timeout=180s
+
+      - name: Generate e2e test certificates
+        run: |
+          curl -Lo /tmp/step.tar.gz "https://github.com/smallstep/cli/releases/download/v${STEP_CLI_VERSION}/step_linux_${STEP_CLI_VERSION}_amd64.tar.gz"
+          tar -xzf /tmp/step.tar.gz -C /tmp
+          sudo mv "/tmp/step_${STEP_CLI_VERSION}/bin/step" /usr/local/bin/step
+          (cd e2e/testdata/certificate && chmod +x generate.sh && ./generate.sh)
+
+      - name: Apply RBAC and create secrets
+        run: |
+          kubectl apply -f e2e/deps/rbac.yaml
+          kubectl -n fastgateway-system wait --for=jsonpath='{.data.token}' secret/fastgateway-token --timeout=60s
+          bash e2e/deps/create-secrets.sh
+
+      - name: Deploy static e2e dependencies (nginx, podinfo, backend TLS/mTLS)
+        run: |
+          kubectl apply -f e2e/deps/nginx.yaml
+          kubectl apply -f e2e/deps/podinfo.yaml
+          kubectl apply -f e2e/deps/backend-tls-server.yaml
+          kubectl apply -f e2e/deps/backend-mtls-server.yaml
+          kubectl -n default rollout status deployment/nginx-deployment --timeout=120s
+          kubectl -n default rollout status deployment/podinfo --timeout=120s
+          kubectl -n default rollout status deployment/backend-tls-server-1 --timeout=120s
+          kubectl -n default rollout status deployment/backend-mtls-server-1 --timeout=120s
+
+      - name: Build and load the four test doubles into kind
+        run: |
+          for svc in jwt-server external-auth grpc-external-auth ext-proc-server; do
+            docker build -t "fastgateway-${svc}:latest" "e2e/servers/${svc}"
+            kind load docker-image "fastgateway-${svc}:latest" --name "$KIND_CLUSTER"
+          done
+          kubectl apply -f e2e/deps/jwt-server.yaml
+          kubectl apply -f e2e/deps/external-auth.yaml
+          kubectl apply -f e2e/deps/grpc-external-auth.yaml
+          kubectl apply -f e2e/deps/ext-proc-server.yaml
+          kubectl -n default rollout status deployment/jwt-server --timeout=120s
+          kubectl -n default rollout status deployment/external-auth --timeout=120s
+          kubectl -n default rollout status deployment/grpc-external-auth --timeout=120s
+          kubectl -n default rollout status deployment/ext-proc-server --timeout=120s
+
+      - name: Resolve kind API server URL and FastGateway service-account token
+        id: kube-creds
+        run: |
+          api_url="$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}')"
+          token="$(kubectl -n fastgateway-system get secret fastgateway-token -o jsonpath='{.data.token}' | base64 -d)"
+          echo "::add-mask::${token}"
+          echo "api_url=${api_url}" >> "$GITHUB_OUTPUT"
+          echo "token=${token}" >> "$GITHUB_OUTPUT"
+
+      - name: Run backend (go run ./cmd/server)
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: "5432"
+          DATABASE_USER: fastgateway
+          DATABASE_PASSWORD: fastgateway
+          DATABASE_NAME: fastgateway
+          API_PORT: "8081"
+          JWT_SECRET: e2e-ci-jwt-secret-not-for-production-use
+          ENCRYPTION_KEY: e2e-ci-encryption-key-not-for-prod
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: admin123
+          ADMIN_EMAIL: admin@fastgateway.local
+        run: |
+          nohup go run ./cmd/server > /tmp/backend.log 2>&1 &
+          echo $! > /tmp/backend.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8081/health > /dev/null; then
+              echo "backend is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "backend never became healthy" >&2
+          cat /tmp/backend.log >&2
+          exit 1
+
+      - name: Seed FastGateway (go run ./cmd/e2e-seed)
+        env:
+          FASTGATEWAY_API_URL: http://localhost:8081/api/v1
+          K8S_API_URL: ${{ steps.kube-creds.outputs.api_url }}
+          K8S_TOKEN: ${{ steps.kube-creds.outputs.token }}
+        run: go run ./cmd/e2e-seed
+
+      - name: Wait for the seeded Gateway and resolve GATEWAY_IP
+        run: |
+          gw="$(kubectl -n default get gateway -o jsonpath='{.items[0].metadata.name}')"
+          if [ -z "$gw" ]; then
+            echo "no Gateway found in namespace default after seeding" >&2
+            exit 1
+          fi
+          kubectl -n default wait --for=condition=Programmed "gateway/${gw}" --timeout=180s
+          ip=""
+          for i in $(seq 1 30); do
+            ip="$(kubectl -n envoy-gateway-system get svc \
+              -l "gateway.envoyproxy.io/owning-gateway-name=${gw},gateway.envoyproxy.io/owning-gateway-namespace=default" \
+              -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null)"
+            [ -n "$ip" ] && break
+            sleep 2
+          done
+          if [ -z "$ip" ]; then
+            echo "Gateway LoadBalancer IP never appeared" >&2
+            kubectl -n envoy-gateway-system get svc >&2
+            exit 1
+          fi
+          echo "GATEWAY_IP=${ip}" >> "$GITHUB_ENV"
+
+      # -p 1 is NOT optional here either -- same shared-podinfo race as
+      # ci.yml's e2e job.
+      - name: Run e2e suite (go test -tags e2e ./e2e/... -p 1)
+        run: go test -tags e2e ./e2e/... -p 1 -count=1 -v
+
+      - name: Backend log (always, for debugging)
+        if: always()
+        run: cat /tmp/backend.log || true
+
+      - name: Delete kind cluster
+        if: always()
+        run: kind delete cluster --name "$KIND_CLUSTER" || true

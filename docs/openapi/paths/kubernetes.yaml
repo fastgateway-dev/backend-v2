@@ -1,0 +1,66 @@
+namespaces:
+  get:
+    tags: [Kubernetes]
+    summary: List Kubernetes namespaces
+    operationId: listNamespaces
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: List of namespaces
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/kubernetes.yaml#/K8sNamespace'
+
+gateway-classes:
+  get:
+    tags: [Kubernetes]
+    summary: List Kubernetes GatewayClasses
+    operationId: listGatewayClasses
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: List of GatewayClasses
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  controllerName:
+                    type: string
+
+services:
+  get:
+    tags: [Kubernetes]
+    summary: List services in namespace
+    operationId: listServices
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - name: namespace
+        in: path
+        required: true
+        schema:
+          type: string
+    responses:
+      '200':
+        description: List of services
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/kubernetes.yaml#/K8sService'

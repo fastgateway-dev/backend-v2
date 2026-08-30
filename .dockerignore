@@ -1,0 +1,22 @@
+.env
+.env.local
+.env.*.local
+.git/
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+tmp/
+
+# Not needed in the build context: large Go e2e test suite, OpenAPI
+# source docs, agent scratch files, CI workflow definitions, markdown
+# docs, and unit test sources (only `go build ./cmd/server` runs in the
+# image build; migrations/, cmd/, internal/, pkg/, go.mod, go.sum, and
+# cmd/server/openapi.yaml -- which is //go:embed-ed -- are untouched).
+e2e/
+docs/
+.superpowers/
+.github/
+*.md
+**/*_test.go

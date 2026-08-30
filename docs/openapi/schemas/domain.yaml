@@ -1,0 +1,421 @@
+Domain:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    domainTemplateId:
+      type: string
+      format: uuid
+    name:
+      type: string
+    hostname:
+      type: string
+    httpPort:
+      type: integer
+    httpsPort:
+      type: integer
+    tlsMode:
+      type: string
+      enum: [tls_only, no_tls, both]
+    tlsSecretName:
+      type: string
+    tlsPolicy:
+      type: string
+      enum: [terminate, passthrough]
+    namespace:
+      type: string
+      description: Kubernetes namespace for gateway resources
+    k8sGatewayName:
+      type: string
+      description: Name of the Kubernetes Gateway resource
+    k8sGatewayClassName:
+      type: string
+      description: Name of the GatewayClass
+    status:
+      type: string
+      enum: [pending, active, error]
+    statusMessage:
+      type: string
+    routeCount:
+      type: integer
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+DomainList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/Domain'
+    pagination:
+      $ref: './common.yaml#/Pagination'
+
+CreateDomainRequest:
+  type: object
+  required: [name, hostname, domainTemplateId]
+  properties:
+    name:
+      type: string
+    hostname:
+      type: string
+    domainTemplateId:
+      type: string
+      format: uuid
+    tlsSecretName:
+      type: string
+
+UpdateDomainRequest:
+  type: object
+  properties:
+    name:
+      type: string
+    tlsSecretName:
+      type: string
+
+DomainSettings:
+  type: object
+  nullable: true
+  description: Domain-level settings (gateway-agnostic configuration)
+  properties:
+    id:
+      type: string
+      format: uuid
+    domainId:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    settings:
+      $ref: '#/DomainSettingsConfig'
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+DomainSettingsConfig:
+  type: object
+  description: Gateway-agnostic domain configuration
+  properties:
+    clientConnection:
+      $ref: '#/ClientConnectionConfig'
+    clientIPDetection:
+      $ref: '#/ClientIPDetectionConfig'
+    timeout:
+      $ref: '#/DomainTimeoutConfig'
+    http3:
+      $ref: '#/HTTP3Config'
+    tls:
+      $ref: '#/TLSSettingsConfig'
+    mtls:
+      $ref: '#/DomainMTLSConfig'
+
+ClientConnectionConfig:
+  type: object
+  description: Client connection settings
+  properties:
+    tcpKeepalive:
+      $ref: '#/TCPKeepaliveConfig'
+    proxyProtocol:
+      $ref: '#/ProxyProtocolConfig'
+    connectionLimit:
+      $ref: '#/ConnectionLimitConfig'
+    bufferLimit:
+      type: string
+      description: Buffer size limit (e.g., "32Ki")
+
+TCPKeepaliveConfig:
+  type: object
+  description: TCP keepalive configuration for downstream client connections
+  properties:
+    probes:
+      type: integer
+      format: int32
+      description: Maximum number of keepalive probes before considering the connection dead
+      example: 3
+    idleTime:
+      type: string
+      description: Duration of idle time before keepalive probes start (e.g., "60s")
+      example: "60s"
+    interval:
+      type: string
+      description: Duration between keepalive probes (e.g., "10s")
+      example: "10s"
+
+ClientIPDetectionConfig:
+  type: object
+  description: Client IP detection configuration for extracting client IP from HTTP headers
+  properties:
+    xForwardedFor:
+      $ref: '#/XForwardedForConfig'
+    customHeader:
+      $ref: '#/CustomHeaderConfig'
+
+XForwardedForConfig:
+  type: object
+  description: Extract client IP from X-Forwarded-For header
+  required:
+    - numTrustedHops
+  properties:
+    numTrustedHops:
+      type: integer
+      minimum: 1
+      maximum: 10
+      description: Number of trusted proxy hops in the XFF chain
+
+CustomHeaderConfig:
+  type: object
+  description: Extract client IP from a custom header
+  required:
+    - name
+  properties:
+    name:
+      type: string
+      description: Name of the header containing client IP (e.g., CF-Connecting-IP)
+    failClosed:
+      type: boolean
+      default: false
+      description: Reject requests if the header is missing
+
+UpdateDomainSettingsRequest:
+  type: object
+  description: Request to update domain settings. Omit or null fields to disable features.
+  properties:
+    clientConnection:
+      $ref: '#/ClientConnectionConfig'
+    clientIPDetection:
+      $ref: '#/ClientIPDetectionConfig'
+    timeout:
+      $ref: '#/DomainTimeoutConfig'
+    http3:
+      $ref: '#/HTTP3Config'
+    tls:
+      $ref: '#/TLSSettingsConfig'
+    mtls:
+      $ref: '#/DomainMTLSConfig'
+
+ProxyProtocolConfig:
+  type: object
+  description: Proxy protocol configuration
+  properties:
+    enabled:
+      type: boolean
+      description: Enable proxy protocol
+
+ConnectionLimitConfig:
+  type: object
+  description: Connection limit configuration
+  properties:
+    maxConnections:
+      type: integer
+      description: Maximum number of connections
+    closeDelay:
+      type: string
+      description: Delay before closing connections (e.g., "5s")
+    maxConnectionDuration:
+      type: string
+      description: Maximum connection duration (e.g., "1h")
+    maxRequestsPerConnection:
+      type: integer
+      description: Maximum requests per connection
+
+DomainTimeoutConfig:
+  type: object
+  description: Domain-level timeout configuration
+  properties:
+    http:
+      $ref: '#/HTTPDomainTimeoutConfig'
+
+HTTPDomainTimeoutConfig:
+  type: object
+  description: HTTP timeout settings
+  properties:
+    requestReceivedTimeout:
+      type: string
+      description: Timeout for receiving the complete request (e.g., "30s")
+    idleTimeout:
+      type: string
+      description: Idle connection timeout (e.g., "120s")
+
+HTTP3Config:
+  type: object
+  description: HTTP/3 configuration
+  properties:
+    enabled:
+      type: boolean
+      description: Enable HTTP/3
+
+TLSSettingsConfig:
+  type: object
+  description: TLS settings configuration
+  properties:
+    minVersion:
+      type: string
+      enum: [TLS1.2, TLS1.3]
+      description: Minimum TLS version
+    maxVersion:
+      type: string
+      enum: [TLS1.2, TLS1.3]
+      description: Maximum TLS version
+    ciphers:
+      type: array
+      items:
+        type: string
+      description: TLS cipher suites
+    ecdhCurves:
+      type: array
+      items:
+        type: string
+      description: ECDH curves
+    signatureAlgorithms:
+      type: array
+      items:
+        type: string
+      description: Signature algorithms
+
+DomainMTLSConfig:
+  type: object
+  description: Domain-level mTLS configuration
+  properties:
+    enabled:
+      type: boolean
+      description: Enable mTLS
+    optional:
+      type: boolean
+      description: Make client certificate optional
+    caCerts:
+      type: array
+      items:
+        $ref: '#/MTLSCACert'
+      description: CA certificates for client verification
+    sanWhitelist:
+      type: array
+      items:
+        $ref: '#/MTLSSANEntry'
+      description: Subject Alternative Name whitelist
+    hashWhitelist:
+      type: array
+      items:
+        type: string
+      description: Certificate hash whitelist
+
+MTLSCACert:
+  type: object
+  description: mTLS CA certificate reference
+  properties:
+    id:
+      type: string
+    name:
+      type: string
+      description: CA certificate display name
+    secretName:
+      type: string
+      description: K8s Secret name containing the CA cert
+    secretKey:
+      type: string
+      description: Key within the Secret
+
+MTLSSANEntry:
+  type: object
+  description: Subject Alternative Name entry
+  properties:
+    type:
+      type: string
+      enum: [DNS, Email, URI, IP]
+      description: SAN type
+    value:
+      type: string
+      description: SAN value
+
+AddDomainMTLSCARequest:
+  type: object
+  required: [caPem]
+  description: Request to add CA certificate for domain mTLS
+  properties:
+    caPem:
+      type: string
+      description: CA certificate PEM content
+    caName:
+      type: string
+      description: Display name for the CA
+    hashes:
+      type: array
+      items:
+        type: string
+      description: Certificate hashes
+
+DomainYAMLs:
+  type: object
+  properties:
+    gatewayYaml:
+      type: string
+    clientTrafficPolicyYaml:
+      type: string
+
+DomainSettingsPreviewInput:
+  type: object
+  properties:
+    clientConnection:
+      $ref: '#/ClientConnectionConfig'
+    timeout:
+      $ref: '#/DomainTimeoutConfig'
+    http3:
+      $ref: '#/HTTP3Config'
+    tls:
+      $ref: '#/TLSSettingsConfig'
+    clientIPDetection:
+      $ref: '#/ClientIPDetectionConfig'
+    mtls:
+      $ref: '#/DomainMTLSConfig'
+    description:
+      type: string
+    includeAIReview:
+      type: boolean
+      description: When true, triggers AI review of the proposed changes
+
+DomainSettingsPreviewResult:
+  type: object
+  properties:
+    currentGatewayYaml:
+      type: string
+    currentClientTrafficPolicyYaml:
+      type: string
+    proposedClientTrafficPolicyYaml:
+      type: string
+    aiReview:
+      $ref: './ai.yaml#/AIReviewResult'
+
+DomainCreatePreviewInput:
+  type: object
+  required: [name, hostname, domainTemplateId]
+  properties:
+    name:
+      type: string
+    hostname:
+      type: string
+    domainTemplateId:
+      type: string
+      format: uuid
+    tlsSecretName:
+      type: string
+    description:
+      type: string
+
+DomainCreatePreviewResult:
+  type: object
+  properties:
+    proposedGatewayYaml:
+      type: string
+    aiReview:
+      $ref: './ai.yaml#/AIReviewResult'

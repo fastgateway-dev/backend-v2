@@ -1,0 +1,182 @@
+domain-templates:
+  get:
+    tags: [Domain Templates]
+    summary: List domain templates in project
+    operationId: listDomainTemplates
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+    responses:
+      '200':
+        description: List of domain templates
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain-template.yaml#/DomainTemplateList'
+
+  post:
+    tags: [Domain Templates]
+    summary: Create domain template
+    operationId: createDomainTemplate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/domain-template.yaml#/CreateDomainTemplateRequest'
+    responses:
+      '201':
+        description: Domain template created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain-template.yaml#/DomainTemplate'
+
+domain-templates_{id}:
+  get:
+    tags: [Domain Templates]
+    summary: Get domain template by ID
+    operationId: getDomainTemplate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainTemplateId'
+    responses:
+      '200':
+        description: Domain template details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain-template.yaml#/DomainTemplate'
+
+  patch:
+    tags: [Domain Templates]
+    summary: Update domain template
+    operationId: updateDomainTemplate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainTemplateId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/domain-template.yaml#/UpdateDomainTemplateRequest'
+    responses:
+      '200':
+        description: Domain template updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain-template.yaml#/DomainTemplate'
+
+  delete:
+    tags: [Domain Templates]
+    summary: Delete domain template
+    operationId: deleteDomainTemplate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainTemplateId'
+    responses:
+      '204':
+        description: Domain template deleted
+
+domain-templates_{id}_manifests:
+  get:
+    tags: [Domain Templates]
+    summary: Get domain template Kubernetes manifests
+    operationId: getDomainTemplateManifests
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainTemplateId'
+    responses:
+      '200':
+        description: Template manifests
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain-template.yaml#/DomainTemplateManifests'
+
+domain-templates_{id}_domains:
+  get:
+    tags: [Domain Templates]
+    summary: List domains using this template
+    operationId: listDomainsByTemplate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainTemplateId'
+    responses:
+      '200':
+        description: List of domains using this template
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../schemas/domain.yaml#/Domain'
+
+domain-templates_preview-create:
+  post:
+    tags: [Domain Templates]
+    summary: Preview domain template creation
+    operationId: previewDomainTemplateCreate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/domain-template.yaml#/DomainTemplateCreatePreviewRequest'
+    responses:
+      '200':
+        description: Template creation preview
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain-template.yaml#/DomainTemplateCreatePreviewResult'
+
+domain-templates_{id}_preview-changes:
+  post:
+    tags: [Domain Templates]
+    summary: Preview domain template changes
+    operationId: previewDomainTemplateChanges
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainTemplateId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/domain-template.yaml#/DomainTemplatePreviewChangesRequest'
+    responses:
+      '200':
+        description: Template changes preview
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain-template.yaml#/DomainTemplatePreviewResult'

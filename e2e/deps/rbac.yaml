@@ -1,0 +1,127 @@
+# Namespace for FastGateway
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fastgateway-system
+---
+# ServiceAccount for FastGateway
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fastgateway
+  namespace: fastgateway-system
+---
+# ClusterRole with permissions for FastGateway
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fastgateway
+rules:
+  # Namespace access (for listing and creating namespaces like fastgateway-system)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create"]
+  # Service discovery
+  - apiGroups: [""]
+    resources: ["services", "endpoints"]
+    verbs: ["get", "list"]
+  # Secrets (for TLS certificates and API key secrets)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # ConfigMaps (for Direct Response body storage)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Pods (for validating Envoy Gateway installation)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # Deployments (for validating Envoy Gateway installation)
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+  # Gateway API - GatewayClass (full CRUD for managing gateway classes)
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Gateway API - Gateway
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Gateway API - HTTPRoute
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Gateway API - GRPCRoute
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["grpcroutes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Gateway API - TCPRoute
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["tcproutes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Gateway API - TLSRoute
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["tlsroutes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Gateway API - ReferenceGrant
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["referencegrants"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Status subresources
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways/status", "httproutes/status", "grpcroutes/status"]
+    verbs: ["get", "list", "watch"]
+  # Envoy Gateway - EnvoyProxy (for configuring service type, annotations, etc.)
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources: ["envoyproxies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Envoy Gateway - SecurityPolicy (for CORS, auth, rate limiting, etc.)
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources: ["securitypolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Envoy Gateway - Backend (for external service routing)
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources: ["backends"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Envoy Gateway - BackendTrafficPolicy
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources: ["backendtrafficpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Envoy Gateway - HTTPRouteFilter (for Direct Response)
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources: ["httproutefilters"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Envoy Gateway - ClientTrafficPolicy (for TCP keepalive, connection limits, etc.)
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources: ["clienttrafficpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Envoy Gateway - EnvoyExtensionPolicy (for Lua and Wasm extensions)
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources: ["envoyextensionpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+# ClusterRoleBinding to bind the ServiceAccount to the ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fastgateway
+subjects:
+  - kind: ServiceAccount
+    name: fastgateway
+    namespace: fastgateway-system
+roleRef:
+  kind: ClusterRole
+  name: fastgateway
+  apiGroup: rbac.authorization.k8s.io
+---
+# Secret for long-lived token (Kubernetes 1.24+)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fastgateway-token
+  namespace: fastgateway-system
+  annotations:
+    kubernetes.io/service-account.name: fastgateway
+type: kubernetes.io/service-account-token

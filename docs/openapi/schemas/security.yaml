@@ -1,0 +1,341 @@
+SecurityPolicy:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    routeId:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    config:
+      $ref: '#/SecurityPolicyConfig'
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+SecurityPolicyConfig:
+  type: object
+  properties:
+    cors:
+      $ref: '#/CORSConfig'
+    authorization:
+      $ref: '#/AuthorizationConfig'
+    apiKeyAuth:
+      $ref: '#/APIKeyAuthStoredConfig'
+    basicAuth:
+      $ref: '#/BasicAuthConfig'
+    jwt:
+      $ref: '#/JWTStoredConfig'
+    oidc:
+      $ref: '#/OIDCStoredConfig'
+    extAuth:
+      $ref: '#/ExtAuthConfig'
+
+IPAllowlistEntry:
+  type: object
+  required: [cidr]
+  properties:
+    cidr:
+      type: string
+      description: IP address or CIDR range (e.g., 10.0.0.1/32)
+    description:
+      type: string
+      description: Optional description for this IP entry
+
+AuthorizationConfig:
+  type: object
+  description: Authorization configuration computed at deploy time from active client attachments
+  properties:
+    defaultAction:
+      type: string
+      enum: [Deny]
+      description: Default action when IP allowlisting is enabled
+    rules:
+      type: array
+      items:
+        $ref: '#/AuthorizationRule'
+
+AuthorizationRule:
+  type: object
+  properties:
+    action:
+      type: string
+      enum: [Allow]
+    principal:
+      $ref: '#/AuthorizationPrincipal'
+
+AuthorizationPrincipal:
+  type: object
+  properties:
+    clientCIDRs:
+      type: array
+      items:
+        type: string
+      description: List of client CIDRs allowed
+    jwt:
+      $ref: '#/JWTPrincipal'
+
+CORSConfig:
+  type: object
+  properties:
+    allowOrigins:
+      type: array
+      items:
+        type: string
+      description: Origins allowed (supports wildcards)
+    allowMethods:
+      type: array
+      items:
+        type: string
+      description: HTTP methods allowed
+    allowHeaders:
+      type: array
+      items:
+        type: string
+      description: Headers allowed in requests
+    exposeHeaders:
+      type: array
+      items:
+        type: string
+      description: Headers exposed to the browser
+    maxAge:
+      type: integer
+      description: Max age in seconds for preflight cache
+    allowCredentials:
+      type: boolean
+      description: Whether to allow credentials
+
+APIKeyAuthStoredConfig:
+  type: object
+  description: Stored API key auth configuration (K8s-native format)
+  properties:
+    credentialRefs:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+    extractFrom:
+      type: object
+      properties:
+        headers:
+          type: array
+          items:
+            type: string
+
+BasicAuthConfig:
+  type: object
+  description: Basic auth configuration
+  properties:
+    secretRef:
+      type: object
+      properties:
+        name:
+          type: string
+        namespace:
+          type: string
+
+JWTStoredConfig:
+  type: object
+  description: Stored JWT configuration (K8s-native format)
+  properties:
+    providers:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          issuer:
+            type: string
+          audiences:
+            type: array
+            items:
+              type: string
+          remoteJWKS:
+            type: object
+            properties:
+              uri:
+                type: string
+          claimToHeaders:
+            type: array
+            items:
+              type: object
+              properties:
+                claim:
+                  type: string
+                header:
+                  type: string
+
+OIDCStoredConfig:
+  type: object
+  description: Stored OIDC configuration
+  properties:
+    provider:
+      type: object
+      properties:
+        issuer:
+          type: string
+        authorizationURL:
+          type: string
+        tokenURL:
+          type: string
+    clientId:
+      type: string
+    clientSecret:
+      type: string
+    redirectURL:
+      type: string
+    logoutPath:
+      type: string
+    scopes:
+      type: array
+      items:
+        type: string
+    cookieDomain:
+      type: string
+
+OIDCConfig:
+  type: object
+  properties:
+    issuer:
+      type: string
+    clientId:
+      type: string
+    clientSecretName:
+      type: string
+    redirectURL:
+      type: string
+    logoutPath:
+      type: string
+    scopes:
+      type: array
+      items:
+        type: string
+    cookieDomain:
+      type: string
+
+JWTPrincipal:
+  type: object
+  description: JWT principal for authorization rules
+  properties:
+    provider:
+      type: string
+      description: JWT provider name
+    claims:
+      type: array
+      items:
+        $ref: '#/JWTClaimRule'
+
+JWTClaimRule:
+  type: object
+  description: JWT claim matching rule
+  properties:
+    name:
+      type: string
+      description: Claim name
+    values:
+      type: array
+      items:
+        type: string
+      description: Required claim values
+    valueType:
+      type: string
+      enum: [Exact, StringContains]
+      description: How to match claim values
+
+ExtAuthConfig:
+  type: object
+  required:
+    - type
+  properties:
+    type:
+      type: string
+      enum: [http, grpc]
+      description: External auth service type
+    http:
+      $ref: '#/ExtAuthHTTPConfig'
+    grpc:
+      $ref: '#/ExtAuthGRPCConfig'
+    failOpen:
+      type: boolean
+      description: Allow traffic if auth service is unavailable
+    headersToExtAuth:
+      type: array
+      items:
+        type: string
+      description: Additional client request headers to forward to ext-auth service
+    headersToDownstreamOnDeny:
+      type: array
+      items:
+        type: string
+      description: Headers to send to client on auth deny
+    headersToDownstreamOnAllow:
+      type: array
+      items:
+        type: string
+      description: Headers to send to client on auth allow
+    headersToUpstreamOnAllow:
+      type: array
+      items:
+        type: string
+      description: Headers to send to backend on auth allow
+    withRequestBody:
+      $ref: '#/ExtAuthRequestBody'
+
+ExtAuthHTTPConfig:
+  type: object
+  required:
+    - backendRef
+    - path
+  properties:
+    backendRef:
+      $ref: '#/ExtAuthBackendRef'
+    path:
+      type: string
+      description: Path on the auth service to call
+    headersToBackend:
+      type: array
+      items:
+        type: string
+      description: Headers to forward to auth service
+
+ExtAuthGRPCConfig:
+  type: object
+  required:
+    - backendRef
+  properties:
+    backendRef:
+      $ref: '#/ExtAuthBackendRef'
+
+ExtAuthBackendRef:
+  type: object
+  required:
+    - name
+    - port
+  properties:
+    name:
+      type: string
+      description: Service name
+    namespace:
+      type: string
+      description: Namespace (optional, defaults to route namespace)
+    port:
+      type: integer
+      description: Service port
+
+ExtAuthRequestBody:
+  type: object
+  required:
+    - maxBytes
+  properties:
+    maxBytes:
+      type: integer
+      description: Maximum request body bytes to forward

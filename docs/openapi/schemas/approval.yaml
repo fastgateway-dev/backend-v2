@@ -1,0 +1,138 @@
+Approval:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    entityType:
+      type: string
+      enum: [route, client_attachment]
+    entityId:
+      type: string
+      format: uuid
+    action:
+      type: string
+      enum: [create, update, delete, attach, detach]
+    configSnapshot:
+      type: object
+    previousConfig:
+      type: object
+    submittedBy:
+      type: string
+      format: uuid
+    submitter:
+      $ref: './user.yaml#/User'
+    status:
+      type: string
+      enum: [pending, approved, rejected, cancelled]
+    stages:
+      type: array
+      items:
+        $ref: '#/ApprovalStage'
+    entityName:
+      type: string
+    changeDescription:
+      type: string
+      description: Optional human description of the changes
+    aiReview:
+      $ref: './ai.yaml#/AIReviewResult'
+    createdAt:
+      type: string
+      format: date-time
+
+ApprovalStage:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    approvalId:
+      type: string
+      format: uuid
+    order:
+      type: integer
+    requiredPermission:
+      type: string
+    requiredTeamId:
+      type: string
+      format: uuid
+    requiredTeamName:
+      type: string
+    reviewedBy:
+      type: string
+      format: uuid
+    reviewer:
+      $ref: './user.yaml#/User'
+    status:
+      type: string
+      enum: [pending, approved, rejected]
+    comment:
+      type: string
+    reviewedAt:
+      type: string
+      format: date-time
+
+ApprovalList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/Approval'
+    pagination:
+      $ref: './common.yaml#/Pagination'
+
+RejectRequest:
+  type: object
+  required: [comment]
+  properties:
+    comment:
+      type: string
+      minLength: 1
+
+ApprovalDiffResponse:
+  type: object
+  required: [action]
+  properties:
+    action:
+      type: string
+      enum: [create, update, delete]
+      description: Type of change being approved
+    currentYaml:
+      type: string
+      description: Current HTTPRoute YAML (for update/delete)
+    proposedYaml:
+      type: string
+      description: Proposed HTTPRoute YAML (for create/update)
+    currentSecurityPolicyYaml:
+      type: string
+      description: Current SecurityPolicy YAML (if exists)
+    proposedSecurityPolicyYaml:
+      type: string
+      description: Proposed SecurityPolicy YAML (if configured)
+    currentBackendTrafficPolicyYaml:
+      type: string
+      description: Current BackendTrafficPolicy YAML (if exists)
+    proposedBackendTrafficPolicyYaml:
+      type: string
+      description: Proposed BackendTrafficPolicy YAML (if configured)
+    currentBackendYaml:
+      type: string
+      description: Current Backend CRD YAML for external service backends (if exists)
+    proposedBackendYaml:
+      type: string
+      description: Proposed Backend CRD YAML for external service backends (if configured)
+    currentEnvoyExtensionPolicyYaml:
+      type: string
+      description: Current EnvoyExtensionPolicy YAML (if exists)
+    proposedEnvoyExtensionPolicyYaml:
+      type: string
+      description: Proposed EnvoyExtensionPolicy YAML for Lua/Wasm extensions (if configured)
+    changeDescription:
+      type: string
+      description: Optional human description of the changes
+    aiReview:
+      $ref: './ai.yaml#/AIReviewResult'

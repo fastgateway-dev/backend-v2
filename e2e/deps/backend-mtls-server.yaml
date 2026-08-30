@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-mtls-nginx-conf
+  namespace: default
+data:
+  default.conf: |
+    server {
+        listen 443 ssl;
+        server_name backend-mtls-server-1 backend-mtls-server-1.default.svc.cluster.local;
+
+        ssl_certificate /etc/nginx/ssl/tls.crt;
+        ssl_certificate_key /etc/nginx/ssl/tls.key;
+
+        # mTLS: require client certificate
+        ssl_client_certificate /etc/nginx/client-ca/ca.crt;
+        ssl_verify_client on;
+
+        location / {
+            return 200 '{"status":"ok","backend":"mtls","server":"backend-mtls-server-1","client_dn":"$ssl_client_s_dn"}';
+            add_header Content-Type application/json;
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-mtls-server-1
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend-mtls-server-1
+  template:
+    metadata:
+      labels:
+        app: backend-mtls-server-1
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25
+          ports:
+            - containerPort: 443
+          volumeMounts:
+            - name: ssl-certs
+              mountPath: /etc/nginx/ssl
+              readOnly: true
+            - name: client-ca
+              mountPath: /etc/nginx/client-ca
+              readOnly: true
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
+              readOnly: true
+      volumes:
+        - name: ssl-certs
+          secret:
+            secretName: backend-mtls-server-cert
+        - name: client-ca
+          secret:
+            secretName: backend-mtls-client-ca
+        - name: nginx-conf
+          configMap:
+            name: backend-mtls-nginx-conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-mtls-server-1
+  namespace: default
+spec:
+  selector:
+    app: backend-mtls-server-1
+  ports:
+    - protocol: TCP
+      port: 443
+      targetPort: 443

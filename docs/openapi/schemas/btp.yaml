@@ -1,0 +1,636 @@
+BackendTrafficPolicy:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    routeId:
+      type: string
+      format: uuid
+    domainId:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    config:
+      $ref: '#/BackendTrafficPolicyConfig'
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+BackendTrafficPolicyConfig:
+  type: object
+  properties:
+    compression:
+      type: array
+      items:
+        $ref: '#/CompressionConfig'
+      description: List of compression configurations
+    retry:
+      $ref: '#/RetryConfig'
+    loadBalancer:
+      $ref: '#/LoadBalancerConfig'
+    circuitBreaker:
+      $ref: '#/CircuitBreakerConfig'
+    healthCheck:
+      $ref: '#/HealthCheckConfig'
+    faultInjection:
+      $ref: '#/FaultInjectionConfig'
+    rateLimit:
+      $ref: '#/RateLimitConfig'
+    requestBuffer:
+      $ref: '#/RequestBufferConfig'
+    responseOverride:
+      type: array
+      items:
+        $ref: '#/ResponseOverrideRule'
+      description: Rules for overriding backend responses based on status codes
+    timeout:
+      $ref: '#/BTPTimeoutConfig'
+
+BackendTrafficPolicyInput:
+  type: object
+  properties:
+    compression:
+      type: array
+      items:
+        $ref: '#/CompressionConfig'
+      description: List of compression configurations
+    retry:
+      $ref: '#/RetryConfig'
+    loadBalancer:
+      $ref: '#/LoadBalancerConfig'
+    circuitBreaker:
+      $ref: '#/CircuitBreakerConfig'
+    healthCheck:
+      $ref: '#/HealthCheckConfig'
+    faultInjection:
+      $ref: '#/FaultInjectionConfig'
+    rateLimit:
+      $ref: '#/RateLimitConfig'
+    requestBuffer:
+      $ref: '#/RequestBufferConfig'
+    responseOverride:
+      type: array
+      items:
+        $ref: '#/ResponseOverrideRule'
+      description: Rules for overriding backend responses based on status codes
+    timeout:
+      $ref: '#/BTPTimeoutConfig'
+
+BTPTimeoutConfig:
+  type: object
+  description: Timeout configuration for BackendTrafficPolicy (works for both HTTP and gRPC routes)
+  properties:
+    tcp:
+      $ref: '#/BTPTCPTimeoutConfig'
+    http:
+      $ref: '#/BTPHTTPTimeoutConfig'
+
+BTPTCPTimeoutConfig:
+  type: object
+  properties:
+    connectTimeout:
+      type: string
+      description: TCP connect timeout (e.g. "10s", "500ms")
+
+BTPHTTPTimeoutConfig:
+  type: object
+  properties:
+    requestTimeout:
+      type: string
+      description: Request timeout (e.g. "15s", "1m")
+    connectionIdleTimeout:
+      type: string
+      description: Connection idle timeout (e.g. "1h")
+    maxConnectionDuration:
+      type: string
+      description: Max connection duration (e.g. "0s" for unlimited)
+    maxStreamDuration:
+      type: string
+      description: Max stream duration (e.g. "0s" for unlimited)
+
+CompressionConfig:
+  type: object
+  required: [type]
+  properties:
+    type:
+      type: string
+      enum: [Gzip, Brotli, Zstd]
+      description: Compression algorithm type
+    gzip:
+      type: object
+      description: Gzip-specific configuration (currently empty)
+    brotli:
+      type: object
+      description: Brotli-specific configuration (currently empty)
+    zstd:
+      type: object
+      description: Zstd-specific configuration (currently empty)
+
+RetryConfig:
+  type: object
+  description: Retry configuration for BackendTrafficPolicy
+  properties:
+    numRetries:
+      type: integer
+      minimum: 0
+      description: Maximum number of retry attempts. Defaults to 2 if not set.
+    retryOn:
+      $ref: '#/RetryOn'
+    perRetryPolicy:
+      $ref: '#/PerRetryPolicy'
+
+RetryOn:
+  type: object
+  description: Conditions that trigger a retry
+  properties:
+    httpStatusCodes:
+      type: array
+      items:
+        type: integer
+        minimum: 100
+        maximum: 599
+      description: HTTP status codes that trigger a retry
+    triggers:
+      type: array
+      items:
+        type: string
+        enum:
+          - 5xx
+          - gateway-error
+          - connect-failure
+          - retriable-status-codes
+          - reset
+          - reset-before-request
+          - retriable-4xx
+          - refused-stream
+          - cancelled
+          - deadline-exceeded
+          - internal
+          - resource-exhausted
+          - unavailable
+      description: Envoy retry trigger conditions
+
+PerRetryPolicy:
+  type: object
+  description: Per-attempt retry behavior
+  properties:
+    backOff:
+      $ref: '#/BackOffPolicy'
+    timeout:
+      type: string
+      description: Per-attempt timeout (Go duration format, e.g. 250ms, 1s)
+
+BackOffPolicy:
+  type: object
+  description: Backoff timing between retries
+  properties:
+    baseInterval:
+      type: string
+      description: Initial wait between retries (e.g. 25ms, 100ms)
+    maxInterval:
+      type: string
+      description: Maximum wait between retries (e.g. 250ms, 10s). Must be >= baseInterval.
+
+LoadBalancerConfig:
+  type: object
+  required: [type]
+  description: Load balancer configuration for traffic distribution across backends
+  properties:
+    type:
+      type: string
+      enum: [RoundRobin, Random, LeastRequest, ConsistentHash]
+      description: Load balancing algorithm type
+    consistentHash:
+      $ref: '#/ConsistentHashConfig'
+
+ConsistentHashConfig:
+  type: object
+  required: [type]
+  description: Consistent hash configuration (required when load balancer type is ConsistentHash)
+  properties:
+    type:
+      type: string
+      enum: [SourceIP, Header, Cookie]
+      description: The hash key type for consistent hashing
+    header:
+      $ref: '#/ConsistentHashHeader'
+    cookie:
+      $ref: '#/ConsistentHashCookie'
+
+ConsistentHashHeader:
+  type: object
+  required: [name]
+  description: Header-based consistent hashing configuration
+  properties:
+    name:
+      type: string
+      description: The HTTP header name to hash on
+
+ConsistentHashCookie:
+  type: object
+  required: [name]
+  description: Cookie-based consistent hashing configuration
+  properties:
+    name:
+      type: string
+      description: The cookie name to hash on
+    ttl:
+      type: string
+      description: Cookie TTL duration (Go duration format, e.g. "60s", "1h")
+    attributes:
+      type: object
+      additionalProperties:
+        type: string
+      description: Cookie attributes (e.g. SameSite=Strict, HttpOnly=true)
+
+CircuitBreakerConfig:
+  type: object
+  description: Circuit breaker configuration to protect backends from being overwhelmed
+  properties:
+    maxConnections:
+      type: integer
+      format: int64
+      description: Maximum number of connections to the backend. Default 1024.
+    maxPendingRequests:
+      type: integer
+      format: int64
+      description: Maximum number of pending requests queued. Default 1024.
+    maxParallelRequests:
+      type: integer
+      format: int64
+      description: Maximum number of parallel requests. Default 1024.
+    maxParallelRetries:
+      type: integer
+      format: int64
+      description: Maximum number of parallel retries. Default 1024.
+    maxRequestsPerConnection:
+      type: integer
+      format: int64
+      description: Maximum requests per connection. Default unlimited. Set to 1 to disable keep-alive.
+
+HealthCheckConfig:
+  type: object
+  description: Health check configuration for backend services
+  properties:
+    active:
+      $ref: '#/ActiveHealthCheckConfig'
+    passive:
+      $ref: '#/PassiveHealthCheckConfig'
+    panicThreshold:
+      type: integer
+      format: uint32
+      description: Panic threshold percentage. Below this, Envoy ignores health status.
+
+ActiveHealthCheckConfig:
+  type: object
+  required: [type]
+  description: Active health check - Envoy actively probes backends
+  properties:
+    timeout:
+      type: string
+      description: Time to wait for response. Default 1s.
+    interval:
+      type: string
+      description: Time between checks. Default 3s.
+    unhealthyThreshold:
+      type: integer
+      format: uint32
+      description: Unhealthy checks to mark backend unhealthy. Default 3.
+    healthyThreshold:
+      type: integer
+      format: uint32
+      description: Healthy checks to mark backend healthy. Default 1.
+    type:
+      type: string
+      enum: [HTTP, TCP, GRPC]
+    http:
+      $ref: '#/HTTPActiveHealthCheckConfig'
+    tcp:
+      $ref: '#/TCPActiveHealthCheckConfig'
+    grpc:
+      $ref: '#/GRPCActiveHealthCheckConfig'
+
+HTTPActiveHealthCheckConfig:
+  type: object
+  required: [path]
+  properties:
+    path:
+      type: string
+      description: HTTP request path for health checks
+    method:
+      type: string
+      enum: [GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH]
+      description: HTTP method. Default GET.
+    expectedStatuses:
+      type: array
+      items:
+        type: integer
+      description: Expected HTTP status codes. Default [200].
+
+TCPActiveHealthCheckConfig:
+  type: object
+  properties:
+    send:
+      $ref: '#/HealthCheckPayload'
+    receive:
+      $ref: '#/HealthCheckPayload'
+
+GRPCActiveHealthCheckConfig:
+  type: object
+  properties:
+    service:
+      type: string
+      description: gRPC service name for health checks
+
+HealthCheckPayload:
+  type: object
+  required: [type]
+  properties:
+    type:
+      type: string
+      enum: [Text]
+    text:
+      type: string
+
+PassiveHealthCheckConfig:
+  type: object
+  description: Passive health check (outlier detection)
+  properties:
+    consecutiveGatewayErrors:
+      type: integer
+      format: uint32
+      description: Gateway error threshold to eject backend
+    consecutive5xxErrors:
+      type: integer
+      format: uint32
+      description: 5xx error threshold to eject backend
+    interval:
+      type: string
+      description: Evaluation interval (e.g. "30s")
+    baseEjectionTime:
+      type: string
+      description: Minimum ejection duration (e.g. "30s")
+
+FaultInjectionConfig:
+  type: object
+  description: Fault injection configuration for testing resilience
+  properties:
+    delay:
+      $ref: '#/FaultInjectionDelayConfig'
+    abort:
+      $ref: '#/FaultInjectionAbortConfig'
+
+FaultInjectionDelayConfig:
+  type: object
+  required: [fixedDelay]
+  description: Delay fault injection - adds artificial latency
+  properties:
+    fixedDelay:
+      type: string
+      description: Duration to delay (e.g. "2s", "500ms")
+    percentage:
+      type: number
+      format: float
+      minimum: 0
+      maximum: 100
+      description: Percentage of requests to delay (0-100). Default 100.
+
+FaultInjectionAbortConfig:
+  type: object
+  description: Abort fault injection - returns error responses
+  properties:
+    httpStatus:
+      type: integer
+      minimum: 100
+      maximum: 599
+      description: HTTP status code to return
+    grpcStatus:
+      type: integer
+      minimum: 0
+      maximum: 16
+      description: gRPC status code to return
+    percentage:
+      type: number
+      format: float
+      minimum: 0
+      maximum: 100
+      description: Percentage of requests to abort (0-100). Default 100.
+
+RateLimitConfig:
+  type: object
+  description: Rate limit configuration for controlling request volume
+  properties:
+    global:
+      $ref: '#/GlobalRateLimitConfig'
+
+GlobalRateLimitConfig:
+  type: object
+  required: [rules]
+  description: Global rate limit configuration
+  properties:
+    rules:
+      type: array
+      items:
+        $ref: '#/RateLimitRule'
+      minItems: 1
+      description: List of rate limit rules
+
+RateLimitRule:
+  type: object
+  required: [limit]
+  description: A single rate limit rule
+  properties:
+    limit:
+      $ref: '#/RateLimitValue'
+    clientSelectors:
+      type: array
+      items:
+        $ref: '#/RateLimitSelector'
+      description: Optional client selectors to scope the rate limit
+
+RateLimitValue:
+  type: object
+  required: [requests, unit]
+  description: Rate limit value (requests per time unit)
+  properties:
+    requests:
+      type: integer
+      minimum: 1
+      description: Number of requests allowed
+    unit:
+      type: string
+      enum: [Second, Minute, Hour, Day]
+      description: Time unit for the rate limit
+
+RateLimitSelector:
+  type: object
+  description: Client selector criteria for rate limiting
+  properties:
+    headers:
+      type: array
+      items:
+        $ref: '#/RateLimitHeaderMatch'
+      description: Header-based matching
+    sourceCIDR:
+      $ref: '#/RateLimitSourceCIDR'
+    path:
+      $ref: '#/RateLimitPathMatch'
+    methods:
+      type: array
+      items:
+        type: string
+      description: HTTP methods to match (e.g., GET, POST)
+
+RateLimitHeaderMatch:
+  type: object
+  required: [name]
+  description: Header match for rate limiting
+  properties:
+    name:
+      type: string
+      description: Header name to match
+    value:
+      type: string
+      description: Header value to match (optional)
+    type:
+      type: string
+      enum: [Exact, Distinct]
+      description: Match type (Exact = match value, Distinct = unique per value)
+    invert:
+      type: boolean
+      default: false
+      description: Invert the match condition
+
+RateLimitSourceCIDR:
+  type: object
+  required: [value]
+  description: Source CIDR match for rate limiting
+  properties:
+    value:
+      type: string
+      description: CIDR notation or IP address (e.g., "192.168.1.0/24")
+    type:
+      type: string
+      enum: [Exact, Distinct]
+      description: Match type (Exact = match CIDR, Distinct = unique per IP)
+
+RateLimitPathMatch:
+  type: object
+  required: [value, type]
+  description: Path match for rate limiting
+  properties:
+    value:
+      type: string
+      description: Path value to match
+    type:
+      type: string
+      enum: [Exact, PathPrefix, RegularExpression]
+      description: Path match type
+
+RequestBufferConfig:
+  type: object
+  required: [limit]
+  description: Request buffering configuration
+  properties:
+    limit:
+      type: string
+      description: Buffer limit (e.g., "4Ki", "1Mi", "16Ki")
+
+ResponseOverrideRule:
+  type: object
+  required: [match, response]
+  description: Response override rule
+  properties:
+    match:
+      $ref: '#/ResponseOverrideMatch'
+    response:
+      $ref: '#/ResponseOverrideResponse'
+
+ResponseOverrideMatch:
+  type: object
+  required: [statusCodes]
+  description: Match criteria for response override
+  properties:
+    statusCodes:
+      type: array
+      items:
+        $ref: '#/StatusCodeMatch'
+      description: Status codes to match
+
+StatusCodeMatch:
+  type: object
+  required: [type]
+  description: Status code match specification
+  properties:
+    type:
+      type: string
+      enum: [Value, Range]
+      description: Match type (single value or range)
+    value:
+      type: integer
+      description: Single status code value (when type is Value)
+    range:
+      $ref: '#/StatusCodeRange'
+
+StatusCodeRange:
+  type: object
+  required: [start, end]
+  description: Status code range
+  properties:
+    start:
+      type: integer
+      description: Start of range (inclusive)
+    end:
+      type: integer
+      description: End of range (inclusive)
+
+ResponseOverrideResponse:
+  type: object
+  required: [contentType, body]
+  description: Override response configuration
+  properties:
+    contentType:
+      type: string
+      description: Content-Type header for the response
+    body:
+      $ref: '#/ResponseOverrideBody'
+
+ResponseOverrideBody:
+  type: object
+  required: [type]
+  description: Response body configuration
+  properties:
+    type:
+      type: string
+      enum: [Inline, ValueRef]
+      description: Body source type
+    inline:
+      type: string
+      description: Inline body content (when type is Inline)
+    valueRef:
+      $ref: '#/ValueRef'
+
+ValueRef:
+  type: object
+  required: [kind, name]
+  description: Reference to a ConfigMap or Secret
+  properties:
+    group:
+      type: string
+      description: API group (empty for core resources)
+    kind:
+      type: string
+      enum: [ConfigMap, Secret]
+      description: Resource kind
+    name:
+      type: string
+      description: Resource name
+    namespace:
+      type: string
+      description: Resource namespace (optional)

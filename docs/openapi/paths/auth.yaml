@@ -1,0 +1,192 @@
+login:
+  post:
+    tags: [Auth]
+    summary: Login with username and password
+    operationId: login
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/auth.yaml#/LoginRequest'
+    responses:
+      '200':
+        description: Login successful
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/auth.yaml#/LoginResponse'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+
+logout:
+  post:
+    tags: [Auth]
+    summary: Logout and invalidate token
+    operationId: logout
+    security:
+      - bearerAuth: []
+    responses:
+      '204':
+        description: Logout successful
+
+refresh:
+  post:
+    tags: [Auth]
+    summary: Refresh access token
+    operationId: refreshToken
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/auth.yaml#/RefreshTokenRequest'
+    responses:
+      '200':
+        description: Token refreshed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/auth.yaml#/LoginResponse'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+
+me:
+  get:
+    tags: [Auth]
+    summary: Get current user info
+    operationId: getCurrentUser
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: Current user info
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/user.yaml#/User'
+
+tokens:
+  get:
+    tags: [Auth]
+    summary: List API tokens for current user
+    operationId: listApiTokens
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: List of API tokens
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/auth.yaml#/ApiToken'
+
+  post:
+    tags: [Auth]
+    summary: Create new API token
+    operationId: createApiToken
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/auth.yaml#/CreateApiTokenRequest'
+    responses:
+      '201':
+        description: Token created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/auth.yaml#/ApiTokenCreated'
+
+tokens_{tokenId}:
+  delete:
+    tags: [Auth]
+    summary: Revoke API token
+    operationId: revokeApiToken
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/tokenId'
+    responses:
+      '204':
+        description: Token revoked
+
+password:
+  put:
+    tags: [Auth]
+    summary: Change password for current user
+    operationId: changePassword
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/auth.yaml#/ChangePasswordRequest'
+    responses:
+      '200':
+        description: Password changed successfully
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: Password changed successfully
+      '400':
+        description: Invalid request (wrong current password or weak new password)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+
+my-teams:
+  get:
+    tags: [Teams]
+    summary: List teams the current user belongs to
+    operationId: listMyTeams
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: List of user's teams
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/team.yaml#/Team'
+
+token-capabilities:
+  get:
+    tags: [Auth]
+    summary: Get API token capabilities
+    operationId: getApiTokenCapabilities
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: Token capabilities
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                  description: Whether API tokens feature is enabled
+                maxTokens:
+                  type: integer
+                  description: Maximum number of tokens allowed
+                currentCount:
+                  type: integer
+                  description: Current number of active tokens

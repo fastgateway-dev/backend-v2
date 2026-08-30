@@ -1,0 +1,222 @@
+teams:
+  get:
+    tags: [Teams]
+    summary: List all global teams
+    operationId: listTeams
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+    responses:
+      '200':
+        description: List of teams
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/team.yaml#/TeamList'
+
+  post:
+    tags: [Teams]
+    summary: Create global team (Owner only)
+    operationId: createTeam
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/team.yaml#/CreateTeamRequest'
+    responses:
+      '201':
+        description: Team created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/team.yaml#/Team'
+
+teams_{teamId}:
+  get:
+    tags: [Teams]
+    summary: Get team by ID
+    operationId: getTeam
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/teamId'
+    responses:
+      '200':
+        description: Team details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/team.yaml#/Team'
+
+  patch:
+    tags: [Teams]
+    summary: Update team
+    operationId: updateTeam
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/teamId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/team.yaml#/UpdateTeamRequest'
+    responses:
+      '200':
+        description: Team updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/team.yaml#/Team'
+
+  delete:
+    tags: [Teams]
+    summary: Delete team
+    operationId: deleteTeam
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/teamId'
+    responses:
+      '204':
+        description: Team deleted
+
+teams_{teamId}_members:
+  get:
+    tags: [Teams]
+    summary: List team members
+    operationId: listTeamMembers
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/teamId'
+    responses:
+      '200':
+        description: List of team members
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/user.yaml#/User'
+
+  post:
+    tags: [Teams]
+    summary: Add member to team
+    operationId: addTeamMember
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/teamId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/team.yaml#/AddTeamMemberRequest'
+    responses:
+      '201':
+        description: Member added
+
+teams_{teamId}_members_{userId}:
+  delete:
+    tags: [Teams]
+    summary: Remove member from team
+    operationId: removeTeamMember
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/teamId'
+      - $ref: '../components/parameters.yaml#/userId'
+    responses:
+      '204':
+        description: Member removed
+
+teams_{teamId}_projects:
+  get:
+    tags: [Teams]
+    summary: List projects a team is assigned to
+    operationId: listTeamProjects
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/teamId'
+    responses:
+      '200':
+        description: List of projects the team is assigned to
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/project-team.yaml#/ProjectTeamRole'
+
+teams_{teamId}_members_email:
+  post:
+    tags: [Teams]
+    summary: Add member to team by email (Owner only)
+    description: If user exists, adds directly. If not, creates a pending invite.
+    operationId: addTeamMemberByEmail
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/teamId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/team.yaml#/AddMemberByEmailRequest'
+    responses:
+      '200':
+        description: Member added or invited
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/team.yaml#/AddMemberResult'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+
+teams_{teamId}_invites:
+  get:
+    tags: [Teams]
+    summary: List pending invites for team (Owner only)
+    operationId: listTeamInvites
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/teamId'
+    responses:
+      '200':
+        description: List of pending invites
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/team.yaml#/TeamEmailInvite'
+
+teams_{teamId}_invites_{inviteId}:
+  delete:
+    tags: [Teams]
+    summary: Delete a pending invite (Owner only)
+    operationId: deleteTeamInvite
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/teamId'
+      - name: inviteId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      '204':
+        description: Invite deleted

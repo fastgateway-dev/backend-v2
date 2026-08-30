@@ -1,0 +1,113 @@
+project-teams:
+  get:
+    tags: [Project Teams]
+    summary: List teams assigned to project
+    operationId: listProjectTeams
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: List of project team roles
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/project-team.yaml#/ProjectTeamRole'
+
+  post:
+    tags: [Project Teams]
+    summary: Assign team to project with role
+    operationId: assignTeamToProject
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/project-team.yaml#/AssignTeamRequest'
+    responses:
+      '201':
+        description: Team assigned
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project-team.yaml#/ProjectTeamRole'
+
+my-project-teams:
+  get:
+    tags: [Project Teams]
+    summary: Get current user's teams for this project
+    operationId: getMyProjectTeams
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: Current user's teams for project
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/project-team.yaml#/ProjectTeamRole'
+
+project-team_{teamId}:
+  get:
+    tags: [Project Teams]
+    summary: Get project team role by team ID
+    operationId: getProjectTeam
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/teamId'
+    responses:
+      '200':
+        description: Project team role details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project-team.yaml#/ProjectTeamRole'
+
+  patch:
+    tags: [Project Teams]
+    summary: Update team presets in project
+    operationId: updateProjectTeamPresets
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/teamId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/project-team.yaml#/UpdateTeamPresetsInput'
+    responses:
+      '200':
+        description: Team presets updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project-team.yaml#/ProjectTeamRole'
+
+  delete:
+    tags: [Project Teams]
+    summary: Remove team from project
+    operationId: removeTeamFromProject
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/teamId'
+    responses:
+      '204':
+        description: Team removed from project

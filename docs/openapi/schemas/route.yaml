@@ -1,0 +1,570 @@
+Route:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    domainId:
+      type: string
+      format: uuid
+    teamId:
+      type: string
+      format: uuid
+    team:
+      $ref: './team.yaml#/Team'
+    name:
+      type: string
+    description:
+      type: string
+    protocol:
+      type: string
+      enum: [http, grpc]
+    status:
+      type: string
+      enum: [pending_create, pending_update, pending_delete, approved, pending_deploy, active, rejected]
+    config:
+      $ref: '#/RouteConfig'
+    securityMode:
+      $ref: '#/SecurityMode'
+    securityPolicy:
+      $ref: './security.yaml#/SecurityPolicy'
+    backendTrafficPolicy:
+      $ref: './btp.yaml#/BackendTrafficPolicy'
+    wafPolicy:
+      $ref: './waf.yaml#/WafPolicy'
+    pendingApproval:
+      $ref: './approval.yaml#/Approval'
+    clientCount:
+      type: integer
+      description: Number of clients attached to this route
+    securityStatus:
+      type: string
+      description: Security status summary
+    createdBy:
+      type: string
+      format: uuid
+    creator:
+      $ref: './user.yaml#/User'
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+RouteList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/Route'
+    pagination:
+      $ref: './common.yaml#/Pagination'
+
+RouteConfig:
+  type: object
+  properties:
+    routeType:
+      type: string
+      enum: [backend, redirect, directResponse]
+      default: backend
+    matches:
+      type: array
+      items:
+        $ref: '#/RouteMatch'
+    backends:
+      type: array
+      items:
+        $ref: '#/RouteBackend'
+    mirrors:
+      type: array
+      items:
+        $ref: '#/MirrorBackend'
+      description: Mirror destinations for request mirroring (traffic shadowing)
+    redirect:
+      $ref: '#/RedirectConfig'
+    directResponse:
+      $ref: '#/DirectResponseConfig'
+    requestHeaderModifier:
+      $ref: '#/HeaderModifier'
+    responseHeaderModifier:
+      $ref: '#/HeaderModifier'
+    urlRewrite:
+      $ref: '#/URLRewrite'
+    defaultTrafficPolicy:
+      type: string
+      enum: [allow_all, deny, require_ip_allowlist]
+      description: How non-client traffic is handled when clients are attached
+    defaultAllowedCIDRs:
+      type: array
+      items:
+        type: string
+      description: CIDRs allowed when defaultTrafficPolicy is require_ip_allowlist
+
+GRPCMethodMatch:
+  type: object
+  properties:
+    type:
+      type: string
+      enum: [Exact, RegularExpression]
+      default: Exact
+      description: How to match the service or method name
+    value:
+      type: string
+      description: gRPC service or method name to match
+
+RouteMatch:
+  type: object
+  properties:
+    path:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [Exact, Prefix, RegularExpression]
+        value:
+          type: string
+    headers:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          type:
+            type: string
+            enum: [Exact, RegularExpression]
+          value:
+            type: string
+    method:
+      type: string
+      enum: [GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS]
+    queryParams:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          type:
+            type: string
+            enum: [Exact, RegularExpression]
+          value:
+            type: string
+    grpcService:
+      $ref: '#/GRPCMethodMatch'
+      description: gRPC service name matcher (only for protocol=grpc)
+    grpcMethod:
+      $ref: '#/GRPCMethodMatch'
+      description: gRPC method name matcher (only for protocol=grpc)
+
+RouteBackend:
+  type: object
+  required: [port]
+  properties:
+    type:
+      type: string
+      enum: [kubernetes, external]
+      default: kubernetes
+    service:
+      type: string
+      description: Service name (for kubernetes type)
+    namespace:
+      type: string
+      description: Namespace (for kubernetes type)
+    port:
+      type: integer
+    weight:
+      type: integer
+      minimum: 0
+      maximum: 100
+      default: 100
+      description: Weight for traffic splitting (ignored for fallback backends)
+    fallback:
+      type: boolean
+      default: false
+      description: If true, this backend only receives traffic when primary backends are unhealthy
+    addressType:
+      type: string
+      enum: [fqdn, ip]
+      description: Address type (for external type)
+    address:
+      type: string
+      description: FQDN or IP address (for external type)
+    tls:
+      $ref: '#/BackendTLSConfig'
+      description: TLS configuration (only valid for external backends)
+
+MirrorBackend:
+  type: object
+  required: [service, port]
+  description: Mirror destination for request mirroring (traffic shadowing)
+  properties:
+    type:
+      type: string
+      enum: [kubernetes]
+      default: kubernetes
+      description: Backend type (currently only kubernetes is supported)
+    service:
+      type: string
+      description: Service name in the target namespace
+    namespace:
+      type: string
+      description: Namespace of the target service
+    port:
+      type: integer
+      description: Port number of the target service
+
+BackendTLSConfig:
+  type: object
+  required: [caCertificateRefs]
+  description: TLS configuration for external backends. Simple TLS requires only caCertificateRefs. mTLS additionally requires clientCertificateRef.
+  properties:
+    clientCertificateRef:
+      $ref: '#/SecretRef'
+      description: Client certificate for mTLS (optional - if set, enables mTLS)
+    caCertificateRefs:
+      type: array
+      minItems: 1
+      items:
+        $ref: '#/CertificateRef'
+      description: CA certificates for verifying backend (required for TLS)
+
+SecretRef:
+  type: object
+  required: [name]
+  description: Reference to a Kubernetes Secret
+  properties:
+    name:
+      type: string
+      description: Name of the Secret
+    namespace:
+      type: string
+      description: Namespace of the Secret (defaults to fastgateway-system)
+
+CertificateRef:
+  type: object
+  required: [kind, name]
+  description: Reference to a Kubernetes Secret or ConfigMap containing certificates
+  properties:
+    kind:
+      type: string
+      enum: [Secret, ConfigMap]
+      description: Kind of the resource
+    name:
+      type: string
+      description: Name of the resource
+    namespace:
+      type: string
+      description: Namespace of the resource (defaults to fastgateway-system)
+
+RedirectConfig:
+  type: object
+  properties:
+    scheme:
+      type: string
+      enum: [http, https]
+    hostname:
+      type: string
+    port:
+      type: integer
+    statusCode:
+      type: integer
+      enum: [301, 302]
+      default: 302
+    path:
+      $ref: '#/PathRewrite'
+
+DirectResponseConfig:
+  type: object
+  required: [statusCode]
+  description: Direct response configuration - return a static response without forwarding to backend
+  properties:
+    statusCode:
+      type: integer
+      minimum: 100
+      maximum: 599
+      description: HTTP status code to return
+    contentType:
+      type: string
+      description: Content-Type header value (e.g., "text/plain", "application/json")
+    body:
+      $ref: '#/DirectResponseBody'
+
+DirectResponseBody:
+  type: object
+  required: [type]
+  properties:
+    type:
+      type: string
+      enum: [Inline, ValueRef]
+      description: Body type - Inline for direct content, ValueRef for ConfigMap reference
+    inline:
+      type: string
+      maxLength: 4096
+      description: Inline body content (max 4096 bytes)
+
+HeaderModifier:
+  type: object
+  properties:
+    set:
+      type: array
+      items:
+        $ref: '#/HeaderValue'
+    add:
+      type: array
+      items:
+        $ref: '#/HeaderValue'
+    remove:
+      type: array
+      items:
+        type: string
+
+HeaderValue:
+  type: object
+  required: [name, value]
+  properties:
+    name:
+      type: string
+    value:
+      type: string
+
+URLRewrite:
+  type: object
+  properties:
+    hostname:
+      type: string
+    path:
+      $ref: '#/PathRewrite'
+
+PathRewrite:
+  type: object
+  properties:
+    type:
+      type: string
+      enum: [ReplacePrefixMatch, ReplaceFullPath]
+    replacePrefixMatch:
+      type: string
+    replaceFullPath:
+      type: string
+
+CreateRouteRequest:
+  type: object
+  required: [name, teamId, config]
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+    protocol:
+      type: string
+      enum: [http, grpc]
+      default: http
+    teamId:
+      type: string
+      format: uuid
+    config:
+      $ref: '#/RouteConfig'
+    securityMode:
+      $ref: '#/SecurityMode'
+    securityPolicy:
+      $ref: '#/SecurityPolicyInput'
+    backendTrafficPolicy:
+      $ref: './btp.yaml#/BackendTrafficPolicyInput'
+    extensionPolicy:
+      $ref: './extension.yaml#/EnvoyExtensionPolicyInput'
+    wafPolicy:
+      $ref: './waf.yaml#/WafPolicyConfig'
+    changeDescription:
+      type: string
+      description: Optional description of the changes for approval
+    aiReview:
+      $ref: './ai.yaml#/AIReviewResult'
+
+UpdateRouteRequest:
+  type: object
+  properties:
+    description:
+      type: string
+    config:
+      $ref: '#/RouteConfig'
+    securityPolicy:
+      $ref: '#/SecurityPolicyInput'
+    backendTrafficPolicy:
+      $ref: './btp.yaml#/BackendTrafficPolicyInput'
+    extensionPolicy:
+      $ref: './extension.yaml#/EnvoyExtensionPolicyInput'
+    wafPolicy:
+      $ref: './waf.yaml#/WafPolicyConfig'
+    changeDescription:
+      type: string
+      description: Optional description of the changes for approval
+    aiReview:
+      $ref: './ai.yaml#/AIReviewResult'
+
+SecurityPolicyInput:
+  type: object
+  properties:
+    cors:
+      $ref: './security.yaml#/CORSConfig'
+    ipAllowlist:
+      type: array
+      items:
+        $ref: './security.yaml#/IPAllowlistEntry'
+      description: Direct IP allowlist entries to configure on the route
+    authorization:
+      type: object
+      properties:
+        allowedCIDRs:
+          type: array
+          items:
+            type: string
+    apiKeyAuth:
+      type: object
+      properties:
+        secretName:
+          type: string
+        headerName:
+          type: string
+    jwt:
+      type: object
+      properties:
+        issuer:
+          type: string
+        jwksUrl:
+          type: string
+        audiences:
+          type: array
+          items:
+            type: string
+        claimToHeaders:
+          type: array
+          items:
+            type: object
+            properties:
+              claim:
+                type: string
+              header:
+                type: string
+    oidc:
+      type: object
+      properties:
+        issuer:
+          type: string
+        clientId:
+          type: string
+        clientSecretName:
+          type: string
+        redirectURL:
+          type: string
+        logoutPath:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        cookieDomain:
+          type: string
+    extAuth:
+      $ref: './security.yaml#/ExtAuthConfig'
+
+SecurityMode:
+  type: string
+  enum: [general, client]
+  description: "Security configuration mode. 'general' configures security directly on the route. 'client' uses client attachments."
+
+RouteYAMLsResponse:
+  type: object
+  required: [httpRouteYaml]
+  properties:
+    httpRouteYaml:
+      type: string
+      description: HTTPRoute Kubernetes YAML
+    securityPolicyYaml:
+      type: string
+      description: SecurityPolicy Kubernetes YAML (if configured)
+    backendTrafficPolicyYaml:
+      type: string
+      description: BackendTrafficPolicy Kubernetes YAML (if configured)
+    envoyExtensionPolicyYaml:
+      type: string
+      description: EnvoyExtensionPolicy Kubernetes YAML (if configured)
+    backendYaml:
+      type: string
+      description: Backend CRD Kubernetes YAML for external service backends (if configured)
+
+PreviewCreateResponse:
+  type: object
+  required: [proposedYaml]
+  properties:
+    proposedYaml:
+      type: string
+      description: Proposed HTTPRoute YAML
+    proposedSecurityPolicyYaml:
+      type: string
+      description: Proposed SecurityPolicy YAML (if configured)
+    proposedBackendTrafficPolicyYaml:
+      type: string
+      description: Proposed BackendTrafficPolicy YAML (if configured)
+    proposedBackendYaml:
+      type: string
+      description: Proposed Backend CRD YAML for external service backends (if configured)
+    proposedEnvoyExtensionPolicyYaml:
+      type: string
+      description: Proposed EnvoyExtensionPolicy YAML for Lua/Wasm extensions (if configured)
+
+PreviewUpdateResponse:
+  type: object
+  required: [currentYaml, proposedYaml]
+  properties:
+    currentYaml:
+      type: string
+      description: Current HTTPRoute YAML
+    proposedYaml:
+      type: string
+      description: Proposed HTTPRoute YAML
+    currentSecurityPolicyYaml:
+      type: string
+      description: Current SecurityPolicy YAML (if exists)
+    proposedSecurityPolicyYaml:
+      type: string
+      description: Proposed SecurityPolicy YAML (if configured)
+    currentBackendTrafficPolicyYaml:
+      type: string
+      description: Current BackendTrafficPolicy YAML (if exists)
+    proposedBackendTrafficPolicyYaml:
+      type: string
+      description: Proposed BackendTrafficPolicy YAML (if configured)
+    currentBackendYaml:
+      type: string
+      description: Current Backend CRD YAML for external service backends (if exists)
+    proposedBackendYaml:
+      type: string
+      description: Proposed Backend CRD YAML for external service backends (if configured)
+    currentEnvoyExtensionPolicyYaml:
+      type: string
+      description: Current EnvoyExtensionPolicy YAML (if exists)
+    proposedEnvoyExtensionPolicyYaml:
+      type: string
+      description: Proposed EnvoyExtensionPolicy YAML for Lua/Wasm extensions (if configured)
+
+PreviewDeleteResponse:
+  type: object
+  required: [currentYaml]
+  properties:
+    currentYaml:
+      type: string
+      description: Current HTTPRoute YAML (will be deleted)
+    currentSecurityPolicyYaml:
+      type: string
+      description: Current SecurityPolicy YAML (will be deleted if exists)
+    currentBackendTrafficPolicyYaml:
+      type: string
+      description: Current BackendTrafficPolicy YAML (will be deleted if exists)
+    currentBackendYaml:
+      type: string
+      description: Current Backend CRD YAML for external service backends (will be deleted if exists)
+    currentEnvoyExtensionPolicyYaml:
+      type: string
+      description: Current EnvoyExtensionPolicy YAML (will be deleted if exists)

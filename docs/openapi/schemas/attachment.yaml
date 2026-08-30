@@ -1,0 +1,127 @@
+ClientRouteAttachment:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    clientId:
+      type: string
+      format: uuid
+    routeId:
+      type: string
+      format: uuid
+    enableIpAllowlist:
+      type: boolean
+    enableApiKey:
+      type: boolean
+      description: Whether API key authentication is enabled for this attachment
+    enableJwt:
+      type: boolean
+      description: Whether JWT authentication is enabled for this attachment
+    enableBasicAuth:
+      type: boolean
+    enableMtls:
+      type: boolean
+    rateLimitConfig:
+      $ref: './btp.yaml#/RateLimitConfig'
+    extAuth:
+      $ref: './security.yaml#/ExtAuthConfig'
+    status:
+      type: string
+      enum: [pending_attach, pending_update, pending_detach, approved, active, removed, rejected]
+    client:
+      $ref: './client.yaml#/Client'
+    route:
+      $ref: './route.yaml#/Route'
+    creator:
+      $ref: './user.yaml#/User'
+    pendingApproval:
+      $ref: './approval.yaml#/Approval'
+    createdBy:
+      type: string
+      format: uuid
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+AttachFromRouteRequest:
+  type: object
+  required: [clientId]
+  properties:
+    clientId:
+      type: string
+      format: uuid
+    enableIpAllowlist:
+      type: boolean
+      default: false
+      description: Require client IP to be in allowlist
+    enableApiKey:
+      type: boolean
+      default: false
+      description: Require client to provide valid API key
+    enableJwt:
+      type: boolean
+      default: false
+      description: Require client to provide valid JWT token
+    enableBasicAuth:
+      type: boolean
+      default: false
+    enableMtls:
+      type: boolean
+      default: false
+    rateLimitConfig:
+      $ref: './btp.yaml#/RateLimitConfig'
+    extAuth:
+      $ref: './security.yaml#/ExtAuthConfig'
+
+AttachFromClientRequest:
+  type: object
+  required: [routeId, projectId]
+  properties:
+    routeId:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    enableIpAllowlist:
+      type: boolean
+      default: false
+      description: Require client IP to be in allowlist
+    enableApiKey:
+      type: boolean
+      default: false
+      description: Require client to provide valid API key
+    enableJwt:
+      type: boolean
+      default: false
+      description: Require client to provide valid JWT token
+    enableBasicAuth:
+      type: boolean
+      default: false
+    enableMtls:
+      type: boolean
+      default: false
+    rateLimitConfig:
+      $ref: './btp.yaml#/RateLimitConfig'
+    extAuth:
+      $ref: './security.yaml#/ExtAuthConfig'
+
+EffectiveIPEntry:
+  type: object
+  properties:
+    cidr:
+      type: string
+      description: The IP CIDR
+    clientId:
+      type: string
+      description: Client UUID that owns this IP
+    clientName:
+      type: string
+      description: Name of the client
+    description:
+      type: string
+      description: IP address description

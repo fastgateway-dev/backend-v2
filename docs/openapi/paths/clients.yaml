@@ -1,0 +1,442 @@
+clients:
+  get:
+    tags: [Clients]
+    summary: List clients
+    description: Owner sees all clients. Others see clients belonging to their teams.
+    operationId: listClients
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+      - name: teamId
+        in: query
+        schema:
+          type: string
+          format: uuid
+        description: Filter by team
+    responses:
+      '200':
+        description: List of clients
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/ClientList'
+
+  post:
+    tags: [Clients]
+    summary: Create client (Owner or team member)
+    operationId: createClient
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/client.yaml#/CreateClientRequest'
+    responses:
+      '201':
+        description: Client created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/Client'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+clients_{clientId}:
+  get:
+    tags: [Clients]
+    summary: Get client by ID
+    operationId: getClient
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    responses:
+      '200':
+        description: Client details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/Client'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+  patch:
+    tags: [Clients]
+    summary: Update client (Owner or team member)
+    operationId: updateClient
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/client.yaml#/UpdateClientRequest'
+    responses:
+      '200':
+        description: Client updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/Client'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+  delete:
+    tags: [Clients]
+    summary: Delete client (Owner or team member)
+    operationId: deleteClient
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    responses:
+      '204':
+        description: Client deleted
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+client-ips:
+  get:
+    tags: [Client IPs]
+    summary: List IP addresses for a client (Owner or team member)
+    operationId: listClientIPs
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    responses:
+      '200':
+        description: List of client IP addresses
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/client.yaml#/ClientIPAddress'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+  post:
+    tags: [Client IPs]
+    summary: Add IP address to client (Owner or team member)
+    operationId: addClientIP
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/client.yaml#/CreateClientIPRequest'
+    responses:
+      '201':
+        description: IP address added
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/ClientIPAddress'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+client-ips_{ipId}:
+  delete:
+    tags: [Client IPs]
+    summary: Remove IP address from client (Owner or team member)
+    operationId: removeClientIP
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+      - $ref: '../components/parameters.yaml#/ipId'
+    responses:
+      '204':
+        description: IP address removed
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+client-api-key:
+  post:
+    tags: [Client API Key]
+    summary: Generate API key for client (Owner or team member)
+    description: |
+      Generates a new API key for the client. If the client already has an API key,
+      it will be replaced with a new one. The plaintext key is returned only once
+      in the response and cannot be retrieved again.
+    operationId: generateClientAPIKey
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/client.yaml#/GenerateAPIKeyRequest'
+    responses:
+      '200':
+        description: API key generated successfully
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/GenerateAPIKeyResponse'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+  delete:
+    tags: [Client API Key]
+    summary: Revoke API key for client (Owner or team member)
+    description: |
+      Revokes the client's API key. Routes with this client attached using API key
+      authentication will move to pending_deploy status.
+    operationId: revokeClientAPIKey
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    responses:
+      '204':
+        description: API key revoked successfully
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+client-jwt:
+  post:
+    tags: [Client JWT]
+    summary: Configure JWT authentication for client (Owner or team member)
+    description: |
+      Configures JWT authentication for the client. Requires a valid issuer URL
+      and JWKS URL. Optionally accepts audience values, required claims, and
+      claim-to-header mappings.
+    operationId: configureClientJWT
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/client.yaml#/ConfigureJWTRequest'
+    responses:
+      '200':
+        description: JWT configured successfully
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/ConfigureJWTResponse'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+  put:
+    tags: [Client JWT]
+    summary: Update JWT authentication for client (Owner or team member)
+    description: |
+      Updates the JWT authentication configuration for the client. The client must
+      already have JWT configured. Routes with this client attached using JWT
+      authentication will move to pending_deploy status.
+    operationId: updateClientJWT
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/client.yaml#/ConfigureJWTRequest'
+    responses:
+      '200':
+        description: JWT updated successfully
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/ConfigureJWTResponse'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+  delete:
+    tags: [Client JWT]
+    summary: Remove JWT authentication from client (Owner or team member)
+    description: |
+      Removes JWT authentication from the client. Routes with this client attached
+      using JWT authentication will move to pending_deploy status.
+    operationId: removeClientJWT
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    responses:
+      '204':
+        description: JWT removed successfully
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+client-headers:
+  get:
+    tags: [Client Headers]
+    summary: List headers for a client (Owner or team member)
+    operationId: listClientHeaders
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    responses:
+      '200':
+        description: List of client headers
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/client.yaml#/ClientHeader'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+  post:
+    tags: [Client Headers]
+    summary: Add header to client (Owner or team member)
+    description: |
+      Adds a header authorization rule to the client. The header name and values
+      are used to match incoming requests for authorization. Routes with this
+      client attached will move to pending_deploy status.
+    operationId: addClientHeader
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/client.yaml#/CreateClientHeaderRequest'
+    responses:
+      '201':
+        description: Header added
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/ClientHeader'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+client-headers_{headerId}:
+  delete:
+    tags: [Client Headers]
+    summary: Remove header from client (Owner or team member)
+    description: |
+      Removes a header authorization rule from the client. Routes with this
+      client attached will move to pending_deploy status.
+    operationId: removeClientHeader
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+      - $ref: '../components/parameters.yaml#/headerId'
+    responses:
+      '204':
+        description: Header removed
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+client-methods:
+  put:
+    tags: [Client Methods]
+    summary: Set allowed HTTP methods for client (Owner or team member)
+    description: |
+      Sets the allowed HTTP methods for the client. These methods are used
+      in authorization rules when the client is attached to routes. Valid
+      methods: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS. Pass an empty
+      array to clear all method restrictions. Routes with this client
+      attached will move to pending_deploy status.
+    operationId: setClientAllowedMethods
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/client.yaml#/SetAllowedMethodsRequest'
+    responses:
+      '200':
+        description: Methods updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/Client'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+client-mtls:
+  put:
+    tags: [Client mTLS]
+    summary: Configure mTLS authentication for client (Owner or team member)
+    operationId: updateClientMTLS
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/client.yaml#/UpdateClientMTLSRequest'
+    responses:
+      '200':
+        description: mTLS configured successfully
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/Client'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+  delete:
+    tags: [Client mTLS]
+    summary: Remove mTLS authentication from client (Owner or team member)
+    operationId: removeClientMTLS
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    responses:
+      '204':
+        description: mTLS removed successfully
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'

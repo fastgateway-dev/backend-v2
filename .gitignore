@@ -1,0 +1,59 @@
+# Secrets
+.env
+*.key
+*.pem
+
+# E2E test certificates. Nothing under this directory is ever committed --
+# e2e/testdata/certificate/generate.sh (driven by the `step` CLI) creates
+# the whole PKI fresh in CI and on a laptop, and e2e/deps/create-secrets.sh
+# turns that same output into the Kubernetes secrets both the Go e2e tests
+# and the deployed backends rely on. Only the generator and its docs are
+# tracked. Anchored to the repo root and to this directory specifically --
+# see the /migrate comment above for why an unanchored pattern here would
+# be dangerous.
+/e2e/testdata/certificate/*
+!/e2e/testdata/certificate/README.md
+!/e2e/testdata/certificate/generate.sh
+
+# Build artifacts from `go build ./cmd/<name>` (or `go build .`) run at the
+# repo root. Anchored to the repo root (leading `/`) so these NEVER match
+# the corresponding cmd/<name>/ source directory — a bare, unanchored
+# pattern here (e.g. plain `server` or `migrate`) matches the directory
+# too and silently drops its source from `git add`. When adding a new
+# command under cmd/, add its root-level binary name here as well.
+/fastgateway-backend
+/migrate
+/seed
+/server
+/e2e-seed
+*.out
+dist/
+
+# OS
+.DS_Store
+
+# Go binaries (merged from former backend/.gitignore)
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Go dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files
+.env.local
+
+# Temporary files
+tmp/
+
+# Internal planning docs (specs/plans) -- kept on disk, not published.
+docs/superpowers/
