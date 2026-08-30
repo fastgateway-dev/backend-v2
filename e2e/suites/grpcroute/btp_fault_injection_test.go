@@ -63,11 +63,22 @@ func TestGRPCBTPFaultInjection(t *testing.T) {
 		res, _, err := echoCall(ctx, "hello", callOpt)
 		return res, err
 	}
-	res, err := waitForGRPCLive(ctx, call, routeLiveTimeout)
+	// Polled rather than read once: the policy that produces this outcome
+	// is a separate Kubernetes object Envoy Gateway programs AFTER the
+	// route, so the route serves traffic un-policied for a short window
+	// after deploy -- and WaitForRouteLive/waitForGRPCLive return on the
+	// first answer they see, which in that window is the un-policied one.
+	// harness.Fixture already waits for the policy to report Accepted;
+	// this closes the remaining xDS-push tail. Bounded by routeLiveTimeout,
+	// so a policy that never takes effect still fails the test.
+	res, err := waitForGRPCResult(ctx, call, func(r *harness.GRPCResult) bool {
+		return r.Code == codes.Aborted
+	}, routeLiveTimeout)
 	if err != nil {
-		t.Fatalf("fault injection: route never became live: %v", err)
-	}
-	if res.Code != codes.Aborted {
-		t.Fatalf("fault injection: got code %v, want %v (abort configured at 100%%)", res.Code, codes.Aborted)
+		got := codes.Code(0)
+		if res != nil {
+			got = res.Code
+		}
+		t.Fatalf("fault injection: got code %v, want %v (abort configured at 100%%): %v", got, codes.Aborted, err)
 	}
 }

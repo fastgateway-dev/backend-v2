@@ -77,17 +77,31 @@ func TestGRPCBTPRequestBuffer(t *testing.T) {
 		t.Fatalf("request buffer: under-limit echoed body length %d, want %d", len(resp.Body), len(underBody))
 	}
 
-	overBody := strings.Repeat("a", 4096)
-	res, _, err = echoCall(ctx, overBody, callOpt)
-	if err != nil {
-		t.Fatalf("request buffer: over-limit request: %v", err)
-	}
 	// codes.Unknown, not codes.ResourceExhausted: Envoy's buffer filter
 	// rejects the over-limit request with HTTP 413, and Envoy's
 	// httpToGrpcStatus table only translates 400/401/403/404/429/
 	// 502/503/504 -- 413 falls through to Unknown. See the doc comment
 	// above.
-	if res.Code != codes.Unknown {
-		t.Fatalf("request buffer: over-limit body (4096 bytes > 1Ki) got code %v, want %v", res.Code, codes.Unknown)
+	//
+	// Polled rather than read once: the buffer limit lives in a
+	// BackendTrafficPolicy, a separate object Envoy Gateway programs after
+	// the GRPCRoute, so an over-limit request sent immediately after the
+	// route goes live is answered by an Envoy that has no buffer filter
+	// yet and echoes it back OK. The poll is bounded -- a limit that is
+	// never enforced still fails the test.
+	overBody := strings.Repeat("a", 4096)
+	overCall := func(ctx context.Context) (*harness.GRPCResult, error) {
+		res, _, err := echoCall(ctx, overBody, callOpt)
+		return res, err
+	}
+	res, err = waitForGRPCResult(ctx, overCall, func(r *harness.GRPCResult) bool {
+		return r.Code == codes.Unknown
+	}, routeLiveTimeout)
+	if err != nil {
+		got := codes.Code(0)
+		if res != nil {
+			got = res.Code
+		}
+		t.Fatalf("request buffer: over-limit body (4096 bytes > 1Ki) got code %v, want %v: %v", got, codes.Unknown, err)
 	}
 }

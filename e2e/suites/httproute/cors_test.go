@@ -109,12 +109,25 @@ func TestCORSActualRequest(t *testing.T) {
 	probe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("Origin", "https://example.com"))
 	}
-	resp, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout)
-	if err != nil {
+	if _, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout); err != nil {
 		t.Fatalf("cors actual request: route never became live: %v", err)
 	}
 
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://example.com" {
-		t.Fatalf("cors actual request: got Access-Control-Allow-Origin %q, want %q", got, "https://example.com")
+	// The Access-Control-Allow-Origin header comes from the
+	// SecurityPolicy, a separate object Envoy Gateway programs after the
+	// HTTPRoute itself -- so the route can already be serving 200s with
+	// CORS not yet applied, which is what WaitForRouteLive alone would
+	// accept as final. Poll for the header instead; if CORS never takes
+	// effect the poll times out and the test fails with whatever the
+	// gateway actually returned.
+	resp, err := harness.WaitForResponse(ctx, probe, func(r *harness.Response) bool {
+		return r.Header.Get("Access-Control-Allow-Origin") == "https://example.com"
+	}, routeLiveTimeout)
+	if err != nil {
+		got := ""
+		if resp != nil {
+			got = resp.Header.Get("Access-Control-Allow-Origin")
+		}
+		t.Fatalf("cors actual request: got Access-Control-Allow-Origin %q, want %q: %v", got, "https://example.com", err)
 	}
 }

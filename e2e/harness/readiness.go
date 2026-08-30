@@ -137,30 +137,7 @@ func WaitForRouteLive(
 // plane, which is what the predecessor suite's 113 retry_until calls and 52
 // raw sleeps never did.
 func WaitForHTTPRouteAccepted(ctx context.Context, k *Kube, ns, routeID string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	var last string
-	labelSelector := fmt.Sprintf("fastgateway.dev/route-id=%s", routeID)
-
-	for time.Now().Before(deadline) {
-		obj, err := k.GetUnstructuredByLabel(ctx, httpRouteGVR, ns, labelSelector)
-		if err != nil {
-			last = fmt.Sprintf("error: %v", err)
-		} else {
-			acceptedOK, acceptedMsg := parentRefConditionStatus(obj, "Accepted")
-			resolvedOK, resolvedMsg := parentRefConditionStatus(obj, "ResolvedRefs")
-			if acceptedOK && resolvedOK {
-				return nil
-			}
-			last = fmt.Sprintf("%s; %s", acceptedMsg, resolvedMsg)
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
-	return fmt.Errorf("HTTPRoute for route %s (label %s) in %s not accepted within %s (last: %s)", routeID, labelSelector, ns, timeout, last)
+	return WaitForRouteAccepted(ctx, k, httpRouteGVR, ns, routeID, timeout)
 }
 
 // parentRefConditionStatus reports whether every parentRef entry in
@@ -330,4 +307,152 @@ func ancestorConditionStatus(obj *unstructured.Unstructured, condType string) (b
 		}
 	}
 	return allTrue, strings.Join(messages, ", ")
+}
+
+// grpcRouteGVR identifies the Gateway API GRPCRoute resource. Routes whose
+// models.RouteProtocol is "grpc" are deployed as GRPCRoute objects
+// (KubernetesService.CreateGRPCRoute), not HTTPRoute, so a readiness gate
+// has to pick the GVR from the route's protocol.
+var grpcRouteGVR = schema.GroupVersionResource{
+	Group:    "gateway.networking.k8s.io",
+	Version:  "v1",
+	Resource: "grpcroutes",
+}
+
+// RouteGVR returns the Gateway API GVR a route of the given protocol is
+// deployed as: "grpc" produces a GRPCRoute, everything else an HTTPRoute.
+func RouteGVR(protocol string) schema.GroupVersionResource {
+	if strings.EqualFold(protocol, "grpc") {
+		return grpcRouteGVR
+	}
+	return httpRouteGVR
+}
+
+// WaitForRouteAccepted is WaitForHTTPRouteAccepted generalised over the
+// route kind: pass RouteGVR(protocol) so gRPC routes gate on their
+// GRPCRoute rather than a non-existent HTTPRoute.
+func WaitForRouteAccepted(ctx context.Context, k *Kube, gvr schema.GroupVersionResource, ns, routeID string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last string
+	labelSelector := fmt.Sprintf("fastgateway.dev/route-id=%s", routeID)
+
+	for time.Now().Before(deadline) {
+		obj, err := k.GetUnstructuredByLabel(ctx, gvr, ns, labelSelector)
+		if err != nil {
+			last = fmt.Sprintf("error: %v", err)
+		} else {
+			acceptedOK, acceptedMsg := parentRefConditionStatus(obj, "Accepted")
+			resolvedOK, resolvedMsg := parentRefConditionStatus(obj, "ResolvedRefs")
+			if acceptedOK && resolvedOK {
+				return nil
+			}
+			last = fmt.Sprintf("%s; %s", acceptedMsg, resolvedMsg)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("%s for route %s (label %s) in %s not accepted within %s (last: %s)", gvr.Resource, routeID, labelSelector, ns, timeout, last)
+}
+
+// WaitForPoliciesAccepted is the "all of them" counterpart to
+// WaitForPolicyAccepted: it waits until AT LEAST ONE object of gvr carries
+// routeID's label AND every such object reports Accepted=True on every
+// ancestor.
+//
+// The plural form matters for client-mode security, where a route owns one
+// SecurityPolicy per attached client: WaitForPolicyAccepted's underlying
+// GetUnstructuredByLabel errors out ("N found, want exactly 1") rather than
+// gating on all of them. Requiring at least one match is what makes this a
+// real gate -- an empty list means the backend has not created the policy
+// yet, which is precisely the unconverged state callers are waiting out.
+func WaitForPoliciesAccepted(ctx context.Context, k *Kube, gvr schema.GroupVersionResource, ns, routeID string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last string
+	labelSelector := fmt.Sprintf("fastgateway.dev/route-id=%s", routeID)
+
+	for time.Now().Before(deadline) {
+		items, err := k.ListUnstructuredByLabel(ctx, gvr, ns, labelSelector)
+		switch {
+		case err != nil:
+			last = fmt.Sprintf("error: %v", err)
+		case len(items) == 0:
+			last = "no matching object created yet"
+		default:
+			allOK := true
+			msgs := make([]string, 0, len(items))
+			for i := range items {
+				ok, msg := ancestorConditionStatus(&items[i], "Accepted")
+				if !ok {
+					allOK = false
+				}
+				msgs = append(msgs, fmt.Sprintf("%s: %s", items[i].GetName(), msg))
+			}
+			if allOK {
+				return nil
+			}
+			last = strings.Join(msgs, " | ")
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("%s for route %s (label %s) in %s not all accepted within %s (last: %s)", gvr.Resource, routeID, labelSelector, ns, timeout, last)
+}
+
+// WaitForResponse polls probe until want reports the response is the one
+// the caller is actually asserting on, and returns it. On timeout it
+// returns the LAST observed response together with an error, so the
+// caller's failure message can report what the gateway really did.
+//
+// This is the general form of the pattern httproute/timeout_route_test.go
+// spells out inline, and it exists because WaitForRouteLive is the wrong
+// gate for any assertion that depends on a POLICY rather than the route.
+// A route and its SecurityPolicy / BackendTrafficPolicy /
+// EnvoyExtensionPolicy are separate Kubernetes objects reconciled
+// independently: Envoy Gateway programs the route first and the policy a
+// few hundred milliseconds later. WaitForRouteLive returns on the first
+// non-404 answer, which in that window is the route serving traffic with
+// its policy NOT yet applied -- so a CORS/Lua/buffer/circuit-breaker
+// assertion made immediately after it is racing the very thing it means to
+// test. Polling for the asserted effect closes that window while staying
+// falsifiable: if the feature never works, want never holds and the test
+// fails with the observed response rather than silently passing.
+func WaitForResponse(
+	ctx context.Context,
+	probe func(context.Context) (*Response, error),
+	want func(*Response) bool,
+	timeout time.Duration,
+) (*Response, error) {
+	deadline := time.Now().Add(timeout)
+	var last *Response
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		resp, err := probe(ctx)
+		switch {
+		case err != nil:
+			lastErr = err
+		case resp == nil:
+			lastErr = fmt.Errorf("probe returned no response")
+		default:
+			last = resp
+			if want(resp) {
+				return resp, nil
+			}
+			lastErr = fmt.Errorf("HTTP %d did not satisfy the expected condition", resp.StatusCode)
+		}
+		select {
+		case <-ctx.Done():
+			return last, ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	return last, fmt.Errorf("expected response never observed within %s (last: %v)", timeout, lastErr)
 }

@@ -11,6 +11,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
 // Env bundles everything a test package needs to talk to a seeded
@@ -229,5 +233,75 @@ func (f *Fixture) Route(cfg any) Route {
 	if err != nil {
 		t.Fatalf("fixture: fetch deployed route %s (%s): %v", route.Name, route.ID, err)
 	}
+
+	f.waitConverged(route.ID.String(), cfg)
 	return deployed
+}
+
+// fixtureConvergeTimeout bounds each of waitConverged's gates.
+var fixtureConvergeTimeout = 3 * time.Minute
+
+// waitConverged blocks until the Kubernetes objects this route's cfg asks
+// for exist and report Accepted.
+//
+// DeployRoute returning 200 only means the backend wrote the objects to the
+// API server. The route and each of its policies are SEPARATE objects that
+// Envoy Gateway reconciles independently, and it programs the route first:
+// on a warm kind cluster the route starts serving traffic within ~200ms
+// while its SecurityPolicy / BackendTrafficPolicy / EnvoyExtensionPolicy
+// lands a few hundred milliseconds later. Every test that gates only on
+// "the route answers" (harness.WaitForRouteLive, the suites' own
+// waitForGRPCLive) therefore has a window in which it asserts
+// policy-dependent behaviour against a route whose policy is not applied
+// yet -- which is exactly what made TestExtensionsLua, TestGRPCLua,
+// TestCORSActualRequest, TestGRPCBTPCircuitBreaker,
+// TestGRPCBTPRequestBuffer and TestGRPCClientModeRateLimit fail
+// non-deterministically, each in under 2.5s, while the same tests passed
+// whenever they happened to take longer.
+//
+// Gating here fixes it once for every test instead of per-test. Policy
+// gates are fatal: the test explicitly configured that policy, so its
+// absence or non-acceptance is a real failure and must not be tolerated
+// silently. The route gate is advisory (logged, not fatal) because a route
+// legitimately reports ResolvedRefs=False for a while -- external Backend
+// CRDs reconcile after the route, and httproute's failover tests scale
+// their backend to zero on purpose.
+//
+// cfg values that are not a services.CreateRouteInput carry no policy
+// information, so there is nothing to gate on and waitConverged returns
+// immediately.
+func (f *Fixture) waitConverged(routeID string, cfg any) {
+	t := f.t
+	t.Helper()
+
+	in, ok := cfg.(services.CreateRouteInput)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureConvergeTimeout)
+	defer cancel()
+	ns := f.env.Cfg.Namespace
+
+	if err := WaitForRouteAccepted(ctx, f.env.Kube, RouteGVR(string(in.Protocol)), ns, routeID, fixtureConvergeTimeout); err != nil {
+		t.Logf("fixture: route %s not fully accepted (continuing; some tests deploy routes whose refs resolve later): %v", routeID, err)
+	}
+
+	gates := []struct {
+		want bool
+		gvr  schema.GroupVersionResource
+		what string
+	}{
+		{in.SecurityPolicy != nil, SecurityPolicyGVR, "SecurityPolicy"},
+		{in.BackendTrafficPolicy != nil, BackendTrafficPolicyGVR, "BackendTrafficPolicy"},
+		{in.ExtensionPolicy != nil || in.WafPolicy != nil, EnvoyExtensionPolicyGVR, "EnvoyExtensionPolicy"},
+	}
+	for _, g := range gates {
+		if !g.want {
+			continue
+		}
+		if err := WaitForPoliciesAccepted(ctx, f.env.Kube, g.gvr, ns, routeID, fixtureConvergeTimeout); err != nil {
+			t.Fatalf("fixture: %s for route %s never accepted: %v", g.what, routeID, err)
+		}
+	}
 }

@@ -62,12 +62,21 @@ func TestGRPCLua(t *testing.T) {
 		t.Fatalf("lua: got code %v, want %v", res.Code, codes.OK)
 	}
 
-	res, _, err = echoCall(ctx, "hello", callOpt)
+	// The Lua filter lives in an EnvoyExtensionPolicy, a separate object
+	// Envoy Gateway programs after the GRPCRoute, so the route answers OK
+	// without the header for a short window after deploy -- reading it
+	// once here is what made this test fail non-deterministically. Poll
+	// for the header the script adds; a script that never runs still
+	// fails, just at the timeout rather than immediately.
+	res, err = waitForGRPCResult(ctx, call, func(r *harness.GRPCResult) bool {
+		got := r.Header.Get("x-lua-grpc")
+		return len(got) > 0 && got[0] == "hello"
+	}, routeLiveTimeout)
 	if err != nil {
-		t.Fatalf("lua: request: %v", err)
-	}
-	got := res.Header.Get("x-lua-grpc")
-	if len(got) == 0 || got[0] != "hello" {
-		t.Fatalf("lua: response header x-lua-grpc = %v, want [%q]", got, "hello")
+		var got []string
+		if res != nil {
+			got = res.Header.Get("x-lua-grpc")
+		}
+		t.Fatalf("lua: response header x-lua-grpc = %v, want [%q]: %v", got, "hello", err)
 	}
 }

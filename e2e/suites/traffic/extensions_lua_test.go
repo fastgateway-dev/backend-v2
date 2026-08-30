@@ -38,11 +38,24 @@ end`
 	probe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path)
 	}
-	resp, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout)
-	if err != nil {
+	if _, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout); err != nil {
 		t.Fatalf("extensions lua: route never became live: %v", err)
 	}
-	if got := resp.Header.Get("x-lua-custom"); got != "FOO" {
-		t.Fatalf("extensions lua: x-lua-custom header = %q, want %q", got, "FOO")
+
+	// The Lua filter lives in an EnvoyExtensionPolicy, a separate object
+	// programmed after the HTTPRoute, so the route answers 200 without the
+	// header for a short window after deploy. Poll for the header the
+	// script adds rather than reading it once -- a Lua script that never
+	// runs still fails here, it just fails after the timeout instead of
+	// immediately.
+	resp, err := harness.WaitForResponse(ctx, probe, func(r *harness.Response) bool {
+		return r.Header.Get("x-lua-custom") == "FOO"
+	}, routeLiveTimeout)
+	if err != nil {
+		got := ""
+		if resp != nil {
+			got = resp.Header.Get("x-lua-custom")
+		}
+		t.Fatalf("extensions lua: x-lua-custom header = %q, want %q: %v", got, "FOO", err)
 	}
 }

@@ -75,12 +75,27 @@ func TestGeneralModeCombinedCORSPreflight(t *testing.T) {
 			harness.WithHeader("Access-Control-Request-Method", "GET"),
 		)
 	}
-	resp, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout)
-	if err != nil {
+	if _, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout); err != nil {
 		t.Fatalf("combined cors preflight: route never became live: %v", err)
 	}
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://example.com" {
-		t.Fatalf("combined cors preflight: got Access-Control-Allow-Origin %q, want %q", got, "https://example.com")
+
+	// Polled rather than read once: the policy that produces this outcome
+	// is a separate Kubernetes object Envoy Gateway programs AFTER the
+	// route, so the route serves traffic un-policied for a short window
+	// after deploy -- and WaitForRouteLive/waitForGRPCLive return on the
+	// first answer they see, which in that window is the un-policied one.
+	// harness.Fixture already waits for the policy to report Accepted;
+	// this closes the remaining xDS-push tail. Bounded by routeLiveTimeout,
+	// so a policy that never takes effect still fails the test.
+	resp, err := harness.WaitForResponse(ctx, probe, func(r *harness.Response) bool {
+		return r.Header.Get("Access-Control-Allow-Origin") == "https://example.com"
+	}, routeLiveTimeout)
+	if err != nil {
+		got := ""
+		if resp != nil {
+			got = resp.Header.Get("Access-Control-Allow-Origin")
+		}
+		t.Fatalf("combined cors preflight: got Access-Control-Allow-Origin %q, want %q: %v", got, "https://example.com", err)
 	}
 }
 
