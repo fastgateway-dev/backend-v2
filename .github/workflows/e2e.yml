@@ -315,6 +315,35 @@ jobs:
         if: always()
         run: cat /tmp/backend.log || true
 
+      # Policy convergence evidence. Routes and their policies are written as
+      # SEPARATE objects (route_service.go: CreateHTTPRoute, then
+      # deploySecurityPolicy / deployBackendTrafficPolicy /
+      # deployEnvoyExtensionPolicy), so Envoy Gateway can program the route in
+      # one reconcile and the policy in the next -- serving traffic unprotected
+      # in between. When a security test fails with "got 200, want 403", this
+      # tells you whether the policy was simply late (Accepted=True, but after
+      # the assertion ran) or never attached at all (Accepted absent/False).
+      - name: Policy and route status (on failure)
+        if: failure()
+        run: |
+          for kind in securitypolicies backendtrafficpolicies envoyextensionpolicies; do
+            echo "=== ${kind} ==="
+            kubectl get "${kind}.gateway.envoyproxy.io" -A -o json 2>/dev/null \
+              | jq -r '.items[]? | "\(.metadata.namespace)/\(.metadata.name) created=\(.metadata.creationTimestamp) " +
+                       ((.status.ancestors // []) | map(.conditions // [] | map(select(.type=="Accepted"))
+                       | map("\(.status) \(.reason) @\(.lastTransitionTime) \(.message)") | join("; ")) | join(" | "))' \
+              || echo "  (none / jq unavailable)"
+          done
+          echo "=== HTTPRoute / GRPCRoute status ==="
+          kubectl get httproute,grpcroute -A -o json 2>/dev/null \
+            | jq -r '.items[]? | "\(.metadata.namespace)/\(.metadata.name) " +
+                     ((.status.parents // []) | map((.conditions // []) | map(select(.type=="Accepted" or .type=="ResolvedRefs"))
+                     | map("\(.type)=\(.status)(\(.reason))") | join(",")) | join(" | "))' \
+            || echo "  (none)"
+          echo "=== Envoy Gateway log: wasm / policy translation errors ==="
+          kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=400 2>/dev/null \
+            | command grep -iE 'wasm|coraza|oci|failed|error|unable' | tail -60 || true
+
       - name: Delete kind cluster
         if: always()
         run: kind delete cluster --name "$KIND_CLUSTER" || true

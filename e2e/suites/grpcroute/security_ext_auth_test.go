@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
+	"github.com/fastgateway-dev/backend-v2/e2e/testdata/pb/echo"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
@@ -24,6 +25,18 @@ import (
 // its main.go) deterministically allows only when the "x-ext-auth-allow"
 // metadata equals "true" and denies (PermissionDenied) otherwise, so this
 // port checks both.
+//
+// Gate on the POSITIVE call, not the negative one: with FailOpen: false,
+// Envoy's ext_authz filter denies EVERY request -- allowed or not -- with
+// PermissionDenied while the ext-auth upstream (grpc-external-auth) is
+// still cold/unreachable from Envoy's point of view. A denial observed
+// during that window is indistinguishable from a genuinely-enforcing
+// filter correctly rejecting a disallowed request, so polling for
+// PermissionDenied proves nothing about convergence. Only a real
+// codes.OK, produced by a request that actually satisfies the ext-auth
+// backend's allow condition, proves the filter has actually reached that
+// backend and is evaluating its response -- see security_jwt_test.go's
+// doc comment for the general shape of this inversion.
 func TestGRPCExtAuth(t *testing.T) {
 	t.Parallel()
 
@@ -59,22 +72,30 @@ func TestGRPCExtAuth(t *testing.T) {
 	defer cancel()
 
 	allowOpt := harness.WithGRPCMetadata("x-ext-auth-allow", "true")
-	callDenied := func(ctx context.Context) (*harness.GRPCResult, error) {
-		res, _, err := echoCall(ctx, "hello", callOpt)
+
+	var okResp *echo.Message
+	allowCall := func(ctx context.Context) (*harness.GRPCResult, error) {
+		res, resp, err := echoCall(ctx, "hello-allowed", callOpt, allowOpt)
+		okResp = resp
 		return res, err
 	}
-	if _, err := waitForGRPCCodeIn(ctx, callDenied, routeLiveTimeout, codes.PermissionDenied); err != nil {
-		t.Fatalf("ext auth: without x-ext-auth-allow: %v", err)
+	if _, err := waitForGRPCCodeIn(ctx, allowCall, routeLiveTimeout, codes.OK); err != nil {
+		t.Fatalf("ext auth: with x-ext-auth-allow=true: %v", err)
+	}
+	if okResp == nil || okResp.Body != "hello-allowed" {
+		t.Fatalf("ext auth: with x-ext-auth-allow=true got echoed body %q, want %q", okResp.GetBody(), "hello-allowed")
 	}
 
-	res, resp, err := echoCall(ctx, "hello-allowed", callOpt, allowOpt)
+	// Now that the positive call has proven the ext-authz filter is
+	// genuinely reaching the ext-auth backend and evaluating it, a
+	// request WITHOUT x-ext-auth-allow reaching PermissionDenied proves
+	// it actually denies a disallowed request rather than allowing
+	// everything.
+	res, _, err := echoCall(ctx, "hello", callOpt)
 	if err != nil {
-		t.Fatalf("ext auth: request with x-ext-auth-allow=true: %v", err)
+		t.Fatalf("ext auth: without x-ext-auth-allow: %v", err)
 	}
-	if res.Code != codes.OK {
-		t.Fatalf("ext auth: with x-ext-auth-allow=true got code %v, want %v", res.Code, codes.OK)
-	}
-	if resp.Body != "hello-allowed" {
-		t.Fatalf("ext auth: got echoed body %q, want %q", resp.Body, "hello-allowed")
+	if res.Code != codes.PermissionDenied {
+		t.Fatalf("ext auth: without x-ext-auth-allow got code %v, want %v", res.Code, codes.PermissionDenied)
 	}
 }

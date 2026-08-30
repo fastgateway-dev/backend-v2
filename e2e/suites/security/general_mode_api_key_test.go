@@ -88,24 +88,35 @@ func TestGeneralModeAPIKeyDenied(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), routeLiveTimeout+30*time.Second)
 	defer cancel()
 
-	// Positive first: a request presenting the correct API key reaching a
-	// real 200 proves the route AND the SecurityPolicy (credentialRefs Secret
-	// now genuinely resolvable) have converged before either negative probe
-	// is trusted -- see the package doc comment's "Ordering discipline".
-	allowProbe := func(ctx context.Context) (*harness.Response, error) {
-		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-api-key", apiKeyAuthAPIKey))
-	}
-	if _, err := waitForHTTPStatus(ctx, allowProbe, routeLiveTimeout, 200); err != nil {
-		t.Fatalf("api key: with valid key: %v", err)
-	}
-
-	// Negative: no key at all.
+	// Negative first, not positive: an HTTPRoute that has landed but whose
+	// SecurityPolicy hasn't converged yet answers 200 to a request with NO
+	// key exactly as readily as to one with a valid key -- 200 on the
+	// positive probe proves nothing about whether the APIKeyAuth filter is
+	// even attached, since that same unconverged state produces it too. A
+	// 401/403 CANNOT come from that state; it can only come from the
+	// SecurityPolicy actually being attached and its filter actually
+	// rejecting the missing credential. Waiting here for the denial is
+	// therefore what proves the policy has converged, not just the route.
 	noKeyProbe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path)
 	}
-	requireStatus(t, ctx, noKeyProbe, 401, 403)
+	if _, err := waitForHTTPStatus(ctx, noKeyProbe, routeLiveTimeout, 401, 403); err != nil {
+		t.Fatalf("api key: without key: %v", err)
+	}
 
-	// Negative: a key that doesn't match any credential in the Secret.
+	// Now that the negative probe has proven the SecurityPolicy is
+	// genuinely enforcing, a correct key reaching 200 proves it actually
+	// accepts a real credential rather than rejecting everything (e.g. a
+	// still-unresolvable credentialRefs Secret, which fails closed with
+	// 500 -- see the doc comment above).
+	allowProbe := func(ctx context.Context) (*harness.Response, error) {
+		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-api-key", apiKeyAuthAPIKey))
+	}
+	requireStatus(t, ctx, allowProbe, 200)
+
+	// A key that doesn't match any credential in the Secret must also be
+	// rejected. Convergence is already proven above, so this can be a
+	// single-shot check like the positive one.
 	wrongKeyProbe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-api-key", "wrong-"+apiKeyAuthAPIKey))
 	}

@@ -56,22 +56,60 @@ func TestTimeoutRoute(t *testing.T) {
 	}
 
 	fx := harness.NewFixture(t, env)
-	fx.Route(cfg)
+	route := fx.Route(cfg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), routeLiveTimeout+30*time.Second)
 	defer cancel()
 
-	// The first non-404 response IS the test: podinfo delays 5s, the
-	// timeout is 2s, so Envoy must give up and answer 504 as soon as the
-	// route is live.
-	probe := func(ctx context.Context) (*harness.Response, error) {
-		return env.GW.HTTP(ctx, "GET", path)
+	// harness.WaitForRouteLive returns the FIRST non-404 (and non-5xx-
+	// within-grace) response, on the assumption that it's already the
+	// route's real, final answer. That assumption breaks here: the
+	// HTTPRoute and its BackendTrafficPolicy are two separate Kubernetes
+	// writes that reconcile independently, so there is a real window
+	// where the route is live but the BTP's 2s request timeout has not
+	// converged yet. In that window podinfo's own /delay/5 answers with a
+	// perfectly ordinary 200 after 5s -- not a 404, not a 5xx -- so
+	// WaitForRouteLive would return that 200 as "live" and the assertion
+	// below would fail for the wrong reason (racing the policy, not
+	// testing it). Gate on the BTP itself being Accepted first: that can
+	// only become true once Envoy Gateway has actually programmed the
+	// timeout, which is the one thing the unconverged state cannot
+	// satisfy.
+	if err := harness.WaitForPolicyAccepted(ctx, env.Kube, harness.BackendTrafficPolicyGVR, env.Cfg.Namespace, route.ID.String(), routeLiveTimeout); err != nil {
+		t.Fatalf("timeout route: BackendTrafficPolicy never accepted: %v", err)
 	}
-	resp, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout)
-	if err != nil {
-		t.Fatalf("timeout route: route never became live: %v", err)
+
+	// "Accepted" at the Kubernetes API level doesn't itself guarantee
+	// Envoy has finished pushing the corresponding xDS config (see
+	// harness.WaitForPolicyAccepted's doc comment), so the actual proof
+	// polls the data plane for the response that can ONLY be produced
+	// once the timeout is genuinely enforced: 504. A 200 during any
+	// remaining xDS-push tail is retried rather than accepted as final --
+	// unlike harness.WaitForRouteLive, whose "first non-404 response is
+	// final" rule would wrongly treat that pre-convergence 200 as the
+	// route's real answer.
+	deadline := time.Now().Add(routeLiveTimeout)
+	var lastStatus int
+	var lastErr error
+	for time.Now().Before(deadline) {
+		resp, err := env.GW.HTTP(ctx, "GET", path)
+		if err != nil {
+			lastErr = err
+		} else {
+			lastStatus = resp.StatusCode
+			lastErr = nil
+			if resp.StatusCode == 504 {
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timeout route: %v", ctx.Err())
+		case <-time.After(2 * time.Second):
+		}
 	}
-	if resp.StatusCode != 504 {
-		t.Fatalf("timeout route: got status %d, want 504 (backend delays 5s, timeout is 2s)", resp.StatusCode)
+	if lastErr != nil {
+		t.Fatalf("timeout route: never observed 504 within %s: %v", routeLiveTimeout, lastErr)
 	}
+	t.Fatalf("timeout route: never observed 504 within %s (last status: %d; backend delays 5s, timeout is 2s)", routeLiveTimeout, lastStatus)
 }

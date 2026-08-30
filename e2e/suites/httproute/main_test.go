@@ -94,7 +94,12 @@ const (
 
 	// routeLiveTimeout bounds how long a test waits for a freshly deployed
 	// route to actually be served (any non-404 status) by the gateway.
-	routeLiveTimeout = 90 * time.Second
+	//
+	// 180s, not 90s: a second real CI run measured actual route+policy
+	// convergence latency at 76-90s against the old 90s budget -- no
+	// margin at all, and enough to flake outright when reconciliation ran
+	// even slightly long. Don't trim this back without new measurements.
+	routeLiveTimeout = 180 * time.Second
 )
 
 func TestMain(m *testing.M) {

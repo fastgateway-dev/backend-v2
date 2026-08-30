@@ -82,16 +82,21 @@ func TestGeneralModeWAFAllowsNormalRequest(t *testing.T) {
 // so a WAF rule blocking EVERYTHING (not just SQLi) would have passed
 // this test identically. This port:
 //
-//  1. First proves the route (and WAF policy) is live and passing normal
-//     traffic with a benign GET -> 200, on the SAME route -- so the
-//     subsequent SQLi probe's 403 can only be explained by the WAF
-//     actually recognizing and blocking the attack pattern, not by a
-//     policy that blocks everything or a route that isn't live at all
-//     (see the package doc comment's "positive before negative" ordering
-//     discipline).
+//  1. First proves the SQLi probe itself reaches its expected 403 -- NOT
+//     the benign probe. The WAF's EnvoyExtensionPolicy has no effect on a
+//     benign request either way, so a route whose HTTPRoute has landed
+//     but whose WAF policy hasn't converged yet returns 200 to a benign
+//     GET exactly as readily as one that's actively blocking -- a benign
+//     200 proves nothing about whether the WAF is even attached, because
+//     that identical unconverged state also produces the SQLi probe
+//     wrongly returning 200. Only a 403 on the SQLi probe can prove the
+//     WAF policy has actually converged and is recognizing the attack
+//     pattern, so that is what this test gates on.
 //  2. Sends a real SQL-injection probe in the query string
-//     (?id=1%27%20OR%20%271%27=%271, i.e. `1' OR '1'='1` percent-encoded)
-//     and asserts exactly 403.
+//     (?id=1%27%20OR%20%271%27=%271, i.e. `1' OR '1'='1` percent-encoded).
+//  3. Only once that 403 is observed does it check a benign GET on the
+//     SAME route still gets through with 200 -- proving the WAF is
+//     recognizing the attack specifically, not blocking everything.
 func TestGeneralModeWAFBlocksSQLInjection(t *testing.T) {
 	t.Parallel()
 
@@ -119,15 +124,23 @@ func TestGeneralModeWAFBlocksSQLInjection(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), routeLiveTimeout+30*time.Second)
 	defer cancel()
 
-	benignProbe := func(ctx context.Context) (*harness.Response, error) {
-		return env.GW.HTTP(ctx, "GET", path)
-	}
-	if _, err := waitForHTTPStatus(ctx, benignProbe, routeLiveTimeout, 200); err != nil {
-		t.Fatalf("waf: benign request (establishing liveness before the attack probe): %v", err)
-	}
-
+	// Gate on the attack probe reaching its denial, not on a benign
+	// request reaching 200 -- see the doc comment above for why a benign
+	// 200 can't distinguish a converged, enforcing WAF policy from one
+	// that hasn't attached yet.
 	sqliProbe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path+"?id=1%27%20OR%20%271%27=%271")
 	}
-	requireStatus(t, ctx, sqliProbe, 403)
+	if _, err := waitForHTTPStatus(ctx, sqliProbe, routeLiveTimeout, 403); err != nil {
+		t.Fatalf("waf: sql injection probe (establishing WAF enforcement liveness): %v", err)
+	}
+
+	// Now that the SQLi probe has proven the WAF policy is genuinely
+	// enforcing, a benign request still reaching 200 proves it isn't
+	// blocking everything (a rule broad enough to reject all traffic would
+	// also 403 here).
+	benignProbe := func(ctx context.Context) (*harness.Response, error) {
+		return env.GW.HTTP(ctx, "GET", path)
+	}
+	requireStatus(t, ctx, benignProbe, 200)
 }

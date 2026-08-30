@@ -21,6 +21,23 @@ import (
 // threshold, then polls until the response itself flips to 503 -- proof
 // Envoy actually ejected the (single-replica) backend host rather than
 // continuing to forward and get 500s back.
+//
+// Two Envoy Gateway defaults make ejecting a single-replica backend
+// impossible without overriding them:
+//   - maxEjectionPercent defaults to 10, so floor(1 host * 10%) = 0 hosts
+//     may ever be ejected, no matter how many consecutive 5xxs it returns.
+//   - panicThreshold defaults to 50%: even once 100% of hosts in the
+//     cluster are marked unhealthy, Envoy's panic mode kicks in and load
+//     balances across ALL hosts (healthy or not) rather than failing
+//     closed.
+//
+// So this sets MaxEjectionPercent: 100 (allow ejecting the one and only
+// host) and PanicThreshold: 0 (disable panic mode so ejecting that last
+// host actually removes it from the load-balancing set instead of Envoy
+// papering over 100% unhealthy). podinfo itself is kept at 1 replica --
+// scaling it is out of scope here since other tests in this package share
+// the same deployment and run in parallel within the package (see
+// podinfoMu above).
 func TestHealthCheckPassive(t *testing.T) {
 	t.Parallel()
 	podinfoMu.Lock()
@@ -30,6 +47,8 @@ func TestHealthCheckPassive(t *testing.T) {
 	consecutive5xx := uint32(3)
 	intervalS := "5s"
 	baseEjectS := "10s"
+	maxEjectionPercent := int32(100)
+	panicThreshold := uint32(0)
 
 	cfg := services.CreateRouteInput{
 		Name:   name,
@@ -50,7 +69,9 @@ func TestHealthCheckPassive(t *testing.T) {
 					Consecutive5xxErrors: &consecutive5xx,
 					Interval:             &intervalS,
 					BaseEjectionTime:     &baseEjectS,
+					MaxEjectionPercent:   &maxEjectionPercent,
 				},
+				PanicThreshold: &panicThreshold,
 			},
 		},
 	}
