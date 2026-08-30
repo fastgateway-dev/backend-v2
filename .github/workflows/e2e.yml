@@ -369,6 +369,14 @@ jobs:
       - name: Envoy Gateway + proxy config (on failure)
         if: failure()
         run: |
+          echo "=== do the shared backend Services actually exist? ==="
+          # Envoy Gateway reports "service default/nginx-service not found"
+          # for a GRPCRoute mirror backendRef. Print what Kubernetes itself
+          # says so the two claims sit side by side instead of one being
+          # taken on trust.
+          kubectl get svc,endpointslice -n default 2>&1 | head -20 || true
+
+          echo
           echo "=== envoy-gateway controller logs ==="
           # No grep filter: the previous filtered version captured nothing at
           # all, so we could not tell whether the controller was silent or the
