@@ -196,7 +196,7 @@ func (s *MetricsService) GetRouteMetrics(ctx context.Context, projectID, routeID
 		return nil, err
 	}
 
-	selector := buildRouteClusterSelector(domain.Namespace, route.Name)
+	selector := buildRouteClusterSelector(domain.Namespace, *route)
 	queries := buildRouteQueries(selector)
 
 	results, err := fanOutQueries(ctx, client, queries, start, end, step)
@@ -288,8 +288,7 @@ func (s *MetricsService) GetDomainMetrics(ctx context.Context, projectID, domain
 
 	nameByCluster := make(map[string]models.Route, len(routes))
 	for _, r := range routes {
-		cluster := fmt.Sprintf("httproute/%s/%s/rule/0", domain.Namespace, r.Name)
-		nameByCluster[cluster] = r
+		nameByCluster[routeClusterName(domain.Namespace, r)] = r
 	}
 
 	return &DomainMetricsResult{
@@ -353,17 +352,60 @@ func resolveTimeRange(spec string) (time.Time, time.Time, time.Duration, string,
 	}
 }
 
-// buildRouteClusterSelector returns the Envoy cluster selector for a single route.
-// VERIFICATION TASK: confirm the label name (envoy_cluster_name) matches what
-// Envoy Gateway emits. If different (cluster_name / cluster / etc.),
-// adjust here — the rest of the fanout architecture is unchanged.
-func buildRouteClusterSelector(namespace, routeName string) string {
-	return fmt.Sprintf(`envoy_cluster_name=~"httproute/%s/%s/rule/.*"`, namespace, routeName)
+// routeClusterKind is the lowercased Gateway API route kind Envoy Gateway
+// puts at the front of a cluster name. It comes from
+// internal/gatewayapi/helpers.go's irRoutePrefix:
+//
+//	fmt.Sprintf("%s/%s/%s/", strings.ToLower(string(route.GetRouteType())),
+//	            route.GetNamespace(), route.GetName())
+//
+// so a gRPC route's clusters are "grpcroute/...", never "httproute/...".
+func routeClusterKind(protocol models.RouteProtocol) string {
+	if protocol == models.RouteProtocolGRPC {
+		return "grpcroute"
+	}
+	return "httproute"
 }
 
-// buildDomainClusterSelector returns the selector for all routes in a domain namespace.
+// routeClusterName returns the Envoy cluster-name prefix for one route's
+// rule 0, matching what Envoy Gateway actually emits.
+//
+// The name segment is the KUBERNETES OBJECT name (models.Route.K8sRouteName,
+// "<name>-<8 hex of the route UUID>", see generateRouteK8sName), NOT
+// models.Route.Name. Envoy Gateway builds the cluster from
+// route.GetName(), which is the object it reconciled. Using the model name
+// produced a selector that matched nothing, so every metrics panel came
+// back empty and both top-route lists were always [] -- silently, because
+// an empty Prometheus result is indistinguishable from "no traffic yet".
+//
+// K8sRouteName is empty only for rows written before that column existed;
+// falling back to Name keeps those from selecting on an empty segment
+// (which would match every route in the namespace).
+func routeClusterName(namespace string, route models.Route) string {
+	name := route.K8sRouteName
+	if name == "" {
+		name = route.Name
+	}
+	return fmt.Sprintf("%s/%s/%s/rule/0", routeClusterKind(route.Protocol), namespace, name)
+}
+
+// buildRouteClusterSelector returns the Envoy cluster selector for a single
+// route. See routeClusterName for why this uses the Kubernetes object name
+// and a protocol-dependent kind.
+func buildRouteClusterSelector(namespace string, route models.Route) string {
+	name := route.K8sRouteName
+	if name == "" {
+		name = route.Name
+	}
+	return fmt.Sprintf(`envoy_cluster_name=~"%s/%s/%s/rule/.*"`, routeClusterKind(route.Protocol), namespace, name)
+}
+
+// buildDomainClusterSelector returns the selector for all routes in a domain
+// namespace, across both route kinds -- a domain can carry HTTP and gRPC
+// routes at once, and an "httproute/"-only selector silently dropped every
+// gRPC route from the domain's aggregate panels.
 func buildDomainClusterSelector(namespace string) string {
-	return fmt.Sprintf(`envoy_cluster_name=~"httproute/%s/.*/rule/.*"`, namespace)
+	return fmt.Sprintf(`envoy_cluster_name=~"(httproute|grpcroute)/%s/.*/rule/.*"`, namespace)
 }
 
 // buildRouteQueries constructs the seven PromQL queries needed for Tier A panels.

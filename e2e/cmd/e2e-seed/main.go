@@ -9,7 +9,8 @@
 // request/response types from internal/services and internal/models so a
 // contract change becomes a compile error here too.
 //
-// Run with `go run ./cmd/e2e-seed` (or `go build ./cmd/e2e-seed`) against a
+// Run with `go run ./e2e/cmd/e2e-seed` (or `go build ./e2e/cmd/e2e-seed`)
+// against a
 // running FastGateway API server; see the env vars below for
 // configuration.
 package main

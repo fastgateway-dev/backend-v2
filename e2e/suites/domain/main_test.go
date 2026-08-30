@@ -62,7 +62,7 @@
 //     precondition for the feature under test to be exercisable at all.
 //  2. A dedicated domain (created fresh in TestMain) was considered and
 //     rejected as the riskier option given this task has no cluster to
-//     verify against (see the top-level task instructions). cmd/e2e-seed
+//     verify against (see the top-level task instructions). e2e/cmd/e2e-seed
 //     shows that creating a Domain requires a DomainTemplateID whose
 //     ExposureType is "LoadBalancer" -- i.e. every domain provisions its
 //     own Gateway/Service, plausibly its own external IP -- and a
