@@ -87,20 +87,68 @@ func normalizeForComparison(t *testing.T, obj *unstructured.Unstructured) *unstr
 	return out
 }
 
-// stripGeneratedSuffix removes a trailing "-<8 hex>" from a Kubernetes
-// object name, leaving the operator-chosen part. Names that do not carry
-// one are returned unchanged.
+// stripGeneratedSuffix replaces every 8-hex-digit segment of a Kubernetes
+// object name with a placeholder, leaving the operator-chosen parts intact.
+//
+// Not just the trailing one: the generated id is not always last. A route's
+// SecurityPolicy is named "<route>-<8 hex>-security", so the id sits in the
+// middle, and a trailing-only rule left the two sides differing on a
+// segment that is expected to differ.
+//
+// Replacing rather than deleting keeps the name's shape, so a preview that
+// omitted the id entirely still fails. Both sides get the same treatment,
+// so every non-generated segment must still match.
 func stripGeneratedSuffix(name string) string {
-	idx := strings.LastIndex(name, "-")
-	if idx < 0 || len(name)-idx-1 != 8 {
-		return name
-	}
-	for _, r := range name[idx+1:] {
-		if !strings.ContainsRune("0123456789abcdef", r) {
-			return name
+	parts := strings.Split(name, "-")
+	for i, part := range parts {
+		if isHex8(part) {
+			parts[i] = "<hex>"
 		}
 	}
-	return name[:idx]
+	return strings.Join(parts, "-")
+}
+
+// isHex8 reports whether s is exactly 8 lowercase hex digits -- the shape
+// of the id segments generateRouteK8sName and harness.UniqueName produce.
+func isHex8(s string) bool {
+	if len(s) != 8 {
+		return false
+	}
+	for _, r := range s {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			return false
+		}
+	}
+	return true
+}
+
+// numericValue reports a JSON scalar's numeric value, and whether it was
+// numeric at all.
+//
+// This exists because the two sides arrive as different Go types for the
+// same number. sigs.k8s.io/yaml converts YAML to JSON and decodes into
+// map[string]interface{}, so a port is a float64; the dynamic client's
+// unstructured object holds an int64. reflect.DeepEqual says those differ
+// while both print as "80" -- which is exactly how the first CI run
+// reported it: "preview=80 deployed=80".
+func numericValue(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	default:
+		return 0, false
+	}
 }
 
 // requireSameObject fails t unless every field the preview declares is
@@ -190,8 +238,19 @@ func firstDifference(path string, want, got any) string {
 		}
 		return ""
 	default:
+		// Numbers first: see numericValue for why the two sides carry
+		// different Go types for the same value.
+		if wn, ok := numericValue(want); ok {
+			if gn, ok := numericValue(got); ok {
+				if wn != gn {
+					return fmt.Sprintf("%s: preview=%v deployed=%v", path, want, got)
+				}
+				return ""
+			}
+			return fmt.Sprintf("%s: preview has number %v, deployed has %T (%v)", path, want, got, got)
+		}
 		if !reflect.DeepEqual(want, got) {
-			return fmt.Sprintf("%s: preview=%v deployed=%v", path, want, got)
+			return fmt.Sprintf("%s: preview=%v (%T) deployed=%v (%T)", path, want, want, got, got)
 		}
 		return ""
 	}
