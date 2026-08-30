@@ -27,7 +27,7 @@ jobs:
         run: go test ./... -count=1
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
           version: latest
 
@@ -45,7 +45,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       # Set up QEMU (multi-platform build support)
       # https://github.com/docker/setup-qemu-action
       - name: Set up QEMU
@@ -104,8 +104,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - envoy-gateway-version: "1.6.2"
-            gateway-api-version: "1.4.1"
           - envoy-gateway-version: "1.7.0"
             gateway-api-version: "1.4.1"
     services:
