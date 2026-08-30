@@ -15,10 +15,15 @@ import (
 
 func TestStripGeneratedSuffix(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"my-route-a1b2c3d4", "my-route"},
-		{"my-route-00000000", "my-route"},
-		{"e2e-testpreview-1234abcd", "e2e-testpreview"},
-		// Not an 8-char hex suffix: leave alone.
+		{"my-route-a1b2c3d4", "my-route-<hex>"},
+		{"my-route-00000000", "my-route-<hex>"},
+		{"e2e-testpreview-1234abcd", "e2e-testpreview-<hex>"},
+		// The generated id is not always last: a route's SecurityPolicy is
+		// "<route>-<8 hex>-security". A trailing-only rule left these two
+		// sides differing on a segment that is expected to differ, which
+		// is how the first CI run failed.
+		{"e2e-test-d705ac8e-e624216a-security", "e2e-test-<hex>-<hex>-security"},
+		// Not an 8-char hex segment: leave alone.
 		{"my-route", "my-route"},
 		{"my-route-abc", "my-route-abc"},
 		{"my-route-a1b2c3d45", "my-route-a1b2c3d45"},
@@ -110,5 +115,26 @@ func TestFirstDifference_TolerationOfExplicitNulls(t *testing.T) {
 	deployed2 := map[string]any{}
 	if firstDifference("", preview2, deployed2) == "" {
 		t.Fatal("a missing non-nil preview field must fail")
+	}
+}
+
+func TestFirstDifference_NumbersCompareByValueNotGoType(t *testing.T) {
+	// sigs.k8s.io/yaml decodes a port into float64; the dynamic client's
+	// unstructured object holds int64. reflect.DeepEqual calls those
+	// different while both print as "80" -- the first CI run failed with
+	// exactly "preview=80 deployed=80".
+	preview := map[string]any{"port": float64(80), "weight": float64(100)}
+	deployed := map[string]any{"port": int64(80), "weight": int64(100)}
+	if d := firstDifference("", preview, deployed); d != "" {
+		t.Fatalf("equal numbers of different Go types must compare equal, got: %s", d)
+	}
+
+	// Genuinely different numbers must still fail.
+	if firstDifference("", map[string]any{"port": float64(80)}, map[string]any{"port": int64(8080)}) == "" {
+		t.Fatal("differing numbers must fail")
+	}
+	// A number against a non-number must fail rather than pass silently.
+	if firstDifference("", map[string]any{"port": float64(80)}, map[string]any{"port": "80"}) == "" {
+		t.Fatal("a number against a string must fail")
 	}
 }
