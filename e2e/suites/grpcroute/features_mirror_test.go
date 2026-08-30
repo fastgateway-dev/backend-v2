@@ -129,6 +129,16 @@ func skipIfUpstreamMirrorDefect(t *testing.T, ctx context.Context, routeID strin
 		return // False for some other reason: let the real assertions report it
 	}
 
+	// Ask Kubernetes directly whether the Service Envoy Gateway calls
+	// missing is actually missing. The gateway's message reads like a
+	// plain configuration mistake -- "service default/nginx-service not
+	// found" -- and the only way to tell that apart from a gateway that
+	// failed to LOAD an existing Service is to look, in this cluster, at
+	// this moment. e2e/deps/nginx.yaml creates it in "default", every
+	// suite's backendNamespace is "default", and httproute/mirror_test.go
+	// mirrors to the same Service from an HTTPRoute and passes.
+	svc := env.Kube.DescribeService(ctx, backendNamespace, nginxService)
+
 	// Probe the data plane once before skipping, and report what it
 	// actually did. Without this the skip only proves the CONTROL plane
 	// is unhappy, and the blast radius -- whether an unresolvable mirror
@@ -144,8 +154,8 @@ func skipIfUpstreamMirrorDefect(t *testing.T, ctx context.Context, routeID strin
 	}
 
 	t.Skipf("GRPCRoute mirror backendRef is not collected into Envoy Gateway's resource tree "+
-		"(running %s): %s\n    data plane: %s (%v means the mirror also breaks the primary route, "+
-		"not just the mirror)\n    see mirrorUpstreamDefect; the assertions below are unchanged and "+
-		"resume automatically once upstream fixes this",
-		env.Cfg.EnvoyGatewayVersion, msg, observed, codes.Unknown)
+		"(running %s)\n    gateway says: %s\n    kubernetes says: %s\n    data plane: %s (%v means "+
+		"the mirror breaks the primary route, not just the mirror)\n    see mirrorUpstreamDefect; the "+
+		"assertions below are unchanged and resume automatically once upstream fixes this",
+		env.Cfg.EnvoyGatewayVersion, msg, svc, observed, codes.Unknown)
 }

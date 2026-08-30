@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -234,4 +235,37 @@ func (k *Kube) ListUnstructuredByLabel(ctx context.Context, gvr schema.GroupVers
 		return nil, fmt.Errorf("list %s in %s matching %q: %w", gvr.Resource, ns, labelSelector, err)
 	}
 	return list.Items, nil
+}
+
+// DescribeService reports whether ns/name exists and, if so, its
+// clusterIP, ports and how many endpoint addresses back it.
+//
+// It exists so a test that hits Envoy Gateway's "service <ns>/<name> not
+// found" condition can state, in its own output and from the same cluster
+// at the same moment, whether the Service is actually missing -- rather
+// than leaving the reader to decide whether to believe the gateway or the
+// manifest.
+func (k *Kube) DescribeService(ctx context.Context, ns, name string) string {
+	svc, err := k.Clientset.CoreV1().Services(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Sprintf("Service %s/%s: NOT FOUND via the Kubernetes API (%v)", ns, name, err)
+	}
+	ports := make([]string, 0, len(svc.Spec.Ports))
+	for _, p := range svc.Spec.Ports {
+		ports = append(ports, fmt.Sprintf("%d/%s", p.Port, p.Protocol))
+	}
+
+	addresses := 0
+	slices, err := k.Clientset.DiscoveryV1().EndpointSlices(ns).List(ctx, metav1.ListOptions{
+		LabelSelector: "kubernetes.io/service-name=" + name,
+	})
+	if err == nil {
+		for _, s := range slices.Items {
+			for _, ep := range s.Endpoints {
+				addresses += len(ep.Addresses)
+			}
+		}
+	}
+	return fmt.Sprintf("Service %s/%s: EXISTS (clusterIP=%s ports=%s endpointAddresses=%d)",
+		ns, name, svc.Spec.ClusterIP, strings.Join(ports, ","), addresses)
 }
