@@ -1,10 +1,31 @@
-# FastGateway
+<div align="center">
+  <img src="docs/assets/logo.png" alt="FastGateway" width="110">
 
-FastGateway is a web-based management interface for the Kubernetes Gateway API. It provides a user-friendly way to manage Gateways, HTTPRoutes, and related resources without hand-writing Kubernetes manifests.
+  <h1>FastGateway</h1>
 
-This repository contains the **backend** (Go REST API). The frontend lives in a separate repository: [`fastgateway-dev/frontend-v2`](https://github.com/fastgateway-dev/frontend-v2).
+  <p><strong>Manage the Kubernetes Gateway API without hand-writing YAML.</strong></p>
 
-## Features
+  <p>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
+    <a href="https://github.com/fastgateway-dev/backend-v2/actions/workflows/main.yml"><img alt="CI" src="https://github.com/fastgateway-dev/backend-v2/actions/workflows/main.yml/badge.svg"></a>
+    <a href="go.mod"><img alt="Go" src="https://img.shields.io/github/go-mod/go-version/fastgateway-dev/backend-v2"></a>
+    <a href="https://github.com/fastgateway-dev/backend-v2/pkgs/container/backend-v2"><img alt="Image" src="https://img.shields.io/badge/ghcr.io-backend--v2-informational"></a>
+  </p>
+
+  <p>
+    <a href="https://fastgateway.dev">Website</a> ·
+    <a href="CONTRIBUTING.md">Contributing</a> ·
+    <a href="https://github.com/fastgateway-dev/frontend-v2">Frontend</a>
+  </p>
+</div>
+
+---
+
+FastGateway is a web-based management interface for the Kubernetes Gateway API. Create and manage Gateways, HTTPRoutes, and traffic policies through a UI and REST API instead of hand-writing manifests, with teams, approvals, and an audit trail on top.
+
+This repository contains the **backend** (Go REST API). The frontend lives in [`fastgateway-dev/frontend-v2`](https://github.com/fastgateway-dev/frontend-v2).
+
+## ✨ Features
 
 - **Project Management**: Manage multiple Kubernetes clusters from a single interface
 - **Domain Templates**: Create reusable templates with exposure types, annotations, TLS policies, and ports
@@ -15,34 +36,15 @@ This repository contains the **backend** (Go REST API). The frontend lives in a 
 - **Audit Logging**: Track all changes made through the system
 - **Service Discovery**: Automatically discover namespaces and services from your Kubernetes cluster
 
-## Architecture
 
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│                 │     │                 │     │                 │
-│    Frontend     │────▶│    Backend      │────▶│   PostgreSQL    │
-│  (frontend-v2)  │     │  (this repo)    │     │                 │
-│                 │     │                 │     │                 │
-└─────────────────┘     └────────┬────────┘     └─────────────────┘
-                                 │
-                                 │ Kubernetes API
-                                 ▼
-                        ┌─────────────────┐
-                        │                 │
-                        │   Kubernetes    │
-                        │    Cluster      │
-                        │                 │
-                        └─────────────────┘
-```
-
-## Prerequisites
+## 📦 Prerequisites
 
 - Go 1.25+
 - PostgreSQL (a running instance reachable from the backend)
 - A Kubernetes cluster with Gateway API CRDs installed
 - [Envoy Gateway](https://gateway.envoyproxy.io/) installed in your cluster (used as the gateway controller)
 
-## Building
+## 🚀 Building
 
 ```bash
 go build -o fastgateway ./cmd/server
@@ -54,7 +56,7 @@ or, via the Makefile:
 make build
 ```
 
-## Configuration
+## ⚙️ Configuration
 
 The server is configured entirely through environment variables (see `internal/config/config.go` for the full list). At minimum, set:
 
@@ -70,7 +72,7 @@ The server is configured entirely through environment variables (see `internal/c
 
 Database migrations run automatically on server startup.
 
-## Running Locally
+## 💻 Running Locally
 
 Start a PostgreSQL instance of your own (locally installed, or any container runtime you prefer), then:
 
@@ -93,7 +95,7 @@ make dev-backend
 
 The API listens on `http://localhost:8081` by default. To use the FastGateway UI, run [`frontend-v2`](https://github.com/fastgateway-dev/frontend-v2) separately and point it at this backend.
 
-## Running Tests
+## 🧪 Running Tests
 
 ```bash
 go test ./...
@@ -107,16 +109,16 @@ make test
 
 End-to-end tests live in `e2e/` and require a real Kubernetes cluster with Envoy Gateway installed — see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-## Registering a Kubernetes Cluster
+## ☸️ Registering a Kubernetes Cluster
 
 To register a Kubernetes cluster as a project in FastGateway:
 
 ### Step 1: Apply the RBAC Configuration
 
-Create a ServiceAccount, ClusterRole, ClusterRoleBinding, and a long-lived token Secret for FastGateway to use. An example manifest is provided at `e2e/rbac.yaml` — adapt it to your environment and apply it:
+Create a ServiceAccount, ClusterRole, ClusterRoleBinding, and a long-lived token Secret for FastGateway to use. An example manifest is provided at `e2e/deps/rbac.yaml` — adapt it to your environment and apply it:
 
 ```bash
-kubectl apply -f e2e/rbac.yaml
+kubectl apply -f e2e/deps/rbac.yaml
 ```
 
 ### Step 2: Create the FastGateway Namespace
@@ -159,7 +161,7 @@ Using the FastGateway UI (or the API directly), create a new project with:
 
 Then test connectivity and create the project.
 
-## RBAC Permissions Explained
+## 🔐 RBAC Permissions Explained
 
 | Resource | Permissions | Purpose |
 |----------|-------------|---------|
@@ -176,7 +178,7 @@ Then test connectivity and create the project.
 | `tlsroutes` | full CRUD | TLS passthrough support |
 | `referencegrants` | full CRUD | Cross-namespace references |
 
-## Troubleshooting
+## 🔍 Troubleshooting
 
 ### Connection Refused Error
 
@@ -200,14 +202,14 @@ If operations fail with permission errors, verify the ServiceAccount has the cor
 kubectl get clusterrolebinding fastgateway -o yaml
 ```
 
-## Contributing
+## 🤝 Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test, and contribute — including how to run the e2e suite.
 
-## Security
+## 🛡️ Security
 
 See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 
-## License
+## 📄 License
 
 FastGateway is licensed under the [Apache License 2.0](LICENSE).
