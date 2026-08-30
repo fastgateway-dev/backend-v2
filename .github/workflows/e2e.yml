@@ -224,12 +224,12 @@ jobs:
           cat /tmp/backend.log >&2
           exit 1
 
-      - name: Seed FastGateway (go run ./cmd/e2e-seed)
+      - name: Seed FastGateway (go run ./e2e/cmd/e2e-seed)
         env:
           FASTGATEWAY_API_URL: http://localhost:8081/api/v1
           K8S_API_URL: ${{ steps.kube-creds.outputs.api_url }}
           K8S_TOKEN: ${{ steps.kube-creds.outputs.token }}
-        run: go run ./cmd/e2e-seed
+        run: go run ./e2e/cmd/e2e-seed
 
       - name: Wait for the seeded Gateway and resolve GATEWAY_IP
         run: |
@@ -314,6 +314,26 @@ jobs:
       # gap between creationTimestamp and Accepted=True is measurable, which
       # distinguishes "policy attached late" (readiness race) from "policy
       # never attached" (real bug).
+      # The metrics tests need a Prometheus to point the project's
+      # metricsEndpointURL at. It runs on the RUNNER, not in the cluster,
+      # because the BACKEND is its client (the test process never calls it)
+      # and the backend runs here too. A real Prometheus would be the wrong
+      # fixture: it would need scrape targets and a settling period, and its
+      # numbers would drift between runs, forcing shape-only assertions.
+      - name: Run mock-prometheus (metrics fixture)
+        run: |
+          nohup go run ./e2e/cmd/mock-prometheus > /tmp/mock-prom.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9091/health > /dev/null; then
+              echo "mock-prometheus is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "mock-prometheus never became healthy" >&2
+          cat /tmp/mock-prom.log >&2
+          exit 1
+
       - name: Start policy watches (diagnostics)
         run: |
           mkdir -p /tmp/diag
@@ -332,6 +352,7 @@ jobs:
       - name: Run e2e suite (go test -tags e2e ./e2e/... -p 1)
         env:
           JWT_SERVER_URL: http://localhost:9000
+          MOCK_PROM_URL: http://localhost:9091
         run: go test -tags e2e ./e2e/... -p 1 -count=1 -v -timeout 60m
 
       - name: Backend log (always, for debugging)

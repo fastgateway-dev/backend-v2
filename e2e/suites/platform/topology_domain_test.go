@@ -31,7 +31,7 @@ func getDomainTopology(t *testing.T, ctx context.Context) services.DomainTopolog
 // ADAPTED: the Python original was parametrized over two FIXTURE domains
 // named "topology-general-*"/"topology-client-*" and pytest.skip'd
 // entirely if neither existed. No such fixture domains are provisioned
-// anywhere in this repository's cmd/e2e-seed (unlike this repo's other
+// anywhere in this repository's e2e/cmd/e2e-seed (unlike this repo's other
 // domain-per-mechanism precedents, creating a second domain here would hit
 // e2e/suites/domain/main_test.go's own documented reasons for avoiding a
 // second LoadBalancer+TLS domain), and internal/services/topology_service.go

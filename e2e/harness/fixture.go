@@ -20,7 +20,7 @@ import (
 // Env bundles everything a test package needs to talk to a seeded
 // FastGateway deployment: authenticated API clients for each role, a
 // data-plane client, a Kubernetes client, and the seeded project/domain/
-// team IDs (created by cmd/e2e-seed, the Go replacement for bootstrap.py).
+// team IDs (created by e2e/cmd/e2e-seed, the Go replacement for bootstrap.py).
 // Build it once per package -- typically from TestMain -- and share it
 // across parallel tests.
 type Env struct {

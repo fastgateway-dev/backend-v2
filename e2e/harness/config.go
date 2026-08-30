@@ -57,7 +57,7 @@ func FromEnv() (*Config, error) {
 		AdminUser:  envFallback("ADMIN_USERNAME", "ADMIN_USER", "admin"),
 		AdminPass:  envFallback("ADMIN_PASSWORD", "ADMIN_PASS", "admin123"),
 		EditorUser: env("EDITOR_USER", "dev1"),
-		// cmd/e2e-seed writes every seeded user's password from
+		// e2e/cmd/e2e-seed writes every seeded user's password from
 		// SEED_USER_PASS, not EDITOR_PASS/APPROVER_PASS -- those only
 		// worked here because their defaults happen to match
 		// SEED_USER_PASS's default. Fall back to SEED_USER_PASS so a

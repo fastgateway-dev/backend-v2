@@ -4,6 +4,27 @@ This directory contains test services and documentation for end-to-end testing o
 
 ## Services
 
+### mock-prometheus (Port 9091, runs on the CI runner)
+
+A deterministic stand-in for the Prometheus HTTP API, used by the platform
+suite's observability tests. Source: `e2e/cmd/mock-prometheus`.
+
+It serves the two endpoints `internal/services/prom_client.go` calls
+(`/api/v1/query`, `/api/v1/query_range`) with fixed data, so tests assert
+real values rather than response shape. It also exposes control endpoints
+the Prometheus API does not have:
+
+- `POST /__set-clusters` — set the `envoy_cluster_name` labels instant
+  queries return, so a test can hand it the cluster name a real Prometheus
+  would carry for a route it just created
+- `GET /__queries` — every query the backend has issued, so a test can
+  assert the PromQL was built correctly
+- `POST /__reset` — clear both
+
+It runs on the runner rather than in the cluster because the **backend** is
+its client, and the backend runs on the runner too.
+
+
 ### jwt-server (Port 9000)
 
 A test JWT server that generates RS256-signed tokens for JWT validation testing.
@@ -102,7 +123,7 @@ The e2e test suite itself lives under `e2e/suites/` (Go, guarded by the `e2e` bu
 go test -tags e2e ./e2e/... -p 1
 ```
 
-against a Kubernetes cluster with Envoy Gateway installed and a running FastGateway backend seeded via `go run ./cmd/e2e-seed` (see `.github/workflows/main.yml`'s `e2e` job for the full setup sequence). `-p 1` is required, not optional: some suites mutate shared in-cluster state (e.g. scaling the `podinfo` Deployment) and cannot run concurrently with other packages.
+against a Kubernetes cluster with Envoy Gateway installed and a running FastGateway backend seeded via `go run ./e2e/cmd/e2e-seed` (see `.github/workflows/main.yml`'s `e2e` job for the full setup sequence). `-p 1` is required, not optional: some suites mutate shared in-cluster state (e.g. scaling the `podinfo` Deployment) and cannot run concurrently with other packages.
 
 A previous Python/pytest port of this suite (`e2e/regression/`, `e2e/bootstrap.py`) has been retired now that all of it is ported to Go under `e2e/suites/`.
 
