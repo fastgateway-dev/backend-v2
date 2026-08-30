@@ -21,8 +21,30 @@ import (
 // what this test actually verifies: the primary Echo call still succeeds
 // and echoes correctly, strictly stronger than the old assertion
 // (`returncode == 0 or "Code:" in stderr`, true of almost any outcome).
+//
+// Skipped below Envoy Gateway 1.8.0 because of an upstream defect, not a
+// FastGateway one. On 1.7.0 the GRPCRoute this test deploys reports:
+//
+//	ResolvedRefs=False (Failed to validate the RequestMirror filter:
+//	                    service default/nginx-service not found.)
+//
+// even though that Service exists and httproute/mirror_test.go's HTTPRoute
+// resolves the identical cross-namespace reference. Envoy Gateway 1.8.0
+// lists the fix as "GRPCRoute RequestMirror filter backend not being
+// indexed, causing 'service not found' errors for mirror targets that
+// exist in the cluster"
+// (https://gateway.envoyproxy.io/news/releases/notes/v1.8.0/). The
+// manually-triggered matrix in .github/workflows/e2e.yml runs 1.8.0, so
+// this test does execute and must pass there -- the skip narrows coverage
+// to the releases where the feature can work, it does not retire the test.
 func TestGRPCMirror(t *testing.T) {
 	t.Parallel()
+
+	if !env.Cfg.EnvoyGatewayAtLeast(1, 8) {
+		t.Skipf("GRPCRoute RequestMirror is broken upstream before Envoy Gateway 1.8.0 "+
+			"(mirror backendRef is not indexed, so ResolvedRefs reports the Service missing); "+
+			"running %s -- see the doc comment", env.Cfg.EnvoyGatewayVersion)
+	}
 
 	name, match, callOpt := uniqueMatch(t, "Exact", echoServiceName, "")
 

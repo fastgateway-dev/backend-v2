@@ -17,19 +17,33 @@ import (
 
 // TestGRPCBTPRequestBuffer ports grpc_btp_features/test_request_buffer.py.
 //
-// The Python config's limit ("10Mi") is impractical to exercise end-to-end;
-// mirroring httproute's TestRequestBuffer, this port uses a much smaller
-// limit ("1Ki" = 1024 bytes) and sends echo.Message bodies clearly on
-// either side of it: 100 bytes (under) should echo back normally, and 4096
-// bytes (over) should be rejected by Envoy's buffer filter itself.
+// What this asserts is deliberately NOT the HTTP sibling's assertion.
+// httproute/request_buffer_test.go proves an over-limit body is rejected
+// with 413; the gRPC equivalent cannot, because Envoy Gateway documents
+// request buffering as incompatible with gRPC: "Request buffering requires
+// Envoy to fully receive the request before forwarding it upstream. This
+// does not work with streaming or upgrade-based traffic such as gRPC
+// streaming and WebSocket"
+// (https://gateway.envoyproxy.io/docs/tasks/traffic/request-buffering/).
+// A real CI run confirmed it: an over-limit 4096-byte body was polled for
+// three minutes against a BackendTrafficPolicy whose Accepted condition
+// was True the whole time, and every call returned codes.OK. Asserting a
+// rejection here would be asserting a behaviour upstream says will not
+// happen.
 //
-// Unlike the HTTP sibling (which correctly asserts a plain 413 -- see
-// httproute/request_buffer_test.go), the buffer filter always answers an
-// over-limit request with HTTP status 413 regardless of the request's
-// content-type, and Envoy's httpToGrpcStatus translation table only maps
-// 400/401/403/404/429/502/503/504 to their gRPC equivalents; 413 isn't in
-// that table, so it falls through to codes.Unknown, not
-// codes.ResourceExhausted.
+// So this test asserts the thing that DOES matter and that the same
+// upstream page warns about: attaching requestBuffer to a gRPC route must
+// not break it. The documented failure mode is that "enabling request
+// buffering for streaming routes can cause requests to hang indefinitely,
+// as the request may never be forwarded upstream" -- a hang, a truncated
+// body, or a DeadlineExceeded on either side of the limit would all fail
+// here. That is a genuine regression guard, unlike the Python original's
+// `returncode == 0 or "rpc error" in stderr`, which was true of nearly any
+// outcome including a total hang.
+//
+// If Envoy Gateway ever does start enforcing the limit for unary gRPC, the
+// over-limit assertion below fails and this test must be revisited -- by
+// design, so the change is noticed rather than absorbed.
 func TestGRPCBTPRequestBuffer(t *testing.T) {
 	t.Parallel()
 
@@ -77,31 +91,24 @@ func TestGRPCBTPRequestBuffer(t *testing.T) {
 		t.Fatalf("request buffer: under-limit echoed body length %d, want %d", len(resp.Body), len(underBody))
 	}
 
-	// codes.Unknown, not codes.ResourceExhausted: Envoy's buffer filter
-	// rejects the over-limit request with HTTP 413, and Envoy's
-	// httpToGrpcStatus table only translates 400/401/403/404/429/
-	// 502/503/504 -- 413 falls through to Unknown. See the doc comment
-	// above.
-	//
-	// Polled rather than read once: the buffer limit lives in a
-	// BackendTrafficPolicy, a separate object Envoy Gateway programs after
-	// the GRPCRoute, so an over-limit request sent immediately after the
-	// route goes live is answered by an Envoy that has no buffer filter
-	// yet and echoes it back OK. The poll is bounded -- a limit that is
-	// never enforced still fails the test.
+	// Over the limit: still OK, still echoed intact, and -- the point of
+	// the test -- it must ANSWER. The buffer filter does not reject unary
+	// gRPC (see the doc comment), but the documented hazard is that a
+	// buffered streaming route hangs and never forwards upstream. The
+	// harness's own gRPC deadline turns such a hang into a
+	// DeadlineExceeded rather than a wedged test.
 	overBody := strings.Repeat("a", 4096)
-	overCall := func(ctx context.Context) (*harness.GRPCResult, error) {
-		res, _, err := echoCall(ctx, overBody, callOpt)
-		return res, err
-	}
-	res, err = waitForGRPCResult(ctx, overCall, func(r *harness.GRPCResult) bool {
-		return r.Code == codes.Unknown
-	}, routeLiveTimeout)
+	res, resp, err = echoCall(ctx, overBody, callOpt)
 	if err != nil {
-		got := codes.Code(0)
-		if res != nil {
-			got = res.Code
-		}
-		t.Fatalf("request buffer: over-limit body (4096 bytes > 1Ki) got code %v, want %v: %v", got, codes.Unknown, err)
+		t.Fatalf("request buffer: over-limit request: %v", err)
+	}
+	if res.Code != codes.OK {
+		t.Fatalf("request buffer: over-limit body (4096 bytes > 1Ki) got code %v, want %v -- "+
+			"attaching requestBuffer to a gRPC route must not break it (a hang would surface as %v)",
+			res.Code, codes.OK, codes.DeadlineExceeded)
+	}
+	if resp.Body != overBody {
+		t.Fatalf("request buffer: over-limit echoed body length %d, want %d -- buffering must not truncate the request",
+			len(resp.Body), len(overBody))
 	}
 }
