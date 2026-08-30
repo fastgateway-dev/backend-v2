@@ -2,6 +2,29 @@
 
 This directory contains test services and documentation for end-to-end testing of FastGateway features.
 
+## Where a test program lives, and why
+
+Two directories hold runnable programs, and the rule is **who consumes it**
+— which decides where it has to run, which decides how it is packaged.
+
+| | `e2e/servers/` | `e2e/cmd/` |
+|---|---|---|
+| Consumer | **Envoy** (JWKS fetch, ext-authz, ext-proc) | the **backend**, or it is a one-shot job |
+| Runs | inside the kind cluster, as a Deployment | on the CI runner, via `go run` |
+| Packaging | own `go.mod` + `Dockerfile`, `docker build` + `kind load`, plus a manifest in `e2e/deps/` | part of this module — no `go.mod`, no image |
+| Members | `jwt-server`, `external-auth`, `grpc-external-auth`, `ext-proc-server` | `e2e-seed`, `mock-prometheus` |
+
+Envoy can only reach in-cluster addresses, so anything Envoy talks to has to
+be a pod. The backend runs on the runner, so anything only the backend talks
+to should run there too: putting `mock-prometheus` in the cluster would add a
+`go.mod`, a Dockerfile, an image build, a `kind load`, a Deployment and a
+port-forward, all to arrive back at `http://localhost:9091` — and would drop
+it out of the main module's `go vet ./...` and lint.
+
+Note both are servers; that is not the distinction. `e2e-seed` is not a
+server at all and still belongs in `cmd/`, because it is a main package of
+this module that runs on the runner.
+
 ## Services
 
 ### mock-prometheus (Port 9091, runs on the CI runner)
