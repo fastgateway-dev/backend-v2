@@ -9,9 +9,14 @@ import (
 // manifest-assembly path.
 //
 // KnownDrift is non-empty when the deploy and preview paths are KNOWN to
-// disagree for this fixture today. It names the defect from spec §2.4. The
-// differential test inverts its assertion for such fixtures -- it asserts the
-// drift is still there. Task 7 fixes the drifts and clears these fields.
+// disagree for this fixture today. It names the specific field-level
+// divergence (e.g. a missing `DirectResponse == nil` guard on the preview
+// side -- see BuildHTTPRouteConfig's doc comment in
+// internal/routeplan/httproute.go for the three that used to exist here).
+// The differential test inverts its assertion for such fixtures -- it
+// asserts the drift is still there. No fixture currently sets this field:
+// the drifts it was built to track have all been fixed and the field is
+// kept only in case a future change reintroduces one.
 type manifestFixture struct {
 	Name       string
 	Route      *models.Route

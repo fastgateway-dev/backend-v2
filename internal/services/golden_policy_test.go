@@ -231,12 +231,12 @@ func TestGoldenSecurityPolicyFromDBFamilies(t *testing.T) {
 // securityPolicyFromDBYAML renders the fromDB path to YAML using the same
 // BuildSecurityPolicy + marshal steps generateSecurityPolicyYAMLFromDB uses
 // (that function itself just wraps securityPolicyConfigFromDB, so calling it
-// directly here would be circular). Since the Task 9 collapse,
-// generateSecurityPolicyYAMLFromDB no longer does anything beyond
-// securityPolicyConfigFromDB + BuildSecurityPolicy + marshal -- see the note
-// on generateSecurityPolicyYAMLFromDB itself (route_service.go) explaining
-// that ExtAuthBackendName is now deliberately left unset on every route-level
-// path, so this helper sets nothing extra and just reproduces those three steps.
+// directly here would be circular). generateSecurityPolicyYAMLFromDB does
+// nothing beyond securityPolicyConfigFromDB + BuildSecurityPolicy + marshal --
+// see the note on generateSecurityPolicyYAMLFromDB itself
+// (internal/routeplan/securitypolicy.go) explaining that ExtAuthBackendName
+// is deliberately left unset on every route-level path, so this helper sets
+// nothing extra and just reproduces those three steps.
 func securityPolicyFromDBYAML(t *testing.T, route *models.Route, domain *models.Domain, policy *models.SecurityPolicy) string {
 	t.Helper()
 	config := securityPolicyConfigFromDB(route, domain, policy)
@@ -257,13 +257,19 @@ func securityPolicyInputYAML(t *testing.T, route *models.Route, domain *models.D
 	return generateSecurityPolicyYAML(route, domain, input, nil)
 }
 
-// TestDifferentialSecurityPolicy compares the persisted-policy assembly path
+// TestDifferentialSecurityPolicy compares the persisted-policy path
 // (securityPolicyConfigFromDB, used by both deployGeneralSecurityPolicy and
 // generateSecurityPolicyYAMLFromDB) against the pre-persistence input-based
 // path (generateSecurityPolicyYAML, used for approval/preview diffs before a
-// SecurityPolicy row exists). These are two independently written
-// implementations of the same SecurityPolicyConfig field mapping -- the pair
-// a future task must collapse.
+// SecurityPolicy row exists). Both gather their fixture data differently --
+// one from a persisted *models.SecurityPolicy row, the other from a
+// submitted SecurityPolicyInput -- but funnel it through the single shared
+// AssembleSecurityPolicyConfig assembler (internal/routeplan/securitypolicy.go).
+// The field mapping itself is no longer duplicated, so this test's remaining
+// job is narrower than its name suggests: it guards against the two gather
+// paths feeding the shared assembler inconsistent data for equivalent
+// fixtures, not against a second hand-written mapping drifting from the
+// first.
 func TestDifferentialSecurityPolicy(t *testing.T) {
 	route, domain := fixtureRoute("secpol"), fixtureDomain()
 	for _, f := range securityPolicyFamilyFixtures() {
@@ -329,15 +335,16 @@ func TestGoldenBackendTrafficPolicyDeploy(t *testing.T) {
 
 // deployBackendTrafficPolicyYAML renders the deploy-path BackendTrafficPolicy
 // object to YAML, using the same BuildBackendTrafficPolicy + marshal steps
-// generateBackendTrafficPolicyYAMLFromDB uses at its own end. Since the Task
-// 10 collapse, generateBackendTrafficPolicyYAMLFromDB is a thin wrapper that
-// calls buildBackendTrafficPolicyConfig (the same function this helper
-// calls) and then does exactly the Build+marshal steps below, so
+// generateBackendTrafficPolicyYAMLFromDB uses at its own end.
+// generateBackendTrafficPolicyYAMLFromDB is a thin wrapper that calls
+// buildBackendTrafficPolicyConfig (the same function this helper calls) and
+// then does exactly the Build+marshal steps below, so
 // TestDifferentialBackendTrafficPolicy(Families) below is now a tautology by
 // construction rather than an independent cross-check of two separately
-// written implementations -- see task-10-report.md for the throwaway
-// equivalence harness that verified the collapse against the old,
-// independently-written bodies before they were deleted.
+// written implementations. Before the collapse, an equivalence harness
+// verified that the old, independently-written deploy and preview bodies
+// produced identical output across the full fixture set; that check is what
+// justified deleting one of the two bodies rather than keeping both.
 func deployBackendTrafficPolicyYAML(t *testing.T, route *models.Route, domain *models.Domain, policy *models.BackendTrafficPolicy) string {
 	t.Helper()
 	config := buildBackendTrafficPolicyConfig(route, domain, policy)
@@ -355,7 +362,10 @@ func deployBackendTrafficPolicyYAML(t *testing.T, route *models.Route, domain *m
 
 // TestDifferentialBackendTrafficPolicy compares the deploy assembler against
 // the YAML-fromDB assembler for the same persisted policy, at the rendered
-// YAML level -- both are the two of the four sites that Task 10 collapses.
+// YAML level -- both now share the single buildBackendTrafficPolicyConfig
+// assembler (see deployBackendTrafficPolicyYAML above), so this is a
+// re-divergence guard rather than a live comparison, same as
+// TestDifferentialHTTPRoute in golden_httproute_test.go.
 func TestDifferentialBackendTrafficPolicy(t *testing.T) {
 	route, domain, policy := fixtureRoute("btp"), fixtureDomain(), fixtureBackendTrafficPolicy()
 
@@ -368,7 +378,9 @@ func TestDifferentialBackendTrafficPolicy(t *testing.T) {
 		"deploy and preview BackendTrafficPolicy assembly disagree for %q", "timeout")
 }
 
-// --- additional BackendTrafficPolicy feature families (design spec §5.3) ---
+// --- additional BackendTrafficPolicy feature families: health-check,
+// circuit-breaker, rate-limit, request-buffer, compression,
+// response-override, load-balancer, fault-injection, retry ---
 //
 // fixtureBTPWithConfig shares the route/project/policy IDs of
 // fixtureBackendTrafficPolicy so golden output stays stable; only Config
@@ -493,8 +505,9 @@ func fixtureBTPResponseOverride() *models.BackendTrafficPolicy {
 }
 
 // btpFamilyFixtures names the extra BackendTrafficPolicy feature families
-// covered beyond the brief's floor (timeout). Task 10 collapses the deploy
-// and fromDB assemblers that handle all of these fields.
+// covered beyond the minimal case (timeout). The deploy and fromDB
+// assemblers that handle all of these fields are now the single shared
+// buildBackendTrafficPolicyConfigFromInput (internal/routeplan/backendtrafficpolicy.go).
 func btpFamilyFixtures() []struct {
 	Name   string
 	Policy *models.BackendTrafficPolicy
@@ -540,8 +553,8 @@ func TestDifferentialBackendTrafficPolicyFamilies(t *testing.T) {
 	}
 }
 
-// TestGoldenBackendTrafficPolicyInputFamilies closes the gap noted in the
-// Task 10 analysis: generateBackendTrafficPolicyYAML (the pre-persist,
+// TestGoldenBackendTrafficPolicyInputFamilies closes a coverage gap:
+// generateBackendTrafficPolicyYAML (the pre-persist,
 // BackendTrafficPolicyInput-based path -- F2) previously had no golden
 // coverage at all, only assert.Contains substring checks in
 // route_service_yaml_internal_test.go, and RequestBuffer was untested even
@@ -571,7 +584,7 @@ func TestGoldenBackendTrafficPolicyInputFamilies(t *testing.T) {
 	}
 }
 
-// --- EnvoyExtensionPolicy families (design spec §5.3: WAF, Lua, Wasm, ext-proc) ---
+// --- EnvoyExtensionPolicy families: WAF, Lua, Wasm, ext-proc ---
 //
 // buildEnvoyExtensionPolicyConfig (route_service.go) is the deploy-path
 // assembler; generateEnvoyExtensionPolicyYAMLFromSnapshot is an independent

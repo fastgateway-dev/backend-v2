@@ -13,8 +13,13 @@ import (
 // BuildHTTPRouteConfig assembles the HTTPRouteConfig for a route.
 //
 // This replaces the former deploy/preview pair. They had drifted in three
-// places, all of which let the preview show something the cluster would not
-// run (spec §2.4 defects 1a/1b/1c); the deploy behaviour is authoritative.
+// places, all the same shape: the preview path omitted the
+// `DirectResponse == nil` exclusion the deploy path applied when setting
+// HTTPRouteFilterName and when guarding the URLRewrite and
+// RequestHeaderModifier filters. For a direct-response route that also
+// carried a URL rewrite or a header modifier, the previewed HTTPRoute showed
+// filters the deployed route did not have, and omitted the extensionRef
+// filter it did have. The deploy behaviour is authoritative here.
 //
 // Pure: no receiver, no repository access, no clock, no environment.
 func BuildHTTPRouteConfig(route *models.Route, domain *models.Domain) *kubernetes.HTTPRouteConfig {
@@ -247,10 +252,10 @@ func GenerateHTTPRouteYAML(route *models.Route, domain *models.Domain) string {
 }
 
 // BuildHTTPRouteConfigForYAML builds HTTPRouteConfig for YAML/preview
-// generation. Since Task 7 this and (*RouteService).buildHTTPRouteConfig are
-// identical one-line delegations to buildHTTPRouteConfigUnified -- this one
-// exists so preview callers without a RouteService receiver can still reach
-// it directly.
+// generation. This and (*RouteService).buildHTTPRouteConfig are now
+// identical one-line delegations to the same BuildHTTPRouteConfig -- this
+// one exists so preview callers without a RouteService receiver can still
+// reach it directly.
 func BuildHTTPRouteConfigForYAML(route *models.Route, domain *models.Domain) *kubernetes.HTTPRouteConfig {
 	return BuildHTTPRouteConfig(route, domain)
 }

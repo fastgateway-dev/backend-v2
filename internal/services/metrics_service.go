@@ -371,7 +371,7 @@ func routeClusterKind(protocol models.RouteProtocol) string {
 // rule 0, matching what Envoy Gateway actually emits.
 //
 // The name segment is the KUBERNETES OBJECT name (models.Route.K8sRouteName,
-// "<name>-<8 hex of the route UUID>", see generateRouteK8sName), NOT
+// "<name>-<8 hex of the route UUID>", see kubernetes.RouteK8sName), NOT
 // models.Route.Name. Envoy Gateway builds the cluster from
 // route.GetName(), which is the object it reconciled. Using the model name
 // produced a selector that matched nothing, so every metrics panel came

@@ -9,11 +9,12 @@ import (
 
 // BuildGRPCRouteConfig assembles the GRPCRouteConfig for a route.
 //
-// This replaces the former deploy/preview pair. Unlike the HTTPRoute pair
-// (Task 7), no drift was found between them -- TestDifferentialGRPCRoute
-// passed before this collapse across an expanded fixture set, and the diff
-// between the two bodies was comment-only. This collapse is therefore a
-// pure refactor: it changes no output.
+// This replaces the former deploy/preview pair. Unlike the HTTPRoute pair,
+// which had a real behavioural drift, no drift was found between the two
+// GRPCRoute bodies -- TestDifferentialGRPCRoute passed before this collapse
+// across an expanded fixture set, and the diff between the two bodies was
+// comment-only. This collapse is therefore a pure refactor: it changes no
+// output.
 //
 // Pure: no receiver, no repository access, no clock, no environment.
 func BuildGRPCRouteConfig(route *models.Route, domain *models.Domain) *kubernetes.GRPCRouteConfig {
