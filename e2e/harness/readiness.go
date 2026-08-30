@@ -20,6 +20,33 @@ var httpRouteGVR = schema.GroupVersionResource{
 	Resource: "httproutes",
 }
 
+// SecurityPolicyGVR, BackendTrafficPolicyGVR and EnvoyExtensionPolicyGVR
+// identify the three Envoy Gateway policy CRDs the backend attaches to a
+// route (RouteService.deploySecurityPolicy / deployBackendTrafficPolicy /
+// deployEnvoyExtensionPolicy). They mirror the GVRs the backend itself
+// builds from (internal/services/kubernetes_service.go's
+// getSecurityPolicyGVR / getBackendTrafficPolicyGVR /
+// getEnvoyExtensionPolicyGVR): group "gateway.envoyproxy.io", version
+// "v1alpha1". Exported for use with WaitForPolicyAccepted from suite
+// packages.
+var (
+	SecurityPolicyGVR = schema.GroupVersionResource{
+		Group:    "gateway.envoyproxy.io",
+		Version:  "v1alpha1",
+		Resource: "securitypolicies",
+	}
+	BackendTrafficPolicyGVR = schema.GroupVersionResource{
+		Group:    "gateway.envoyproxy.io",
+		Version:  "v1alpha1",
+		Resource: "backendtrafficpolicies",
+	}
+	EnvoyExtensionPolicyGVR = schema.GroupVersionResource{
+		Group:    "gateway.envoyproxy.io",
+		Version:  "v1alpha1",
+		Resource: "envoyextensionpolicies",
+	}
+)
+
 // backendGraceWindow bounds how long a 500/502/503 response is tolerated as
 // "backend not resolved yet" rather than accepted as the route's genuine,
 // final answer. Gateway API mandates a 500 response for any parentRef whose
@@ -180,6 +207,126 @@ func parentRefConditionStatus(obj *unstructured.Unstructured, condType string) (
 		if !matched {
 			allTrue = false
 			messages = append(messages, fmt.Sprintf("parent[%d].%s=<missing>", i, condType))
+		}
+	}
+	return allTrue, strings.Join(messages, ", ")
+}
+
+// WaitForPolicyAccepted polls the Envoy Gateway policy object (a
+// SecurityPolicy, BackendTrafficPolicy, or EnvoyExtensionPolicy -- pass
+// the matching GVR: SecurityPolicyGVR, BackendTrafficPolicyGVR, or
+// EnvoyExtensionPolicyGVR) owned by routeID's status until every ancestor
+// reports "Accepted" as True, or returns an error carrying the observed
+// conditions (reason + message) once timeout elapses.
+//
+// The policy is resolved by the "fastgateway.dev/route-id" label, the
+// same mechanism WaitForHTTPRouteAccepted uses for HTTPRoute -- see
+// RouteService's deploySecurityPolicy / deployBackendTrafficPolicy /
+// deployEnvoyExtensionPolicy (internal/services/route_service.go) and the
+// labels BuildSecurityPolicy / BuildBackendTrafficPolicy /
+// BuildEnvoyExtensionPolicy stamp on the object
+// (internal/services/kubernetes_service.go). ns must be the domain's own
+// namespace, matching WaitForHTTPRouteAccepted's ns argument.
+//
+// This exists because deploying a route and its policies as separate
+// Kubernetes objects (CreateHTTPRoute, then deploySecurityPolicy /
+// deployBackendTrafficPolicy / deployEnvoyExtensionPolicy) leaves a window
+// where Envoy Gateway has programmed the HTTPRoute but not yet the
+// policy: the route serves traffic completely unprotected/unpolicied
+// during that window. WaitForHTTPRouteAccepted alone cannot detect this --
+// it only tells you the route exists, not that its policy is attached and
+// enforcing. Callers that assert route behavior contingent on a policy
+// (a SecurityPolicy denying unauthenticated requests, a
+// BackendTrafficPolicy enforcing a timeout or rate limit) must wait on
+// this in addition, or their gate is satisfied by exactly the unconverged
+// state that makes the assertion fail.
+//
+// Note "Accepted" on its own only proves the policy object was admitted
+// by the API and targets a real ancestor -- it does not by itself prove
+// Envoy has finished pushing the corresponding xDS config. Callers with a
+// data-plane probe available (e.g. expecting a 401/403 once a
+// SecurityPolicy is enforcing) should still gate the final assertion on
+// that probe reaching its expected denial; WaitForPolicyAccepted narrows
+// the race rather than eliminating every last millisecond of it. A
+// timeout error here distinguishes "policy never accepted" (no Accepted
+// condition, or status False/Unknown -- see the returned reason) from
+// "policy accepted but caller's own probe still isn't observing it", since
+// the two need different follow-up.
+func WaitForPolicyAccepted(ctx context.Context, k *Kube, gvr schema.GroupVersionResource, ns, routeID string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last string
+	labelSelector := fmt.Sprintf("fastgateway.dev/route-id=%s", routeID)
+
+	for time.Now().Before(deadline) {
+		obj, err := k.GetUnstructuredByLabel(ctx, gvr, ns, labelSelector)
+		if err != nil {
+			last = fmt.Sprintf("error: %v", err)
+		} else {
+			ok, msg := ancestorConditionStatus(obj, "Accepted")
+			if ok {
+				return nil
+			}
+			last = msg
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+	return fmt.Errorf("%s for route %s (label %s) in %s not accepted within %s (last: %s)", gvr.Resource, routeID, labelSelector, ns, timeout, last)
+}
+
+// ancestorConditionStatus reports whether every ancestor entry in
+// status.ancestors[] (the GEP-713 PolicyStatus shape Envoy Gateway's
+// policy CRDs use) carries a condType condition with status "True". It
+// returns false with no ancestors reported yet (status not populated),
+// and false if any ancestor is missing the condition or reports
+// non-True. The returned message includes each condition's reason and
+// message text, since "not accepted" and "accepted but not enforcing"
+// surface as different reasons and need different follow-up.
+func ancestorConditionStatus(obj *unstructured.Unstructured, condType string) (bool, string) {
+	ancestors, found, err := unstructured.NestedSlice(obj.Object, "status", "ancestors")
+	if err != nil || !found || len(ancestors) == 0 {
+		return false, fmt.Sprintf("%s=<no status.ancestors reported yet>", condType)
+	}
+
+	allTrue := true
+	var messages []string
+	for i, a := range ancestors {
+		ancestor, ok := a.(map[string]any)
+		if !ok {
+			continue
+		}
+		conditions, found, _ := unstructured.NestedSlice(ancestor, "conditions")
+		if !found {
+			allTrue = false
+			messages = append(messages, fmt.Sprintf("ancestor[%d].%s=<no conditions>", i, condType))
+			continue
+		}
+
+		matched := false
+		for _, c := range conditions {
+			cond, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			if cond["type"] != condType {
+				continue
+			}
+			matched = true
+			status, _ := cond["status"].(string)
+			reason, _ := cond["reason"].(string)
+			msg, _ := cond["message"].(string)
+			if status != "True" {
+				allTrue = false
+			}
+			messages = append(messages, fmt.Sprintf("ancestor[%d].%s=%s(reason=%s, message=%s)", i, condType, status, reason, msg))
+		}
+		if !matched {
+			allTrue = false
+			messages = append(messages, fmt.Sprintf("ancestor[%d].%s=<missing>", i, condType))
 		}
 	}
 	return allTrue, strings.Join(messages, ", ")

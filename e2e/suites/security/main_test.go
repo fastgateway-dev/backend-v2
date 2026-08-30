@@ -53,7 +53,7 @@
 // exactly mirroring the "passes for the wrong reason" class of bug this
 // task exists to fix.
 //
-// Every test in this package therefore proves the route (and, where
+// Most tests in this package therefore prove the route (and, where
 // relevant, the client attachment) is fully live and behaving correctly
 // FIRST, via waitForHTTPStatus on the POSITIVE request -- polling past any
 // wrong status, including 404, until the real 200 is observed. Only once
@@ -61,6 +61,29 @@
 // which does NOT tolerate 404 (or any other unexpected status) as "still
 // warming up": at that point a 404 would itself be a genuine regression
 // (the route flapping back to unprogrammed), not a normal transient state.
+//
+// # Exception: when the positive probe can't distinguish enforcement from its absence
+//
+// The route landing (HTTPRoute programmed) and its SecurityPolicy/
+// EnvoyExtensionPolicy landing (deploySecurityPolicy /
+// deployEnvoyExtensionPolicy, in internal/services/route_service.go) are
+// two separate Kubernetes writes that reconcile independently -- there is
+// a real window where the route is live but the policy is not. For most
+// mechanisms the positive probe still can't be served correctly during
+// that window (e.g. mTLS: no cert presented, no handshake), so gating on
+// it first is safe. But for JWT, API-key, and WAF specifically, an
+// unconverged route (HTTPRoute live, policy not yet attached) answers the
+// POSITIVE probe with the exact same 200 an unauthenticated/benign
+// request also gets -- the policy simply isn't there yet to reject
+// anything. A 200 on the positive probe is therefore not evidence the
+// policy has converged; only the negative probe's denial (401/403, or for
+// WAF a blocked payload's 403) can only be produced once the policy is
+// genuinely attached and enforcing. TestGeneralModeJWT,
+// TestGeneralModeAPIKeyDenied, TestClientModeAPIKey, and
+// TestGeneralModeWAFBlocksSQLInjection therefore invert the order: they
+// gate via waitForHTTPStatus on the probe that can only succeed once
+// truly converged (the denial, or for WAF the block), then assert the
+// other side with requireStatus. See each test's own doc comment.
 //
 // # Known limitation: security_general_mode/test_api_key.go
 //
@@ -155,7 +178,12 @@ const (
 	// routeLiveTimeout bounds how long a test waits for a freshly deployed
 	// route (and, where relevant, client attachment) to actually be
 	// served by the gateway with its true, converged behavior.
-	routeLiveTimeout = 90 * time.Second
+	//
+	// 180s, not 90s: a second real CI run measured actual route+policy
+	// convergence latency at 76-90s against the old 90s budget -- no
+	// margin at all, and enough to flake outright when reconciliation ran
+	// even slightly long. Don't trim this back without new measurements.
+	routeLiveTimeout = 180 * time.Second
 
 	// defaultJWTMintURL is where the TEST PROCESS (running on the CI
 	// runner, not inside the cluster) mints JWTs from by default, when

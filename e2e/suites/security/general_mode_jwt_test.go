@@ -72,18 +72,32 @@ func TestGeneralModeJWT(t *testing.T) {
 		t.Fatalf("jwt: generate token from jwt-server: %v", err)
 	}
 
-	// Positive first: a valid, correctly-issued token reaching a real 200
-	// proves the route AND the JWT filter (issuer/JWKS now genuinely
-	// reachable) have converged before the negative probe is trusted.
-	allowProbe := func(ctx context.Context) (*harness.Response, error) {
-		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("Authorization", "Bearer "+token))
-	}
-	if _, err := waitForHTTPStatus(ctx, allowProbe, routeLiveTimeout, 200); err != nil {
-		t.Fatalf("jwt: with valid token: %v", err)
-	}
-
+	// Negative first, not positive: an HTTPRoute that has landed but whose
+	// SecurityPolicy hasn't converged yet answers 200 to a request with NO
+	// Authorization header exactly as readily as it would to one carrying a
+	// valid token -- a 200 on the positive probe proves nothing about
+	// whether the JWT filter is even attached, because the exact same
+	// unconverged state also produces a spurious 200 here. A 401/403
+	// CANNOT be produced by that unconverged state; it can only come from
+	// the SecurityPolicy actually being attached and its jwt_authn filter
+	// actually rejecting the missing token. Waiting here for the denial is
+	// therefore what proves the policy itself has converged, not just the
+	// route.
 	denyProbe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path)
 	}
-	requireStatus(t, ctx, denyProbe, 401, 403)
+	if _, err := waitForHTTPStatus(ctx, denyProbe, routeLiveTimeout, 401, 403); err != nil {
+		t.Fatalf("jwt: without token: %v", err)
+	}
+
+	// Now that the negative probe has proven the JWT filter is genuinely
+	// enforcing, a valid, correctly-issued token reaching 200 proves it
+	// actually accepts a real credential rather than rejecting everything
+	// (e.g. an issuer/JWKS host that's still unreachable also 401s
+	// unconditionally -- see the "wrong reason" discussion above, which is
+	// exactly why this can't be the only assertion either).
+	allowProbe := func(ctx context.Context) (*harness.Response, error) {
+		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("Authorization", "Bearer "+token))
+	}
+	requireStatus(t, ctx, allowProbe, 200)
 }

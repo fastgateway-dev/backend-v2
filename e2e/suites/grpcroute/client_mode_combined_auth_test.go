@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
+	"github.com/fastgateway-dev/backend-v2/e2e/testdata/pb/echo"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
@@ -19,6 +20,18 @@ import (
 // allowlisting (allow-all CIDR) and API key auth. Without credentials the
 // call must be denied; with a valid API key + client ID (from the allowed
 // IP range, which the test runner always is) it must succeed.
+//
+// The success path must poll, exactly like the deny path above it: it
+// depends on a DIFFERENT object graph converging than the base route does
+// -- the per-client "-ak-<id8>" GRPCRoute plus its own SecurityPolicy (see
+// the per-client route generation in internal/services/route_service.go)
+// -- which can still be reconciling after the base route (and even the
+// deny path's own SecurityPolicy) is already live. A single un-polled call
+// here previously observed codes.Unavailable, which is in this package's
+// own grpcNotReady "route not programmed yet" set -- i.e. exactly what a
+// too-early call against a not-yet-programmed per-client route looks like,
+// not evidence the feature is broken. The HTTP sibling of this test polls
+// its success path for the same reason.
 func TestGRPCClientModeCombinedAuth(t *testing.T) {
 	t.Parallel()
 
@@ -80,14 +93,20 @@ func TestGRPCClientModeCombinedAuth(t *testing.T) {
 		harness.WithGRPCMetadata("x-api-key", apiKey),
 		harness.WithGRPCMetadata("x-client-id", client.ID.String()),
 	}
-	res, resp, err := echoCall(ctx, "hello-authed", authOpts...)
+	var authedResp *echo.Message
+	authedCall := func(ctx context.Context) (*harness.GRPCResult, error) {
+		res, resp, err := echoCall(ctx, "hello-authed", authOpts...)
+		authedResp = resp
+		return res, err
+	}
+	res, err := waitForGRPCCodeIn(ctx, authedCall, routeLiveTimeout, codes.OK)
 	if err != nil {
 		t.Fatalf("client mode combined auth: request with credentials: %v", err)
 	}
 	if res.Code != codes.OK {
 		t.Fatalf("client mode combined auth: with valid api key + client id (allowed IP) got code %v, want %v", res.Code, codes.OK)
 	}
-	if resp.Body != "hello-authed" {
-		t.Fatalf("client mode combined auth: got echoed body %q, want %q", resp.Body, "hello-authed")
+	if authedResp == nil || authedResp.Body != "hello-authed" {
+		t.Fatalf("client mode combined auth: got echoed body %+v, want %q", authedResp, "hello-authed")
 	}
 }

@@ -72,21 +72,35 @@ func TestClientModeAPIKey(t *testing.T) {
 		t.Fatalf("client mode api key: attach client: %v", err)
 	}
 
-	// Positive first: proves the route AND the client attachment have
-	// converged before the negative probe is trusted (see the package
-	// doc comment).
+	// Negative first, not positive: the per-client HTTPRoute this
+	// attachment creates matches on the x-client-id header ALONE --
+	// x-api-key is enforced solely by the SecurityPolicy attached to it
+	// (see internal/services/route_service.go's per-client route
+	// generation). So while that SecurityPolicy hasn't converged yet, a
+	// request carrying x-client-id but no x-api-key reaches 200 exactly
+	// like one carrying both would -- the positive probe's 200 proves
+	// nothing, because the identical unconverged state produces it too. A
+	// 401/403 CANNOT come from that state; it can only come from the
+	// SecurityPolicy actually being attached and its filter actually
+	// rejecting the missing key. Waiting here for the denial is therefore
+	// what proves the attachment's policy has converged, not just the
+	// per-client route.
+	denyProbe := func(ctx context.Context) (*harness.Response, error) {
+		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-client-id", client.ID.String()))
+	}
+	if _, err := waitForHTTPStatus(ctx, denyProbe, routeLiveTimeout, 401, 403); err != nil {
+		t.Fatalf("client mode api key: without api key: %v", err)
+	}
+
+	// Now that the negative probe has proven the SecurityPolicy is
+	// genuinely enforcing, the correct key alongside the client id
+	// reaching 200 proves it actually accepts a real credential rather
+	// than rejecting everything.
 	allowProbe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path,
 			harness.WithHeader("x-api-key", apiKey),
 			harness.WithHeader("x-client-id", client.ID.String()),
 		)
 	}
-	if _, err := waitForHTTPStatus(ctx, allowProbe, routeLiveTimeout, 200); err != nil {
-		t.Fatalf("client mode api key: with valid api key + client id: %v", err)
-	}
-
-	denyProbe := func(ctx context.Context) (*harness.Response, error) {
-		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-client-id", client.ID.String()))
-	}
-	requireStatus(t, ctx, denyProbe, 401, 403)
+	requireStatus(t, ctx, allowProbe, 200)
 }

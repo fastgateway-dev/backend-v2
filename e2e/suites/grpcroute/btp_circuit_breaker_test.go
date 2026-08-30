@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
+	"github.com/fastgateway-dev/backend-v2/e2e/testdata/pb/delay"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
@@ -22,14 +23,30 @@ import (
 // circuit breaker's actual effect was never exercised. This port lowers
 // maxParallelRequests/maxPendingRequests to 1 each (the Python config's
 // limits of 100/50/25/5 are far higher than any burst a single test could
-// plausibly generate) and fires 20 concurrent Echo calls, mirroring
-// httproute's TestCircuitBreaker: at that ratio, Envoy itself must reject
-// some calls with a circuit-breaker Unavailable rather than ever reaching
-// the backend for all of them.
+// plausibly generate) and fires 20 concurrent calls, mirroring httproute's
+// TestCircuitBreaker: at that ratio, Envoy itself must reject some calls
+// with a circuit-breaker Unavailable rather than ever reaching the backend
+// for all of them.
+//
+// The 20 calls must ACTUALLY overlap for that to hold, which a burst of
+// echo.EchoService/Echo calls can't guarantee: harness.Gateway's gRPC path
+// opens a brand-new grpc.ClientConn (TCP + TLS + HTTP/2 preface) per call,
+// so the 20 goroutines' dials stagger by tens of milliseconds while
+// podinfo's Echo completes in ~1ms -- by the time the last goroutine's call
+// actually reaches the backend, the first is long done, peak upstream
+// concurrency never exceeds ~1, and maxPendingRequests never overflows.
+// This port instead bursts against podinfo's real
+// delay.DelayService/Delay RPC (see e2e/testdata/protos/podinfo_delay.proto
+// and grpcroute/btp_timeout_test.go, which uses the same service) with a
+// multi-second server-side delay: every goroutine's dial-and-handshake
+// overhead (milliseconds) is now negligible next to the seconds each call
+// stays in flight, so all 20 calls are genuinely concurrent for almost the
+// entire delay window -- comfortably enough to overflow
+// maxPendingRequests=1.
 func TestGRPCBTPCircuitBreaker(t *testing.T) {
 	t.Parallel()
 
-	name, match, callOpt := uniqueMatch(t, "Exact", echoServiceName, "")
+	name, match, callOpt := uniqueMatch(t, "Exact", "delay.DelayService", "")
 	maxParallel := int64(1)
 	maxPending := int64(1)
 
@@ -58,13 +75,21 @@ func TestGRPCBTPCircuitBreaker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), routeLiveTimeout+30*time.Second)
 	defer cancel()
 
-	// A single serial call is never itself subject to the parallel-request
-	// limit, so this converges to OK once the route is live.
-	call := func(ctx context.Context) (*harness.GRPCResult, error) {
-		res, _, err := echoCall(ctx, "hello", callOpt)
-		return res, err
+	// Client-side timeout must comfortably exceed the burst delay (2s)
+	// below so the client's own deadline never fires first -- mirrors
+	// btp_timeout_test.go's delayCall.
+	delayCall := func(ctx context.Context, seconds int64) (*harness.GRPCResult, error) {
+		req := &delay.DelayRequest{Seconds: seconds}
+		resp := &delay.DelayResponse{}
+		return env.GW.GRPCTyped(ctx, "delay.DelayService", "Delay", req, resp, callOpt, harness.WithGRPCTimeout(15*time.Second))
 	}
-	res, err := waitForGRPCLive(ctx, call, routeLiveTimeout)
+
+	// A single serial call is never itself subject to the parallel-request
+	// limit, so this converges to OK once the route is live. Uses a 0s
+	// delay so readiness doesn't itself race the burst's timing.
+	res, err := waitForGRPCLive(ctx, func(ctx context.Context) (*harness.GRPCResult, error) {
+		return delayCall(ctx, 0)
+	}, routeLiveTimeout)
 	if err != nil {
 		t.Fatalf("circuit breaker: route never became live: %v", err)
 	}
@@ -73,6 +98,7 @@ func TestGRPCBTPCircuitBreaker(t *testing.T) {
 	}
 
 	const burst = 20
+	const burstDelaySeconds = 2
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	codesSeen := make([]codes.Code, 0, burst)
@@ -80,7 +106,7 @@ func TestGRPCBTPCircuitBreaker(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			res, _, err := echoCall(ctx, "hello", callOpt)
+			res, err := delayCall(ctx, burstDelaySeconds)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {

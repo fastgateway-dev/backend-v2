@@ -24,8 +24,20 @@ import (
 // HTTP.RequestTimeout instead (the only timeout setting that can actually
 // produce a timeout against a delayed response), routes at podinfo's real
 // delay.DelayService (see e2e/testdata/protos/podinfo_delay.proto) with a
-// 5-second delay, and asserts codes.DeadlineExceeded against a 2-second
-// request timeout.
+// 5-second delay, and asserts codes.Unavailable against a 2-second request
+// timeout.
+//
+// codes.Unavailable, not codes.DeadlineExceeded, is the right expectation:
+// an Envoy-enforced BTP request timeout is Envoy replying with plain HTTP
+// 504, and Envoy's httpToGrpcStatus table maps 504 -> Unavailable (see
+// btp_request_buffer_test.go's doc comment for the full table).
+// DeadlineExceeded is what the *client's* grpc-timeout metadata produces
+// when IT expires first -- which is exactly why delayCall below sets a 15s
+// client-side timeout, comfortably longer than both the 5s backend delay
+// and the 2s BTP timeout, so the client's own deadline can never be the one
+// that fires. Because Unavailable alone is also what an unreachable
+// upstream would produce, the elapsed-time assertion below is what actually
+// proves this is the 2s BTP timeout firing rather than some other failure.
 func TestGRPCBTPTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -76,11 +88,22 @@ func TestGRPCBTPTimeout(t *testing.T) {
 		t.Fatalf("timeout: readiness probe (0s delay) got code %v, want %v", res.Code, codes.OK)
 	}
 
+	start := time.Now()
 	res, err = delayCall(ctx, 5)
+	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("timeout: delayed request: %v", err)
 	}
-	if res.Code != codes.DeadlineExceeded {
-		t.Fatalf("timeout: got code %v, want %v (backend delays 5s, BTP request timeout is 2s)", res.Code, codes.DeadlineExceeded)
+	if res.Code != codes.Unavailable {
+		t.Fatalf("timeout: got code %v, want %v (backend delays 5s, BTP request timeout is 2s; Envoy's 504 -> Unavailable mapping)", res.Code, codes.Unavailable)
+	}
+	// Unavailable alone doesn't distinguish "the 2s BTP timeout fired" from
+	// "the upstream was unreachable" -- both produce the same code. Elapsed
+	// time is what tells them apart: a real BTP timeout returns close to 2s
+	// after the request was sent, well before the backend's 5s delay would
+	// have elapsed on its own.
+	const maxElapsedForTimeout = 4 * time.Second
+	if elapsed >= maxElapsedForTimeout {
+		t.Fatalf("timeout: request took %s, want well under %s (closer to the 2s BTP timeout than the 5s backend delay)", elapsed, maxElapsedForTimeout)
 	}
 }
