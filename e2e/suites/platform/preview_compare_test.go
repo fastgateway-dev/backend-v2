@@ -138,3 +138,49 @@ func TestFirstDifference_NumbersCompareByValueNotGoType(t *testing.T) {
 		t.Fatal("a number against a string must fail")
 	}
 }
+
+func TestNormalizeGeneratedIDs_ReachesNestedNames(t *testing.T) {
+	// The failure this guards: a SecurityPolicy names its target route in
+	// spec.targetRef.name, so the generated id appears there as well as in
+	// metadata.name. Normalising only metadata.name left the two sides
+	// differing on spec/targetRef/name.
+	in := map[string]any{
+		"metadata": map[string]any{"name": "my-route-a1b2c3d4-security"},
+		"spec": map[string]any{
+			"targetRef": map[string]any{"kind": "HTTPRoute", "name": "my-route-a1b2c3d4"},
+			"rules":     []any{map[string]any{"name": "my-route-a1b2c3d4-rule"}},
+		},
+	}
+	out := normalizeGeneratedIDs(in).(map[string]any)
+
+	meta := out["metadata"].(map[string]any)
+	if meta["name"] != "my-route-<hex>-security" {
+		t.Errorf("metadata.name = %v, want my-route-<hex>-security", meta["name"])
+	}
+	spec := out["spec"].(map[string]any)
+	target := spec["targetRef"].(map[string]any)
+	if target["name"] != "my-route-<hex>" {
+		t.Errorf("spec.targetRef.name = %v, want my-route-<hex>", target["name"])
+	}
+	if target["kind"] != "HTTPRoute" {
+		t.Errorf("spec.targetRef.kind = %v, want HTTPRoute unchanged", target["kind"])
+	}
+	rule := spec["rules"].([]any)[0].(map[string]any)
+	if rule["name"] != "my-route-<hex>-rule" {
+		t.Errorf("spec.rules[0].name = %v, want my-route-<hex>-rule", rule["name"])
+	}
+}
+
+func TestNormalizeGeneratedIDs_StillDistinguishesDifferentRoutes(t *testing.T) {
+	// Normalising must not make every name equal: two DIFFERENT routes
+	// have to keep differing, or the comparison stops meaning anything.
+	a := normalizeGeneratedIDs("checkout-a1b2c3d4")
+	b := normalizeGeneratedIDs("payments-a1b2c3d4")
+	if a == b {
+		t.Fatalf("normalisation collapsed two different route names to %v", a)
+	}
+	// Non-string values pass through untouched.
+	if got := normalizeGeneratedIDs(int64(80)); got != int64(80) {
+		t.Errorf("numbers must pass through unchanged, got %v (%T)", got, got)
+	}
+}
