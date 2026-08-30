@@ -201,6 +201,16 @@ jobs:
                 type: Kubernetes
               gateway:
                 controllerName: gateway.envoyproxy.io/gatewayclass-controller
+              # REQUIRED. FastGateway emits Envoy Gateway `Backend` CRDs for
+              # external backends, backend TLS/mTLS, and failover routes. The
+              # CRD ships with the chart regardless, so those objects apply
+              # cleanly -- but without this flag the EG translator refuses to
+              # resolve a backendRef of kind: Backend, marks the HTTPRoute
+              # ResolvedRefs=False, and Envoy serves a bare 500. Symptom is a
+              # 500 with an EMPTY body (EG's synthetic direct response), as
+              # distinct from a 503 carrying "upstream connect error".
+              extensionApis:
+                enableBackend: true
               rateLimit:
                 backend:
                   type: Redis

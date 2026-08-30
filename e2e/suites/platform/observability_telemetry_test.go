@@ -77,10 +77,28 @@ func TestEnvoyProxyTelemetry(t *testing.T) {
 		t.Fatalf("EnvoyProxy %s: accessLog.settings[0].sinks[0].file.path=%v, want /dev/stdout", dt.K8sEnvoyProxyName, sinkFile["path"])
 	}
 
-	// Tracing
-	samplingRate, found, err := unstructured.NestedFloat64(ep.Object, "spec", "telemetry", "tracing", "samplingRate")
-	if err != nil || !found || samplingRate != 10 {
-		t.Fatalf("EnvoyProxy %s: tracing.samplingRate=%v (found=%v err=%v), want 10", dt.K8sEnvoyProxyName, samplingRate, found, err)
+	// Tracing. samplingRate is stored as a float64
+	// (models.TelemetryTracingConfig.SamplingRate), but a whole-number
+	// value like 10 serializes to JSON without a decimal point, and the
+	// Kubernetes unstructured JSON decoder reads a bare integer literal
+	// back as int64 rather than float64 -- so unstructured.NestedFloat64
+	// fails with a type-mismatch error even though the value round-tripped
+	// correctly. Read the raw field and accept either numeric type.
+	samplingRateVal, found, err := unstructured.NestedFieldNoCopy(ep.Object, "spec", "telemetry", "tracing", "samplingRate")
+	if err != nil || !found {
+		t.Fatalf("EnvoyProxy %s: tracing.samplingRate: found=%v err=%v", dt.K8sEnvoyProxyName, found, err)
+	}
+	var samplingRate float64
+	switch v := samplingRateVal.(type) {
+	case float64:
+		samplingRate = v
+	case int64:
+		samplingRate = float64(v)
+	default:
+		t.Fatalf("EnvoyProxy %s: tracing.samplingRate=%v is type %T, want float64 or int64", dt.K8sEnvoyProxyName, samplingRateVal, samplingRateVal)
+	}
+	if samplingRate != 10 {
+		t.Fatalf("EnvoyProxy %s: tracing.samplingRate=%v, want 10", dt.K8sEnvoyProxyName, samplingRate)
 	}
 	refs, found, err := unstructured.NestedSlice(ep.Object, "spec", "telemetry", "tracing", "provider", "backendRefs")
 	if err != nil || !found || len(refs) == 0 {

@@ -8,6 +8,21 @@ import (
 	"time"
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
+	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/services"
+)
+
+// podinfoService and podinfoPort address the shared "podinfo" Deployment
+// (see e2e/deps/podinfo.yaml) directly -- unlike this package's other
+// tests, TestMethodMatchPost cannot use nginx as its backend (nginx's
+// static index page only serves GET/HEAD and answers a real POST with a
+// genuine 405, which is not a route-matching failure at all). podinfo's
+// "/status/{code}" endpoint accepts GET, POST, and PUT and always answers
+// with the requested code, so it can prove a POST actually reached the
+// backend and got a real 200.
+const (
+	podinfoService = "podinfo"
+	podinfoPort    = 9898
 )
 
 // TestMethodMatchPost ports route_matching/test_method.py:
@@ -17,13 +32,30 @@ import (
 // in this package (not itself named in the brief's table, but the same
 // "central rule" violation, so fixed here too: never transcribe a
 // tautology). A route matched by method=POST, given an actual POST
-// request, must resolve to a genuine 200 -- nginx's default config does
-// not restrict HTTP methods, so a POST to "/" succeeds exactly like a GET.
+// request, must resolve to a genuine 200. nginx's static index page
+// rejects POST with a real 405 (it only serves GET/HEAD), which would
+// make this test indistinguishable from a broken method match, so this
+// port targets podinfo's "/status/200" instead (see podinfoService/
+// podinfoPort above) -- a POST there reaches statusHandler exactly like a
+// GET would and gets back a genuine, backend-issued 200.
 func TestMethodMatchPost(t *testing.T) {
 	t.Parallel()
 
-	_, path, cfg := backendRouteConfig(t)
-	cfg.Config.Matches[0].Method = "POST"
+	name, path := uniquePath(t)
+	cfg := services.CreateRouteInput{
+		Name:   name,
+		TeamID: teamID(t),
+		Config: models.RouteConfig{
+			RouteType: models.RouteTypeBackend,
+			Matches: []models.RouteMatch{
+				{Path: &models.PathMatch{Type: "Prefix", Value: path}, Method: "POST"},
+			},
+			Backends: []models.RouteBackend{
+				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: podinfoService, Port: podinfoPort, Weight: 100},
+			},
+			URLRewrite: rewriteTo("/status/200"),
+		},
+	}
 
 	fx := harness.NewFixture(t, env)
 	fx.Route(cfg)
