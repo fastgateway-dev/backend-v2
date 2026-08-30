@@ -422,6 +422,29 @@ jobs:
       # timer, and e2e/suites/domain and e2e/suites/platform each run
       # ~11 mostly-serial tests with up to a 90s route-readiness wait
       # apiece -- comfortably over 10 minutes per package.
+      # Start policy watches BEFORE the suite. A point-in-time snapshot taken
+      # after `go test` exits is useless: every test's t.Cleanup has already
+      # deleted its routes and policies, so the cluster is empty by then (this
+      # was observed -- the snapshot printed only empty section headers).
+      # These watches record every ADDED/MODIFIED event with timestamps, so the
+      # gap between creationTimestamp and Accepted=True is measurable, which
+      # distinguishes "policy attached late" (readiness race) from "policy
+      # never attached" (real bug).
+      - name: Start policy watches (diagnostics)
+        run: |
+          mkdir -p /tmp/diag
+          for kind in securitypolicies backendtrafficpolicies envoyextensionpolicies; do
+            nohup kubectl get "${kind}.gateway.envoyproxy.io" -A \
+              --watch --output-watch-events -o json \
+              > "/tmp/diag/${kind}.json" 2>/dev/null &
+          done
+          nohup kubectl get httproute -A --watch --output-watch-events -o json \
+            > /tmp/diag/httproutes.json 2>/dev/null &
+          nohup kubectl get grpcroute -A --watch --output-watch-events -o json \
+            > /tmp/diag/grpcroutes.json 2>/dev/null &
+          sleep 2
+          echo "policy watches started"
+
       - name: Run e2e suite (go test -tags e2e ./e2e/... -p 1)
         env:
           JWT_SERVER_URL: http://localhost:9000
@@ -431,35 +454,37 @@ jobs:
         if: always()
         run: cat /tmp/backend.log || true
 
-      # Policy convergence evidence. Routes and their policies are written as
-      # SEPARATE objects (route_service.go: CreateHTTPRoute, then
-      # deploySecurityPolicy / deployBackendTrafficPolicy /
-      # deployEnvoyExtensionPolicy), so Envoy Gateway can program the route in
-      # one reconcile and the policy in the next -- serving traffic unprotected
-      # in between. When a security test fails with "got 200, want 403", this
-      # tells you whether the policy was simply late (Accepted=True, but after
-      # the assertion ran) or never attached at all (Accepted absent/False).
-      - name: Policy and route status (on failure)
+      - name: Policy convergence diagnostics (on failure)
         if: failure()
         run: |
-          for kind in securitypolicies backendtrafficpolicies envoyextensionpolicies; do
-            echo "=== ${kind} ==="
-            kubectl get "${kind}.gateway.envoyproxy.io" -A -o json 2>/dev/null \
-              | jq -r '.items[]? | "\(.metadata.namespace)/\(.metadata.name) created=\(.metadata.creationTimestamp) " +
-                       ((.status.ancestors // []) | map(.conditions // [] | map(select(.type=="Accepted"))
-                       | map("\(.status) \(.reason) @\(.lastTransitionTime) \(.message)") | join("; ")) | join(" | "))' \
-              || echo "  (none / jq unavailable)"
+          for f in /tmp/diag/*.json; do
+            [ -s "$f" ] || { echo "=== $(basename "$f"): no events ==="; continue; }
+            echo "=================== $(basename "$f") ==================="
+            jq -rs '
+              [ .[] | select(.type=="ADDED" or .type=="MODIFIED") | .object ]
+              | group_by(.metadata.uid)
+              | map({
+                  name:     (.[0].metadata.namespace + "/" + .[0].metadata.name),
+                  created:  .[0].metadata.creationTimestamp,
+                  accepted: ([ .[] | (.status.ancestors // .status.parents // [])[]?
+                                    | (.conditions // [])[]?
+                                    | select(.type=="Accepted" and .status=="True")
+                                    | .lastTransitionTime ] | sort | first),
+                  states:   ([ .[] | (.status.ancestors // .status.parents // [])[]?
+                                    | (.conditions // [])[]?
+                                    | select(.type=="Accepted")
+                                    | (.status + "/" + (.reason // "-")) ] | unique | join(","))
+                })
+              | .[] | "\(.name)\n    created=\(.created) accepted=\(.accepted // "NEVER") [\(.states)]"
+            ' "$f" 2>/dev/null | head -100 || echo "  (jq failed)"
           done
-          echo "=== HTTPRoute / GRPCRoute status ==="
-          kubectl get httproute,grpcroute -A -o json 2>/dev/null \
-            | jq -r '.items[]? | "\(.metadata.namespace)/\(.metadata.name) " +
-                     ((.status.parents // []) | map((.conditions // []) | map(select(.type=="Accepted" or .type=="ResolvedRefs"))
-                     | map("\(.type)=\(.status)(\(.reason))") | join(",")) | join(" | "))' \
-            || echo "  (none)"
-          echo "=== Envoy Gateway log: wasm / policy translation errors ==="
-          kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=400 2>/dev/null \
-            | command grep -iE 'wasm|coraza|oci|failed|error|unable' | tail -60 || true
 
+      - name: Envoy Gateway logs (on failure)
+        if: failure()
+        run: |
+          kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=500 2>&1 \
+            | command grep -iE 'wasm|coraza|oci|lua|mirror|translat|error|unable|fail' \
+            | tail -80 || echo "  (no envoy-gateway logs)"
       - name: Delete kind cluster
         if: always()
         run: kind delete cluster --name "$KIND_CLUSTER" || true

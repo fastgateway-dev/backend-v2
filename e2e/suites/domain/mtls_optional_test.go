@@ -114,23 +114,67 @@ func TestMTLSOptionalAllowsNoCert(t *testing.T) {
 	requireStatus(t, ctx, noCertProbe, 200)
 }
 
-// TestMTLSOptionalRejectsWrongCert ports
-// test_mtls_optional.py:test_mtls_optional_rejects_wrong_cert, already a
-// real assertion in the Python source (pytest.raises). Under "optional"
-// mode a MISSING certificate is allowed, but a PRESENTED certificate
-// signed by an untrusted CA (root-ca-4, never registered on this domain)
-// must still fail the handshake -- this is what actually distinguishes
-// "optional" from "mTLS disabled". The positive probe establishes
+// TestMTLSOptionalAcceptsUntrustedCert ports
+// test_mtls_optional.py:test_mtls_optional_rejects_wrong_cert, but under a
+// corrected understanding of how optional domain mTLS actually behaves.
+//
+// The Python source (and this test, prior to this fix) asserted that a
+// certificate signed by an untrusted CA (root-ca-4, never registered on
+// this domain) fails the handshake even under "optional" mode. It does
+// not, and this test's own setup could never have produced that result:
+//
+//  1. ClientTrafficPolicy's clientValidation.optional maps to Envoy's
+//     trust_chain_verification: ACCEPT_UNTRUSTED. Per Envoy's
+//     DefaultCertValidator (source/common/tls/cert_validator/
+//     default_validator.cc, verifyCertAndUpdateStatus), the verification
+//     result is combined as "return (allow_untrusted_certificate_ ||
+//     success);" -- once ACCEPT_UNTRUSTED is set, the handshake is
+//     accepted NO MATTER WHAT is presented (missing cert, cert from an
+//     unregistered CA, cert that fails a configured SAN or hash check).
+//     A handshake failure is not just unlikely but impossible under
+//     "optional" mode, for any certificate. (Genuinely STRICT domain
+//     mTLS, where handshake failure IS possible, is exercised by
+//     mtls_strict_test.go.)
+//  2. Rejection of an untrusted cert under "optional" mode is only
+//     possible one layer up, at routing: buildMTLSXFCCHeaderMatches
+//     (internal/services/route_service.go) matches a per-CLIENT
+//     attachment's registered SANs/hashes against the XFCC header on a
+//     per-client route, falling through to deny-by-default on a
+//     mismatch (see e2e/suites/security/client_mode_mtls_test.go for
+//     that exact mechanism in action). This test's route has no
+//     SecurityMode, no client, no attachment -- nothing that consumes
+//     XFCC -- so that mechanism cannot fire here either.
+//  3. models.DomainMTLSConfig also exposes a domain-level, general-mode
+//     SANWhitelist/HashWhitelist, which -- unlike the client-attachment
+//     path above -- translates directly into this same
+//     clientValidation.subjectAltNames/certificateHashes block on the
+//     ClientTrafficPolicy (internal/services/domain_service.go's
+//     buildCTPConfig, ~line 729). But per point 1, Envoy's
+//     ACCEPT_UNTRUSTED short-circuits SAN/hash verification failures
+//     exactly the same as chain-of-trust failures: configuring a
+//     SANWhitelist here would not change this test's outcome, because
+//     nothing in this codebase reads that whitelist's match result to
+//     make a routing decision when trust_chain_verification is
+//     ACCEPT_UNTRUSTED. It remains genuinely untested by e2e today, but
+//     exercising it would require STRICT mode (where ACCEPT_UNTRUSTED
+//     doesn't neuter the check), which is out of scope for this test.
+//
+// So the correct assertion is the mirror image of the original: an
+// untrusted-CA certificate is ACCEPTED, exactly like TestMTLSOptionalAllowsNoCert
+// proves a missing certificate is accepted. This closes a real gap the old,
+// backwards assertion masked -- it's easy to assume "optional" means
+// "no cert OR a cert from a CA we trust", when it actually means "no cert
+// OR literally any cert, trusted or not." The positive probe establishes
 // liveness first, exactly as in mtls_strict_test.go.
-func TestMTLSOptionalRejectsWrongCert(t *testing.T) {
+func TestMTLSOptionalAcceptsUntrustedCert(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), routeLiveTimeout+2*time.Minute)
 	defer cancel()
 
 	setupMTLSOptional(t, ctx)
 	validCertPEM := loadPEM(t, "root-ca-3", "client-1.crt")
 	validKeyPEM := loadPEM(t, "root-ca-3", "client-1.key")
-	wrongCertPEM := loadPEM(t, "root-ca-4", "client-1.crt")
-	wrongKeyPEM := loadPEM(t, "root-ca-4", "client-1.key")
+	untrustedCertPEM := loadPEM(t, "root-ca-4", "client-1.crt")
+	untrustedKeyPEM := loadPEM(t, "root-ca-4", "client-1.key")
 	path := mtlsOptionalRoute(t)
 
 	validProbe := func(ctx context.Context) (*harness.Response, error) {
@@ -140,8 +184,8 @@ func TestMTLSOptionalRejectsWrongCert(t *testing.T) {
 		t.Fatalf("mtls optional: precondition (valid cert must succeed) failed: %v", err)
 	}
 
-	wrongCertProbe := func(ctx context.Context) (*harness.Response, error) {
-		return env.GW.HTTP(ctx, "GET", path, harness.WithClientCert(wrongCertPEM, wrongKeyPEM))
+	untrustedCertProbe := func(ctx context.Context) (*harness.Response, error) {
+		return env.GW.HTTP(ctx, "GET", path, harness.WithClientCert(untrustedCertPEM, untrustedKeyPEM))
 	}
-	requireTLSFailure(t, ctx, wrongCertProbe)
+	requireStatus(t, ctx, untrustedCertProbe, 200)
 }
