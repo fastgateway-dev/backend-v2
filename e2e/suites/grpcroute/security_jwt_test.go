@@ -41,8 +41,8 @@ func TestGRPCJWT(t *testing.T) {
 		},
 		SecurityPolicy: &services.SecurityPolicyInput{
 			JWT: &services.JWTInput{
-				Issuer:    jwtServerURL(),
-				JWKSURL:   jwtServerURL() + "/jwks",
+				Issuer:    jwtIssuerURL(),
+				JWKSURL:   jwtIssuerURL() + "/jwks",
 				Audiences: []string{"my-api"},
 			},
 		},

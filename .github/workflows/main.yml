@@ -94,12 +94,19 @@ jobs:
   # Version pinning: Envoy Gateway 1.6.2 and 1.7.0, both on Gateway API
   # 1.4.1 -- the SupportedVersionPairs called out in the design spec. EG
   # 1.8.0/Gateway API 1.5.1 is intentionally NOT run here; it runs only in
-  # the manual e2e-version-matrix.yml workflow until it has been verified
-  # against real infrastructure.
+  # the manual e2e.yml workflow until it has been verified against real
+  # infrastructure.
   e2e:
     name: E2E (Envoy Gateway ${{ matrix.envoy-gateway-version }})
     runs-on: ubuntu-latest
     needs: unit
+    # go test arms a fresh 10-minute-per-package timeout by default; -p 1
+    # serializes packages but doesn't raise that timer, and
+    # e2e/suites/domain and e2e/suites/platform each run long enough
+    # serially to blow it (see the -timeout 60m below). Without an
+    # explicit job timeout here this job would otherwise inherit GitHub's
+    # 360-minute default.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -205,6 +212,16 @@ jobs:
             -n envoy-gateway-system --create-namespace \
             -f /tmp/envoy-gateway-values.yaml
           kubectl -n envoy-gateway-system rollout status deployment/envoy-gateway --timeout=180s
+          # The rate-limit Deployment is reconciled separately by
+          # envoy-gateway itself once it observes the Redis backend config
+          # above, not created by this Helm install directly -- so it isn't
+          # covered by the rollout status wait above. e2e/suites/traffic's
+          # rate-limit tests use global rate limiting, which routes through
+          # this Deployment; without waiting for it, those tests can run
+          # against a not-yet-ready limiter and observe non-enforcement
+          # (no 429) instead of a clean infra error. Name confirmed against
+          # envoyproxy/gateway's ratelimit.InfraName ("envoy-ratelimit").
+          kubectl -n envoy-gateway-system rollout status deployment/envoy-ratelimit --timeout=180s
 
       # e2e/testdata/certificate/*.key is gitignored (only *.crt is
       # tracked), so the private keys create-secrets.sh needs must be
@@ -254,8 +271,17 @@ jobs:
       - name: Resolve kind API server URL and FastGateway service-account token
         id: kube-creds
         run: |
+          # bash -e (GHA's default shell) does NOT imply pipefail: without
+          # it, a failing `kubectl ... | base64 -d` reports base64's exit
+          # status (0, on empty input), so a kubectl failure would silently
+          # produce an empty, masked token instead of failing this step --
+          # surfacing two steps later as a confusing "K8S_API_URL and
+          # K8S_TOKEN must both be set". Guard against that explicitly.
+          set -o pipefail
           api_url="$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}')"
           token="$(kubectl -n fastgateway-system get secret fastgateway-token -o jsonpath='{.data.token}' | base64 -d)"
+          [ -n "$api_url" ] || { echo "failed to resolve the kind API server URL" >&2; exit 1; }
+          [ -n "$token" ] || { echo "failed to resolve the FastGateway service-account token" >&2; exit 1; }
           echo "::add-mask::${token}"
           echo "api_url=${api_url}" >> "$GITHUB_OUTPUT"
           echo "token=${token}" >> "$GITHUB_OUTPUT"
@@ -310,17 +336,36 @@ jobs:
       # that IP is GATEWAY_IP, required by e2e/harness/config.go.
       - name: Wait for the seeded Gateway and resolve GATEWAY_IP
         run: |
-          gw="$(kubectl -n default get gateway -o jsonpath='{.items[0].metadata.name}')"
+          # FastGateway creates Gateway resources in fastgateway-system, not
+          # default -- models.Domain.Namespace defaults to it and
+          # domain_service.go defines FastGatewayNamespace = "fastgateway-system".
+          ns="${FG_NAMESPACE:-fastgateway-system}"
+
+          # Gateway creation is asynchronous: e2e-seed returns as soon as the
+          # domain is accepted, before the Gateway object exists. Poll for it.
+          # (`kubectl get` with a jsonpath index EXITS NON-ZERO on an empty
+          # list, so swallow that and retry rather than failing the step.)
+          gw=""
+          for i in $(seq 1 60); do
+            gw="$(kubectl -n "$ns" get gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+            [ -n "$gw" ] && break
+            sleep 2
+          done
           if [ -z "$gw" ]; then
-            echo "no Gateway found in namespace default after seeding" >&2
+            echo "no Gateway appeared in namespace ${ns} within 120s of seeding" >&2
+            echo "--- gateways in all namespaces ---" >&2
+            kubectl get gateway -A >&2 || true
+            echo "--- backend log ---" >&2
+            tail -100 /tmp/backend.log >&2 || true
             exit 1
           fi
-          kubectl -n default wait --for=condition=Programmed "gateway/${gw}" --timeout=180s
+          echo "found Gateway ${gw} in namespace ${ns}"
+          kubectl -n "$ns" wait --for=condition=Programmed "gateway/${gw}" --timeout=180s
           ip=""
           for i in $(seq 1 30); do
             ip="$(kubectl -n envoy-gateway-system get svc \
-              -l "gateway.envoyproxy.io/owning-gateway-name=${gw},gateway.envoyproxy.io/owning-gateway-namespace=default" \
-              -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null)"
+              -l "gateway.envoyproxy.io/owning-gateway-name=${gw},gateway.envoyproxy.io/owning-gateway-namespace=${ns}" \
+              -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
             [ -n "$ip" ] && break
             sleep 2
           done
@@ -331,13 +376,46 @@ jobs:
           fi
           echo "GATEWAY_IP=${ip}" >> "$GITHUB_ENV"
 
+      # e2e/suites/security and e2e/suites/grpcroute mint JWT test tokens
+      # from the go test process running on the runner, POSTing to
+      # jwt-server -- not from inside the cluster. jwt-server's in-cluster
+      # FQDN (jwt-server.default.svc.cluster.local, the JWT_SERVER_URL
+      # fallback the tests use) only resolves inside the cluster, so
+      # port-forward the Service to localhost here and point
+      # JWT_SERVER_URL at that below. The issuer/JWKS values handed to
+      # Envoy must stay the in-cluster FQDN (e2e/deps/jwt-server.yaml's
+      # JWT_SERVER_HOST) since those are resolved by the Envoy pods, not
+      # by this test process.
+      - name: Port-forward jwt-server for JWT token minting
+        run: |
+          kubectl -n default port-forward svc/jwt-server 9000:9000 > /tmp/jwt-port-forward.log 2>&1 &
+          echo $! > /tmp/jwt-port-forward.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9000/health > /dev/null 2>&1; then
+              echo "jwt-server port-forward is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "jwt-server port-forward never became ready" >&2
+          cat /tmp/jwt-port-forward.log >&2
+          exit 1
+
       # -p 1 is NOT optional: e2e/suites/httproute's health-check and
       # load-balancing tests scale the shared podinfo Deployment to 0 and
       # 3 replicas. `go test ./e2e/...` runs packages concurrently by
       # default, which would corrupt any other suite's traffic against
       # podinfo running at the same time. See progress.md's "-p 1" ruling.
+      #
+      # -timeout 60m: go test arms a fresh 10-minute timer per package by
+      # default. -p 1 only serializes packages, it doesn't raise that
+      # timer, and e2e/suites/domain and e2e/suites/platform each run
+      # ~11 mostly-serial tests with up to a 90s route-readiness wait
+      # apiece -- comfortably over 10 minutes per package.
       - name: Run e2e suite (go test -tags e2e ./e2e/... -p 1)
-        run: go test -tags e2e ./e2e/... -p 1 -count=1 -v
+        env:
+          JWT_SERVER_URL: http://localhost:9000
+        run: go test -tags e2e ./e2e/... -p 1 -count=1 -v -timeout 60m
 
       - name: Backend log (always, for debugging)
         if: always()

@@ -245,8 +245,13 @@ func TestOpenAPIImportThenCreateWithEdits(t *testing.T) {
 	}
 
 	testName := harness.UniqueName(t)
+	// A unique path, not a hardcoded "/healthz": a fixed path matcher
+	// collides with a leftover from a crashed previous run or a repeated
+	// -count=2 execution (the backend rejects duplicate matchers), same
+	// as every other route this package creates via uniquePath.
+	healthCheckPath := "/" + testName
 	healthCheck.Config.Matches[0].Path.Type = "Prefix"
-	healthCheck.Config.Matches[0].Path.Value = "/healthz"
+	healthCheck.Config.Matches[0].Path.Value = healthCheckPath
 	healthCheck.Config.Backends[0].Type = "external"
 	healthCheck.Config.Backends[0].Address = "monitoring.example.com"
 	healthCheck.Config.Backends[0].AddressType = "fqdn"
@@ -270,8 +275,8 @@ func TestOpenAPIImportThenCreateWithEdits(t *testing.T) {
 	if route.Name != testName {
 		t.Fatalf("created route: name=%q, want %q", route.Name, testName)
 	}
-	if route.Config.Matches[0].Path == nil || route.Config.Matches[0].Path.Type != "Prefix" || route.Config.Matches[0].Path.Value != "/healthz" {
-		t.Fatalf("created route: path match=%+v, want Prefix /healthz", route.Config.Matches[0].Path)
+	if route.Config.Matches[0].Path == nil || route.Config.Matches[0].Path.Type != "Prefix" || route.Config.Matches[0].Path.Value != healthCheckPath {
+		t.Fatalf("created route: path match=%+v, want Prefix %s", route.Config.Matches[0].Path, healthCheckPath)
 	}
 	if len(route.Config.Backends) == 0 || string(route.Config.Backends[0].Type) != "external" || route.Config.Backends[0].Address != "monitoring.example.com" {
 		t.Fatalf("created route: backend=%+v, want external monitoring.example.com", route.Config.Backends)

@@ -27,7 +27,7 @@ import (
 // JWT filter cannot even reach an unresolvable JWKS host, so
 // test_jwt_denied_without_token passes because the issuer is unreachable
 // -- every request would 401, WITH or WITHOUT a token, and this test never
-// sends one to find out. This port uses the FQDN (jwtServerURL(), which
+// sends one to find out. This port uses the FQDN (jwtIssuerURL(), which
 // mirrors e2e/suites/grpcroute/main_test.go's identical constant) so the
 // negative case passes because JWT validation actually runs and rejects a
 // missing token, and adds the positive case (a real signed token from the
@@ -54,8 +54,8 @@ func TestGeneralModeJWT(t *testing.T) {
 		},
 		SecurityPolicy: &services.SecurityPolicyInput{
 			JWT: &services.JWTInput{
-				Issuer:    jwtServerURL(),
-				JWKSURL:   jwtServerURL() + "/jwks",
+				Issuer:    jwtIssuerURL(),
+				JWKSURL:   jwtIssuerURL() + "/jwks",
 				Audiences: []string{"my-api"},
 			},
 		},

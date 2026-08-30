@@ -21,9 +21,15 @@ import (
 // mirroring httproute's TestRequestBuffer, this port uses a much smaller
 // limit ("1Ki" = 1024 bytes) and sends echo.Message bodies clearly on
 // either side of it: 100 bytes (under) should echo back normally, and 4096
-// bytes (over) should be rejected by Envoy's buffer filter itself --
-// which, for gRPC content-type requests, surfaces as codes.ResourceExhausted
-// rather than an HTTP 413.
+// bytes (over) should be rejected by Envoy's buffer filter itself.
+//
+// Unlike the HTTP sibling (which correctly asserts a plain 413 -- see
+// httproute/request_buffer_test.go), the buffer filter always answers an
+// over-limit request with HTTP status 413 regardless of the request's
+// content-type, and Envoy's httpToGrpcStatus translation table only maps
+// 400/401/403/404/429/502/503/504 to their gRPC equivalents; 413 isn't in
+// that table, so it falls through to codes.Unknown, not
+// codes.ResourceExhausted.
 func TestGRPCBTPRequestBuffer(t *testing.T) {
 	t.Parallel()
 
@@ -76,7 +82,12 @@ func TestGRPCBTPRequestBuffer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request buffer: over-limit request: %v", err)
 	}
-	if res.Code != codes.ResourceExhausted {
-		t.Fatalf("request buffer: over-limit body (4096 bytes > 1Ki) got code %v, want %v", res.Code, codes.ResourceExhausted)
+	// codes.Unknown, not codes.ResourceExhausted: Envoy's buffer filter
+	// rejects the over-limit request with HTTP 413, and Envoy's
+	// httpToGrpcStatus table only translates 400/401/403/404/429/
+	// 502/503/504 -- 413 falls through to Unknown. See the doc comment
+	// above.
+	if res.Code != codes.Unknown {
+		t.Fatalf("request buffer: over-limit body (4096 bytes > 1Ki) got code %v, want %v", res.Code, codes.Unknown)
 	}
 }

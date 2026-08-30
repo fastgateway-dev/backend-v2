@@ -272,6 +272,17 @@ echo "mTLS domain certificates done."
 ###############################################################################
 # Print certificate fingerprints for reference
 ###############################################################################
+# Everything below this point is cosmetic reporting only -- all certificates
+# have already been written to disk successfully by this point. Disable
+# set -e for this section: `step ... || (openssl ... | sed ...)` parses as
+# `step || (openssl | sed)` since `|` binds tighter than `||`, so under
+# set -o pipefail (on, via the script-wide `set -euo pipefail` above) a
+# double failure there makes the assignment's exit status non-zero, which
+# would otherwise kill the script here -- turning a successful PKI
+# generation into a red, diagnostic-free CI run. The loops below also glob
+# unguarded (no nullglob), so an empty CA directory would pass a literal
+# "*.crt" to step/openssl; non-fatal reporting absorbs that too.
+set +e
 echo ""
 echo "============================================"
 echo "Certificate SHA-256 Fingerprints"
@@ -300,6 +311,7 @@ for ca_dir in root-ca-3 root-ca-4; do
       python3 -c "import sys,json; d=json.load(sys.stdin); sans=d.get('extensions',{}).get('subject_alternative_name',{}); [print(f'    DNS: {v}') for v in sans.get('dns_names',[])] ; [print(f'    URI: {v}') for v in sans.get('uris',[])]" 2>/dev/null || true
   done
 done
+set -e
 
 echo ""
 echo "All certificates generated successfully!"

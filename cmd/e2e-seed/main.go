@@ -90,10 +90,9 @@ func main() {
 		KubernetesVersion string `json:"kubernetesVersion"`
 	}
 	if err := api.post(ctx, fmt.Sprintf("/projects/%s/test-connection", projectID), nil, &conn); err != nil || !conn.Success {
-		log.Printf("  WARNING: connection test failed (continuing anyway): %v %s", err, conn.Message)
-	} else {
-		log.Printf("  Connection OK - Kubernetes %s", conn.KubernetesVersion)
+		log.Fatalf("FATAL: Kubernetes connection test failed (there is no CI scenario where seeding should continue against an unreachable cluster): %v %s", err, conn.Message)
 	}
+	log.Printf("  Connection OK - Kubernetes %s", conn.KubernetesVersion)
 
 	log.Println("\n=== Create users ===")
 	users := map[string]uuid.UUID{}
@@ -204,6 +203,14 @@ func main() {
 	}, &ns); err != nil {
 		log.Fatalf("FATAL: register namespace %s: %v", cfg.namespace, err)
 	}
+	// ProjectNamespaceService.Create returns a nil error even when the
+	// ReferenceGrant it needs failed to apply -- it only logs and leaves
+	// ReferenceGrantCreated false. Without a ReferenceGrant, every
+	// cross-namespace backendRef the suite creates is denied and every
+	// traffic test 500s, so treat this the same as a hard failure here.
+	if !ns.ReferenceGrantCreated {
+		log.Fatalf("FATAL: namespace %s registered but ReferenceGrant was not created (cross-namespace backendRefs will be denied; check the FastGateway server logs for the underlying Kubernetes error)", cfg.namespace)
+	}
 	log.Printf("  Namespace registered: %s (ReferenceGrant created: %v)", ns.ID, ns.ReferenceGrantCreated)
 
 	log.Println("\n=== Create domain template: default-public ===")
@@ -219,6 +226,15 @@ func main() {
 	}, &template); err != nil {
 		log.Fatalf("FATAL: create domain template: %v", err)
 	}
+	// DomainTemplateService.Create/reconcile returns a 201 with the record
+	// itself carrying Status=error (StatusMessage explains why) rather than
+	// a non-nil error when GatewayClass/EnvoyProxy creation fails. Left
+	// unchecked, the seeder would print "Bootstrap complete" with no
+	// GatewayClass ever created, and every domain built on top of this
+	// template would be broken from the start.
+	if template.Status != models.DomainTemplateStatusActive {
+		log.Fatalf("FATAL: domain template %s did not become active (status: %s, message: %s)", template.ID, template.Status, template.StatusMessage)
+	}
 	log.Printf("  Template created: %s (status: %s)", template.ID, template.Status)
 
 	log.Printf("\n=== Create domain: %s ===", cfg.domainName)
@@ -230,6 +246,14 @@ func main() {
 		TLSSecretName:    cfg.tlsSecretName,
 	}, &domain); err != nil {
 		log.Fatalf("FATAL: create domain: %v", err)
+	}
+	// DomainService.Create likewise returns a 201 with Status=error (see
+	// internal/services/domain_service.go) rather than a non-nil error
+	// when Gateway creation fails -- unchecked, the seeder would report
+	// success with no Gateway ever created, and every route built against
+	// this domain would fail to deploy.
+	if domain.Status != models.DomainStatusActive {
+		log.Fatalf("FATAL: domain %s did not become active (status: %s, message: %s)", domain.ID, domain.Status, domain.StatusMessage)
 	}
 	log.Printf("  Domain created: %s (status: %s)", domain.ID, domain.Status)
 
@@ -305,8 +329,13 @@ func main() {
 	clients["jwt-client"] = c4.ID
 	log.Printf("  Created client: jwt-client (%s)", c4.ID)
 	if err := api.post(ctx, fmt.Sprintf("/clients/%s/jwt", c4.ID), services.ConfigureJWTInput{
-		Issuer:    "http://jwt-server:9000",
-		JWKSURL:   "http://jwt-server:9000/jwks",
+		// The Service is in "default", but the JWKS fetch happens from the
+		// Envoy proxy pod in "envoy-gateway-system", where the bare name
+		// "jwt-server" does not resolve -- use the in-cluster FQDN, same
+		// as e2e/suites/security and e2e/suites/grpcroute's
+		// defaultJWTIssuerURL.
+		Issuer:    "http://jwt-server.default.svc.cluster.local:9000",
+		JWKSURL:   "http://jwt-server.default.svc.cluster.local:9000/jwks",
 		Audiences: []string{"my-api"},
 		RequiredClaims: []models.JWTRequiredClaim{
 			{Name: "scope", Values: []string{"api:read"}, ValueType: "StringContains"},
@@ -314,7 +343,7 @@ func main() {
 	}, nil); err != nil {
 		log.Printf("    WARNING: JWT configuration failed (is jwt-server running?): %v", err)
 	} else {
-		log.Println("    JWT configured (issuer: http://jwt-server:9000)")
+		log.Println("    JWT configured (issuer: http://jwt-server.default.svc.cluster.local:9000)")
 	}
 
 	// Client 5: JWT + IP (combined auth)
@@ -330,13 +359,18 @@ func main() {
 	log.Printf("  Created client: jwt-ip-client (%s)", c5.ID)
 	addClientIP(ctx, api, c5.ID, "192.168.1.0/24", "Internal network")
 	if err := api.post(ctx, fmt.Sprintf("/clients/%s/jwt", c5.ID), services.ConfigureJWTInput{
-		Issuer:    "http://jwt-server:9000",
-		JWKSURL:   "http://jwt-server:9000/jwks",
+		// The Service is in "default", but the JWKS fetch happens from the
+		// Envoy proxy pod in "envoy-gateway-system", where the bare name
+		// "jwt-server" does not resolve -- use the in-cluster FQDN, same
+		// as e2e/suites/security and e2e/suites/grpcroute's
+		// defaultJWTIssuerURL.
+		Issuer:    "http://jwt-server.default.svc.cluster.local:9000",
+		JWKSURL:   "http://jwt-server.default.svc.cluster.local:9000/jwks",
 		Audiences: []string{"my-api"},
 	}, nil); err != nil {
 		log.Printf("    WARNING: JWT configuration failed (is jwt-server running?): %v", err)
 	} else {
-		log.Println("    JWT configured (issuer: http://jwt-server:9000)")
+		log.Println("    JWT configured (issuer: http://jwt-server.default.svc.cluster.local:9000)")
 	}
 
 	clientNames := make([]string, 0, len(clients))
@@ -375,9 +409,16 @@ type seedConfig struct {
 
 func loadSeedConfig() seedConfig {
 	c := seedConfig{
-		apiBase:       env("FASTGATEWAY_API_URL", "http://localhost:8081/api/v1"),
-		adminUser:     env("ADMIN_USER", "admin"),
-		adminPass:     env("ADMIN_PASS", "admin123"),
+		apiBase: env("FASTGATEWAY_API_URL", "http://localhost:8081/api/v1"),
+		// The server (internal/config/config.go) reads ADMIN_USERNAME /
+		// ADMIN_PASSWORD -- and ADMIN_PASSWORD has no default there, it is
+		// a hard error if unset. This binary historically read ADMIN_USER
+		// / ADMIN_PASS instead, which only worked because CI happens to
+		// set both pairs to the same value. Prefer the server's own var
+		// names first so anyone who sets ADMIN_PASSWORD (as the server's
+		// own error message instructs) doesn't get a 401 from the seeder.
+		adminUser:     envFallback("ADMIN_USERNAME", "ADMIN_USER", "admin"),
+		adminPass:     envFallback("ADMIN_PASSWORD", "ADMIN_PASS", "admin123"),
 		seedUserPass:  env("SEED_USER_PASS", "password123"),
 		k8sAPIURL:     os.Getenv("K8S_API_URL"),
 		k8sToken:      os.Getenv("K8S_TOKEN"),
@@ -399,6 +440,16 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// envFallback reads primary, then falls back to fallback (itself resolved
+// against def), for a pair of env vars that name the same setting under
+// two different conventions.
+func envFallback(primary, fallback, def string) string {
+	if v := os.Getenv(primary); v != "" {
+		return v
+	}
+	return env(fallback, def)
 }
 
 // verifyTLSSecretExists checks -- via client-go against the ambient

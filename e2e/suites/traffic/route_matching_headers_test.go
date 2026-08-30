@@ -64,14 +64,14 @@ func TestHeaderMatchHit(t *testing.T) {
 func TestHeaderMatchMiss(t *testing.T) {
 	t.Parallel()
 
-	name, path, cfg := headerMatchRoute(t)
+	_, path, cfg := headerMatchRoute(t)
 	fx := harness.NewFixture(t, env)
-	fx.Route(cfg)
+	route := fx.Route(cfg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), routeLiveTimeout+time.Minute)
 	defer cancel()
 
-	if err := harness.WaitForHTTPRouteAccepted(ctx, env.Kube, backendNamespace, name, routeLiveTimeout); err != nil {
+	if err := harness.WaitForHTTPRouteAccepted(ctx, env.Kube, env.Cfg.Namespace, route.ID.String(), routeLiveTimeout); err != nil {
 		t.Fatalf("header match miss: route never became accepted: %v", err)
 	}
 

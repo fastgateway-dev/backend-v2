@@ -53,16 +53,16 @@ func TestMethodMatchPost(t *testing.T) {
 func TestMethodMatchGetMiss(t *testing.T) {
 	t.Parallel()
 
-	name, path, cfg := backendRouteConfig(t)
+	_, path, cfg := backendRouteConfig(t)
 	cfg.Config.Matches[0].Method = "POST"
 
 	fx := harness.NewFixture(t, env)
-	fx.Route(cfg)
+	route := fx.Route(cfg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), routeLiveTimeout+time.Minute)
 	defer cancel()
 
-	if err := harness.WaitForHTTPRouteAccepted(ctx, env.Kube, backendNamespace, name, routeLiveTimeout); err != nil {
+	if err := harness.WaitForHTTPRouteAccepted(ctx, env.Kube, env.Cfg.Namespace, route.ID.String(), routeLiveTimeout); err != nil {
 		t.Fatalf("method match get miss: route never became accepted: %v", err)
 	}
 

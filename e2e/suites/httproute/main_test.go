@@ -54,8 +54,11 @@ var env *harness.Env
 // replica count / health state:
 //
 //   - health_check_active and health_check_combined scale it to 0 and
-//     restore it via t.Cleanup.
-//   - load_balancing scales it to 3 and restores it via t.Cleanup.
+//     restore it via a deferred func (not t.Cleanup -- Go runs a test's
+//     defers before its registered t.Cleanup funcs, and the restore must
+//     happen while podinfoMu is still held, i.e. before the deferred
+//     podinfoMu.Unlock() runs).
+//   - load_balancing scales it to 3 and restores it the same way.
 //   - mirror, retry, circuit_breaker, health_check_passive, backend_weight,
 //     timeout_route, and timeout_btp send it real traffic (some via a
 //     rewritten path hitting /status/{code} or /delay/{seconds}) and read

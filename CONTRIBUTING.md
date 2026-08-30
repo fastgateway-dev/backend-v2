@@ -35,7 +35,7 @@ or:
 make test
 ```
 
-This is the same command run in CI (`.github/workflows/ci.yml`).
+This is the same command run in CI (`.github/workflows/main.yml`).
 
 ## Linting
 
@@ -71,9 +71,9 @@ go test -tags e2e ./e2e/... -p 1
 
 `-p 1` is required, not optional: it forces Go to run e2e packages one at a time instead of its default concurrent-per-package scheduling. Several suites mutate shared in-cluster state (e.g. `e2e/suites/httproute`'s health-check and load-balancing tests scale the shared `podinfo` Deployment to 0 and 3 replicas) and would otherwise interfere with other packages' tests nondeterministically.
 
-The e2e suite requires a real Kubernetes cluster with Envoy Gateway installed — it deploys actual Gateway API resources (Gateways, HTTPRoutes, SecurityPolicies, etc.) and exercises them over the network. It is not run as part of the default unit test job; it has its own `e2e` job in `.github/workflows/ci.yml` (plus a manual `.github/workflows/e2e-version-matrix.yml` covering the full Envoy Gateway/Gateway API compatibility matrix), and its setup requirements are documented separately in `e2e/README.md`. Test data is seeded with `go run ./cmd/e2e-seed` (a Go replacement for the retired `bootstrap.py`).
+The e2e suite requires a real Kubernetes cluster with Envoy Gateway installed — it deploys actual Gateway API resources (Gateways, HTTPRoutes, SecurityPolicies, etc.) and exercises them over the network. It is not run as part of the default unit test job; it has its own `e2e` job in `.github/workflows/main.yml` (plus a manual `.github/workflows/e2e.yml` covering the full Envoy Gateway/Gateway API compatibility matrix), and its setup requirements are documented separately in `e2e/README.md`. Test data is seeded with `go run ./cmd/e2e-seed` (a Go replacement for the retired `bootstrap.py`).
 
-Test certificates used by the e2e suite live under `e2e/testdata/certificate/` and are generated with [`step`](https://smallstep.com/docs/step-cli/) via `e2e/testdata/certificate/generate.sh`. Only `.crt` files are tracked in git — private keys (`.key`, `.pem`) are gitignored and regenerated locally/in CI as needed.
+Test certificates used by the e2e suite live under `e2e/testdata/certificate/` and are generated with [`step`](https://smallstep.com/docs/step-cli/) via `e2e/testdata/certificate/generate.sh`. Nothing under that directory is tracked in git except `README.md` and `generate.sh` itself — every certificate and private key is gitignored and regenerated locally/in CI as needed.
 
 ## Submitting Changes
 

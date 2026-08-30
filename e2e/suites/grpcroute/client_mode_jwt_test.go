@@ -50,7 +50,7 @@ func TestGRPCClientModeJWT(t *testing.T) {
 	}
 	cleanupClient(t, client.ID.String())
 
-	if err := configureClientJWT(ctx, client.ID.String(), jwtServerURL(), jwtServerURL()+"/jwks", []string{"my-api"}); err != nil {
+	if err := configureClientJWT(ctx, client.ID.String(), jwtIssuerURL(), jwtIssuerURL()+"/jwks", []string{"my-api"}); err != nil {
 		t.Fatalf("client mode jwt: configure client JWT: %v", err)
 	}
 

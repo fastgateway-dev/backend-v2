@@ -22,7 +22,8 @@ import (
 // scale the backend to 0 replicas mid-test and assert the gateway starts
 // answering 503 (no healthy upstream) -- proof the health-checked backend
 // path is real, not just "the route exists". Original replica count is
-// restored in t.Cleanup.
+// restored by a deferred func, run while podinfoMu is still held (see
+// main_test.go).
 func TestHealthCheckActive(t *testing.T) {
 	t.Parallel()
 	podinfoMu.Lock()
@@ -91,7 +92,12 @@ func TestHealthCheckActive(t *testing.T) {
 	if dep.Spec.Replicas != nil {
 		original = *dep.Spec.Replicas
 	}
-	t.Cleanup(func() {
+	// Use defer (not t.Cleanup) so the restore runs before podinfoMu is
+	// released: Go runs a test's defers before its registered t.Cleanup
+	// funcs, and the deferred podinfoMu.Unlock() above was registered
+	// first, so LIFO ordering runs this restore first, then the unlock.
+	// See the package doc comment in main_test.go.
+	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		if err := env.Kube.ScaleDeployment(cleanupCtx, backendNamespace, podinfoService, original); err != nil {
@@ -101,7 +107,7 @@ func TestHealthCheckActive(t *testing.T) {
 		if err := env.Kube.WaitDeploymentAvailable(cleanupCtx, backendNamespace, podinfoService, 60*time.Second); err != nil {
 			t.Errorf("health check active: podinfo did not become available after restore: %v", err)
 		}
-	})
+	}()
 
 	if err := env.Kube.ScaleDeployment(ctx, backendNamespace, podinfoService, 0); err != nil {
 		t.Fatalf("health check active: scale podinfo to 0: %v", err)
