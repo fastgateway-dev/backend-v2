@@ -63,18 +63,26 @@ func TestExternalAuthorizationGRPC(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), routeLiveTimeout)
 	defer cancel()
 
-	// Positive first: proves the route and the gRPC ext-authz integration
-	// have converged before the negative probe is trusted (see the
-	// package doc comment).
-	allowProbe := func(ctx context.Context) (*harness.Response, error) {
-		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-ext-auth-allow", "true"))
-	}
-	if _, err := waitForHTTPStatus(ctx, allowProbe, routeLiveTimeout, 200); err != nil {
-		t.Fatalf("external authorization (grpc): with x-ext-auth-allow=true: %v", err)
-	}
-
+	// NEGATIVE first, not positive. A 200 cannot prove convergence here:
+	// it is also exactly what this route returns while the SecurityPolicy
+	// is still being programmed, since an unpolicied route just forwards
+	// to the backend. Gating on 200 therefore lets the negative probe --
+	// which retries only on transport errors, not on a wrong status --
+	// read that same unconverged 200 and fail. The denial is the only
+	// status the unconverged state CANNOT produce, so it is the only
+	// sound gate.
 	denyProbe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-ext-auth-allow", "false"))
 	}
-	requireStatus(t, ctx, denyProbe, 403)
+	if _, err := waitForHTTPStatus(ctx, denyProbe, routeLiveTimeout, 403); err != nil {
+		t.Fatalf("external authorization (grpc): with x-ext-auth-allow=false: %v", err)
+	}
+
+	// Positive: with ext-authz proven to be enforcing, an allowed request
+	// must still get through -- this is what rules out a policy that
+	// simply denies everything.
+	allowProbe := func(ctx context.Context) (*harness.Response, error) {
+		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-ext-auth-allow", "true"))
+	}
+	requireStatus(t, ctx, allowProbe, 200)
 }

@@ -86,25 +86,31 @@ func TestClientModeCombinedAuth(t *testing.T) {
 		t.Fatalf("client mode combined auth: attach client: %v", err)
 	}
 
-	// Positive first: both credentials (IP always passes; api-key
-	// valid) -> 200. Proves the route and attachment have converged
-	// before either negative probe is trusted (see the package doc
-	// comment).
+	// NEGATIVE first, not positive. A 200 cannot prove convergence here:
+	// it is also exactly what this route returns while the SecurityPolicy
+	// is still being programmed, since an unpolicied route just forwards
+	// to the backend. Gating on 200 therefore lets the negative probe --
+	// which retries only on transport errors, not on a wrong status --
+	// read that same unconverged 200 and fail. The denial is the only
+	// status the unconverged state CANNOT produce, so it is the only
+	// sound gate.
+	// Negative: IP alone (api-key omitted entirely) must still be denied.
+	missingKeyProbe := func(ctx context.Context) (*harness.Response, error) {
+		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-client-id", client.ID.String()))
+	}
+	if _, err := waitForHTTPStatus(ctx, missingKeyProbe, routeLiveTimeout, 401, 403); err != nil {
+		t.Fatalf("client mode combined auth: with the api key omitted: %v", err)
+	}
+
+	// Positive: both credentials (IP always passes; api-key valid) -> 200.
+	// Proves the attachment does not simply deny everything.
 	allowProbe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path,
 			harness.WithHeader("x-api-key", apiKey),
 			harness.WithHeader("x-client-id", client.ID.String()),
 		)
 	}
-	if _, err := waitForHTTPStatus(ctx, allowProbe, routeLiveTimeout, 200); err != nil {
-		t.Fatalf("client mode combined auth: with valid api key + client id (allowed IP): %v", err)
-	}
-
-	// Negative: IP alone (api-key omitted entirely) must still be denied.
-	missingKeyProbe := func(ctx context.Context) (*harness.Response, error) {
-		return env.GW.HTTP(ctx, "GET", path, harness.WithHeader("x-client-id", client.ID.String()))
-	}
-	requireStatus(t, ctx, missingKeyProbe, 401, 403)
+	requireStatus(t, ctx, allowProbe, 200)
 
 	// Negative: IP alone + a WRONG api-key must still be denied (rules
 	// out a check that only verifies the header's PRESENCE, not its

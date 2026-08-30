@@ -4,6 +4,7 @@ package grpcroute
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -82,7 +83,7 @@ func TestGRPCMirror(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), routeLiveTimeout+30*time.Second)
 	defer cancel()
 
-	skipIfUpstreamMirrorDefect(t, ctx, route.ID.String())
+	skipIfUpstreamMirrorDefect(t, ctx, route.ID.String(), callOpt)
 
 	const wantBody = "hello-mirror"
 	call := func(ctx context.Context) (*harness.GRPCResult, error) {
@@ -116,7 +117,7 @@ func TestGRPCMirror(t *testing.T) {
 // so a short window is enough to tell the two apart; anything else --
 // ResolvedRefs=True, or False for a different reason -- returns and lets
 // the caller's real assertions run and fail on their own terms.
-func skipIfUpstreamMirrorDefect(t *testing.T, ctx context.Context, routeID string) {
+func skipIfUpstreamMirrorDefect(t *testing.T, ctx context.Context, routeID string, callOpt harness.GRPCOpt) {
 	t.Helper()
 
 	msg, err := harness.WaitForRouteCondition(ctx, env.Kube, harness.RouteGVR("grpc"),
@@ -127,7 +128,24 @@ func skipIfUpstreamMirrorDefect(t *testing.T, ctx context.Context, routeID strin
 	if !strings.Contains(msg, mirrorUpstreamDefect) {
 		return // False for some other reason: let the real assertions report it
 	}
+
+	// Probe the data plane once before skipping, and report what it
+	// actually did. Without this the skip only proves the CONTROL plane
+	// is unhappy, and the blast radius -- whether an unresolvable mirror
+	// takes the whole route down or is merely dropped -- would be an
+	// inference rather than an observation. On Envoy Gateway 1.7.0 and
+	// 1.8.0 it was codes.Unknown, i.e. the primary call failing outright,
+	// which is what makes this defect worth knowing about at all.
+	observed := "not probed"
+	if res, _, callErr := echoCall(ctx, "hello-mirror", callOpt); callErr != nil {
+		observed = fmt.Sprintf("call error: %v", callErr)
+	} else {
+		observed = fmt.Sprintf("primary call returned %v", res.Code)
+	}
+
 	t.Skipf("GRPCRoute mirror backendRef is not collected into Envoy Gateway's resource tree "+
-		"(running %s): %s -- see mirrorUpstreamDefect; the assertions below are unchanged and "+
-		"resume automatically once upstream fixes this", env.Cfg.EnvoyGatewayVersion, msg)
+		"(running %s): %s\n    data plane: %s (%v means the mirror also breaks the primary route, "+
+		"not just the mirror)\n    see mirrorUpstreamDefect; the assertions below are unchanged and "+
+		"resume automatically once upstream fixes this",
+		env.Cfg.EnvoyGatewayVersion, msg, observed, codes.Unknown)
 }

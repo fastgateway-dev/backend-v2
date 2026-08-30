@@ -84,18 +84,24 @@ func TestClientModeExtAuth(t *testing.T) {
 		}
 	}
 
-	// Positive first: proves the route, client attachment, AND the
-	// ext-auth backend integration have converged before the negative
-	// probe is trusted (see the package doc comment).
-	allowProbe := func(ctx context.Context) (*harness.Response, error) {
-		return env.GW.HTTP(ctx, "GET", path, authHeaders("true")...)
-	}
-	if _, err := waitForHTTPStatus(ctx, allowProbe, routeLiveTimeout, 200); err != nil {
-		t.Fatalf("client mode ext auth: with x-ext-auth-allow=true: %v", err)
-	}
-
+	// NEGATIVE first, not positive. A 200 cannot prove convergence here:
+	// it is also exactly what this route returns while the SecurityPolicy
+	// is still being programmed, since an unpolicied route just forwards
+	// to the backend. Gating on 200 therefore lets the negative probe --
+	// which retries only on transport errors, not on a wrong status --
+	// read that same unconverged 200 and fail. The denial is the only
+	// status the unconverged state CANNOT produce, so it is the only
+	// sound gate.
 	denyProbe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path, authHeaders("false")...)
 	}
-	requireStatus(t, ctx, denyProbe, 403)
+	if _, err := waitForHTTPStatus(ctx, denyProbe, routeLiveTimeout, 403); err != nil {
+		t.Fatalf("client mode ext auth: with x-ext-auth-allow=false: %v", err)
+	}
+
+	// Positive: proves the attachment does not simply deny everything.
+	allowProbe := func(ctx context.Context) (*harness.Response, error) {
+		return env.GW.HTTP(ctx, "GET", path, authHeaders("true")...)
+	}
+	requireStatus(t, ctx, allowProbe, 200)
 }
