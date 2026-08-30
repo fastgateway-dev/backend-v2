@@ -351,7 +351,12 @@ func WaitForRouteAccepted(ctx context.Context, k *Kube, gvr schema.GroupVersionR
 
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			// Carry `last` out with the context error. Returning a bare
+			// ctx.Err() here reported "context deadline exceeded" and
+			// discarded the Accepted/ResolvedRefs messages that say WHY
+			// the route never converged -- which is the only thing the
+			// caller can act on.
+			return fmt.Errorf("%s for route %s (label %s) in %s not accepted: %w (last: %s)", gvr.Resource, routeID, labelSelector, ns, ctx.Err(), last)
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
@@ -399,7 +404,9 @@ func WaitForPoliciesAccepted(ctx context.Context, k *Kube, gvr schema.GroupVersi
 
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			// See WaitForRouteAccepted: the condition messages are the
+			// actionable part, so they must survive a context timeout.
+			return fmt.Errorf("%s for route %s (label %s) in %s not all accepted: %w (last: %s)", gvr.Resource, routeID, labelSelector, ns, ctx.Err(), last)
 		case <-time.After(500 * time.Millisecond):
 		}
 	}

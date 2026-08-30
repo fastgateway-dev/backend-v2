@@ -356,10 +356,13 @@ jobs:
                                     | .lastTransitionTime ] | sort | first),
                   states:   ([ .[] | (.status.ancestors // .status.parents // [])[]?
                                     | (.conditions // [])[]?
-                                    | select(.type=="Accepted")
-                                    | (.status + "/" + (.reason // "-")) ] | unique | join(","))
+                                    | (.type + "=" + .status + "/" + (.reason // "-")) ] | unique | join(",")),
+                  msgs:     ([ .[] | (.status.ancestors // .status.parents // [])[]?
+                                    | (.conditions // [])[]?
+                                    | select(.status != "True")
+                                    | (.type + ": " + (.message // "-")) ] | unique | join(" | "))
                 })
-              | .[] | "\(.name)\n    created=\(.created) accepted=\(.accepted // "NEVER") [\(.states)]"
+              | .[] | "\(.name)\n    created=\(.created) accepted=\(.accepted // "NEVER") [\(.states)]\n    not-true: \(.msgs // "-")"
             ' "$f" 2>/dev/null | head -100 || echo "  (jq failed)"
           done
 

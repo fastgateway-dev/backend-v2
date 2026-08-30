@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
+	"github.com/fastgateway-dev/backend-v2/e2e/testdata/pb/echo"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
@@ -75,12 +76,28 @@ func TestGRPCClientModeJWT(t *testing.T) {
 		t.Fatalf("client mode jwt: generate token from jwt-server: %v", err)
 	}
 	authOpts := []harness.GRPCOpt{routeOpt, clientIDOpt, harness.WithGRPCMetadata("authorization", "Bearer "+token)}
-	res, resp, err := echoCall(ctx, "hello-authed", authOpts...)
-	if err != nil {
-		t.Fatalf("client mode jwt: request with valid token: %v", err)
+	// Polled for codes.OK rather than called once: the negatives above
+	// prove the route and its policy are live, but a single call can still
+	// land on a transient codes.Unavailable (Envoy reports "no healthy
+	// upstream" while an upstream connection is being (re)established),
+	// which a one-shot read turns into a spurious failure. Auth that is
+	// genuinely broken answers Unauthenticated/PermissionDenied forever,
+	// so the poll still fails in that case.
+	var resp *echo.Message
+	authedCall := func(ctx context.Context) (*harness.GRPCResult, error) {
+		res, msg, err := echoCall(ctx, "hello-authed", authOpts...)
+		resp = msg
+		return res, err
 	}
-	if res.Code != codes.OK {
-		t.Fatalf("client mode jwt: with valid token + client id got code %v, want %v", res.Code, codes.OK)
+	res, err := waitForGRPCResult(ctx, authedCall, func(r *harness.GRPCResult) bool {
+		return r.Code == codes.OK
+	}, routeLiveTimeout)
+	if err != nil {
+		got := codes.Code(0)
+		if res != nil {
+			got = res.Code
+		}
+		t.Fatalf("client mode jwt: with valid token + client id got code %v, want %v: %v", got, codes.OK, err)
 	}
 	if resp.Body != "hello-authed" {
 		t.Fatalf("client mode jwt: got echoed body %q, want %q", resp.Body, "hello-authed")
