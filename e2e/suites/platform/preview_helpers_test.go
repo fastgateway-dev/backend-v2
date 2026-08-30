@@ -71,12 +71,8 @@ func normalizeForComparison(t *testing.T, obj *unstructured.Unstructured) *unstr
 		unstructured.RemoveNestedField(out.Object, "metadata", key)
 	}
 
-	// The object name ends in "-<8 hex of the route uuid>", and the
-	// route-id label is that uuid. Both differ by construction; blank them
-	// rather than dropping them, so a MISSING name still fails.
-	if name := out.GetName(); name != "" {
-		out.SetName(stripGeneratedSuffix(name))
-	}
+	// The route-id label is the throwaway UUID itself. Blank it rather
+	// than dropping the key, so a preview that omits the label still fails.
 	labels := out.GetLabels()
 	if labels != nil {
 		if _, ok := labels["fastgateway.dev/route-id"]; ok {
@@ -84,7 +80,46 @@ func normalizeForComparison(t *testing.T, obj *unstructured.Unstructured) *unstr
 		}
 		out.SetLabels(labels)
 	}
+
+	// Then normalise generated ids in EVERY string, not just
+	// metadata.name. The object name is not the only place the id
+	// appears: a SecurityPolicy carries it again in
+	// spec.targetRef.name, because that targets the route object by name.
+	// Normalising only metadata.name left the two sides differing there,
+	// which is how the second CI run failed.
+	out.Object = normalizeGeneratedIDs(out.Object).(map[string]interface{})
 	return out
+}
+
+// normalizeGeneratedIDs walks a decoded manifest and replaces every
+// 8-hex-digit segment of every string with a placeholder.
+//
+// Broad on purpose: any string that embeds a generated route id -- an
+// object name, a targetRef name, a policy name derived from either --
+// differs between a preview and the deployed object by construction, and
+// enumerating the fields where that can happen is a list that goes stale.
+// Only the id-shaped segments change, both sides get the same treatment,
+// and every other segment must still match, so a preview that names the
+// wrong route still fails.
+func normalizeGeneratedIDs(v any) any {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(t))
+		for k, val := range t {
+			out[k] = normalizeGeneratedIDs(val)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(t))
+		for i, val := range t {
+			out[i] = normalizeGeneratedIDs(val)
+		}
+		return out
+	case string:
+		return stripGeneratedSuffix(t)
+	default:
+		return v
+	}
 }
 
 // stripGeneratedSuffix replaces every 8-hex-digit segment of a Kubernetes
