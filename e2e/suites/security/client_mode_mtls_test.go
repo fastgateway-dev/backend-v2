@@ -16,23 +16,42 @@ import (
 // task-13-brief names explicitly, and strengthens the negative case with
 // a genuine transport-layer assertion the Python source never attempted.
 //
-// # Why domain mTLS stays "optional", never "strict"
+// # Why this test does NOT call t.Parallel()
 //
 // Domain mTLS is Gateway-listener-scoped (Envoy Gateway's
 // ClientTrafficPolicy), not per-route -- it applies to EVERY route on the
 // shared "api.fastgateway.local" domain, including every other test in
-// this package (running in parallel, per t.Parallel()) and every other
-// suite that targets the same domain (httproute, grpcroute -- though
-// task-13's own instructions note CI runs those packages serially, so
-// only same-package parallelism is a live concern here). Setting it to
-// STRICT (optional=false) would make the TLS handshake itself fail for
-// every sibling request that doesn't present a client certificate --
-// i.e. nearly all of them. This test therefore uses exactly the same
+// this package and every other suite that targets the same domain
+// (httproute, grpcroute -- though task-13's own instructions note CI
+// runs those packages serially, so only same-package parallelism is a
+// live concern here). Even in "optional" mode (see below), this test
+// resets domain mTLS to a known state, enables it, registers a CA, and
+// resets it again in cleanup -- each of those mutations forces Envoy
+// Gateway to rebuild the shared listener, and every sibling test's
+// requireStatus-style assertions retry only on transport-level errors,
+// never on a transient wrong status code produced mid-rebuild. Running
+// this test concurrently with the package's other ~18 parallel tests
+// therefore risked flaking them all. So this test omits t.Parallel():
+// per the package doc comment in main_test.go (mirroring
+// e2e/suites/platform/main_test.go's identical convention), Go runs
+// every non-parallel top-level test in a package strictly one-at-a-time
+// and only starts any t.Parallel() test's body once every non-parallel
+// test has completed -- so omitting t.Parallel() here is sufficient to
+// keep this test's listener-rebuilding mutations from ever overlapping
+// with a sibling's traffic, without a package-wide lock.
+//
+// # Why domain mTLS stays "optional", never "strict"
+//
+// Setting it to STRICT (optional=false) would make the TLS handshake
+// itself fail for every request that doesn't present a client
+// certificate -- i.e. nearly all sibling traffic once this test's
+// mutations are live. This test therefore uses exactly the same
 // "optional=true" mode the Python source used: unauthenticated TLS
-// handshakes still succeed, so concurrent traffic from every other test
-// in this package is unaffected. (Genuinely STRICT domain mTLS is
-// exercised by regression/tests/domain_settings/test_mtls_strict.py,
-// which is out of scope for task-13 and is not touched by this port.)
+// handshakes still succeed, so any overlap with other suites (httproute,
+// grpcroute) targeting the same domain remains unaffected. (Genuinely
+// STRICT domain mTLS is exercised by
+// regression/tests/domain_settings/test_mtls_strict.py, which is out of
+// scope for task-13 and is not touched by this port.)
 //
 // # Why the negative case has two parts
 //
@@ -65,7 +84,7 @@ import (
 // Both are genuine, independently meaningful negative assertions; neither
 // supersedes the other.
 func TestClientModeMTLS(t *testing.T) {
-	t.Parallel()
+	// Deliberately no t.Parallel() -- see the doc comment above.
 
 	// Pre-cleanup: remove any mTLS config left behind by a previous
 	// crashed run, mirroring the Python source's unconditional

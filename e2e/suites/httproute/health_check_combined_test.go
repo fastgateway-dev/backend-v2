@@ -17,7 +17,8 @@ import (
 // TestHealthCheckCombined ports test_health_check_combined.py (active +
 // passive health check configured together). Same reasoning and same real
 // assertion as TestHealthCheckActive: 200 while healthy, 503 once podinfo
-// is scaled to 0, original replica count restored in t.Cleanup.
+// is scaled to 0, original replica count restored by a deferred func, run
+// while podinfoMu is still held (see main_test.go).
 func TestHealthCheckCombined(t *testing.T) {
 	t.Parallel()
 	podinfoMu.Lock()
@@ -94,7 +95,12 @@ func TestHealthCheckCombined(t *testing.T) {
 	if dep.Spec.Replicas != nil {
 		original = *dep.Spec.Replicas
 	}
-	t.Cleanup(func() {
+	// Use defer (not t.Cleanup) so the restore runs before podinfoMu is
+	// released: Go runs a test's defers before its registered t.Cleanup
+	// funcs, and the deferred podinfoMu.Unlock() above was registered
+	// first, so LIFO ordering runs this restore first, then the unlock.
+	// See the package doc comment in main_test.go.
+	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		if err := env.Kube.ScaleDeployment(cleanupCtx, backendNamespace, podinfoService, original); err != nil {
@@ -104,7 +110,7 @@ func TestHealthCheckCombined(t *testing.T) {
 		if err := env.Kube.WaitDeploymentAvailable(cleanupCtx, backendNamespace, podinfoService, 60*time.Second); err != nil {
 			t.Errorf("health check combined: podinfo did not become available after restore: %v", err)
 		}
-	})
+	}()
 
 	if err := env.Kube.ScaleDeployment(ctx, backendNamespace, podinfoService, 0); err != nil {
 		t.Fatalf("health check combined: scale podinfo to 0: %v", err)

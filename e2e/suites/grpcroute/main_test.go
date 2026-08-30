@@ -101,10 +101,22 @@ const (
 	// value unique to the test. See the package doc comment.
 	discriminatorHeader = "x-e2e-route"
 
-	// defaultJWTServerURL mirrors regression/config.py's JWT_SERVER_URL
+	// defaultJWTMintURL is where the TEST PROCESS (running on the CI
+	// runner, not inside the cluster) mints JWTs from by default, when
+	// JWT_SERVER_URL is unset -- a CI port-forward exposes jwt-server at
+	// this runner-local address. See jwtServerURL.
+	defaultJWTMintURL = "http://localhost:9000"
+
+	// defaultJWTIssuerURL mirrors regression/config.py's JWT_SERVER_URL
 	// default (harness.Config's own default is "", since not every suite
-	// needs it -- see e2e/harness/config.go).
-	defaultJWTServerURL = "http://jwt-server.default.svc.cluster.local:9000"
+	// needs it -- see e2e/harness/config.go): the in-cluster FQDN,
+	// reachable from the envoy-gateway-system namespace where the Envoy
+	// proxy pods run. A short name like "jwt-server:9000" (or
+	// defaultJWTMintURL) does NOT resolve there. This is also the exact
+	// value jwt-server stamps as "iss" into every minted token
+	// (JWT_SERVER_HOST in e2e/deps/jwt-server.yaml), so it must be used
+	// verbatim as a SecurityPolicy's issuer/JWKS URL. See jwtIssuerURL.
+	defaultJWTIssuerURL = "http://jwt-server.default.svc.cluster.local:9000"
 
 	echoServiceName = "echo.EchoService"
 )
@@ -131,15 +143,35 @@ func teamID(t *testing.T) uuid.UUID {
 	return id
 }
 
-// jwtServerURL returns env.Cfg.JWTServerURL, falling back to the same
-// cluster-internal default regression/config.py used, since
-// harness.Config's own default is empty (not every e2e suite needs a JWT
-// server).
+// jwtServerURL returns the URL the TEST PROCESS itself uses to mint JWTs
+// (POSTing to jwt-server's /token endpoint) -- this must be reachable
+// from wherever the test binary runs (the CI runner), NOT from inside
+// the cluster. It resolves env.Cfg.JWTServerURL (the JWT_SERVER_URL env
+// var), falling back to defaultJWTMintURL, since harness.Config's own
+// default is empty (not every e2e suite needs a JWT server).
+//
+// This is deliberately a different URL from jwtIssuerURL: see that
+// function's doc comment for why the issuer/JWKS URL handed to Envoy
+// must stay the in-cluster FQDN even though token minting happens from
+// the runner.
 func jwtServerURL() string {
 	if env.Cfg.JWTServerURL != "" {
 		return env.Cfg.JWTServerURL
 	}
-	return defaultJWTServerURL
+	return defaultJWTMintURL
+}
+
+// jwtIssuerURL returns the in-cluster FQDN that must be handed to Envoy
+// as a SecurityPolicy's JWT issuer/JWKS URL. Envoy's own pods (running in
+// envoy-gateway-system) resolve this address; a runner-local address like
+// jwtServerURL()'s default would NOT resolve there. It is also the exact
+// value jwt-server stamps as "iss" into every token it mints (see
+// JWT_SERVER_HOST in e2e/deps/jwt-server.yaml), so the SecurityPolicy's
+// issuer must match it exactly regardless of where the test process
+// itself reaches jwt-server to mint tokens. Always the in-cluster
+// address -- unlike jwtServerURL, it does not consult JWT_SERVER_URL.
+func jwtIssuerURL() string {
+	return defaultJWTIssuerURL
 }
 
 // generateJWTToken mirrors regression/helpers/api.py:generate_jwt_token --

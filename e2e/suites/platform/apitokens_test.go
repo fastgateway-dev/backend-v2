@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 )
 
 // NEW (task-17): API tokens had ZERO e2e coverage before this file --
@@ -55,7 +57,10 @@ func TestAPITokenLifecycle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	name := "e2e-apitoken-" + t.Name()
+	// harness.UniqueName, not t.Name(), for consistency with the package
+	// convention (every other created resource in this package uses it --
+	// see main_test.go).
+	name := harness.UniqueName(t)
 	tokenID, rawToken, err := env.Editor.CreateAPIToken(ctx, name, nil)
 	if err != nil {
 		t.Fatalf("create API token: %v", err)

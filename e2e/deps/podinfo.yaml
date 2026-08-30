@@ -15,10 +15,11 @@ spec:
     spec:
       containers:
         - name: podinfo
-          image: ghcr.io/stefanprodan/podinfo:latest
+          image: ghcr.io/stefanprodan/podinfo:6.14.1
           command:
             - ./podinfo
             - --grpc-port=9999
+            - --level=debug
           ports:
             - name: http
               containerPort: 9898

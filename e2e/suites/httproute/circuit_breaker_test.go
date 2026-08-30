@@ -26,6 +26,15 @@ import (
 // reliably overflows the breaker and Envoy itself must reject some
 // requests with 503 -- distinguishable from the 500 the backend returns
 // when actually reached.
+//
+// maxConnections must ALSO be set (to 1). Envoy's max_requests circuit
+// breaker (from maxParallelRequests) governs concurrency on an HTTP/2
+// upstream by counting concurrent streams on shared connections; podinfo
+// is plain HTTP/1.1, where each request opens its own connection and
+// concurrency is instead bounded by max_connections (Envoy's default:
+// 1024). Without an explicit maxConnections, 20 concurrent requests each
+// get their own connection, nothing overflows, and every response comes
+// back as podinfo's own 500 rather than a circuit-breaker 503.
 func TestCircuitBreaker(t *testing.T) {
 	t.Parallel()
 	podinfoMu.Lock()
@@ -34,6 +43,7 @@ func TestCircuitBreaker(t *testing.T) {
 	name, path := uniquePath(t)
 	maxParallel := int64(1)
 	maxPending := int64(1)
+	maxConnections := int64(1)
 
 	cfg := services.CreateRouteInput{
 		Name:   name,
@@ -52,6 +62,7 @@ func TestCircuitBreaker(t *testing.T) {
 			CircuitBreaker: &models.CircuitBreakerConfig{
 				MaxParallelRequests: &maxParallel,
 				MaxPendingRequests:  &maxPending,
+				MaxConnections:      &maxConnections,
 			},
 		},
 	}

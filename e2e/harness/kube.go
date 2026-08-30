@@ -120,6 +120,38 @@ func (k *Kube) GetUnstructured(ctx context.Context, gvr schema.GroupVersionResou
 	return obj, nil
 }
 
+// GetUnstructuredByLabel fetches the single resource matching GVR/namespace
+// (namespace "" for cluster-scoped resources) that carries labelSelector
+// (e.g. "fastgateway.dev/route-id=<uuid>") via the dynamic client's List.
+//
+// This exists because the backend does not always expose the Kubernetes
+// object name it generates: e.g. models.Route.K8sRouteName (the actual
+// HTTPRoute name, "<name>-<8 hex chars of the route UUID>") is tagged
+// `json:"-"` and never serialized, so callers cannot look the object up
+// by name at all. Every backend-generated object is labeled with the
+// owning entity's ID instead, so resolving by label is the only route
+// available to a black-box e2e caller. It errors if zero or more than one
+// object matches, since callers rely on that ID being unique per object.
+func (k *Kube) GetUnstructuredByLabel(ctx context.Context, gvr schema.GroupVersionResource, ns, labelSelector string) (*unstructured.Unstructured, error) {
+	ri := k.Dynamic.Resource(gvr)
+	var lister dynamic.ResourceInterface = ri
+	if ns != "" {
+		lister = ri.Namespace(ns)
+	}
+	list, err := lister.List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return nil, fmt.Errorf("list %s in %s matching %q: %w", gvr.Resource, ns, labelSelector, err)
+	}
+	switch len(list.Items) {
+	case 0:
+		return nil, fmt.Errorf("no %s found in %s matching %q", gvr.Resource, ns, labelSelector)
+	case 1:
+		return &list.Items[0], nil
+	default:
+		return nil, fmt.Errorf("%d %s found in %s matching %q, want exactly 1", len(list.Items), gvr.Resource, ns, labelSelector)
+	}
+}
+
 // WaitDeploymentAvailable polls until the named Deployment reports its
 // "Available" condition True, or returns an error once timeout elapses.
 func (k *Kube) WaitDeploymentAvailable(ctx context.Context, ns, name string, timeout time.Duration) error {

@@ -15,7 +15,7 @@ import (
 // TestClientModeJWT ports client_mode/test_jwt.py, fixing the tautology
 // task-13-brief names explicitly. Unlike security_general_mode/test_jwt.py,
 // the Python source here already used the correct in-cluster FQDN issuer
-// (jwt-server.default.svc.cluster.local:9000, matching jwtServerURL()) --
+// (jwt-server.default.svc.cluster.local:9000, matching jwtIssuerURL()) --
 // no "wrong reason" issuer bug to fix on this side, per task-13-brief's
 // "check the other JWT tests for the same trap" instruction.
 //
@@ -59,7 +59,7 @@ func TestClientModeJWT(t *testing.T) {
 	}
 	cleanupClient(t, client.ID.String())
 
-	if err := configureClientJWT(ctx, client.ID.String(), jwtServerURL(), jwtServerURL()+"/jwks", []string{"my-api"}); err != nil {
+	if err := configureClientJWT(ctx, client.ID.String(), jwtIssuerURL(), jwtIssuerURL()+"/jwks", []string{"my-api"}); err != nil {
 		t.Fatalf("client mode jwt: configure client JWT: %v", err)
 	}
 

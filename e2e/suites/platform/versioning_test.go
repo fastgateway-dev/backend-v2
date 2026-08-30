@@ -5,6 +5,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -61,6 +62,53 @@ func deployNewVersion(t *testing.T, ctx context.Context, route harness.Route, he
 		t.Fatalf("fetch route %s (%s) after deploying %s: %v", route.Name, route.ID, headerValue, err)
 	}
 	return deployed
+}
+
+// waitForHTTPHeader polls probe (same 2s-interval loop as
+// waitForHTTPStatus, see main_test.go) until it returns a 200 response
+// whose headerName header equals wantValue, or returns an error once
+// timeout elapses.
+//
+// waitForHTTPStatus alone is not sufficient for either deployNewVersion
+// call site below: the route already served 200 under the PREVIOUS
+// config (v1 before the update to v2, or v2 before the rollback to v1),
+// so a bare "wait for 200" returns on the very first poll -- typically
+// before Envoy has actually reconciled the new ResponseHeaderModifier --
+// racing the caller's header assertion against that reconciliation.
+// Polling for the actually-asserted header value directly closes that
+// race, the same way e2e/suites/security's waitForHTTPStatus polls past
+// a transient wrong status rather than trusting the first response.
+func waitForHTTPHeader(
+	ctx context.Context,
+	probe func(context.Context) (*harness.Response, error),
+	timeout time.Duration,
+	headerName, wantValue string,
+) (*harness.Response, error) {
+	deadline := time.Now().Add(timeout)
+	var last *harness.Response
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		resp, err := probe(ctx)
+		if err != nil {
+			lastErr = err
+		} else {
+			last = resp
+			if resp.StatusCode == 200 && resp.Header.Get(headerName) == wantValue {
+				return resp, nil
+			}
+			lastErr = fmt.Errorf("got status %d, %s=%q, want 200 with %s=%q", resp.StatusCode, headerName, resp.Header.Get(headerName), headerName, wantValue)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+	if last != nil {
+		return last, fmt.Errorf("%s did not settle to %q within %s: %w", headerName, wantValue, timeout, lastErr)
+	}
+	return nil, fmt.Errorf("route did not become live within %s: %w", timeout, lastErr)
 }
 
 // snapshotHeaderValue unmarshals a RouteVersion's ConfigSnapshot (a JSON-
@@ -158,10 +206,12 @@ func TestRouteVersioningRollbackRestoresServedConfig(t *testing.T) {
 	}
 
 	route = deployNewVersion(t, ctx, route, "v2")
-	if resp, err := waitForHTTPStatus(ctx, probe, routeLiveTimeout, 200); err != nil {
-		t.Fatalf("route %s (%s): v2 never became live after update: %v", route.Name, route.ID, err)
-	} else if got := resp.Header.Get("X-E2E-Version"); got != "v2" {
-		t.Fatalf("route %s (%s): after updating to v2, gateway served X-E2E-Version=%q, want %q", route.Name, route.ID, got, "v2")
+	// waitForHTTPHeader, not waitForHTTPStatus: the route already served
+	// 200 under v1's config, so a bare status wait would return
+	// immediately, before Envoy has necessarily reconciled v2's
+	// ResponseHeaderModifier. See waitForHTTPHeader's doc comment.
+	if _, err := waitForHTTPHeader(ctx, probe, routeLiveTimeout, "X-E2E-Version", "v2"); err != nil {
+		t.Fatalf("route %s (%s): gateway never served X-E2E-Version=v2 after updating to v2: %v", route.Name, route.ID, err)
 	}
 
 	if _, err := env.Editor.RollbackRoute(ctx, env.ProjectID, env.DomainID, route.ID.String(), 1); err != nil {
@@ -186,12 +236,13 @@ func TestRouteVersioningRollbackRestoresServedConfig(t *testing.T) {
 	}
 
 	// Served config: the gateway must actually reflect it after redeploy.
-	resp, err := waitForHTTPStatus(ctx, probe, routeLiveTimeout, 200)
-	if err != nil {
-		t.Fatalf("route %s (%s): never became live again after rollback redeploy: %v", route.Name, route.ID, err)
-	}
-	if got := resp.Header.Get("X-E2E-Version"); got != "v1" {
-		t.Fatalf("route %s (%s): after rollback+redeploy, gateway served X-E2E-Version=%q, want %q (rollback did not actually restore the earlier config on the wire)",
-			route.Name, route.ID, got, "v1")
+	// waitForHTTPHeader, not waitForHTTPStatus: the route already served
+	// 200 under v2's config, so a bare status wait would return
+	// immediately, before Envoy has necessarily reconciled the rollback's
+	// restored ResponseHeaderModifier. See waitForHTTPHeader's doc
+	// comment.
+	if _, err := waitForHTTPHeader(ctx, probe, routeLiveTimeout, "X-E2E-Version", "v1"); err != nil {
+		t.Fatalf("route %s (%s): gateway never served X-E2E-Version=v1 after rollback+redeploy (rollback did not actually restore the earlier config on the wire): %v",
+			route.Name, route.ID, err)
 	}
 }

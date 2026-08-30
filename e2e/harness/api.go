@@ -140,9 +140,14 @@ type dataEnvelope[T any] struct {
 
 // GetProjectByName mirrors regression/helpers/api.py:get_project_by_name --
 // GET /projects, wrapped in {"data": [...]} by ProjectHandler.List.
+//
+// limit=200 is explicit: ProjectHandler.List defaults to 20 (ordered by
+// whatever the repo's default sort is) with no documented upper cap, so a
+// project created earlier in a run with many other projects can silently
+// fall off the first page and read as "not found".
 func (a *API) GetProjectByName(ctx context.Context, name string) (Project, error) {
 	var env dataEnvelope[Project]
-	if _, err := a.Do(ctx, http.MethodGet, "/projects", nil, &env); err != nil {
+	if _, err := a.Do(ctx, http.MethodGet, "/projects?limit=200", nil, &env); err != nil {
 		return Project{}, err
 	}
 	for _, p := range env.Data {
@@ -158,9 +163,11 @@ func (a *API) GetProjectByName(ctx context.Context, name string) (Project, error
 // GetDomainByName mirrors api.py:get_domain_by_name -- matches on either
 // the domain's "name" or "hostname" field (both are top-level on
 // models.Domain, unlike the team lookup below).
+// limit=200 is explicit for the same reason as GetProjectByName: DomainHandler.List
+// defaults to 20 with no documented upper cap.
 func (a *API) GetDomainByName(ctx context.Context, projectID, name string) (Domain, error) {
 	var env dataEnvelope[Domain]
-	path := fmt.Sprintf("/projects/%s/domains", projectID)
+	path := fmt.Sprintf("/projects/%s/domains?limit=200", projectID)
 	if _, err := a.Do(ctx, http.MethodGet, path, nil, &env); err != nil {
 		return Domain{}, err
 	}
@@ -249,8 +256,15 @@ func (a *API) DeleteRoute(ctx context.Context, projectID, domainID, routeID stri
 // pendingApprovals mirrors api.py:get_pending_approvals -- GET
 // /projects/:projectId/approvals?status=pending, optionally scoped to an
 // entity type.
+//
+// limit=200 is explicit: ApprovalHandler.List defaults to 20, ordered
+// created_at DESC, with no documented upper cap. With many tests running
+// in parallel (each creating its own approvals) the one this caller wants
+// can fall out of the newest 20 well before it is ever acted on, and
+// ApproveAllStages / RejectApproval would then fail with "no pending
+// approval found" even though the approval genuinely exists.
 func (a *API) pendingApprovals(ctx context.Context, projectID, entityType string) ([]models.Approval, error) {
-	path := fmt.Sprintf("/projects/%s/approvals?status=pending", projectID)
+	path := fmt.Sprintf("/projects/%s/approvals?status=pending&limit=200", projectID)
 	if entityType != "" {
 		path += "&entityType=" + url.QueryEscape(entityType)
 	}
@@ -458,8 +472,11 @@ func (a *API) DetachClient(ctx context.Context, projectID, domainID, routeID, at
 }
 
 // pendingClientApprovals mirrors api.py:get_pending_client_approvals.
+//
+// limit=200 for the same reason as pendingApprovals: ClientAttachmentHandler.ListClientApprovals
+// defaults to 20 with no documented upper cap.
 func (a *API) pendingClientApprovals(ctx context.Context, projectID string) ([]models.Approval, error) {
-	path := fmt.Sprintf("/projects/%s/client-approvals?status=pending", projectID)
+	path := fmt.Sprintf("/projects/%s/client-approvals?status=pending&limit=200", projectID)
 	var env dataEnvelope[models.Approval]
 	if _, err := a.Do(ctx, http.MethodGet, path, nil, &env); err != nil {
 		return nil, err

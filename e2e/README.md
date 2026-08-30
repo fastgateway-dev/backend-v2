@@ -48,6 +48,19 @@ curl -X POST http://localhost:9001/auth
 # Response: 403 Forbidden
 ```
 
+### grpc-external-auth (Port 9003)
+
+A test external authorization server for ext-auth (SecurityPolicy extAuth) testing over gRPC -- the gRPC counterpart to `external-auth`, implementing `envoy.service.auth.v3.Authorization/Check` instead of an HTTP endpoint.
+
+**gRPC Service:**
+- `envoy.service.auth.v3.Authorization/Check` - Checks the `x-ext-auth-allow` header on the proxied request. Returns `OK` if `true`, `PermissionDenied` otherwise.
+
+**Response Headers (added on both allow and deny):**
+- `x-auth-decision: allowed` or `x-auth-decision: denied`
+- `x-auth-timestamp: <RFC3339>` (allow only)
+
+Not invoked directly in tests -- it's wired in as the `backendRef` of a grpc-mode `SecurityPolicy.spec.extAuth`, and exercised indirectly by sending traffic through whatever route that SecurityPolicy targets (it registers neither `grpc.health.v1.Health` nor server reflection, so it isn't a convenient `grpcurl` target on its own).
+
 ### ext-proc-server (Port 9004)
 
 A test gRPC external processing server for Envoy ext-proc (EnvoyExtensionPolicy extProc) testing. Implements the `envoy.service.ext_proc.v3.ExternalProcessor` streaming RPC.
@@ -73,7 +86,7 @@ curl -s -D - https://example.com/path -k | grep x-ext-proc-processed
 
 ## Running Services
 
-There is no docker-compose setup for these services. They are Go binaries (`e2e/servers/<name>`) built into container images and `kind load`ed into the test cluster as Kubernetes Deployments -- see the manifests under `e2e/deps/` (`jwt-server.yaml`, `external-auth.yaml`, `grpc-external-auth.yaml`, `ext-proc-server.yaml`) and the `e2e` job in `.github/workflows/ci.yml`, which builds and loads them on every run.
+There is no docker-compose setup for these services. They are Go binaries (`e2e/servers/<name>`) built into container images and `kind load`ed into the test cluster as Kubernetes Deployments -- see the manifests under `e2e/deps/` (`jwt-server.yaml`, `external-auth.yaml`, `grpc-external-auth.yaml`, `ext-proc-server.yaml`) and the `e2e` job in `.github/workflows/main.yml`, which builds and loads them on every run.
 
 To run one locally without a cluster, just `go run` it directly, e.g.:
 
@@ -89,8 +102,8 @@ The e2e test suite itself lives under `e2e/suites/` (Go, guarded by the `e2e` bu
 go test -tags e2e ./e2e/... -p 1
 ```
 
-against a Kubernetes cluster with Envoy Gateway installed and a running FastGateway backend seeded via `go run ./cmd/e2e-seed` (see `.github/workflows/ci.yml`'s `e2e` job for the full setup sequence). `-p 1` is required, not optional: some suites mutate shared in-cluster state (e.g. scaling the `podinfo` Deployment) and cannot run concurrently with other packages.
+against a Kubernetes cluster with Envoy Gateway installed and a running FastGateway backend seeded via `go run ./cmd/e2e-seed` (see `.github/workflows/main.yml`'s `e2e` job for the full setup sequence). `-p 1` is required, not optional: some suites mutate shared in-cluster state (e.g. scaling the `podinfo` Deployment) and cannot run concurrently with other packages.
 
 A previous Python/pytest port of this suite (`e2e/regression/`, `e2e/bootstrap.py`) has been retired now that all of it is ported to Go under `e2e/suites/`.
 
-`E2E_TEST-v1.6.2-v1.4.1.md` is a historical record of the last manual, pre-automation test pass against Envoy Gateway 1.6.2 / Gateway API 1.4.1; `E2E_TEST_TEMPLATE.md` is the template it was copied from. Both are kept for reference, but the process they describe is superseded by `.github/workflows/e2e-version-matrix.yml`.
+`E2E_TEST-v1.6.2-v1.4.1.md` is a historical record of the last manual, pre-automation test pass against Envoy Gateway 1.6.2 / Gateway API 1.4.1; `E2E_TEST_TEMPLATE.md` is the template it was copied from. Both are kept for reference, but the process they describe is superseded by `.github/workflows/e2e.yml`.

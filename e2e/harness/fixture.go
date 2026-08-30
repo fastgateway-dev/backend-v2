@@ -149,14 +149,29 @@ func NewFixture(t *testing.T, env *Env) *Fixture {
 // t.Cleanup to tear it down. It fails the test via t.Fatalf if creation,
 // approval, or deploy errors.
 //
-// Cleanup deletes the route (also an approval-gated action: RouteService.Delete
-// always creates a "delete" approval when the project has approvals enabled,
-// same as create/update) as admin, approves the resulting pending-delete
-// approval if one was created, then deploys again so the deletion is
-// actually pushed to the cluster. Unlike the predecessor fixture -- which
-// only emitted a warning on cleanup failure, letting leaked routes
-// accumulate silently -- every step's failure is reported via t.Errorf so a
-// leak fails the test.
+// Cleanup first rejects any still-pending approval on the route (as
+// admin), then deletes the route (also an approval-gated action:
+// RouteService.Delete always creates a "delete" approval when the project
+// has approvals enabled, same as create/update) as editor, approves the
+// resulting pending-delete approval if one was created (as approver --
+// the submitter and approver must differ or the backend's self-approval
+// guard rejects it), then deploys again as editor so the deletion is
+// actually pushed to the cluster.
+//
+// The upfront reject step matters because t.Cleanup is registered here,
+// BEFORE the approve/deploy calls below run: if either of them fails the
+// test via t.Fatalf, cleanup still runs, but against a route whose CREATE
+// approval is still pending. Without rejecting it first, DeleteRoute would
+// hit RouteService.Delete's guard ("there is already a pending approval
+// for this route") and every step below would be skipped, leaking the
+// route, its approval, and any partial K8s objects permanently across
+// runs. This mirrors platform/approvals_test.go's
+// cleanupPendingOrRejectedRoute, which solves the identical problem for
+// routes a test deliberately leaves pending or rejected.
+//
+// Unlike the predecessor fixture -- which only emitted a warning on
+// cleanup failure, letting leaked routes accumulate silently -- every
+// step's failure is reported via t.Errorf so a leak fails the test.
 func (f *Fixture) Route(cfg any) Route {
 	t := f.t
 	t.Helper()
@@ -170,6 +185,18 @@ func (f *Fixture) Route(cfg any) Route {
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
+
+		// Reject any pending approval left open by a test that failed (via
+		// t.Fatalf) between CreateRoute above and the ApproveAllStages call
+		// below -- see the doc comment above for why this has to run
+		// before DeleteRoute. Tolerate "no pending approval found": the
+		// common case is a route whose create approval was already fully
+		// approved by the successful path below, which is not an error.
+		if err := f.env.Admin.RejectApproval(cleanupCtx, f.env.ProjectID, route.ID.String(), "e2e fixture cleanup"); err != nil &&
+			!strings.Contains(err.Error(), "no pending approval found") {
+			t.Errorf("fixture cleanup: reject pending approval for route %s (%s): %v", route.Name, route.ID, err)
+			return
+		}
 
 		// Mirror the creation path's role split: the submitter and the
 		// approver must be different users, or the backend's self-approval
