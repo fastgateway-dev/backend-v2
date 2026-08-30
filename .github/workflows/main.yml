@@ -128,7 +128,7 @@ jobs:
       GATEWAY_API_VERSION: ${{ matrix.gateway-api-version }}
       ENVOY_GATEWAY_VERSION: ${{ matrix.envoy-gateway-version }}
       KIND_VERSION: "v0.27.0"
-      CLOUD_PROVIDER_KIND_VERSION: "0.6.0"
+      CLOUD_PROVIDER_KIND_VERSION: "0.11.1"
       STEP_CLI_VERSION: "0.28.7"
     steps:
       - uses: actions/checkout@v4
@@ -140,7 +140,7 @@ jobs:
 
       - name: Install kind
         run: |
-          curl -Lo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          curl -fLo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
           chmod +x /tmp/kind
           sudo mv /tmp/kind /usr/local/bin/kind
 
@@ -156,7 +156,7 @@ jobs:
       - name: Start cloud-provider-kind (LoadBalancer support)
         run: |
           arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
-          curl -Lo /tmp/cpk.tar.gz "https://github.com/kubernetes-sigs/cloud-provider-kind/releases/download/v${CLOUD_PROVIDER_KIND_VERSION}/cloud-provider-kind_Linux_${arch}.tar.gz"
+          curl -fLo /tmp/cpk.tar.gz "https://github.com/kubernetes-sigs/cloud-provider-kind/releases/download/v${CLOUD_PROVIDER_KIND_VERSION}/cloud-provider-kind_${CLOUD_PROVIDER_KIND_VERSION}_linux_${arch}.tar.gz"
           tar -xzf /tmp/cpk.tar.gz -C /tmp cloud-provider-kind
           chmod +x /tmp/cloud-provider-kind
           sudo mv /tmp/cloud-provider-kind /usr/local/bin/cloud-provider-kind
@@ -211,7 +211,7 @@ jobs:
       # regenerated here, same as a contributor would run locally.
       - name: Generate e2e test certificates
         run: |
-          curl -Lo /tmp/step.tar.gz "https://github.com/smallstep/cli/releases/download/v${STEP_CLI_VERSION}/step_linux_${STEP_CLI_VERSION}_amd64.tar.gz"
+          curl -fLo /tmp/step.tar.gz "https://github.com/smallstep/cli/releases/download/v${STEP_CLI_VERSION}/step_linux_${STEP_CLI_VERSION}_amd64.tar.gz"
           tar -xzf /tmp/step.tar.gz -C /tmp
           sudo mv "/tmp/step_${STEP_CLI_VERSION}/bin/step" /usr/local/bin/step
           (cd e2e/testdata/certificate && chmod +x generate.sh && ./generate.sh)
