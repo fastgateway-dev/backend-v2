@@ -32,11 +32,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - envoy-gateway-version: "1.6.2"
+          - envoy-gateway-version: "1.6.6"
             gateway-api-version: "1.4.1"
-          - envoy-gateway-version: "1.7.0"
+          - envoy-gateway-version: "1.7.5"
             gateway-api-version: "1.4.1"
-          - envoy-gateway-version: "1.8.0"
+          - envoy-gateway-version: "1.8.4"
             gateway-api-version: "1.5.1"
     services:
       postgres:

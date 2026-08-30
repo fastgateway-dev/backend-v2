@@ -238,8 +238,19 @@ func (f *Fixture) Route(cfg any) Route {
 	return deployed
 }
 
-// fixtureConvergeTimeout bounds each of waitConverged's gates.
+// fixtureConvergeTimeout bounds waitConverged's POLICY gates -- the fatal
+// ones, where waiting the full window is worth it because the alternative
+// is a false failure.
 var fixtureConvergeTimeout = 3 * time.Minute
+
+// fixtureRouteGateTimeout bounds the ADVISORY route gate. It is much
+// shorter than fixtureConvergeTimeout because that gate only logs: a route
+// that legitimately resolves late (an external Backend CRD, a backend
+// scaled to zero) is waited out by the caller's own data-plane probe
+// anyway, and a route that never resolves -- grpcroute's mirror test,
+// which pins a known Envoy Gateway defect -- would otherwise burn three
+// minutes per run to reach a conclusion it already logged.
+var fixtureRouteGateTimeout = 45 * time.Second
 
 // waitConverged blocks until the Kubernetes objects this route's cfg asks
 // for exist and report Accepted.
@@ -279,13 +290,17 @@ func (f *Fixture) waitConverged(routeID string, cfg any) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), fixtureConvergeTimeout)
-	defer cancel()
 	ns := f.env.Cfg.Namespace
 
-	if err := WaitForRouteAccepted(ctx, f.env.Kube, RouteGVR(string(in.Protocol)), ns, routeID, fixtureConvergeTimeout); err != nil {
+	routeCtx, cancelRoute := context.WithTimeout(context.Background(), fixtureRouteGateTimeout)
+	err := WaitForRouteAccepted(routeCtx, f.env.Kube, RouteGVR(string(in.Protocol)), ns, routeID, fixtureRouteGateTimeout)
+	cancelRoute()
+	if err != nil {
 		t.Logf("fixture: route %s not fully accepted (continuing; some tests deploy routes whose refs resolve later): %v", routeID, err)
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureConvergeTimeout)
+	defer cancel()
 
 	gates := []struct {
 		want bool
