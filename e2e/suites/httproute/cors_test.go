@@ -65,13 +65,24 @@ func TestCORSPreflight(t *testing.T) {
 			harness.WithHeader("Access-Control-Request-Method", "GET"),
 		)
 	}
-	resp, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout)
-	if err != nil {
+	if _, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout); err != nil {
 		t.Fatalf("cors preflight: route never became live: %v", err)
 	}
 
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://example.com" {
-		t.Fatalf("cors preflight: got Access-Control-Allow-Origin %q, want %q", got, "https://example.com")
+	// Polled rather than read once: this header comes from a policy Envoy
+	// Gateway programs as a SEPARATE object AFTER the route, so a
+	// status-only gate is satisfied by the route serving traffic with the
+	// policy not yet applied. Bounded by routeLiveTimeout, so a policy
+	// that never takes effect still fails the test.
+	resp, err := harness.WaitForResponse(ctx, probe, func(r *harness.Response) bool {
+		return r.Header.Get("Access-Control-Allow-Origin") == "https://example.com"
+	}, routeLiveTimeout)
+	if err != nil {
+		got := ""
+		if resp != nil {
+			got = resp.Header.Get("Access-Control-Allow-Origin")
+		}
+		t.Fatalf("cors preflight: got Access-Control-Allow-Origin %q, want %q: %v", got, "https://example.com", err)
 	}
 }
 

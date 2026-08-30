@@ -391,9 +391,22 @@ jobs:
             kubectl -n envoy-gateway-system get pods 2>&1 | head -20
           else
             echo "proxy pod: $POD"
-            kubectl -n envoy-gateway-system exec "$POD" -c envoy -- \
-              curl -s localhost:19000/config_dump 2>/dev/null > /tmp/diag/config_dump.json \
-              || echo "  (config_dump failed)"
+            # port-forward, NOT `kubectl exec ... curl`: the Envoy Gateway
+            # proxy image ships no curl, so the exec form silently printed
+            # "(config_dump failed)" on every run and this whole section was
+            # dead. port-forward works even though Envoy's admin listener
+            # binds 127.0.0.1 -- the forward is established inside the pod's
+            # own network namespace.
+            kubectl -n envoy-gateway-system port-forward "pod/$POD" 19000:19000 \
+              > /tmp/diag/pf.log 2>&1 &
+            PF_PID=$!
+            for _ in $(seq 1 20); do
+              curl -s --max-time 2 localhost:19000/ready > /dev/null 2>&1 && break
+              sleep 0.5
+            done
+            curl -s --max-time 20 localhost:19000/config_dump > /tmp/diag/config_dump.json \
+              || echo "  (config_dump failed: $(cat /tmp/diag/pf.log 2>/dev/null | head -3))"
+            kill "$PF_PID" 2>/dev/null || true
             if [ -s /tmp/diag/config_dump.json ]; then
               echo "--- http filters present (name @type) ---"
               jq -r '.. | .http_filters? // empty | .[]? | "\(.name)  \(.typed_config."@type" // "-")"' \

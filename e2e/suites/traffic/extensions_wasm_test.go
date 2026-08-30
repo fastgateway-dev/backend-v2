@@ -55,14 +55,24 @@ func TestExtensionsWasm(t *testing.T) {
 	probe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", path)
 	}
-	resp, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout)
-	if err != nil {
+	if _, err := harness.WaitForRouteLive(ctx, probe, routeLiveTimeout); err != nil {
 		t.Fatalf("extensions wasm: route never became live: %v", err)
 	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("extensions wasm: got status %d, want 200 (body: %s)", resp.StatusCode, truncate(resp.Body, 300))
-	}
-	if got := resp.Header.Get("x-wasm-custom"); got != "FOO" {
-		t.Fatalf("extensions wasm: x-wasm-custom header = %q, want %q", got, "FOO")
+
+	// Polled rather than read once: this header comes from a policy Envoy
+	// Gateway programs as a SEPARATE object AFTER the route, so a
+	// status-only gate is satisfied by the route serving traffic with the
+	// policy not yet applied. Bounded by routeLiveTimeout, so a policy
+	// that never takes effect still fails the test.
+	resp, err := harness.WaitForResponse(ctx, probe, func(r *harness.Response) bool {
+		return r.StatusCode == 200 && r.Header.Get("x-wasm-custom") == "FOO"
+	}, routeLiveTimeout)
+	if err != nil {
+		status, got, body := 0, "", ""
+		if resp != nil {
+			status, got, body = resp.StatusCode, resp.Header.Get("x-wasm-custom"), truncate(resp.Body, 300)
+		}
+		t.Fatalf("extensions wasm: status %d, x-wasm-custom header = %q, want 200 with %q (body: %s): %v",
+			status, got, "FOO", body, err)
 	}
 }
