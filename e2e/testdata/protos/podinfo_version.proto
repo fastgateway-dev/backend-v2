@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package version;
+option go_package = "./version";
+
+message VersionRequest {}
+
+message VersionResponse {
+    string version = 1;
+    string commit = 2;
+}
+
+service VersionService {
+    rpc Version(VersionRequest) returns (VersionResponse) {}
+}

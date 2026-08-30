@@ -1,0 +1,17 @@
+openapi-spec:
+  get:
+    tags: [Docs]
+    summary: Get OpenAPI specification
+    description: Returns the bundled OpenAPI 3.0.3 specification for the FastGateway API
+    operationId: getOpenAPISpec
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: OpenAPI specification in YAML format
+        content:
+          application/yaml:
+            schema:
+              type: string
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'

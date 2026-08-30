@@ -1,0 +1,118 @@
+sso-public-config:
+  get:
+    tags: [SSO]
+    summary: Get public SSO configuration
+    operationId: getSSOPublicConfig
+    responses:
+      '200':
+        description: Public SSO configuration
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/sso.yaml#/SSOPublicConfig'
+
+sso-authorize:
+  get:
+    tags: [SSO]
+    summary: Initiate SSO authorization flow
+    description: Redirects user to the OIDC identity provider for authentication
+    operationId: ssoAuthorize
+    responses:
+      '302':
+        description: Redirect to identity provider
+      '400':
+        description: SSO not configured
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+sso-callback:
+  get:
+    tags: [SSO]
+    summary: Handle SSO callback from identity provider
+    description: Processes the callback from the OIDC identity provider and redirects to frontend with tokens
+    operationId: ssoCallback
+    parameters:
+      - name: code
+        in: query
+        schema:
+          type: string
+        description: Authorization code from IdP
+      - name: state
+        in: query
+        schema:
+          type: string
+        description: CSRF state token
+      - name: error
+        in: query
+        schema:
+          type: string
+        description: Error from IdP (if any)
+      - name: error_description
+        in: query
+        schema:
+          type: string
+        description: Error description from IdP
+    responses:
+      '302':
+        description: Redirect to frontend with tokens or error
+
+sso-settings:
+  get:
+    tags: [SSO]
+    summary: Get SSO configuration (Owner only)
+    operationId: getSSOConfig
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: SSO configuration
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/sso.yaml#/SSOConfig'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+  put:
+    tags: [SSO]
+    summary: Update SSO configuration (Owner only)
+    operationId: updateSSOConfig
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/sso.yaml#/SSOConfigInput'
+    responses:
+      '200':
+        description: SSO configuration updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/sso.yaml#/SSOConfig'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+  delete:
+    tags: [SSO]
+    summary: Disable SSO (Owner only)
+    operationId: disableSSO
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: SSO disabled
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: SSO disabled
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'

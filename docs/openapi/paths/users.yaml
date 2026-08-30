@@ -1,0 +1,95 @@
+users:
+  get:
+    tags: [Users]
+    summary: List all users (Owner only)
+    operationId: listUsers
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+      - name: role
+        in: query
+        schema:
+          type: string
+          enum: [owner, user]
+    responses:
+      '200':
+        description: List of users
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/user.yaml#/UserList'
+
+  post:
+    tags: [Users]
+    summary: Create new user (Owner only)
+    operationId: createUser
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/user.yaml#/CreateUserRequest'
+    responses:
+      '201':
+        description: User created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/user.yaml#/User'
+
+users_{userId}:
+  get:
+    tags: [Users]
+    summary: Get user by ID
+    operationId: getUser
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/userId'
+    responses:
+      '200':
+        description: User details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/user.yaml#/User'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+  patch:
+    tags: [Users]
+    summary: Update user
+    operationId: updateUser
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/userId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/user.yaml#/UpdateUserRequest'
+    responses:
+      '200':
+        description: User updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/user.yaml#/User'
+
+  delete:
+    tags: [Users]
+    summary: Delete user
+    operationId: deleteUser
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/userId'
+    responses:
+      '204':
+        description: User deleted

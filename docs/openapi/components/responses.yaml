@@ -1,0 +1,24 @@
+Unauthorized:
+  description: Unauthorized
+  content:
+    application/json:
+      schema:
+        $ref: '../schemas/common.yaml#/Error'
+NotFound:
+  description: Resource not found
+  content:
+    application/json:
+      schema:
+        $ref: '../schemas/common.yaml#/Error'
+BadRequest:
+  description: Bad request
+  content:
+    application/json:
+      schema:
+        $ref: '../schemas/common.yaml#/Error'
+Forbidden:
+  description: Forbidden
+  content:
+    application/json:
+      schema:
+        $ref: '../schemas/common.yaml#/Error'

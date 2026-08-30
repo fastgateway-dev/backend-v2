@@ -1,0 +1,81 @@
+EnvoyExtensionPolicyInput:
+  type: object
+  description: Envoy extension policy input for Lua and Wasm extensions
+  properties:
+    lua:
+      $ref: '#/LuaExtensionConfig'
+    wasm:
+      $ref: '#/WasmExtensionConfig'
+
+LuaExtensionConfig:
+  type: object
+  required: [type]
+  description: Lua extension configuration
+  properties:
+    type:
+      type: string
+      enum: [Inline, ValueRef]
+      description: Lua script source type
+    inline:
+      type: string
+      description: Inline Lua script (when type is Inline)
+    valueRef:
+      $ref: './btp.yaml#/ValueRef'
+
+WasmExtensionConfig:
+  type: object
+  required: [name, code]
+  description: Wasm extension configuration
+  properties:
+    name:
+      type: string
+      description: Wasm filter name
+    rootID:
+      type: string
+      description: Wasm root ID (optional)
+    code:
+      $ref: '#/WasmCodeSource'
+    config:
+      type: string
+      description: JSON configuration for the Wasm module
+
+WasmCodeSource:
+  type: object
+  required: [type]
+  description: Wasm code source
+  properties:
+    type:
+      type: string
+      enum: [HTTP, Image]
+      description: Source type
+    http:
+      $ref: '#/WasmHTTPSource'
+    image:
+      $ref: '#/WasmImageSource'
+
+WasmHTTPSource:
+  type: object
+  required: [url, sha256]
+  description: HTTP source for Wasm module
+  properties:
+    url:
+      type: string
+      description: URL to download the Wasm module
+    sha256:
+      type: string
+      description: SHA256 checksum of the module (64-character hex string)
+
+WasmImageSource:
+  type: object
+  required: [url]
+  description: OCI image source for Wasm module
+  properties:
+    url:
+      type: string
+      description: OCI image URL (e.g., "oci://ghcr.io/example/wasm:v1.0")
+    sha256:
+      type: string
+      description: SHA256 checksum (optional for images)
+    pullSecret:
+      $ref: './btp.yaml#/ValueRef'
+      description: Reference to Secret containing registry credentials

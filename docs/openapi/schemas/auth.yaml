@@ -1,0 +1,84 @@
+LoginRequest:
+  type: object
+  required: [username, password]
+  properties:
+    username:
+      type: string
+    password:
+      type: string
+
+LoginResponse:
+  type: object
+  required: [accessToken, refreshToken, expiresAt]
+  properties:
+    accessToken:
+      type: string
+    refreshToken:
+      type: string
+    expiresAt:
+      type: string
+      format: date-time
+    user:
+      $ref: './user.yaml#/User'
+
+RefreshTokenRequest:
+  type: object
+  required: [refreshToken]
+  properties:
+    refreshToken:
+      type: string
+
+ChangePasswordRequest:
+  type: object
+  required: [currentPassword, newPassword]
+  properties:
+    currentPassword:
+      type: string
+      description: The user's current password
+    newPassword:
+      type: string
+      minLength: 8
+      description: The new password (minimum 8 characters)
+
+CreateApiTokenRequest:
+  type: object
+  required: [name]
+  properties:
+    name:
+      type: string
+    expiresAt:
+      type: string
+      format: date-time
+
+ApiToken:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    lastUsedAt:
+      type: string
+      format: date-time
+    expiresAt:
+      type: string
+      format: date-time
+    createdAt:
+      type: string
+      format: date-time
+
+ApiTokenCreated:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    token:
+      type: string
+      description: Full token (only shown once)
+    expiresAt:
+      type: string
+      format: date-time

@@ -1,0 +1,875 @@
+openapi: 3.0.3
+info:
+  title: FastGateway API
+  description: API for managing Kubernetes Gateway API resources
+  version: 1.0.0
+  contact:
+    name: FastGateway
+servers:
+  - url: http://localhost:8081/api/v1
+    description: Local development server
+
+tags:
+  - name: Auth
+    description: Authentication endpoints
+  - name: Users
+    description: User management
+  - name: Projects
+    description: Project (Kubernetes cluster) management
+  - name: Teams
+    description: Global team management
+  - name: Project Teams
+    description: Team-project role assignments
+  - name: Domain Templates
+    description: Domain template management
+  - name: Domains
+    description: Domain (Gateway) management
+  - name: Project Namespaces
+    description: Project namespace whitelist management
+  - name: Routes
+    description: Route (HTTPRoute/GRPCRoute) management
+  - name: Clients
+    description: Global client management (API consumers)
+  - name: Client Attachments
+    description: Client-route attachment management
+  - name: Client Approvals
+    description: Stage-based approval workflow for client attachments
+  - name: Approvals
+    description: Approval workflow
+  - name: Kubernetes
+    description: Kubernetes resource discovery
+  - name: Audit
+    description: Audit logs
+  - name: Client mTLS
+    description: Client mTLS authentication management
+  - name: AI
+    description: AI-powered route generation and chat
+  - name: Approval Policies
+    description: Approval policy management (admin only)
+  - name: Client Headers
+    description: Client header authorization management
+  - name: Client Methods
+    description: Client HTTP method authorization management
+  - name: SSO
+    description: Single Sign-On configuration
+  - name: Notifications
+    description: User notifications
+  - name: Health
+    description: Service health check
+  - name: Docs
+    description: API documentation
+
+paths:
+  # ============== DOCS ==============
+  /docs/openapi.yaml:
+    $ref: 'paths/docs.yaml#/openapi-spec'
+
+  # ============== HEALTH ==============
+  /health:
+    $ref: 'paths/health.yaml#/health'
+
+  # ============== AUTH ==============
+  /auth/login:
+    $ref: 'paths/auth.yaml#/login'
+  /auth/logout:
+    $ref: 'paths/auth.yaml#/logout'
+  /auth/refresh:
+    $ref: 'paths/auth.yaml#/refresh'
+  /auth/me:
+    $ref: 'paths/auth.yaml#/me'
+  /auth/tokens:
+    $ref: 'paths/auth.yaml#/tokens'
+  /auth/tokens/{tokenId}:
+    $ref: 'paths/auth.yaml#/tokens_{tokenId}'
+  /auth/password:
+    $ref: 'paths/auth.yaml#/password'
+  /auth/tokens/capabilities:
+    $ref: 'paths/auth.yaml#/token-capabilities'
+  /my-teams:
+    $ref: 'paths/auth.yaml#/my-teams'
+
+  # ============== SSO ==============
+  /auth/sso/config:
+    $ref: 'paths/sso.yaml#/sso-public-config'
+  /auth/sso/authorize:
+    $ref: 'paths/sso.yaml#/sso-authorize'
+  /auth/sso/callback:
+    $ref: 'paths/sso.yaml#/sso-callback'
+  /settings/sso:
+    $ref: 'paths/sso.yaml#/sso-settings'
+
+  # ============== NOTIFICATIONS ==============
+  /notifications:
+    $ref: 'paths/notifications.yaml#/notifications'
+  /notifications/count:
+    $ref: 'paths/notifications.yaml#/notification-count'
+  /notifications/{notificationId}/read:
+    $ref: 'paths/notifications.yaml#/notification-read'
+  /notifications/read-all:
+    $ref: 'paths/notifications.yaml#/notification-read-all'
+
+  # ============== USERS ==============
+  /users:
+    $ref: 'paths/users.yaml#/users'
+  /users/{userId}:
+    $ref: 'paths/users.yaml#/users_{userId}'
+
+  # ============== TEAMS ==============
+  /teams:
+    $ref: 'paths/teams.yaml#/teams'
+  /teams/{teamId}:
+    $ref: 'paths/teams.yaml#/teams_{teamId}'
+  /teams/{teamId}/members:
+    $ref: 'paths/teams.yaml#/teams_{teamId}_members'
+  /teams/{teamId}/members/{userId}:
+    $ref: 'paths/teams.yaml#/teams_{teamId}_members_{userId}'
+  /teams/{teamId}/projects:
+    $ref: 'paths/teams.yaml#/teams_{teamId}_projects'
+  /teams/{teamId}/members/email:
+    $ref: 'paths/teams.yaml#/teams_{teamId}_members_email'
+  /teams/{teamId}/invites:
+    $ref: 'paths/teams.yaml#/teams_{teamId}_invites'
+  /teams/{teamId}/invites/{inviteId}:
+    $ref: 'paths/teams.yaml#/teams_{teamId}_invites_{inviteId}'
+
+  # ============== PROJECTS ==============
+  /projects:
+    $ref: 'paths/projects.yaml#/projects'
+  /projects/{projectId}:
+    $ref: 'paths/projects.yaml#/projects_{projectId}'
+  /projects/{projectId}/test-connection:
+    $ref: 'paths/projects.yaml#/test-connection'
+  /projects/{projectId}/capabilities:
+    $ref: 'paths/projects.yaml#/capabilities'
+  /projects/{projectId}/permissions:
+    $ref: 'paths/projects.yaml#/permissions'
+  /projects/{projectId}/admins:
+    $ref: 'paths/projects.yaml#/admins'
+  /projects/{projectId}/admins/{userId}:
+    $ref: 'paths/projects.yaml#/admins_{userId}'
+  /projects/{projectId}/members:
+    $ref: 'paths/projects.yaml#/members'
+  /projects/{projectId}/my-teams:
+    $ref: 'paths/projects.yaml#/my-teams'
+
+  # ============== PROJECT TEAMS ==============
+  /projects/{projectId}/teams:
+    $ref: 'paths/project-teams.yaml#/project-teams'
+  /projects/{projectId}/teams/my:
+    $ref: 'paths/project-teams.yaml#/my-project-teams'
+  /projects/{projectId}/teams/{teamId}:
+    $ref: 'paths/project-teams.yaml#/project-team_{teamId}'
+
+  # ============== PERMISSION PRESETS ==============
+  /projects/{projectId}/presets:
+    $ref: 'paths/presets.yaml#/presets'
+  /projects/{projectId}/presets/{presetId}:
+    $ref: 'paths/presets.yaml#/presets_{presetId}'
+
+  # ============== DOMAIN TEMPLATES ==============
+  /projects/{projectId}/domain-templates:
+    $ref: 'paths/domain-templates.yaml#/domain-templates'
+  /projects/{projectId}/domain-templates/{domainTemplateId}:
+    $ref: 'paths/domain-templates.yaml#/domain-templates_{id}'
+  /projects/{projectId}/domain-templates/{domainTemplateId}/manifests:
+    $ref: 'paths/domain-templates.yaml#/domain-templates_{id}_manifests'
+  /projects/{projectId}/domain-templates/{domainTemplateId}/domains:
+    $ref: 'paths/domain-templates.yaml#/domain-templates_{id}_domains'
+  /projects/{projectId}/domain-templates/preview-create:
+    $ref: 'paths/domain-templates.yaml#/domain-templates_preview-create'
+  /projects/{projectId}/domain-templates/{domainTemplateId}/preview-changes:
+    $ref: 'paths/domain-templates.yaml#/domain-templates_{id}_preview-changes'
+
+  # ============== PROJECT NAMESPACES ==============
+  /projects/{projectId}/namespaces:
+    $ref: 'paths/namespaces.yaml#/namespaces'
+  /projects/{projectId}/namespaces/{namespaceId}:
+    $ref: 'paths/namespaces.yaml#/namespaces_{id}'
+  /projects/{projectId}/namespaces/{namespaceId}/ensure-reference-grant:
+    $ref: 'paths/namespaces.yaml#/ensure-reference-grant'
+
+  # ============== DOMAINS ==============
+  /projects/{projectId}/domains:
+    $ref: 'paths/domains.yaml#/domains'
+  /projects/{projectId}/domains/{domainId}:
+    $ref: 'paths/domains.yaml#/domains_{domainId}'
+  /projects/{projectId}/domains/{domainId}/settings:
+    $ref: 'paths/domains.yaml#/domain-settings'
+  /projects/{projectId}/domains/{domainId}/settings/mtls/ca:
+    $ref: 'paths/domains.yaml#/domain-mtls-ca'
+  /projects/{projectId}/domains/{domainId}/settings/mtls/ca/{caId}:
+    $ref: 'paths/domains.yaml#/domain-mtls-ca_{caId}'
+  /projects/{projectId}/domains/{domainId}/yamls:
+    $ref: 'paths/domains.yaml#/domain-yamls'
+  /projects/{projectId}/domains/{domainId}/settings/preview:
+    $ref: 'paths/domains.yaml#/domain-settings-preview'
+  /projects/{projectId}/domains/preview-create:
+    $ref: 'paths/domains.yaml#/domain-preview-create'
+
+  # ============== ROUTES ==============
+  /projects/{projectId}/domains/{domainId}/routes:
+    $ref: 'paths/routes.yaml#/routes'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}:
+    $ref: 'paths/routes.yaml#/routes_{routeId}'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/yaml:
+    $ref: 'paths/routes.yaml#/route-yaml'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/yamls:
+    $ref: 'paths/routes.yaml#/route-yamls'
+  /projects/{projectId}/domains/{domainId}/routes/preview:
+    $ref: 'paths/routes.yaml#/preview-create'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/preview:
+    $ref: 'paths/routes.yaml#/preview-update'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/preview-delete:
+    $ref: 'paths/routes.yaml#/preview-delete'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/deploy:
+    $ref: 'paths/routes.yaml#/deploy'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/versions:
+    $ref: 'paths/routes.yaml#/route-versions'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/versions/{version}:
+    $ref: 'paths/routes.yaml#/route-version'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/versions/{version}/rollback:
+    $ref: 'paths/routes.yaml#/route-version-rollback'
+  /projects/{projectId}/routes:
+    $ref: 'paths/routes.yaml#/project-routes'
+
+  # ============== CLIENTS ==============
+  /clients:
+    $ref: 'paths/clients.yaml#/clients'
+  /clients/{clientId}:
+    $ref: 'paths/clients.yaml#/clients_{clientId}'
+  /clients/{clientId}/ips:
+    $ref: 'paths/clients.yaml#/client-ips'
+  /clients/{clientId}/ips/{ipId}:
+    $ref: 'paths/clients.yaml#/client-ips_{ipId}'
+  /clients/{clientId}/api-key:
+    $ref: 'paths/clients.yaml#/client-api-key'
+  /clients/{clientId}/jwt:
+    $ref: 'paths/clients.yaml#/client-jwt'
+  /clients/{clientId}/headers:
+    $ref: 'paths/clients.yaml#/client-headers'
+  /clients/{clientId}/headers/{headerId}:
+    $ref: 'paths/clients.yaml#/client-headers_{headerId}'
+  /clients/{clientId}/methods:
+    $ref: 'paths/clients.yaml#/client-methods'
+  /clients/{clientId}/mtls:
+    $ref: 'paths/clients.yaml#/client-mtls'
+
+  # ============== CLIENT ATTACHMENTS ==============
+  /clients/{clientId}/routes:
+    $ref: 'paths/attachments.yaml#/client-routes'
+  /clients/{clientId}/routes/attach:
+    $ref: 'paths/attachments.yaml#/attach-from-client'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/clients:
+    $ref: 'paths/attachments.yaml#/route-clients'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/clients/attach:
+    $ref: 'paths/attachments.yaml#/attach-from-route'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/clients/{attachmentId}/detach:
+    $ref: 'paths/attachments.yaml#/detach'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/effective-ips:
+    $ref: 'paths/attachments.yaml#/effective-ips'
+
+  # ============== APPROVALS ==============
+  /projects/{projectId}/client-approvals:
+    $ref: 'paths/approvals.yaml#/client-approvals'
+  /projects/{projectId}/client-approvals/{approvalId}:
+    $ref: 'paths/approvals.yaml#/client-approval'
+  /projects/{projectId}/client-approvals/{approvalId}/stages/{stageId}/approve:
+    $ref: 'paths/approvals.yaml#/client-approve-stage'
+  /projects/{projectId}/client-approvals/{approvalId}/stages/{stageId}/reject:
+    $ref: 'paths/approvals.yaml#/client-reject-stage'
+  /projects/{projectId}/approvals:
+    $ref: 'paths/approvals.yaml#/approvals'
+  /projects/{projectId}/approvals/{approvalId}:
+    $ref: 'paths/approvals.yaml#/approval'
+  /projects/{projectId}/approvals/{approvalId}/diff:
+    $ref: 'paths/approvals.yaml#/approval-diff'
+  /projects/{projectId}/approvals/{approvalId}/stages/{stageId}/approve:
+    $ref: 'paths/approvals.yaml#/approve-stage'
+  /projects/{projectId}/approvals/{approvalId}/stages/{stageId}/reject:
+    $ref: 'paths/approvals.yaml#/reject-stage'
+  /projects/{projectId}/approvals/{approvalId}/comments:
+    $ref: 'paths/approvals.yaml#/approval-comments'
+  /projects/{projectId}/approvals/{approvalId}/ai-review:
+    $ref: 'paths/approvals.yaml#/approval-ai-review'
+  /projects/{projectId}/approvals/{approvalId}/cancel:
+    $ref: 'paths/approvals.yaml#/approval-cancel'
+
+  # ============== APPROVAL POLICIES ==============
+  /projects/{projectId}/approval-policies:
+    $ref: 'paths/approval-policies.yaml#/approval-policies'
+  /projects/{projectId}/approval-policies/{policyId}:
+    $ref: 'paths/approval-policies.yaml#/approval-policy_{policyId}'
+
+  # ============== KUBERNETES ==============
+  /projects/{projectId}/kubernetes/namespaces:
+    $ref: 'paths/kubernetes.yaml#/namespaces'
+  /projects/{projectId}/kubernetes/gateway-classes:
+    $ref: 'paths/kubernetes.yaml#/gateway-classes'
+  /projects/{projectId}/kubernetes/namespaces/{namespace}/services:
+    $ref: 'paths/kubernetes.yaml#/services'
+
+  # ============== AUDIT ==============
+  /projects/{projectId}/audit:
+    $ref: 'paths/audit.yaml#/audit'
+  /projects/{projectId}/audit/export:
+    $ref: 'paths/audit.yaml#/audit-export'
+  /projects/{projectId}/audit/cleanup:
+    $ref: 'paths/audit.yaml#/audit-cleanup'
+
+  # ============== AI ==============
+  /ai/status:
+    $ref: 'paths/ai.yaml#/status'
+  /ai/chat:
+    $ref: 'paths/ai.yaml#/chat'
+  /projects/{projectId}/domains/{domainId}/ai/generate:
+    $ref: 'paths/ai.yaml#/generate'
+  /projects/{projectId}/domains/{domainId}/ai/review:
+    $ref: 'paths/ai.yaml#/review'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    page:
+      $ref: 'components/parameters.yaml#/page'
+    limit:
+      $ref: 'components/parameters.yaml#/limit'
+    userId:
+      $ref: 'components/parameters.yaml#/userId'
+    projectId:
+      $ref: 'components/parameters.yaml#/projectId'
+    teamId:
+      $ref: 'components/parameters.yaml#/teamId'
+    domainTemplateId:
+      $ref: 'components/parameters.yaml#/domainTemplateId'
+    domainId:
+      $ref: 'components/parameters.yaml#/domainId'
+    namespaceId:
+      $ref: 'components/parameters.yaml#/namespaceId'
+    routeId:
+      $ref: 'components/parameters.yaml#/routeId'
+    clientId:
+      $ref: 'components/parameters.yaml#/clientId'
+    ipId:
+      $ref: 'components/parameters.yaml#/ipId'
+    attachmentId:
+      $ref: 'components/parameters.yaml#/attachmentId'
+    approvalId:
+      $ref: 'components/parameters.yaml#/approvalId'
+    stageId:
+      $ref: 'components/parameters.yaml#/stageId'
+    headerId:
+      $ref: 'components/parameters.yaml#/headerId'
+    policyId:
+      $ref: 'components/parameters.yaml#/policyId'
+    tokenId:
+      $ref: 'components/parameters.yaml#/tokenId'
+  responses:
+    Unauthorized:
+      $ref: 'components/responses.yaml#/Unauthorized'
+    NotFound:
+      $ref: 'components/responses.yaml#/NotFound'
+    BadRequest:
+      $ref: 'components/responses.yaml#/BadRequest'
+    Forbidden:
+      $ref: 'components/responses.yaml#/Forbidden'
+  schemas:
+    # ============== COMMON ==============
+    Error:
+      $ref: 'schemas/common.yaml#/Error'
+    Pagination:
+      $ref: 'schemas/common.yaml#/Pagination'
+
+    # ============== AUTH ==============
+    LoginRequest:
+      $ref: 'schemas/auth.yaml#/LoginRequest'
+    LoginResponse:
+      $ref: 'schemas/auth.yaml#/LoginResponse'
+    RefreshTokenRequest:
+      $ref: 'schemas/auth.yaml#/RefreshTokenRequest'
+    ChangePasswordRequest:
+      $ref: 'schemas/auth.yaml#/ChangePasswordRequest'
+    CreateApiTokenRequest:
+      $ref: 'schemas/auth.yaml#/CreateApiTokenRequest'
+    ApiToken:
+      $ref: 'schemas/auth.yaml#/ApiToken'
+    ApiTokenCreated:
+      $ref: 'schemas/auth.yaml#/ApiTokenCreated'
+
+    # ============== USER ==============
+    User:
+      $ref: 'schemas/user.yaml#/User'
+    UserList:
+      $ref: 'schemas/user.yaml#/UserList'
+    CreateUserRequest:
+      $ref: 'schemas/user.yaml#/CreateUserRequest'
+    UpdateUserRequest:
+      $ref: 'schemas/user.yaml#/UpdateUserRequest'
+
+    # ============== TEAM ==============
+    Team:
+      $ref: 'schemas/team.yaml#/Team'
+    TeamList:
+      $ref: 'schemas/team.yaml#/TeamList'
+    CreateTeamRequest:
+      $ref: 'schemas/team.yaml#/CreateTeamRequest'
+    UpdateTeamRequest:
+      $ref: 'schemas/team.yaml#/UpdateTeamRequest'
+    AddTeamMemberRequest:
+      $ref: 'schemas/team.yaml#/AddTeamMemberRequest'
+    AddMemberByEmailRequest:
+      $ref: 'schemas/team.yaml#/AddMemberByEmailRequest'
+    AddMemberResult:
+      $ref: 'schemas/team.yaml#/AddMemberResult'
+    TeamEmailInvite:
+      $ref: 'schemas/team.yaml#/TeamEmailInvite'
+
+    # ============== PROJECT ==============
+    Project:
+      $ref: 'schemas/project.yaml#/Project'
+    ProjectList:
+      $ref: 'schemas/project.yaml#/ProjectList'
+    CreateProjectRequest:
+      $ref: 'schemas/project.yaml#/CreateProjectRequest'
+    UpdateProjectRequest:
+      $ref: 'schemas/project.yaml#/UpdateProjectRequest'
+    ConnectionTestResult:
+      $ref: 'schemas/project.yaml#/ConnectionTestResult'
+    ProjectPermissions:
+      $ref: 'schemas/project.yaml#/ProjectPermissions'
+    AddProjectAdminRequest:
+      $ref: 'schemas/project.yaml#/AddProjectAdminRequest'
+    ProjectCapabilities:
+      $ref: 'schemas/project.yaml#/ProjectCapabilities'
+
+    # ============== PROJECT TEAM ==============
+    ProjectTeamRole:
+      $ref: 'schemas/project-team.yaml#/ProjectTeamRole'
+    ProjectTeamPreset:
+      $ref: 'schemas/project-team.yaml#/ProjectTeamPreset'
+    AssignTeamRequest:
+      $ref: 'schemas/project-team.yaml#/AssignTeamRequest'
+    UpdateTeamPresetsInput:
+      $ref: 'schemas/project-team.yaml#/UpdateTeamPresetsInput'
+
+    # ============== PRESET ==============
+    PermissionPreset:
+      $ref: 'schemas/preset.yaml#/PermissionPreset'
+    CreatePresetRequest:
+      $ref: 'schemas/preset.yaml#/CreatePresetRequest'
+    UpdatePresetRequest:
+      $ref: 'schemas/preset.yaml#/UpdatePresetRequest'
+
+    # ============== DOMAIN TEMPLATE ==============
+    DomainTemplate:
+      $ref: 'schemas/domain-template.yaml#/DomainTemplate'
+    DomainTemplateList:
+      $ref: 'schemas/domain-template.yaml#/DomainTemplateList'
+    CreateDomainTemplateRequest:
+      $ref: 'schemas/domain-template.yaml#/CreateDomainTemplateRequest'
+    UpdateDomainTemplateRequest:
+      $ref: 'schemas/domain-template.yaml#/UpdateDomainTemplateRequest'
+    DomainTemplateManifests:
+      $ref: 'schemas/domain-template.yaml#/DomainTemplateManifests'
+    DomainTemplateCreatePreviewRequest:
+      $ref: 'schemas/domain-template.yaml#/DomainTemplateCreatePreviewRequest'
+    DomainTemplateCreatePreviewResult:
+      $ref: 'schemas/domain-template.yaml#/DomainTemplateCreatePreviewResult'
+    DomainTemplatePreviewChangesRequest:
+      $ref: 'schemas/domain-template.yaml#/DomainTemplatePreviewChangesRequest'
+    DomainTemplatePreviewResult:
+      $ref: 'schemas/domain-template.yaml#/DomainTemplatePreviewResult'
+
+    # ============== NAMESPACE ==============
+    ProjectNamespace:
+      $ref: 'schemas/namespace.yaml#/ProjectNamespace'
+    CreateProjectNamespaceRequest:
+      $ref: 'schemas/namespace.yaml#/CreateProjectNamespaceRequest'
+
+    # ============== DOMAIN ==============
+    Domain:
+      $ref: 'schemas/domain.yaml#/Domain'
+    DomainList:
+      $ref: 'schemas/domain.yaml#/DomainList'
+    CreateDomainRequest:
+      $ref: 'schemas/domain.yaml#/CreateDomainRequest'
+    UpdateDomainRequest:
+      $ref: 'schemas/domain.yaml#/UpdateDomainRequest'
+    DomainSettings:
+      $ref: 'schemas/domain.yaml#/DomainSettings'
+    DomainSettingsConfig:
+      $ref: 'schemas/domain.yaml#/DomainSettingsConfig'
+    ClientConnectionConfig:
+      $ref: 'schemas/domain.yaml#/ClientConnectionConfig'
+    TCPKeepaliveConfig:
+      $ref: 'schemas/domain.yaml#/TCPKeepaliveConfig'
+    ClientIPDetectionConfig:
+      $ref: 'schemas/domain.yaml#/ClientIPDetectionConfig'
+    XForwardedForConfig:
+      $ref: 'schemas/domain.yaml#/XForwardedForConfig'
+    CustomHeaderConfig:
+      $ref: 'schemas/domain.yaml#/CustomHeaderConfig'
+    UpdateDomainSettingsRequest:
+      $ref: 'schemas/domain.yaml#/UpdateDomainSettingsRequest'
+    ProxyProtocolConfig:
+      $ref: 'schemas/domain.yaml#/ProxyProtocolConfig'
+    ConnectionLimitConfig:
+      $ref: 'schemas/domain.yaml#/ConnectionLimitConfig'
+    DomainTimeoutConfig:
+      $ref: 'schemas/domain.yaml#/DomainTimeoutConfig'
+    HTTPDomainTimeoutConfig:
+      $ref: 'schemas/domain.yaml#/HTTPDomainTimeoutConfig'
+    HTTP3Config:
+      $ref: 'schemas/domain.yaml#/HTTP3Config'
+    TLSSettingsConfig:
+      $ref: 'schemas/domain.yaml#/TLSSettingsConfig'
+    DomainMTLSConfig:
+      $ref: 'schemas/domain.yaml#/DomainMTLSConfig'
+    MTLSCACert:
+      $ref: 'schemas/domain.yaml#/MTLSCACert'
+    MTLSSANEntry:
+      $ref: 'schemas/domain.yaml#/MTLSSANEntry'
+    AddDomainMTLSCARequest:
+      $ref: 'schemas/domain.yaml#/AddDomainMTLSCARequest'
+    DomainYAMLs:
+      $ref: 'schemas/domain.yaml#/DomainYAMLs'
+    DomainSettingsPreviewInput:
+      $ref: 'schemas/domain.yaml#/DomainSettingsPreviewInput'
+    DomainSettingsPreviewResult:
+      $ref: 'schemas/domain.yaml#/DomainSettingsPreviewResult'
+    DomainCreatePreviewInput:
+      $ref: 'schemas/domain.yaml#/DomainCreatePreviewInput'
+    DomainCreatePreviewResult:
+      $ref: 'schemas/domain.yaml#/DomainCreatePreviewResult'
+
+    # ============== ROUTE ==============
+    Route:
+      $ref: 'schemas/route.yaml#/Route'
+    RouteList:
+      $ref: 'schemas/route.yaml#/RouteList'
+    RouteConfig:
+      $ref: 'schemas/route.yaml#/RouteConfig'
+    GRPCMethodMatch:
+      $ref: 'schemas/route.yaml#/GRPCMethodMatch'
+    RouteMatch:
+      $ref: 'schemas/route.yaml#/RouteMatch'
+    RouteBackend:
+      $ref: 'schemas/route.yaml#/RouteBackend'
+    MirrorBackend:
+      $ref: 'schemas/route.yaml#/MirrorBackend'
+    BackendTLSConfig:
+      $ref: 'schemas/route.yaml#/BackendTLSConfig'
+    SecretRef:
+      $ref: 'schemas/route.yaml#/SecretRef'
+    CertificateRef:
+      $ref: 'schemas/route.yaml#/CertificateRef'
+    RedirectConfig:
+      $ref: 'schemas/route.yaml#/RedirectConfig'
+    DirectResponseConfig:
+      $ref: 'schemas/route.yaml#/DirectResponseConfig'
+    DirectResponseBody:
+      $ref: 'schemas/route.yaml#/DirectResponseBody'
+    HeaderModifier:
+      $ref: 'schemas/route.yaml#/HeaderModifier'
+    HeaderValue:
+      $ref: 'schemas/route.yaml#/HeaderValue'
+    URLRewrite:
+      $ref: 'schemas/route.yaml#/URLRewrite'
+    PathRewrite:
+      $ref: 'schemas/route.yaml#/PathRewrite'
+    CreateRouteRequest:
+      $ref: 'schemas/route.yaml#/CreateRouteRequest'
+    UpdateRouteRequest:
+      $ref: 'schemas/route.yaml#/UpdateRouteRequest'
+    SecurityPolicyInput:
+      $ref: 'schemas/route.yaml#/SecurityPolicyInput'
+    SecurityMode:
+      $ref: 'schemas/route.yaml#/SecurityMode'
+    RouteYAMLsResponse:
+      $ref: 'schemas/route.yaml#/RouteYAMLsResponse'
+    PreviewCreateResponse:
+      $ref: 'schemas/route.yaml#/PreviewCreateResponse'
+    PreviewUpdateResponse:
+      $ref: 'schemas/route.yaml#/PreviewUpdateResponse'
+    PreviewDeleteResponse:
+      $ref: 'schemas/route.yaml#/PreviewDeleteResponse'
+
+    # ============== SECURITY ==============
+    SecurityPolicy:
+      $ref: 'schemas/security.yaml#/SecurityPolicy'
+    SecurityPolicyConfig:
+      $ref: 'schemas/security.yaml#/SecurityPolicyConfig'
+    IPAllowlistEntry:
+      $ref: 'schemas/security.yaml#/IPAllowlistEntry'
+    AuthorizationConfig:
+      $ref: 'schemas/security.yaml#/AuthorizationConfig'
+    AuthorizationRule:
+      $ref: 'schemas/security.yaml#/AuthorizationRule'
+    AuthorizationPrincipal:
+      $ref: 'schemas/security.yaml#/AuthorizationPrincipal'
+    CORSConfig:
+      $ref: 'schemas/security.yaml#/CORSConfig'
+    APIKeyAuthStoredConfig:
+      $ref: 'schemas/security.yaml#/APIKeyAuthStoredConfig'
+    BasicAuthConfig:
+      $ref: 'schemas/security.yaml#/BasicAuthConfig'
+    JWTStoredConfig:
+      $ref: 'schemas/security.yaml#/JWTStoredConfig'
+    OIDCStoredConfig:
+      $ref: 'schemas/security.yaml#/OIDCStoredConfig'
+    OIDCConfig:
+      $ref: 'schemas/security.yaml#/OIDCConfig'
+    JWTPrincipal:
+      $ref: 'schemas/security.yaml#/JWTPrincipal'
+    JWTClaimRule:
+      $ref: 'schemas/security.yaml#/JWTClaimRule'
+    ExtAuthConfig:
+      $ref: 'schemas/security.yaml#/ExtAuthConfig'
+    ExtAuthHTTPConfig:
+      $ref: 'schemas/security.yaml#/ExtAuthHTTPConfig'
+    ExtAuthGRPCConfig:
+      $ref: 'schemas/security.yaml#/ExtAuthGRPCConfig'
+    ExtAuthBackendRef:
+      $ref: 'schemas/security.yaml#/ExtAuthBackendRef'
+    ExtAuthRequestBody:
+      $ref: 'schemas/security.yaml#/ExtAuthRequestBody'
+
+    # ============== BTP ==============
+    BackendTrafficPolicy:
+      $ref: 'schemas/btp.yaml#/BackendTrafficPolicy'
+    BackendTrafficPolicyConfig:
+      $ref: 'schemas/btp.yaml#/BackendTrafficPolicyConfig'
+    BackendTrafficPolicyInput:
+      $ref: 'schemas/btp.yaml#/BackendTrafficPolicyInput'
+    BTPTimeoutConfig:
+      $ref: 'schemas/btp.yaml#/BTPTimeoutConfig'
+    BTPTCPTimeoutConfig:
+      $ref: 'schemas/btp.yaml#/BTPTCPTimeoutConfig'
+    BTPHTTPTimeoutConfig:
+      $ref: 'schemas/btp.yaml#/BTPHTTPTimeoutConfig'
+    CompressionConfig:
+      $ref: 'schemas/btp.yaml#/CompressionConfig'
+    RetryConfig:
+      $ref: 'schemas/btp.yaml#/RetryConfig'
+    RetryOn:
+      $ref: 'schemas/btp.yaml#/RetryOn'
+    PerRetryPolicy:
+      $ref: 'schemas/btp.yaml#/PerRetryPolicy'
+    BackOffPolicy:
+      $ref: 'schemas/btp.yaml#/BackOffPolicy'
+    LoadBalancerConfig:
+      $ref: 'schemas/btp.yaml#/LoadBalancerConfig'
+    ConsistentHashConfig:
+      $ref: 'schemas/btp.yaml#/ConsistentHashConfig'
+    ConsistentHashHeader:
+      $ref: 'schemas/btp.yaml#/ConsistentHashHeader'
+    ConsistentHashCookie:
+      $ref: 'schemas/btp.yaml#/ConsistentHashCookie'
+    CircuitBreakerConfig:
+      $ref: 'schemas/btp.yaml#/CircuitBreakerConfig'
+    HealthCheckConfig:
+      $ref: 'schemas/btp.yaml#/HealthCheckConfig'
+    ActiveHealthCheckConfig:
+      $ref: 'schemas/btp.yaml#/ActiveHealthCheckConfig'
+    HTTPActiveHealthCheckConfig:
+      $ref: 'schemas/btp.yaml#/HTTPActiveHealthCheckConfig'
+    TCPActiveHealthCheckConfig:
+      $ref: 'schemas/btp.yaml#/TCPActiveHealthCheckConfig'
+    GRPCActiveHealthCheckConfig:
+      $ref: 'schemas/btp.yaml#/GRPCActiveHealthCheckConfig'
+    HealthCheckPayload:
+      $ref: 'schemas/btp.yaml#/HealthCheckPayload'
+    PassiveHealthCheckConfig:
+      $ref: 'schemas/btp.yaml#/PassiveHealthCheckConfig'
+    FaultInjectionConfig:
+      $ref: 'schemas/btp.yaml#/FaultInjectionConfig'
+    FaultInjectionDelayConfig:
+      $ref: 'schemas/btp.yaml#/FaultInjectionDelayConfig'
+    FaultInjectionAbortConfig:
+      $ref: 'schemas/btp.yaml#/FaultInjectionAbortConfig'
+    RateLimitConfig:
+      $ref: 'schemas/btp.yaml#/RateLimitConfig'
+    GlobalRateLimitConfig:
+      $ref: 'schemas/btp.yaml#/GlobalRateLimitConfig'
+    RateLimitRule:
+      $ref: 'schemas/btp.yaml#/RateLimitRule'
+    RateLimitValue:
+      $ref: 'schemas/btp.yaml#/RateLimitValue'
+    RateLimitSelector:
+      $ref: 'schemas/btp.yaml#/RateLimitSelector'
+    RateLimitHeaderMatch:
+      $ref: 'schemas/btp.yaml#/RateLimitHeaderMatch'
+    RateLimitSourceCIDR:
+      $ref: 'schemas/btp.yaml#/RateLimitSourceCIDR'
+    RateLimitPathMatch:
+      $ref: 'schemas/btp.yaml#/RateLimitPathMatch'
+    RequestBufferConfig:
+      $ref: 'schemas/btp.yaml#/RequestBufferConfig'
+    ResponseOverrideRule:
+      $ref: 'schemas/btp.yaml#/ResponseOverrideRule'
+    ResponseOverrideMatch:
+      $ref: 'schemas/btp.yaml#/ResponseOverrideMatch'
+    StatusCodeMatch:
+      $ref: 'schemas/btp.yaml#/StatusCodeMatch'
+    StatusCodeRange:
+      $ref: 'schemas/btp.yaml#/StatusCodeRange'
+    ResponseOverrideResponse:
+      $ref: 'schemas/btp.yaml#/ResponseOverrideResponse'
+    ResponseOverrideBody:
+      $ref: 'schemas/btp.yaml#/ResponseOverrideBody'
+    ValueRef:
+      $ref: 'schemas/btp.yaml#/ValueRef'
+
+    # ============== CLIENT ==============
+    Client:
+      $ref: 'schemas/client.yaml#/Client'
+    ClientList:
+      $ref: 'schemas/client.yaml#/ClientList'
+    CreateClientRequest:
+      $ref: 'schemas/client.yaml#/CreateClientRequest'
+    UpdateClientRequest:
+      $ref: 'schemas/client.yaml#/UpdateClientRequest'
+    ClientIPAddress:
+      $ref: 'schemas/client.yaml#/ClientIPAddress'
+    CreateClientIPRequest:
+      $ref: 'schemas/client.yaml#/CreateClientIPRequest'
+    GenerateAPIKeyRequest:
+      $ref: 'schemas/client.yaml#/GenerateAPIKeyRequest'
+    GenerateAPIKeyResponse:
+      $ref: 'schemas/client.yaml#/GenerateAPIKeyResponse'
+    JWTRequiredClaim:
+      $ref: 'schemas/client.yaml#/JWTRequiredClaim'
+    JWTClaimToHeader:
+      $ref: 'schemas/client.yaml#/JWTClaimToHeader'
+    ConfigureJWTRequest:
+      $ref: 'schemas/client.yaml#/ConfigureJWTRequest'
+    ConfigureJWTResponse:
+      $ref: 'schemas/client.yaml#/ConfigureJWTResponse'
+    ClientHeader:
+      $ref: 'schemas/client.yaml#/ClientHeader'
+    CreateClientHeaderRequest:
+      $ref: 'schemas/client.yaml#/CreateClientHeaderRequest'
+    SetAllowedMethodsRequest:
+      $ref: 'schemas/client.yaml#/SetAllowedMethodsRequest'
+    UpdateClientMTLSRequest:
+      $ref: 'schemas/client.yaml#/UpdateClientMTLSRequest'
+
+    # ============== ATTACHMENT ==============
+    ClientRouteAttachment:
+      $ref: 'schemas/attachment.yaml#/ClientRouteAttachment'
+    AttachFromRouteRequest:
+      $ref: 'schemas/attachment.yaml#/AttachFromRouteRequest'
+    AttachFromClientRequest:
+      $ref: 'schemas/attachment.yaml#/AttachFromClientRequest'
+    EffectiveIPEntry:
+      $ref: 'schemas/attachment.yaml#/EffectiveIPEntry'
+
+    # ============== APPROVAL ==============
+    Approval:
+      $ref: 'schemas/approval.yaml#/Approval'
+    ApprovalStage:
+      $ref: 'schemas/approval.yaml#/ApprovalStage'
+    ApprovalList:
+      $ref: 'schemas/approval.yaml#/ApprovalList'
+    RejectRequest:
+      $ref: 'schemas/approval.yaml#/RejectRequest'
+    ApprovalDiffResponse:
+      $ref: 'schemas/approval.yaml#/ApprovalDiffResponse'
+
+    # ============== APPROVAL POLICY ==============
+    ApprovalPolicy:
+      $ref: 'schemas/approval-policy.yaml#/ApprovalPolicy'
+    PolicyStageTemplate:
+      $ref: 'schemas/approval-policy.yaml#/PolicyStageTemplate'
+    ApprovalPolicyInput:
+      $ref: 'schemas/approval-policy.yaml#/ApprovalPolicyInput'
+    PolicyStageInput:
+      $ref: 'schemas/approval-policy.yaml#/PolicyStageInput'
+
+    # ============== KUBERNETES ==============
+    K8sNamespace:
+      $ref: 'schemas/kubernetes.yaml#/K8sNamespace'
+    K8sService:
+      $ref: 'schemas/kubernetes.yaml#/K8sService'
+
+    # ============== AUDIT ==============
+    AuditLog:
+      $ref: 'schemas/audit.yaml#/AuditLog'
+    AuditLogList:
+      $ref: 'schemas/audit.yaml#/AuditLogList'
+    AuditCleanupRequest:
+      $ref: 'schemas/audit.yaml#/AuditCleanupRequest'
+    AuditCleanupResponse:
+      $ref: 'schemas/audit.yaml#/AuditCleanupResponse'
+
+    # ============== AI ==============
+    AIStatus:
+      $ref: 'schemas/ai.yaml#/AIStatus'
+    AIGenerateRequest:
+      $ref: 'schemas/ai.yaml#/AIGenerateRequest'
+    AIYamlSet:
+      $ref: 'schemas/ai.yaml#/AIYamlSet'
+    AIChatRequest:
+      $ref: 'schemas/ai.yaml#/AIChatRequest'
+    AIChatContext:
+      $ref: 'schemas/ai.yaml#/AIChatContext'
+    AIChatMessage:
+      $ref: 'schemas/ai.yaml#/AIChatMessage'
+    AIReviewRequest:
+      $ref: 'schemas/ai.yaml#/AIReviewRequest'
+    AIReviewResult:
+      $ref: 'schemas/ai.yaml#/AIReviewResult'
+    AIReviewNote:
+      $ref: 'schemas/ai.yaml#/AIReviewNote'
+
+    # ============== WAF ==============
+    WafPolicyConfig:
+      $ref: 'schemas/waf.yaml#/WafPolicyConfig'
+    WafPolicy:
+      $ref: 'schemas/waf.yaml#/WafPolicy'
+
+    # ============== EXTENSION ==============
+    EnvoyExtensionPolicyInput:
+      $ref: 'schemas/extension.yaml#/EnvoyExtensionPolicyInput'
+    LuaExtensionConfig:
+      $ref: 'schemas/extension.yaml#/LuaExtensionConfig'
+    WasmExtensionConfig:
+      $ref: 'schemas/extension.yaml#/WasmExtensionConfig'
+    WasmCodeSource:
+      $ref: 'schemas/extension.yaml#/WasmCodeSource'
+    WasmHTTPSource:
+      $ref: 'schemas/extension.yaml#/WasmHTTPSource'
+    WasmImageSource:
+      $ref: 'schemas/extension.yaml#/WasmImageSource'
+
+    # ============== SSO ==============
+    SSOPublicConfig:
+      $ref: 'schemas/sso.yaml#/SSOPublicConfig'
+    SSOConfig:
+      $ref: 'schemas/sso.yaml#/SSOConfig'
+    SSOConfigInput:
+      $ref: 'schemas/sso.yaml#/SSOConfigInput'
+
+    # ============== NOTIFICATION ==============
+    Notification:
+      $ref: 'schemas/notification.yaml#/Notification'
+    NotificationList:
+      $ref: 'schemas/notification.yaml#/NotificationList'
+
+    # ============== ROUTE VERSION ==============
+    RouteVersion:
+      $ref: 'schemas/route-version.yaml#/RouteVersion'
+    RouteVersionList:
+      $ref: 'schemas/route-version.yaml#/RouteVersionList'
+
+    # ============== COMMENT ==============
+    ApprovalComment:
+      $ref: 'schemas/comment.yaml#/ApprovalComment'
+    CreateCommentRequest:
+      $ref: 'schemas/comment.yaml#/CreateCommentRequest'
+    CommentList:
+      $ref: 'schemas/comment.yaml#/CommentList'

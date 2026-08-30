@@ -1,0 +1,26 @@
+K8sNamespace:
+  type: object
+  properties:
+    name:
+      type: string
+    status:
+      type: string
+
+K8sService:
+  type: object
+  properties:
+    name:
+      type: string
+    namespace:
+      type: string
+    ports:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          port:
+            type: integer
+          protocol:
+            type: string

@@ -1,0 +1,65 @@
+ProjectTeamRole:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    teamId:
+      type: string
+      format: uuid
+    presets:
+      type: array
+      items:
+        $ref: '#/ProjectTeamPreset'
+    effectivePermissions:
+      type: array
+      items:
+        type: string
+    team:
+      $ref: './team.yaml#/Team'
+    createdAt:
+      type: string
+      format: date-time
+
+ProjectTeamPreset:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectTeamRoleId:
+      type: string
+      format: uuid
+    presetId:
+      type: string
+      format: uuid
+    preset:
+      $ref: './preset.yaml#/PermissionPreset'
+    createdAt:
+      type: string
+      format: date-time
+
+AssignTeamRequest:
+  type: object
+  required: [teamId]
+  properties:
+    teamId:
+      type: string
+      format: uuid
+    presetIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+
+UpdateTeamPresetsInput:
+  type: object
+  properties:
+    presetIds:
+      type: array
+      items:
+        type: string
+        format: uuid

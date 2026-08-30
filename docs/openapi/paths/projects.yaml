@@ -1,0 +1,232 @@
+projects:
+  get:
+    tags: [Projects]
+    summary: List projects
+    operationId: listProjects
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+    responses:
+      '200':
+        description: List of projects
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project.yaml#/ProjectList'
+
+  post:
+    tags: [Projects]
+    summary: Create new project (Owner only)
+    operationId: createProject
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/project.yaml#/CreateProjectRequest'
+    responses:
+      '201':
+        description: Project created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project.yaml#/Project'
+
+projects_{projectId}:
+  get:
+    tags: [Projects]
+    summary: Get project by ID
+    operationId: getProject
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: Project details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project.yaml#/Project'
+
+  patch:
+    tags: [Projects]
+    summary: Update project
+    operationId: updateProject
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/project.yaml#/UpdateProjectRequest'
+    responses:
+      '200':
+        description: Project updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project.yaml#/Project'
+
+  delete:
+    tags: [Projects]
+    summary: Delete project
+    operationId: deleteProject
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '204':
+        description: Project deleted
+
+test-connection:
+  post:
+    tags: [Projects]
+    summary: Test Kubernetes connection
+    operationId: testProjectConnection
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: Connection test result
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project.yaml#/ConnectionTestResult'
+
+capabilities:
+  get:
+    tags: [Projects]
+    summary: Get project capabilities
+    description: Returns available features for the project based on Kubernetes cluster configuration
+    operationId: getProjectCapabilities
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: Project capabilities
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project.yaml#/ProjectCapabilities'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+permissions:
+  get:
+    tags: [Projects]
+    summary: Get current user permissions for project
+    operationId: getProjectPermissions
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: User permissions
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project.yaml#/ProjectPermissions'
+
+admins:
+  get:
+    tags: [Projects]
+    summary: List project admins
+    operationId: listProjectAdmins
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: List of project admins
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/user.yaml#/User'
+
+  post:
+    tags: [Projects]
+    summary: Add admin to project
+    operationId: addProjectAdmin
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/project.yaml#/AddProjectAdminRequest'
+    responses:
+      '201':
+        description: Admin added
+
+admins_{userId}:
+  delete:
+    tags: [Projects]
+    summary: Remove admin from project
+    operationId: removeProjectAdmin
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/userId'
+    responses:
+      '204':
+        description: Admin removed
+
+members:
+  get:
+    tags: [Projects]
+    summary: List project members
+    description: Returns all users who have access to the project (admins, team members, etc.)
+    operationId: listProjectMembers
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: List of project members
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/user.yaml#/User'
+
+my-teams:
+  get:
+    tags: [Projects]
+    summary: List current user's teams in project
+    operationId: listMyTeamsInProject
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: List of user's teams in the project
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/project-team.yaml#/ProjectTeamRole'

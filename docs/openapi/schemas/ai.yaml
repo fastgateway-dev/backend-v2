@@ -1,0 +1,135 @@
+AIStatus:
+  type: object
+  properties:
+    enabled:
+      type: boolean
+    provider:
+      type: string
+      enum: [anthropic, openai]
+
+AIGenerateRequest:
+  type: object
+  required: [mode, input]
+  properties:
+    mode:
+      type: string
+      enum: [natural_language, manifest_import]
+    input:
+      type: string
+      description: User prompt or YAML manifest
+
+AIYamlSet:
+  type: object
+  description: Set of YAML strings for different resource types
+  properties:
+    httpRoute:
+      type: string
+      description: HTTPRoute or GRPCRoute YAML
+    securityPolicy:
+      type: string
+      description: SecurityPolicy YAML
+    backendTrafficPolicy:
+      type: string
+      description: BackendTrafficPolicy YAML
+    envoyExtensionPolicy:
+      type: string
+      description: EnvoyExtensionPolicy YAML
+    backend:
+      type: string
+      description: Backend CRD YAML
+
+AIChatRequest:
+  type: object
+  required: [message]
+  properties:
+    message:
+      type: string
+      maxLength: 10000
+      description: User message to the AI assistant
+    context:
+      $ref: '#/AIChatContext'
+    history:
+      type: array
+      maxItems: 50
+      items:
+        $ref: '#/AIChatMessage'
+      description: Previous conversation messages
+
+AIChatContext:
+  type: object
+  properties:
+    type:
+      type: string
+      enum: [route, domain]
+      description: Type of entity the user is currently configuring
+    route:
+      type: object
+      description: Current route configuration context
+    domain:
+      type: object
+      description: Current domain configuration context
+
+AIChatMessage:
+  type: object
+  properties:
+    role:
+      type: string
+      enum: [user, assistant]
+    content:
+      type: string
+
+AIReviewRequest:
+  type: object
+  required: [action]
+  properties:
+    action:
+      type: string
+      enum: [create, update, delete]
+      description: Type of route change being reviewed
+    description:
+      type: string
+      description: Optional human description of the changes
+    proposedYaml:
+      $ref: '#/AIYamlSet'
+    currentYaml:
+      $ref: '#/AIYamlSet'
+
+AIReviewResult:
+  type: object
+  required: [summary]
+  properties:
+    summary:
+      type: string
+      description: Plain language summary of the changes
+    risks:
+      type: array
+      items:
+        $ref: '#/AIReviewNote'
+      description: Potential risks and issues
+    securityNotes:
+      type: array
+      items:
+        $ref: '#/AIReviewNote'
+      description: Security-related observations
+    suggestions:
+      type: array
+      items:
+        type: string
+      description: Actionable improvement suggestions
+    configHighlights:
+      type: array
+      items:
+        type: string
+      description: Key facts about the configuration
+
+AIReviewNote:
+  type: object
+  required: [severity, message]
+  properties:
+    severity:
+      type: string
+      enum: [warning, info]
+      description: Severity level of the note
+    message:
+      type: string
+      description: Description of the risk or observation

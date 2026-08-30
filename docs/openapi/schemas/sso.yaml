@@ -1,0 +1,79 @@
+SSOPublicConfig:
+  type: object
+  properties:
+    enabled:
+      type: boolean
+    providerName:
+      type: string
+    forceSSO:
+      type: boolean
+    allowedDomains:
+      type: array
+      items:
+        type: string
+
+SSOConfig:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    enabled:
+      type: boolean
+    providerName:
+      type: string
+    issuerUrl:
+      type: string
+    clientId:
+      type: string
+    scopes:
+      type: array
+      items:
+        type: string
+    allowedDomains:
+      type: array
+      items:
+        type: string
+    autoRegister:
+      type: boolean
+    forceSSO:
+      type: boolean
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+SSOConfigInput:
+  type: object
+  required: [providerName, issuerUrl, clientId, clientSecret]
+  properties:
+    providerName:
+      type: string
+      description: Identity provider name (e.g., google, okta)
+    issuerUrl:
+      type: string
+      description: OIDC issuer URL
+    clientId:
+      type: string
+      description: OAuth2 client ID
+    clientSecret:
+      type: string
+      description: OAuth2 client secret
+    scopes:
+      type: array
+      items:
+        type: string
+      description: OAuth2 scopes (default - openid, email, profile)
+    allowedDomains:
+      type: array
+      items:
+        type: string
+      description: Restrict SSO to these email domains
+    autoRegister:
+      type: boolean
+      description: Auto-create users on first SSO login
+    forceSSO:
+      type: boolean
+      description: Force SSO for non-owner users

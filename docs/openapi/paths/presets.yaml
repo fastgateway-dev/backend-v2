@@ -1,0 +1,109 @@
+presets:
+  get:
+    tags: [Permission Presets]
+    summary: List permission presets for project
+    operationId: listPresets
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: List of permission presets
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/preset.yaml#/PermissionPreset'
+
+  post:
+    tags: [Permission Presets]
+    summary: Create permission preset
+    operationId: createPreset
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/preset.yaml#/CreatePresetRequest'
+    responses:
+      '201':
+        description: Preset created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/preset.yaml#/PermissionPreset'
+
+presets_{presetId}:
+  get:
+    tags: [Permission Presets]
+    summary: Get permission preset by ID
+    operationId: getPreset
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - name: presetId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      '200':
+        description: Preset details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/preset.yaml#/PermissionPreset'
+
+  patch:
+    tags: [Permission Presets]
+    summary: Update permission preset
+    operationId: updatePreset
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - name: presetId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/preset.yaml#/UpdatePresetRequest'
+    responses:
+      '200':
+        description: Preset updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/preset.yaml#/PermissionPreset'
+
+  delete:
+    tags: [Permission Presets]
+    summary: Delete permission preset
+    operationId: deletePreset
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - name: presetId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    responses:
+      '204':
+        description: Preset deleted

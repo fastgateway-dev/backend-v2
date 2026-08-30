@@ -1,0 +1,1 @@
+ALTER TABLE domains ADD COLUMN tls_secret_namespace VARCHAR(255) DEFAULT NULL;

@@ -1,0 +1,55 @@
+WafPolicyConfig:
+  type: object
+  required: [mode]
+  description: WAF (Web Application Firewall) configuration using coraza-proxy-wasm
+  properties:
+    mode:
+      type: string
+      enum: [block, detect]
+      description: WAF mode - block malicious requests or detect-only (log)
+    rulesets:
+      type: array
+      items:
+        type: string
+      description: List of enabled rulesets (e.g., owasp-crs)
+    anomalyThreshold:
+      type: integer
+      minimum: 1
+      description: Anomaly score threshold before blocking (default 5)
+    paranoiaLevel:
+      type: integer
+      minimum: 1
+      maximum: 4
+      description: OWASP CRS paranoia level 1-4 (default 1)
+    disabledRuleIDs:
+      type: array
+      items:
+        type: integer
+      description: Specific rule IDs to disable
+    customDirectives:
+      type: array
+      items:
+        type: string
+      description: Raw SecRule directives (advanced escape hatch)
+
+WafPolicy:
+  type: object
+  description: WAF policy for a route
+  properties:
+    id:
+      type: string
+      format: uuid
+    routeId:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    config:
+      $ref: '#/WafPolicyConfig'
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time

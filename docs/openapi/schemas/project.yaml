@@ -1,0 +1,140 @@
+Project:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    description:
+      type: string
+    k8sApiUrl:
+      type: string
+    isConnected:
+      type: boolean
+    lastConnectedAt:
+      type: string
+      format: date-time
+    domainCount:
+      type: integer
+    routeCount:
+      type: integer
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+ProjectList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/Project'
+    pagination:
+      $ref: './common.yaml#/Pagination'
+
+CreateProjectRequest:
+  type: object
+  required: [name]
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+    connectionType:
+      type: string
+      enum: [in-cluster, kubeconfig, api-token]
+      description: Kubernetes connection type
+    kubeconfig:
+      type: string
+      description: Kubeconfig content (for kubeconfig connection type)
+    k8sApiUrl:
+      type: string
+      description: Kubernetes API URL (for api-token connection type)
+    k8sToken:
+      type: string
+      description: Kubernetes bearer token (for api-token connection type)
+    tlsVerification:
+      type: string
+      enum: [system, custom, skip]
+      description: TLS verification mode for K8s API
+    k8sCaCert:
+      type: string
+      description: Custom CA certificate PEM (for tlsVerification=custom)
+
+UpdateProjectRequest:
+  type: object
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+    kubeconfig:
+      type: string
+      description: Kubeconfig content (for kubeconfig connection type)
+    k8sApiUrl:
+      type: string
+      description: Kubernetes API URL (for api-token connection type)
+    k8sToken:
+      type: string
+      description: Kubernetes bearer token (for api-token connection type)
+    tlsVerification:
+      type: string
+      enum: [system, custom, skip]
+      description: TLS verification mode for K8s API
+    k8sCaCert:
+      type: string
+      description: Custom CA certificate PEM (for tlsVerification=custom)
+
+ConnectionTestResult:
+  type: object
+  properties:
+    success:
+      type: boolean
+    message:
+      type: string
+    kubernetesVersion:
+      type: string
+
+ProjectPermissions:
+  type: object
+  properties:
+    canManageDomainTemplates:
+      type: boolean
+    canManageDomains:
+      type: boolean
+    canManageTeams:
+      type: boolean
+    canCreateRoutes:
+      type: boolean
+    canApproveRoutes:
+      type: boolean
+    canViewAudit:
+      type: boolean
+    permissions:
+      type: array
+      items:
+        type: string
+    isOwner:
+      type: boolean
+    isProjectAdmin:
+      type: boolean
+
+AddProjectAdminRequest:
+  type: object
+  required: [userId]
+  properties:
+    userId:
+      type: string
+      format: uuid
+
+ProjectCapabilities:
+  type: object
+  description: Available capabilities for a project based on cluster configuration
+  properties:
+    rateLimitAvailable:
+      type: boolean
+      description: Whether rate limiting is available (requires Redis backend in Envoy Gateway)

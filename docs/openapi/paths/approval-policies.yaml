@@ -1,0 +1,121 @@
+approval-policies:
+  get:
+    tags: [Approval Policies]
+    summary: List approval policies for a project (Admin only)
+    operationId: listApprovalPolicies
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: List of approval policies
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/approval-policy.yaml#/ApprovalPolicy'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+  post:
+    tags: [Approval Policies]
+    summary: Create approval policy (Admin only)
+    description: |
+      Creates a custom approval policy for a project. Policies define the
+      approval stages required for specific entity types (route, client_attachment)
+      and actions.
+    operationId: createApprovalPolicy
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/approval-policy.yaml#/ApprovalPolicyInput'
+    responses:
+      '201':
+        description: Policy created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval-policy.yaml#/ApprovalPolicy'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+approval-policy_{policyId}:
+  get:
+    tags: [Approval Policies]
+    summary: Get approval policy by ID (Admin only)
+    operationId: getApprovalPolicy
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/policyId'
+    responses:
+      '200':
+        description: Approval policy details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval-policy.yaml#/ApprovalPolicy'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+  put:
+    tags: [Approval Policies]
+    summary: Update approval policy (Admin only)
+    operationId: updateApprovalPolicy
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/policyId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/approval-policy.yaml#/ApprovalPolicyInput'
+    responses:
+      '200':
+        description: Policy updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/approval-policy.yaml#/ApprovalPolicy'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+  delete:
+    tags: [Approval Policies]
+    summary: Delete approval policy (Admin only)
+    operationId: deleteApprovalPolicy
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/policyId'
+    responses:
+      '200':
+        description: Policy deleted
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'

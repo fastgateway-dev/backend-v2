@@ -1,0 +1,254 @@
+domains:
+  get:
+    tags: [Domains]
+    summary: List domains in project
+    operationId: listDomains
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+    responses:
+      '200':
+        description: List of domains
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/DomainList'
+
+  post:
+    tags: [Domains]
+    summary: Create domain (Admin only)
+    operationId: createDomain
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/domain.yaml#/CreateDomainRequest'
+    responses:
+      '201':
+        description: Domain created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/Domain'
+
+domains_{domainId}:
+  get:
+    tags: [Domains]
+    summary: Get domain by ID
+    operationId: getDomain
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    responses:
+      '200':
+        description: Domain details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/Domain'
+
+  patch:
+    tags: [Domains]
+    summary: Update domain (Admin only)
+    operationId: updateDomain
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/domain.yaml#/UpdateDomainRequest'
+    responses:
+      '200':
+        description: Domain updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/Domain'
+
+  delete:
+    tags: [Domains]
+    summary: Delete domain (Admin only)
+    operationId: deleteDomain
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    responses:
+      '204':
+        description: Domain deleted
+
+domain-settings:
+  get:
+    tags: [Domains]
+    summary: Get domain settings
+    description: Returns the domain-level settings configuration. This is a gateway-agnostic API.
+    operationId: getDomainSettings
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    responses:
+      '200':
+        description: Domain settings (null if not configured)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/DomainSettings'
+
+  put:
+    tags: [Domains]
+    summary: Update domain settings (Admin only)
+    description: |
+      Updates the domain-level settings. This is a gateway-agnostic API that gets translated
+      to the appropriate gateway-specific resources (e.g., Envoy Gateway ClientTrafficPolicy).
+      Requires Owner or Project Admin role.
+    operationId: updateDomainSettings
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/domain.yaml#/UpdateDomainSettingsRequest'
+    responses:
+      '200':
+        description: Domain settings updated (null if all settings disabled)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/DomainSettings'
+      '403':
+        description: Access denied - only project admins can manage domain settings
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+domain-mtls-ca:
+  post:
+    tags: [Domains]
+    summary: Add CA certificate for domain mTLS
+    operationId: addDomainMTLSCA
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/domain.yaml#/AddDomainMTLSCARequest'
+    responses:
+      '201':
+        description: CA certificate added
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+domain-mtls-ca_{caId}:
+  delete:
+    tags: [Domains]
+    summary: Remove CA certificate from domain mTLS
+    operationId: removeDomainMTLSCA
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - name: caId
+        in: path
+        required: true
+        schema:
+          type: string
+    responses:
+      '204':
+        description: CA certificate removed
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+domain-yamls:
+  get:
+    tags: [Domains]
+    summary: Get domain Kubernetes YAMLs
+    operationId: getDomainYamls
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    responses:
+      '200':
+        description: Domain YAML manifests
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/DomainYAMLs'
+
+domain-settings-preview:
+  post:
+    tags: [Domains]
+    summary: Preview domain settings changes
+    operationId: previewDomainSettingsChanges
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/domain.yaml#/DomainSettingsPreviewInput'
+    responses:
+      '200':
+        description: Settings change preview
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/DomainSettingsPreviewResult'
+
+domain-preview-create:
+  post:
+    tags: [Domains]
+    summary: Preview domain creation
+    operationId: previewDomainCreate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/domain.yaml#/DomainCreatePreviewInput'
+    responses:
+      '200':
+        description: Domain creation preview
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/DomainCreatePreviewResult'

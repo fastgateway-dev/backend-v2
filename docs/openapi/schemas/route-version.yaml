@@ -1,0 +1,49 @@
+RouteVersion:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    routeId:
+      type: string
+      format: uuid
+    version:
+      type: integer
+    configSnapshot:
+      type: object
+      description: Full route configuration at this version
+    routeDescription:
+      type: string
+    protocol:
+      type: string
+      enum: [http, grpc]
+    securityMode:
+      type: string
+      enum: [general, client]
+    changeDescription:
+      type: string
+    approvalId:
+      type: string
+      format: uuid
+    deployedBy:
+      type: string
+      format: uuid
+    deployer:
+      $ref: './user.yaml#/User'
+    createdAt:
+      type: string
+      format: date-time
+
+RouteVersionList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/RouteVersion'
+    total:
+      type: integer
+    page:
+      type: integer
+    limit:
+      type: integer

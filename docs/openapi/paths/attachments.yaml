@@ -1,0 +1,137 @@
+client-routes:
+  get:
+    tags: [Client Attachments]
+    summary: List routes attached to a client
+    operationId: listClientRoutes
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    responses:
+      '200':
+        description: List of client-route attachments
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/attachment.yaml#/ClientRouteAttachment'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+attach-from-client:
+  post:
+    tags: [Client Attachments]
+    summary: Attach client to a route (client team initiates)
+    operationId: attachFromClient
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/attachment.yaml#/AttachFromClientRequest'
+    responses:
+      '201':
+        description: Attachment created (pending approval)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/attachment.yaml#/ClientRouteAttachment'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+route-clients:
+  get:
+    tags: [Client Attachments]
+    summary: List clients attached to a route
+    operationId: listRouteClients
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: List of client-route attachments
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/attachment.yaml#/ClientRouteAttachment'
+
+attach-from-route:
+  post:
+    tags: [Client Attachments]
+    summary: Attach client to a route (route team initiates)
+    operationId: attachFromRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/attachment.yaml#/AttachFromRouteRequest'
+    responses:
+      '201':
+        description: Attachment created (pending approval)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/attachment.yaml#/ClientRouteAttachment'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+detach:
+  post:
+    tags: [Client Attachments]
+    summary: Request detachment of a client from a route
+    operationId: requestDetachFromRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+      - $ref: '../components/parameters.yaml#/attachmentId'
+    responses:
+      '200':
+        description: Detachment requested (pending approval)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/attachment.yaml#/ClientRouteAttachment'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+effective-ips:
+  get:
+    tags: [Client Attachments]
+    summary: Get effective IP allowlist for a route
+    description: Returns the merged IP allowlist from all active client attachments with IP allowlisting enabled.
+    operationId: getEffectiveIPs
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Effective IP allowlist entries
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/attachment.yaml#/EffectiveIPEntry'
