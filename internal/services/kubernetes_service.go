@@ -5117,13 +5117,20 @@ func BuildClientTrafficPolicy(config *ClientTrafficPolicyConfig) *unstructured.U
 			tls["maxVersion"] = convertTLSVersionToK8s(*config.TLS.MaxVersion)
 		}
 		if len(config.TLS.Ciphers) > 0 {
-			tls["ciphers"] = config.TLS.Ciphers
+			// stringSliceToInterfaceSlice, like every other builder in
+			// this file: an unstructured.Unstructured may only hold
+			// JSON-native values. A raw []string makes
+			// runtime.DeepCopyJSONValue panic with "cannot deep copy
+			// []string", taking down any path that copies the object --
+			// an informer cache, client-go's converter, or a
+			// read-modify-write retry that re-stamps it.
+			tls["ciphers"] = stringSliceToInterfaceSlice(config.TLS.Ciphers)
 		}
 		if len(config.TLS.ECDHCurves) > 0 {
-			tls["ecdhCurves"] = config.TLS.ECDHCurves
+			tls["ecdhCurves"] = stringSliceToInterfaceSlice(config.TLS.ECDHCurves)
 		}
 		if len(config.TLS.SignatureAlgorithms) > 0 {
-			tls["signatureAlgorithms"] = config.TLS.SignatureAlgorithms
+			tls["signatureAlgorithms"] = stringSliceToInterfaceSlice(config.TLS.SignatureAlgorithms)
 		}
 		if len(tls) > 0 {
 			spec["tls"] = tls
@@ -5172,7 +5179,7 @@ func BuildClientTrafficPolicy(config *ClientTrafficPolicyConfig) *unstructured.U
 
 		// Add certificate hashes
 		if len(config.ClientValidation.CertificateHashes) > 0 {
-			clientValidation["certificateHashes"] = config.ClientValidation.CertificateHashes
+			clientValidation["certificateHashes"] = stringSliceToInterfaceSlice(config.ClientValidation.CertificateHashes)
 		}
 
 		tlsSpec["clientValidation"] = clientValidation
@@ -5186,7 +5193,7 @@ func BuildClientTrafficPolicy(config *ClientTrafficPolicyConfig) *unstructured.U
 		headers := map[string]interface{}{
 			"xForwardedClientCert": map[string]interface{}{
 				"mode":             xfcc.Mode,
-				"certDetailsToAdd": xfcc.CertDetailsToAdd,
+				"certDetailsToAdd": stringSliceToInterfaceSlice(xfcc.CertDetailsToAdd),
 			},
 		}
 		spec["headers"] = headers
@@ -5260,15 +5267,21 @@ func (s *KubernetesService) CreateClientTrafficPolicy(ctx context.Context, proje
 // from the caller's config each attempt, so the last writer still wins,
 // it just no longer fails spuriously.
 func updateUnstructuredWithRetry(ctx context.Context, ri dynamic.ResourceInterface, name string, desired *unstructured.Unstructured) error {
+	// desired is stamped in place rather than deep-copied per attempt.
+	// Unstructured.DeepCopy goes through runtime.DeepCopyJSONValue, which
+	// panics on any value that is not a JSON-native type -- and these
+	// objects are hand-built maps that can still hold a []string
+	// (see BuildClientTrafficPolicy's TLS ciphers). Only resourceVersion
+	// and uid change between attempts, so mutating the caller's object is
+	// both sufficient and what the pre-retry code already did.
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		existing, err := ri.Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
-		obj := desired.DeepCopy()
-		obj.SetResourceVersion(existing.GetResourceVersion())
-		obj.SetUID(existing.GetUID())
-		_, err = ri.Update(ctx, obj, metav1.UpdateOptions{})
+		desired.SetResourceVersion(existing.GetResourceVersion())
+		desired.SetUID(existing.GetUID())
+		_, err = ri.Update(ctx, desired, metav1.UpdateOptions{})
 		return err
 	})
 }

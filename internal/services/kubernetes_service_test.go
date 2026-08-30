@@ -1814,6 +1814,13 @@ func TestBuildClientTrafficPolicy_Headers_XFCC(t *testing.T) {
 	if xfcc["mode"] != "AppendForward" {
 		t.Error("mode wrong")
 	}
+	details := xfcc["certDetailsToAdd"].([]interface{})
+	if len(details) != 2 || details[0] != "Hash" || details[1] != "DNS" {
+		t.Errorf("certDetailsToAdd = %v, want [Hash DNS] as []interface{}", details)
+	}
+	// A []string here would make this panic: unstructured values must be
+	// JSON-native or runtime.DeepCopyJSONValue rejects them.
+	ctp.DeepCopy()
 }
 
 func TestBuildClientTrafficPolicy_Metadata(t *testing.T) {
@@ -3559,18 +3566,26 @@ func TestBuildClientTrafficPolicy_TLSCiphersAndCurves(t *testing.T) {
 	ctp := services.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	tls := spec["tls"].(map[string]interface{})
-	ciphers := tls["ciphers"].([]string)
+	// []interface{}, not []string: an unstructured.Unstructured may only
+	// hold JSON-native values, and a raw []string makes
+	// runtime.DeepCopyJSONValue panic ("cannot deep copy []string") on
+	// every path that copies the object. See the DeepCopy assertion below.
+	ciphers := tls["ciphers"].([]interface{})
 	if len(ciphers) != 1 || ciphers[0] != "TLS_AES_128_GCM_SHA256" {
 		t.Error("ciphers wrong")
 	}
-	curves := tls["ecdhCurves"].([]string)
+	curves := tls["ecdhCurves"].([]interface{})
 	if len(curves) != 1 || curves[0] != "X25519" {
 		t.Error("ecdhCurves wrong")
 	}
-	sigAlgs := tls["signatureAlgorithms"].([]string)
+	sigAlgs := tls["signatureAlgorithms"].([]interface{})
 	if len(sigAlgs) != 1 || sigAlgs[0] != "RSA-PSS-RSAE-SHA256" {
 		t.Error("signatureAlgorithms wrong")
 	}
+	// The regression this guards: a []string here took down every
+	// AddDomainMTLSCA request with a panic once the ClientTrafficPolicy
+	// update path started copying the object.
+	ctp.DeepCopy()
 }
 
 // ─── BuildClientTrafficPolicy (ClientValidation without TLS) ────────────────
@@ -3623,10 +3638,11 @@ func TestBuildClientTrafficPolicy_ClientValidationWithoutTLS(t *testing.T) {
 	if matchVal["exact"] != "*.example.com" {
 		t.Error("SAN match wrong")
 	}
-	hashes := cv["certificateHashes"].([]string)
+	hashes := cv["certificateHashes"].([]interface{})
 	if len(hashes) != 1 || hashes[0] != "abc123" {
 		t.Error("certificate hashes wrong")
 	}
+	ctp.DeepCopy()
 }
 
 // ─── BuildClientTrafficPolicy (Connection with all fields) ──────────────────
