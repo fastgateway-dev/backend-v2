@@ -32,38 +32,11 @@ type Config struct {
 	// passes to `helm install --version`). It is "" when the suite runs
 	// against a cluster whose Envoy Gateway version nobody declared.
 	//
-	// Tests must not branch on this to weaken an assertion. Its only
-	// legitimate use is skipping a test whose behaviour is governed by a
-	// KNOWN, cited upstream defect on older releases -- see
-	// EnvoyGatewayAtLeast and grpcroute/features_mirror_test.go.
+	// Tests must not branch on this to weaken an assertion. It is for
+	// naming the release in a failure or skip message, so a report says
+	// WHICH Envoy Gateway produced the behaviour -- see
+	// grpcroute/features_mirror_test.go.
 	EnvoyGatewayVersion string
-}
-
-// EnvoyGatewayAtLeast reports whether the Envoy Gateway under test is at
-// least major.minor.
-//
-// An unset or unparseable ENVOY_GATEWAY_VERSION returns true: "we don't
-// know" must not silently disable coverage. A caller using this to skip an
-// upstream-broken case will then run the test and report the real failure,
-// which is the safer direction to be wrong in.
-func (c *Config) EnvoyGatewayAtLeast(major, minor int) bool {
-	v := strings.TrimPrefix(strings.TrimSpace(c.EnvoyGatewayVersion), "v")
-	if v == "" {
-		return true
-	}
-	parts := strings.SplitN(v, ".", 3)
-	if len(parts) < 2 {
-		return true
-	}
-	gotMajor, err1 := strconv.Atoi(parts[0])
-	gotMinor, err2 := strconv.Atoi(parts[1])
-	if err1 != nil || err2 != nil {
-		return true
-	}
-	if gotMajor != major {
-		return gotMajor > major
-	}
-	return gotMinor >= minor
 }
 
 func FromEnv() (*Config, error) {

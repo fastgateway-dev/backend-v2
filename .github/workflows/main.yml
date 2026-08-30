@@ -111,7 +111,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - envoy-gateway-version: "1.8.0"
+          - envoy-gateway-version: "1.8.4"
             gateway-api-version: "1.5.1"
     services:
       # PostgreSQL as a GitHub Actions services: container -- no

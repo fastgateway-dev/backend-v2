@@ -463,3 +463,83 @@ func WaitForResponse(
 	}
 	return last, fmt.Errorf("expected response never observed within %s (last: %v)", timeout, lastErr)
 }
+
+// WaitForRouteCondition polls the route object owned by routeID until the
+// condType condition on every parentRef reports wantStatus, and returns
+// that condition's message.
+//
+// It exists for the case WaitForRouteAccepted cannot express: asserting
+// that a route is deliberately NOT resolving, and why. See
+// grpcroute/features_mirror_test.go, which uses it to pin a known upstream
+// Envoy Gateway defect in place so that the day upstream fixes it, the
+// test fails and tells us to restore the real assertions -- rather than
+// sitting as a permanently skipped hole nobody revisits.
+func WaitForRouteCondition(
+	ctx context.Context,
+	k *Kube,
+	gvr schema.GroupVersionResource,
+	ns, routeID, condType, wantStatus string,
+	timeout time.Duration,
+) (string, error) {
+	deadline := time.Now().Add(timeout)
+	labelSelector := fmt.Sprintf("fastgateway.dev/route-id=%s", routeID)
+	var last string
+
+	for time.Now().Before(deadline) {
+		obj, err := k.GetUnstructuredByLabel(ctx, gvr, ns, labelSelector)
+		if err != nil {
+			last = fmt.Sprintf("error: %v", err)
+		} else {
+			status, message, found := routeConditionOnEveryParent(obj, condType)
+			if found && status == wantStatus {
+				return message, nil
+			}
+			last = fmt.Sprintf("%s=%s(%s)", condType, status, message)
+		}
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("%s on %s for route %s never reached %q: %w (last: %s)", condType, gvr.Resource, routeID, wantStatus, ctx.Err(), last)
+		case <-time.After(2 * time.Second):
+		}
+	}
+	return "", fmt.Errorf("%s on %s for route %s never reached %q within %s (last: %s)", condType, gvr.Resource, routeID, wantStatus, timeout, last)
+}
+
+// routeConditionOnEveryParent returns the condType condition's status and
+// message when every parentRef agrees on the status, and found=false when
+// the status is not populated yet or the parents disagree.
+func routeConditionOnEveryParent(obj *unstructured.Unstructured, condType string) (status, message string, found bool) {
+	parents, ok, err := unstructured.NestedSlice(obj.Object, "status", "parents")
+	if err != nil || !ok || len(parents) == 0 {
+		return "", "<no status.parents reported yet>", false
+	}
+	for _, p := range parents {
+		parent, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		conditions, ok, _ := unstructured.NestedSlice(parent, "conditions")
+		if !ok {
+			return "", "<no conditions>", false
+		}
+		matched := false
+		for _, c := range conditions {
+			cond, ok := c.(map[string]any)
+			if !ok || cond["type"] != condType {
+				continue
+			}
+			matched = true
+			gotStatus, _ := cond["status"].(string)
+			gotMessage, _ := cond["message"].(string)
+			if status == "" {
+				status, message = gotStatus, gotMessage
+			} else if status != gotStatus {
+				return "", fmt.Sprintf("parents disagree on %s", condType), false
+			}
+		}
+		if !matched {
+			return "", "<condition missing>", false
+		}
+	}
+	return status, message, status != ""
+}

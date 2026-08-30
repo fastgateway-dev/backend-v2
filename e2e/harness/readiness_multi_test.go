@@ -148,38 +148,3 @@ func TestRouteGVR_PicksKindFromProtocol(t *testing.T) {
 		t.Errorf(`RouteGVR("").Resource = %q, want "httproutes"`, got.Resource)
 	}
 }
-
-// EnvoyGatewayAtLeast gates the skip in grpcroute/features_mirror_test.go,
-// so getting its comparison wrong would silently retire a test on the very
-// releases where the feature works.
-
-func TestEnvoyGatewayAtLeast(t *testing.T) {
-	cases := []struct {
-		version string
-		major   int
-		minor   int
-		want    bool
-	}{
-		{"1.8.0", 1, 8, true},
-		{"v1.8.0", 1, 8, true},
-		{"1.8.3", 1, 8, true},
-		{"1.9.0", 1, 8, true},
-		{"2.0.0", 1, 8, true},
-		{"1.7.0", 1, 8, false},
-		{"1.6.2", 1, 8, false},
-		{"0.9.0", 1, 8, false},
-		// Unknown must NOT skip: "we don't know what this cluster runs"
-		// has to run the test and report a real failure, never quietly
-		// drop coverage.
-		{"", 1, 8, true},
-		{"garbage", 1, 8, true},
-		{"1", 1, 8, true},
-		{"x.y.z", 1, 8, true},
-	}
-	for _, tc := range cases {
-		c := &Config{EnvoyGatewayVersion: tc.version}
-		if got := c.EnvoyGatewayAtLeast(tc.major, tc.minor); got != tc.want {
-			t.Errorf("Config{%q}.EnvoyGatewayAtLeast(%d, %d) = %v, want %v", tc.version, tc.major, tc.minor, got, tc.want)
-		}
-	}
-}
