@@ -110,7 +110,16 @@ func TestClientModeCombinedAuth(t *testing.T) {
 			harness.WithHeader("x-client-id", client.ID.String()),
 		)
 	}
-	requireStatus(t, ctx, allowProbe, 200)
+	// Bounded poll, not a single call. The negative above already proved
+	// the policy is enforcing, so this cannot pass by catching an
+	// unconverged route -- but a lone call can still lose a race the
+	// enforcement gate does not cover. Envoy fetches a JWKS lazily on
+	// first use and answers 401 "Jwks remote fetch is failed" while that
+	// fetch is in flight, which is exactly how this failed in CI. A
+	// credential that is never accepted still fails, at the timeout.
+	if _, err := waitForHTTPStatus(ctx, allowProbe, routeLiveTimeout, 200); err != nil {
+		t.Fatalf("client mode combined auth: with valid api key + client id: %v", err)
+	}
 
 	// Negative: IP alone + a WRONG api-key must still be denied (rules
 	// out a check that only verifies the header's PRESENCE, not its
