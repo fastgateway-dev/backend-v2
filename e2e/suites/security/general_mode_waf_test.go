@@ -42,7 +42,8 @@ func TestGeneralModeWAFAllowsNormalRequest(t *testing.T) {
 	name, path := uniquePath(t)
 
 	cfg := services.CreateRouteInput{
-		Name: name,
+		Name:   name,
+		TeamID: teamID(t),
 		Config: models.RouteConfig{
 			RouteType: models.RouteTypeBackend,
 			Matches: []models.RouteMatch{
@@ -97,7 +98,8 @@ func TestGeneralModeWAFBlocksSQLInjection(t *testing.T) {
 	name, path := uniquePath(t)
 
 	cfg := services.CreateRouteInput{
-		Name: name,
+		Name:   name,
+		TeamID: teamID(t),
 		Config: models.RouteConfig{
 			RouteType: models.RouteTypeBackend,
 			Matches: []models.RouteMatch{

@@ -152,8 +152,48 @@ func (k *Kube) GetUnstructuredByLabel(ctx context.Context, gvr schema.GroupVersi
 	}
 }
 
-// WaitDeploymentAvailable polls until the named Deployment reports its
-// "Available" condition True, or returns an error once timeout elapses.
+// deploymentIsAvailable reports whether dep has genuinely finished rolling
+// out to its current spec, rather than merely carrying a stale
+// Available=True condition left over from before the most recent scale or
+// update. A Get issued right after e.g. ScaleDeployment can return the
+// previous generation's status -- Available=True at the old replica count
+// -- so the "Available" condition alone is not sufficient: the controller
+// must also have observed the current generation, and driven both
+// ReadyReplicas and UpdatedReplicas to the desired replica count.
+//
+// A Deployment intentionally scaled to 0 is still correctly reported
+// available: desired falls out to 0, and ReadyReplicas/UpdatedReplicas are
+// 0 too, so a caller scaling down never hangs waiting for a replica count
+// that will never arrive. A nil Spec.Replicas (as the API server would
+// never actually return, but a hand-built Deployment in a test might)
+// defaults to 1, matching Kubernetes' own defaulting convention.
+func deploymentIsAvailable(dep *appsv1.Deployment) bool {
+	if dep.Status.ObservedGeneration < dep.Generation {
+		return false
+	}
+
+	available := false
+	for _, cond := range dep.Status.Conditions {
+		if cond.Type == appsv1.DeploymentAvailable && cond.Status == corev1.ConditionTrue {
+			available = true
+			break
+		}
+	}
+	if !available {
+		return false
+	}
+
+	desired := int32(1)
+	if dep.Spec.Replicas != nil {
+		desired = *dep.Spec.Replicas
+	}
+
+	return dep.Status.ReadyReplicas == desired && dep.Status.UpdatedReplicas == desired
+}
+
+// WaitDeploymentAvailable polls until the named Deployment has fully rolled
+// out -- see deploymentIsAvailable -- or returns an error once timeout
+// elapses.
 func (k *Kube) WaitDeploymentAvailable(ctx context.Context, ns, name string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
@@ -162,19 +202,11 @@ func (k *Kube) WaitDeploymentAvailable(ctx context.Context, ns, name string, tim
 		dep, err := k.Clientset.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			lastErr = err
+		} else if deploymentIsAvailable(dep) {
+			return nil
 		} else {
-			available := false
-			for _, cond := range dep.Status.Conditions {
-				if cond.Type == appsv1.DeploymentAvailable && cond.Status == corev1.ConditionTrue {
-					available = true
-					break
-				}
-			}
-			if available {
-				return nil
-			}
 			lastErr = fmt.Errorf("deployment %s/%s not available yet (%d/%d replicas ready)",
-				ns, name, dep.Status.AvailableReplicas, dep.Status.Replicas)
+				ns, name, dep.Status.ReadyReplicas, dep.Status.Replicas)
 		}
 
 		select {

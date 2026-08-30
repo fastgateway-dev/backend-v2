@@ -20,6 +20,15 @@ import (
 // pass through to the backend and get a normal 200, and 4096 bytes (over)
 // should be rejected by Envoy's buffer filter itself with 413 before ever
 // reaching the backend.
+//
+// The backend is podinfo's "/status/200" rather than nginx: nginx's
+// static index page only serves GET/HEAD and answers any POST with a
+// real 405, which would be indistinguishable from the buffer filter
+// misbehaving. podinfo's "/status/{code}" endpoint (see also
+// route_matching_method_test.go, retry_test.go, health_check_passive_
+// test.go) accepts POST and always answers with the requested code, so
+// the under-limit case's 200 can only be explained by the request
+// actually reaching the backend.
 func TestRequestBuffer(t *testing.T) {
 	t.Parallel()
 
@@ -34,9 +43,9 @@ func TestRequestBuffer(t *testing.T) {
 				{Path: &models.PathMatch{Type: "Prefix", Value: path}},
 			},
 			Backends: []models.RouteBackend{
-				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: nginxService, Port: nginxPort, Weight: 100},
+				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: podinfoService, Port: podinfoPort, Weight: 100},
 			},
-			URLRewrite: rewriteTo("/"),
+			URLRewrite: rewriteTo("/status/200"),
 		},
 		BackendTrafficPolicy: &services.BackendTrafficPolicyInput{
 			RequestBuffer: &models.RequestBufferConfig{Limit: "1Ki"},
