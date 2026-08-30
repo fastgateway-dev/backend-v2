@@ -494,6 +494,35 @@ func validateGRPCRouteConfig(config *models.RouteConfig) error {
 	return nil
 }
 
+// validateGRPCBackendTrafficPolicy rejects BackendTrafficPolicy features
+// that cannot work on a gRPC route.
+//
+// requestBuffer is the only one today. Envoy Gateway documents it as
+// incompatible with gRPC -- "Request buffering requires Envoy to fully
+// receive the request before forwarding it upstream. This does not work
+// with streaming or upgrade-based traffic such as gRPC streaming and
+// WebSocket"
+// (https://gateway.envoyproxy.io/docs/tasks/traffic/request-buffering/) --
+// and an end-to-end run confirmed the shape of the failure: the
+// BackendTrafficPolicy reports Accepted=True, and over-limit unary calls
+// are forwarded upstream anyway, so the configured limit is silently
+// ignored. For streaming calls the documented outcome is worse: the
+// request may never be forwarded at all and the call hangs.
+//
+// Accepting the field would therefore promise a request-size cap that
+// either does nothing or wedges the route, with nothing in the route's
+// status to reveal which. Rejecting it at creation is the only outcome
+// that tells the truth.
+func validateGRPCBackendTrafficPolicy(btp *BackendTrafficPolicyInput) error {
+	if btp == nil {
+		return nil
+	}
+	if btp.RequestBuffer != nil {
+		return errors.New("requestBuffer is not supported for gRPC routes: Envoy Gateway cannot buffer gRPC traffic, so the limit would be silently ignored on unary calls and can hang streaming calls")
+	}
+	return nil
+}
+
 // validateHTTPRouteConfig validates that HTTP routes don't use gRPC-only features
 func validateHTTPRouteConfig(config *models.RouteConfig) error {
 	for i, match := range config.Matches {
@@ -1108,6 +1137,9 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 		if err := validateGRPCRouteConfig(&input.Config); err != nil {
 			return nil, err
 		}
+		if err := validateGRPCBackendTrafficPolicy(input.BackendTrafficPolicy); err != nil {
+			return nil, err
+		}
 	} else {
 		if err := validateHTTPRouteConfig(&input.Config); err != nil {
 			return nil, err
@@ -1586,6 +1618,9 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 	// Validate protocol-specific config
 	if route.Protocol == models.RouteProtocolGRPC {
 		if err := validateGRPCRouteConfig(&input.Config); err != nil {
+			return nil, err
+		}
+		if err := validateGRPCBackendTrafficPolicy(input.BackendTrafficPolicy); err != nil {
 			return nil, err
 		}
 	} else {

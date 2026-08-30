@@ -143,12 +143,24 @@ func TestGeneralModeCombinedIPAuthorization(t *testing.T) {
 	allowProbe := func(ctx context.Context) (*harness.Response, error) {
 		return env.GW.HTTP(ctx, "GET", allowPath, harness.WithHeader("Origin", "https://example.com"))
 	}
-	resp, err := waitForHTTPStatus(ctx, allowProbe, routeLiveTimeout, 200)
-	if err != nil {
+	if _, err := waitForHTTPStatus(ctx, allowProbe, routeLiveTimeout, 200); err != nil {
 		t.Fatalf("combined ip authorization: allow-all CIDR (0.0.0.0/0): %v", err)
 	}
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://example.com" {
-		t.Fatalf("combined ip authorization: got Access-Control-Allow-Origin %q, want %q", got, "https://example.com")
+
+	// Polled rather than read once: this header comes from a policy Envoy
+	// Gateway programs as a SEPARATE object AFTER the route, so a
+	// status-only gate is satisfied by the route serving traffic with the
+	// policy not yet applied. Bounded by routeLiveTimeout, so a policy
+	// that never takes effect still fails the test.
+	resp, err := harness.WaitForResponse(ctx, allowProbe, func(r *harness.Response) bool {
+		return r.StatusCode == 200 && r.Header.Get("Access-Control-Allow-Origin") == "https://example.com"
+	}, routeLiveTimeout)
+	if err != nil {
+		got := ""
+		if resp != nil {
+			got = resp.Header.Get("Access-Control-Allow-Origin")
+		}
+		t.Fatalf("combined ip authorization: got Access-Control-Allow-Origin %q, want %q: %v", got, "https://example.com", err)
 	}
 
 	denyName, denyPath := uniquePath(t)
