@@ -2,6 +2,11 @@
 
 package harness
 
+import (
+	"os"
+	"testing"
+)
+
 // The gRPC-safe proxy-wasm filter served in-cluster by e2e/servers/wasm-host.
 //
 // The suite previously pointed at envoyproxy/examples' demo filter, which
@@ -17,13 +22,29 @@ const (
 	// WasmFilterURL is resolvable from inside the cluster only.
 	WasmFilterURL = "http://wasm-host-service.default.svc.cluster.local/grpcsafe.wasm"
 
-	// WasmFilterSHA256 pins the module. The build is byte-reproducible
-	// (-trimpath, -s -w, empty -buildid); e2e/servers/wasm-host/Dockerfile
-	// verifies this value at image build time and fails loudly on drift.
-	WasmFilterSHA256 = "37d25f3ac04170dd3062e56a773664d330f9dc05743203c193f0a1518867bcf3"
-
 	// WasmFilterHeader / WasmFilterHeaderValue are what the filter adds and
 	// what the tests assert on.
 	WasmFilterHeader      = "x-wasm-custom"
 	WasmFilterHeaderValue = "FOO"
+
+	// WasmFilterSHA256Env carries the module's digest from the image build to
+	// the test run.
+	WasmFilterSHA256Env = "E2E_WASM_FILTER_SHA256"
 )
+
+// WasmFilterSHA256 returns the digest of the wasm module the cluster is
+// serving. It is NOT a pinned constant: the wasm bytes differ between Go patch
+// releases, so a hash computed on one machine does not match another. CI reads
+// the digest out of the built image and exports it here.
+func WasmFilterSHA256(t *testing.T) string {
+	t.Helper()
+	sha := os.Getenv(WasmFilterSHA256Env)
+	if sha == "" {
+		t.Fatalf("%s is unset: the wasm filter's digest is computed at image build "+
+			"time and exported by the workflow step that builds e2e/servers/wasm-host. "+
+			"To run this test outside CI, set it to the output of:\n"+
+			"  docker run --rm --entrypoint cat fastgateway-wasm-host:latest "+
+			"/usr/share/nginx/html/grpcsafe.wasm.sha256", WasmFilterSHA256Env)
+	}
+	return sha
+}

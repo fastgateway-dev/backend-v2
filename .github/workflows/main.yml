@@ -278,6 +278,13 @@ jobs:
           kubectl apply -f e2e/deps/external-auth.yaml
           kubectl apply -f e2e/deps/grpc-external-auth.yaml
           kubectl apply -f e2e/deps/ext-proc-server.yaml
+          # The wasm module's digest is computed at image build time (the bytes
+          # differ between Go patch releases, so it cannot be pinned in source).
+          # Export it for the test run.
+          WASM_SHA=$(docker run --rm --entrypoint cat fastgateway-wasm-host:latest \
+                       /usr/share/nginx/html/grpcsafe.wasm.sha256)
+          echo "wasm filter sha256: $WASM_SHA"
+          echo "E2E_WASM_FILTER_SHA256=$WASM_SHA" >> "$GITHUB_ENV"
           kubectl apply -f e2e/deps/wasm-host.yaml
           kubectl -n default rollout status deployment/jwt-server --timeout=120s
           kubectl -n default rollout status deployment/external-auth --timeout=120s
