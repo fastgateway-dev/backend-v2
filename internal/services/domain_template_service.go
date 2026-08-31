@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/google/uuid"
@@ -143,11 +144,11 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 	// Set default controller name if not provided
 	controllerName := input.ControllerName
 	if controllerName == "" {
-		controllerName = EnvoyGatewayControllerName
+		controllerName = kubernetes.EnvoyGatewayControllerName
 	}
 
 	// Validate controller name (only Envoy Gateway supported initially)
-	if controllerName != EnvoyGatewayControllerName {
+	if controllerName != kubernetes.EnvoyGatewayControllerName {
 		return nil, errors.New("only Envoy Gateway controller is currently supported")
 	}
 
@@ -273,7 +274,7 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 	}
 
 	// Create GatewayClass in Kubernetes with reference to EnvoyProxy
-	gcConfig := &GatewayClassConfig{
+	gcConfig := &kubernetes.GatewayClassConfig{
 		Name:              k8sGatewayClassName,
 		ControllerName:    controllerName,
 		ParametersRefName: k8sEnvoyProxyName,
@@ -282,7 +283,7 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 	if err := s.k8sService.CreateGatewayClass(ctx, projectID, gcConfig); err != nil {
 		log.Printf("Failed to create GatewayClass in Kubernetes: %v", err)
 		// Clean up EnvoyProxy
-		_ = s.k8sService.DeleteEnvoyProxy(ctx, projectID, EnvoyGatewayNamespace, k8sEnvoyProxyName)
+		_ = s.k8sService.DeleteEnvoyProxy(ctx, projectID, kubernetes.EnvoyGatewayNamespace, k8sEnvoyProxyName)
 		dt.Status = models.DomainTemplateStatusError
 		dt.StatusMessage = fmt.Sprintf("Failed to create GatewayClass: %v", err)
 		_ = s.dtRepo.Update(dt)
@@ -445,7 +446,7 @@ func (s *DomainTemplateService) Delete(id uuid.UUID) error {
 
 	// Delete EnvoyProxy from Kubernetes
 	if dt.K8sEnvoyProxyName != "" {
-		if err := s.k8sService.DeleteEnvoyProxy(ctx, dt.ProjectID, EnvoyGatewayNamespace, dt.K8sEnvoyProxyName); err != nil {
+		if err := s.k8sService.DeleteEnvoyProxy(ctx, dt.ProjectID, kubernetes.EnvoyGatewayNamespace, dt.K8sEnvoyProxyName); err != nil {
 			log.Printf("Failed to delete EnvoyProxy from Kubernetes: %v", err)
 			// Continue with deletion even if K8s deletion fails
 		}
@@ -516,10 +517,10 @@ func ValidateDomainTemplatePodScheduling(dt *models.DomainTemplate) error {
 }
 
 // buildEnvoyProxyConfig builds an EnvoyProxyConfig from a DomainTemplate
-func (s *DomainTemplateService) buildEnvoyProxyConfig(dt *models.DomainTemplate) *EnvoyProxyConfig {
-	return &EnvoyProxyConfig{
+func (s *DomainTemplateService) buildEnvoyProxyConfig(dt *models.DomainTemplate) *kubernetes.EnvoyProxyConfig {
+	return &kubernetes.EnvoyProxyConfig{
 		Name:                  dt.K8sEnvoyProxyName,
-		Namespace:             EnvoyGatewayNamespace,
+		Namespace:             kubernetes.EnvoyGatewayNamespace,
 		ServiceType:           string(dt.ExposureType),
 		Annotations:           map[string]string(dt.Annotations),
 		ExternalTrafficPolicy: string(dt.ExternalTrafficPolicy),
@@ -551,19 +552,19 @@ func (s *DomainTemplateService) GetManifests(id uuid.UUID) (*DomainTemplateManif
 		return nil, err
 	}
 
-	gcConfig := &GatewayClassConfig{
+	gcConfig := &kubernetes.GatewayClassConfig{
 		Name:              dt.K8sGatewayClassName,
 		ControllerName:    dt.ControllerName,
 		ParametersRefName: dt.K8sEnvoyProxyName,
 	}
-	gcObj := BuildGatewayClassObject(gcConfig)
+	gcObj := kubernetes.BuildGatewayClassObject(gcConfig)
 	gcYaml, err := yaml.Marshal(gcObj.Object)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal GatewayClass: %w", err)
 	}
 
 	epConfig := s.buildEnvoyProxyConfig(dt)
-	epObj := BuildEnvoyProxyObject(epConfig)
+	epObj := kubernetes.BuildEnvoyProxyObject(epConfig)
 	epYaml, err := yaml.Marshal(epObj.Object)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal EnvoyProxy: %w", err)
@@ -597,7 +598,7 @@ func (s *DomainTemplateService) PreviewChanges(id uuid.UUID, input *UpdateDomain
 
 	// Generate current YAML
 	currentConfig := s.buildEnvoyProxyConfig(dt)
-	currentObj := BuildEnvoyProxyObject(currentConfig)
+	currentObj := kubernetes.BuildEnvoyProxyObject(currentConfig)
 	currentYaml, err := yaml.Marshal(currentObj.Object)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal current EnvoyProxy: %w", err)
@@ -629,7 +630,7 @@ func (s *DomainTemplateService) PreviewChanges(id uuid.UUID, input *UpdateDomain
 
 	// Generate proposed YAML
 	proposedConfig := s.buildEnvoyProxyConfig(&proposed)
-	proposedObj := BuildEnvoyProxyObject(proposedConfig)
+	proposedObj := kubernetes.BuildEnvoyProxyObject(proposedConfig)
 	proposedYaml, err := yaml.Marshal(proposedObj.Object)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal proposed EnvoyProxy: %w", err)
@@ -693,9 +694,9 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 	// Set default controller name
 	controllerName := input.ControllerName
 	if controllerName == "" {
-		controllerName = EnvoyGatewayControllerName
+		controllerName = kubernetes.EnvoyGatewayControllerName
 	}
-	if controllerName != EnvoyGatewayControllerName {
+	if controllerName != kubernetes.EnvoyGatewayControllerName {
 		return nil, errors.New("only Envoy Gateway controller is currently supported")
 	}
 
@@ -751,12 +752,12 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 	k8sEnvoyProxyName := fmt.Sprintf("%s-%s-config", input.Name, exposureTypeLower)
 
 	// Build GatewayClass manifest
-	gcConfig := &GatewayClassConfig{
+	gcConfig := &kubernetes.GatewayClassConfig{
 		Name:              k8sGatewayClassName,
 		ControllerName:    controllerName,
 		ParametersRefName: k8sEnvoyProxyName,
 	}
-	gcObj := BuildGatewayClassObject(gcConfig)
+	gcObj := kubernetes.BuildGatewayClassObject(gcConfig)
 	gcYaml, err := yaml.Marshal(gcObj.Object)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal GatewayClass: %w", err)
@@ -767,9 +768,9 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 	normalizedMetrics := NormalizeEmptyTelemetryMetrics(input.TelemetryMetrics)
 	normalizedPodPlacement := NormalizeEmptyPodPlacement(input.PodPlacement)
 	serviceType := string(exposureType)
-	epConfig := &EnvoyProxyConfig{
+	epConfig := &kubernetes.EnvoyProxyConfig{
 		Name:                  k8sEnvoyProxyName,
-		Namespace:             EnvoyGatewayNamespace,
+		Namespace:             kubernetes.EnvoyGatewayNamespace,
 		ServiceType:           serviceType,
 		Annotations:           input.Annotations,
 		ExternalTrafficPolicy: string(externalTrafficPolicy),
@@ -789,16 +790,16 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 		PDBConfig:          input.PDBConfig,
 		DeploymentStrategy: input.DeploymentStrategy,
 	}
-	epObj := BuildEnvoyProxyObject(epConfig)
+	epObj := kubernetes.BuildEnvoyProxyObject(epConfig)
 	epYaml, err := yaml.Marshal(epObj.Object)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal EnvoyProxy: %w", err)
 	}
 
 	// Build example Gateway manifest to show TLS configuration impact
-	gwConfig := &GatewayConfig{
+	gwConfig := &kubernetes.GatewayConfig{
 		Name:             "example-domain",
-		Namespace:        EnvoyGatewayNamespace,
+		Namespace:        kubernetes.EnvoyGatewayNamespace,
 		GatewayClassName: k8sGatewayClassName,
 		Hostname:         "example.com",
 		TLSMode:          string(tlsMode),
@@ -807,7 +808,7 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 		TLSSecretName:    "example-tls-cert",
 		TLSPolicy:        string(tlsPolicy),
 	}
-	gwObj := BuildGatewayObject(gwConfig)
+	gwObj := kubernetes.BuildGatewayObject(gwConfig)
 	gwYaml, err := yaml.Marshal(gwObj.Object)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal Gateway example: %w", err)

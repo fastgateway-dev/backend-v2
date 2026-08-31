@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
+	"github.com/fastgateway-dev/backend-v2/internal/cluster"
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
@@ -771,7 +773,7 @@ func (m *MockKubernetesService) EnsureNamespace(ctx context.Context, projectID u
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) CreateGateway(ctx context.Context, projectID uuid.UUID, config *services.GatewayConfig) error {
+func (m *MockKubernetesService) CreateGateway(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -781,12 +783,12 @@ func (m *MockKubernetesService) DeleteGateway(ctx context.Context, projectID uui
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) CreateHTTPRoute(ctx context.Context, projectID uuid.UUID, config *services.HTTPRouteConfig) error {
+func (m *MockKubernetesService) CreateHTTPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.HTTPRouteConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) UpdateHTTPRoute(ctx context.Context, projectID uuid.UUID, config *services.HTTPRouteConfig) error {
+func (m *MockKubernetesService) UpdateHTTPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.HTTPRouteConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -796,12 +798,12 @@ func (m *MockKubernetesService) DeleteHTTPRoute(ctx context.Context, projectID u
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) CreateGRPCRoute(ctx context.Context, projectID uuid.UUID, config *services.GRPCRouteConfig) error {
+func (m *MockKubernetesService) CreateGRPCRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.GRPCRouteConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) UpdateGRPCRoute(ctx context.Context, projectID uuid.UUID, config *services.GRPCRouteConfig) error {
+func (m *MockKubernetesService) UpdateGRPCRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.GRPCRouteConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -811,12 +813,12 @@ func (m *MockKubernetesService) DeleteGRPCRoute(ctx context.Context, projectID u
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) CreateSecurityPolicy(ctx context.Context, projectID uuid.UUID, config *services.SecurityPolicyConfig) error {
+func (m *MockKubernetesService) CreateSecurityPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.SecurityPolicyConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) UpdateSecurityPolicy(ctx context.Context, projectID uuid.UUID, config *services.SecurityPolicyConfig) error {
+func (m *MockKubernetesService) UpdateSecurityPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.SecurityPolicyConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -826,12 +828,12 @@ func (m *MockKubernetesService) DeleteSecurityPolicy(ctx context.Context, projec
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) CreateBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *services.BackendTrafficPolicyConfig) error {
+func (m *MockKubernetesService) CreateBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendTrafficPolicyConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) UpdateBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *services.BackendTrafficPolicyConfig) error {
+func (m *MockKubernetesService) UpdateBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendTrafficPolicyConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -856,12 +858,12 @@ func (m *MockKubernetesService) DeleteEnvoyExtensionPolicy(ctx context.Context, 
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) CreateBackend(ctx context.Context, projectID uuid.UUID, config *services.BackendConfig) error {
+func (m *MockKubernetesService) CreateBackend(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) UpdateBackend(ctx context.Context, projectID uuid.UUID, config *services.BackendConfig) error {
+func (m *MockKubernetesService) UpdateBackend(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -901,12 +903,12 @@ func (m *MockKubernetesService) ListServices(ctx context.Context, projectID uuid
 	return args.Get(0).([]map[string]interface{}), args.Error(1)
 }
 
-func (m *MockKubernetesService) ListTLSSecrets(ctx context.Context, projectID uuid.UUID, namespace string) ([]services.TLSSecretInfo, error) {
+func (m *MockKubernetesService) ListTLSSecrets(ctx context.Context, projectID uuid.UUID, namespace string) ([]cluster.TLSSecretInfo, error) {
 	args := m.Called(ctx, projectID, namespace)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]services.TLSSecretInfo), args.Error(1)
+	return args.Get(0).([]cluster.TLSSecretInfo), args.Error(1)
 }
 
 func (m *MockKubernetesService) ListGatewayClasses(ctx context.Context, projectID uuid.UUID) ([]string, error) {
@@ -914,15 +916,15 @@ func (m *MockKubernetesService) ListGatewayClasses(ctx context.Context, projectI
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *MockKubernetesService) ValidatePrerequisites(ctx context.Context, apiURL, token string) (*services.PrerequisiteCheck, error) {
+func (m *MockKubernetesService) ValidatePrerequisites(ctx context.Context, apiURL, token string) (*cluster.PrerequisiteCheck, error) {
 	args := m.Called(ctx, apiURL, token)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*services.PrerequisiteCheck), args.Error(1)
+	return args.Get(0).(*cluster.PrerequisiteCheck), args.Error(1)
 }
 
-func (m *MockKubernetesService) CreateGatewayClass(ctx context.Context, projectID uuid.UUID, config *services.GatewayClassConfig) error {
+func (m *MockKubernetesService) CreateGatewayClass(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayClassConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -932,12 +934,12 @@ func (m *MockKubernetesService) DeleteGatewayClass(ctx context.Context, projectI
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) CreateEnvoyProxy(ctx context.Context, projectID uuid.UUID, config *services.EnvoyProxyConfig) error {
+func (m *MockKubernetesService) CreateEnvoyProxy(ctx context.Context, projectID uuid.UUID, config *kubernetes.EnvoyProxyConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) UpdateEnvoyProxy(ctx context.Context, projectID uuid.UUID, config *services.EnvoyProxyConfig) error {
+func (m *MockKubernetesService) UpdateEnvoyProxy(ctx context.Context, projectID uuid.UUID, config *kubernetes.EnvoyProxyConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -952,7 +954,7 @@ func (m *MockKubernetesService) ValidateEnvoyGatewayInstalled(ctx context.Contex
 	return args.Bool(0), args.String(1), args.Error(2)
 }
 
-func (m *MockKubernetesService) CreateReferenceGrant(ctx context.Context, projectID uuid.UUID, config *services.ReferenceGrantConfig) error {
+func (m *MockKubernetesService) CreateReferenceGrant(ctx context.Context, projectID uuid.UUID, config *cluster.ReferenceGrantConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -975,12 +977,12 @@ func (m *MockKubernetesService) ReferenceGrantExists(ctx context.Context, projec
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockKubernetesService) RecreateReferenceGrant(ctx context.Context, projectID uuid.UUID, config *services.ReferenceGrantConfig) error {
+func (m *MockKubernetesService) RecreateReferenceGrant(ctx context.Context, projectID uuid.UUID, config *cluster.ReferenceGrantConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) ApplyHTTPRouteFilter(ctx context.Context, projectID uuid.UUID, config *services.HTTPRouteFilterConfig) error {
+func (m *MockKubernetesService) ApplyHTTPRouteFilter(ctx context.Context, projectID uuid.UUID, config *kubernetes.HTTPRouteFilterConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -990,7 +992,7 @@ func (m *MockKubernetesService) DeleteHTTPRouteFilter(ctx context.Context, proje
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) ApplyDirectResponseConfigMap(ctx context.Context, projectID uuid.UUID, config *services.DirectResponseConfigMapConfig) error {
+func (m *MockKubernetesService) ApplyDirectResponseConfigMap(ctx context.Context, projectID uuid.UUID, config *kubernetes.DirectResponseConfigMapConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -1000,12 +1002,12 @@ func (m *MockKubernetesService) DeleteDirectResponseConfigMap(ctx context.Contex
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) CreateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *services.ClientTrafficPolicyConfig) error {
+func (m *MockKubernetesService) CreateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.ClientTrafficPolicyConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) UpdateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *services.ClientTrafficPolicyConfig) error {
+func (m *MockKubernetesService) UpdateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.ClientTrafficPolicyConfig) error {
 	args := m.Called(ctx, projectID, config)
 	return args.Error(0)
 }
@@ -1063,12 +1065,12 @@ func (m *MockKubernetesService) DeleteStaleAPIKeyResources(ctx context.Context, 
 	return args.Error(0)
 }
 
-func (m *MockKubernetesService) DetectVersions(ctx context.Context, projectID uuid.UUID) (*services.RawVersions, error) {
+func (m *MockKubernetesService) DetectVersions(ctx context.Context, projectID uuid.UUID) (*cluster.RawVersions, error) {
 	args := m.Called(ctx, projectID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*services.RawVersions), args.Error(1)
+	return args.Get(0).(*cluster.RawVersions), args.Error(1)
 }
 
 // ============================================================================

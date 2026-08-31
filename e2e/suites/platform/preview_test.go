@@ -13,6 +13,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -41,7 +42,7 @@ func previewRouteConfig(t *testing.T) (name, path string, cfg services.CreateRou
 				Set: []models.HeaderValue{{Name: "X-E2E-Preview", Value: "yes"}},
 			},
 		},
-		SecurityPolicy: &services.SecurityPolicyInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
 			CORS: &models.CORSConfig{AllowOrigins: allowOrigins, AllowMethods: []string{"GET"}},
 		},
 	}

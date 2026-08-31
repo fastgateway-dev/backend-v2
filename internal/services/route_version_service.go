@@ -6,6 +6,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -188,22 +189,22 @@ func (s *RouteVersionService) Rollback(routeID uuid.UUID, targetVersion int, sub
 		input.Config = *snapshot.RouteConfig
 	}
 
-	// Map security policy config -> SecurityPolicyInput
+	// Map security policy config -> routeplan.SecurityPolicyInput
 	if snapshot.SecurityPolicy != nil {
 		input.SecurityPolicy = mapSecurityPolicyConfigToInput(snapshot.SecurityPolicy)
 	}
 
-	// Map backend traffic policy config -> BackendTrafficPolicyInput
+	// Map backend traffic policy config -> routeplan.BackendTrafficPolicyInput
 	if snapshot.BackendTrafficPolicy != nil {
-		input.BackendTrafficPolicy = mapBackendTrafficPolicyConfigToInput(snapshot.BackendTrafficPolicy)
+		input.BackendTrafficPolicy = routeplan.MapBackendTrafficPolicyConfigToInput(snapshot.BackendTrafficPolicy)
 	}
 
-	// Map envoy extension policy config -> EnvoyExtensionPolicyInput
+	// Map envoy extension policy config -> routeplan.EnvoyExtensionPolicyInput
 	if snapshot.EnvoyExtensionPolicy != nil {
 		input.ExtensionPolicy = mapEnvoyExtensionPolicyConfigToInput(snapshot.EnvoyExtensionPolicy)
 	}
 
-	// Map WAF policy config -> WafPolicyInput
+	// Map WAF policy config -> routeplan.WafPolicyInput
 	if snapshot.WafPolicy != nil {
 		input.WafPolicy = mapWafPolicyConfigToInput(snapshot.WafPolicy)
 	}
@@ -212,17 +213,17 @@ func (s *RouteVersionService) Rollback(routeID uuid.UUID, targetVersion int, sub
 	return s.routeService.Update(routeID, input, submittedBy)
 }
 
-// mapSecurityPolicyConfigToInput converts a stored SecurityPolicyConfig back to SecurityPolicyInput
-func mapSecurityPolicyConfigToInput(cfg *models.SecurityPolicyConfig) *SecurityPolicyInput {
-	input := &SecurityPolicyInput{
+// mapSecurityPolicyConfigToInput converts a stored models.SecurityPolicyConfig back to routeplan.SecurityPolicyInput
+func mapSecurityPolicyConfigToInput(cfg *models.SecurityPolicyConfig) *routeplan.SecurityPolicyInput {
+	input := &routeplan.SecurityPolicyInput{
 		CORS:    cfg.CORS,
 		ExtAuth: cfg.ExtAuth,
 	}
 
-	// Map Authorization config -> AuthorizationInput
+	// Map Authorization config -> routeplan.AuthorizationInput
 	if cfg.Authorization != nil && len(cfg.Authorization.Rules) > 0 {
 		rule := cfg.Authorization.Rules[0]
-		authInput := &AuthorizationInput{
+		authInput := &routeplan.AuthorizationInput{
 			AllowedCIDRs: rule.Principal.ClientCIDRs,
 		}
 		if len(rule.Principal.Headers) > 0 {
@@ -236,9 +237,9 @@ func mapSecurityPolicyConfigToInput(cfg *models.SecurityPolicyConfig) *SecurityP
 		}
 	}
 
-	// Map APIKeyAuth config -> APIKeyAuthInput
+	// Map APIKeyAuth config -> routeplan.APIKeyAuthInput
 	if cfg.APIKeyAuth != nil {
-		apiKeyInput := &APIKeyAuthInput{}
+		apiKeyInput := &routeplan.APIKeyAuthInput{}
 		if len(cfg.APIKeyAuth.CredentialRefs) > 0 {
 			apiKeyInput.SecretName = cfg.APIKeyAuth.CredentialRefs[0].Name
 		}
@@ -248,10 +249,10 @@ func mapSecurityPolicyConfigToInput(cfg *models.SecurityPolicyConfig) *SecurityP
 		input.APIKeyAuth = apiKeyInput
 	}
 
-	// Map JWT config -> JWTInput
+	// Map JWT config -> routeplan.JWTInput
 	if cfg.JWT != nil && len(cfg.JWT.Providers) > 0 {
 		provider := cfg.JWT.Providers[0]
-		jwtInput := &JWTInput{
+		jwtInput := &routeplan.JWTInput{
 			Issuer:         provider.Issuer,
 			Audiences:      provider.Audiences,
 			ClaimToHeaders: provider.ClaimToHeaders,
@@ -262,9 +263,9 @@ func mapSecurityPolicyConfigToInput(cfg *models.SecurityPolicyConfig) *SecurityP
 		input.JWT = jwtInput
 	}
 
-	// Map OIDC config -> OIDCInput
+	// Map OIDC config -> routeplan.OIDCInput
 	if cfg.OIDC != nil {
-		oidcInput := &OIDCInput{
+		oidcInput := &routeplan.OIDCInput{
 			ClientID:     cfg.OIDC.ClientID,
 			RedirectURL:  cfg.OIDC.RedirectURL,
 			LogoutPath:   cfg.OIDC.LogoutPath,
@@ -283,17 +284,17 @@ func mapSecurityPolicyConfigToInput(cfg *models.SecurityPolicyConfig) *SecurityP
 	return input
 }
 
-// mapEnvoyExtensionPolicyConfigToInput converts a stored EnvoyExtensionPolicyConfig back to EnvoyExtensionPolicyInput
-func mapEnvoyExtensionPolicyConfigToInput(cfg *models.EnvoyExtensionPolicyConfig) *EnvoyExtensionPolicyInput {
-	return &EnvoyExtensionPolicyInput{
+// mapEnvoyExtensionPolicyConfigToInput converts a stored models.EnvoyExtensionPolicyConfig back to routeplan.EnvoyExtensionPolicyInput
+func mapEnvoyExtensionPolicyConfigToInput(cfg *models.EnvoyExtensionPolicyConfig) *routeplan.EnvoyExtensionPolicyInput {
+	return &routeplan.EnvoyExtensionPolicyInput{
 		Lua:  cfg.Lua,
 		Wasm: cfg.Wasm,
 	}
 }
 
-// mapWafPolicyConfigToInput converts a stored WafPolicyConfig back to WafPolicyInput
-func mapWafPolicyConfigToInput(cfg *models.WafPolicyConfig) *WafPolicyInput {
-	return &WafPolicyInput{
+// mapWafPolicyConfigToInput converts a stored models.WafPolicyConfig back to routeplan.WafPolicyInput
+func mapWafPolicyConfigToInput(cfg *models.WafPolicyConfig) *routeplan.WafPolicyInput {
+	return &routeplan.WafPolicyInput{
 		Mode:             cfg.Mode,
 		Rulesets:         cfg.Rulesets,
 		AnomalyThreshold: cfg.AnomalyThreshold,

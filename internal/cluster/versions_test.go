@@ -1,10 +1,10 @@
-package services_test
+package cluster_test
 
 import (
 	"context"
 	"testing"
 
-	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/cluster"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,31 +31,31 @@ func TestParseImageTagVersion(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.image, func(t *testing.T) {
-			got := services.ParseImageTagVersion(c.image)
+			got := cluster.ParseImageTagVersion(c.image)
 			assert.Equal(t, c.want, got)
 		})
 	}
 }
 
 func TestParseBundleVersion(t *testing.T) {
-	assert.Equal(t, "1.4.1", services.ParseBundleVersion("v1.4.1"))
-	assert.Equal(t, "1.5.0", services.ParseBundleVersion("1.5.0"))
-	assert.Equal(t, "", services.ParseBundleVersion(""))
-	assert.Equal(t, "", services.ParseBundleVersion("latest"))
-	assert.Equal(t, "", services.ParseBundleVersion("v1.4"))
+	assert.Equal(t, "1.4.1", cluster.ParseBundleVersion("v1.4.1"))
+	assert.Equal(t, "1.5.0", cluster.ParseBundleVersion("1.5.0"))
+	assert.Equal(t, "", cluster.ParseBundleVersion(""))
+	assert.Equal(t, "", cluster.ParseBundleVersion("latest"))
+	assert.Equal(t, "", cluster.ParseBundleVersion("v1.4"))
 }
 
-// newFakeServiceWith builds a KubernetesService whose getClientFor yields a fake
+// newFakeServiceWith builds a Client whose getClientFor yields a fake
 // dynamic client preloaded with the given objects. List kinds must be registered
 // up-front for the unstructured fake client to handle List() calls.
-func newFakeServiceWith(objects ...runtime.Object) *services.KubernetesService {
+func newFakeServiceWith(objects ...runtime.Object) *cluster.Client {
 	scheme := runtime.NewScheme()
 	gvrToListKind := map[schema.GroupVersionResource]string{
 		{Group: "apps", Version: "v1", Resource: "deployments"}:                               "DeploymentList",
 		{Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions"}: "CustomResourceDefinitionList",
 	}
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objects...)
-	return services.NewKubernetesServiceWithClient(client)
+	return cluster.NewWithClient(client)
 }
 
 func TestDetectVersions_HappyPath(t *testing.T) {

@@ -1,10 +1,10 @@
-package services_test
+package kubernetes_test
 
 import (
 	"testing"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -35,25 +35,25 @@ func boolPtr(v bool) *bool           { return &v }
 // ─── BuildHTTPRouteObject ────────────────────────────────────────────────────
 
 func TestBuildHTTPRouteObject_BasicPathMatch(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "test-route",
 		Namespace:   "default",
 		GatewayName: "my-gw",
 		GatewayID:   "gw-uuid",
 		RouteID:     "route-uuid",
 		Hostname:    "example.com",
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				PathType:  "PathPrefix",
 				PathValue: "/api",
-				BackendRefs: []services.BackendRef{
+				BackendRefs: []kubernetes.BackendRef{
 					{Name: "svc1", Port: 8080},
 				},
 			},
 		},
 	}
 
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	if route == nil {
 		t.Fatal("expected non-nil HTTPRoute")
 	}
@@ -97,21 +97,21 @@ func TestBuildHTTPRouteObject_BasicPathMatch(t *testing.T) {
 }
 
 func TestBuildHTTPRouteObject_MethodMatch(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "method-route",
 		Namespace:   "ns",
 		GatewayName: "gw",
 		Hostname:    "x.com",
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				Method: "GET",
-				BackendRefs: []services.BackendRef{
+				BackendRefs: []kubernetes.BackendRef{
 					{Name: "svc", Port: 80},
 				},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	if route.Spec.Rules[0].Matches[0].Method == nil {
 		t.Fatal("expected method match")
 	}
@@ -121,22 +121,22 @@ func TestBuildHTTPRouteObject_MethodMatch(t *testing.T) {
 }
 
 func TestBuildHTTPRouteObject_HeaderMatch(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "hdr-route",
 		Namespace:   "ns",
 		GatewayName: "gw",
 		Hostname:    "x.com",
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
-				Headers: []services.HeaderMatch{
+				Headers: []kubernetes.HeaderMatch{
 					{Name: "X-Custom", Type: "Exact", Value: "foo"},
 					{Name: "X-Re", Type: "RegularExpression", Value: "bar.*"},
 				},
-				BackendRefs: []services.BackendRef{{Name: "svc", Port: 80}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc", Port: 80}},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	hdrs := route.Spec.Rules[0].Matches[0].Headers
 	if len(hdrs) != 2 {
 		t.Fatalf("expected 2 header matches, got %d", len(hdrs))
@@ -147,21 +147,21 @@ func TestBuildHTTPRouteObject_HeaderMatch(t *testing.T) {
 }
 
 func TestBuildHTTPRouteObject_QueryParamMatch(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "qp-route",
 		Namespace:   "ns",
 		GatewayName: "gw",
 		Hostname:    "x.com",
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
-				QueryParams: []services.QueryParamMatch{
+				QueryParams: []kubernetes.QueryParamMatch{
 					{Name: "version", Type: "Exact", Value: "v2"},
 				},
-				BackendRefs: []services.BackendRef{{Name: "svc", Port: 80}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc", Port: 80}},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	qps := route.Spec.Rules[0].Matches[0].QueryParams
 	if len(qps) != 1 {
 		t.Fatalf("expected 1 query param match, got %d", len(qps))
@@ -172,23 +172,23 @@ func TestBuildHTTPRouteObject_QueryParamMatch(t *testing.T) {
 }
 
 func TestBuildHTTPRouteObject_MultipleBackendsWithWeight(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "multi-be",
 		Namespace:   "ns",
 		GatewayName: "gw",
 		Hostname:    "x.com",
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				PathType:  "PathPrefix",
 				PathValue: "/",
-				BackendRefs: []services.BackendRef{
+				BackendRefs: []kubernetes.BackendRef{
 					{Name: "svc1", Namespace: "ns1", Port: 8080, Weight: 80},
 					{Name: "svc2", Port: 8081, Weight: 20},
 				},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	refs := route.Spec.Rules[0].BackendRefs
 	if len(refs) != 2 {
 		t.Fatalf("expected 2 backends, got %d", len(refs))
@@ -202,16 +202,16 @@ func TestBuildHTTPRouteObject_MultipleBackendsWithWeight(t *testing.T) {
 }
 
 func TestBuildHTTPRouteObject_ExternalBackend(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "ext-be",
 		Namespace:   "ns",
 		GatewayName: "gw",
 		Hostname:    "x.com",
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				PathType:  "Exact",
 				PathValue: "/ext",
-				BackendRefs: []services.BackendRef{
+				BackendRefs: []kubernetes.BackendRef{
 					{
 						Name:       "ext-backend",
 						Port:       443,
@@ -223,7 +223,7 @@ func TestBuildHTTPRouteObject_ExternalBackend(t *testing.T) {
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	ref := route.Spec.Rules[0].BackendRefs[0]
 	if ref.BackendRef.Group == nil || string(*ref.BackendRef.Group) != "gateway.envoyproxy.io" {
 		t.Error("external backend group wrong")
@@ -235,26 +235,26 @@ func TestBuildHTTPRouteObject_ExternalBackend(t *testing.T) {
 
 func TestBuildHTTPRouteObject_Redirect(t *testing.T) {
 	port := 443
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "redir",
 		Namespace:   "ns",
 		GatewayName: "gw",
 		Hostname:    "x.com",
-		Redirect: &services.HTTPRedirectConfig{
+		Redirect: &kubernetes.HTTPRedirectConfig{
 			Scheme:     "https",
 			Hostname:   "new.com",
 			Port:       &port,
 			StatusCode: 301,
-			Path: &services.HTTPPathRewrite{
+			Path: &kubernetes.HTTPPathRewrite{
 				Type:            "ReplaceFullPath",
 				ReplaceFullPath: "/new-path",
 			},
 		},
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{PathType: "PathPrefix", PathValue: "/old"},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	filters := route.Spec.Rules[0].Filters
 	found := false
 	for _, f := range filters {
@@ -281,17 +281,17 @@ func TestBuildHTTPRouteObject_Redirect(t *testing.T) {
 }
 
 func TestBuildHTTPRouteObject_DirectResponse(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:                "dr-route",
 		Namespace:           "ns",
 		GatewayName:         "gw",
 		Hostname:            "x.com",
 		HTTPRouteFilterName: "my-filter",
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{PathType: "PathPrefix", PathValue: "/static"},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	filters := route.Spec.Rules[0].Filters
 	found := false
 	for _, f := range filters {
@@ -311,23 +311,23 @@ func TestBuildHTTPRouteObject_DirectResponse(t *testing.T) {
 }
 
 func TestBuildHTTPRouteObject_MirrorFilters(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "mirror-route",
 		Namespace:   "ns",
 		GatewayName: "gw",
 		Hostname:    "x.com",
-		Mirrors: []services.MirrorRef{
+		Mirrors: []kubernetes.MirrorRef{
 			{Name: "mirror-svc", Namespace: "mirror-ns", Port: 9090},
 		},
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				PathType:    "PathPrefix",
 				PathValue:   "/",
-				BackendRefs: []services.BackendRef{{Name: "svc", Port: 80}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc", Port: 80}},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	filters := route.Spec.Rules[0].Filters
 	found := false
 	for _, f := range filters {
@@ -344,28 +344,28 @@ func TestBuildHTTPRouteObject_MirrorFilters(t *testing.T) {
 }
 
 func TestBuildHTTPRouteObject_HeaderModifiers(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "hmod-route",
 		Namespace:   "ns",
 		GatewayName: "gw",
 		Hostname:    "x.com",
-		RequestHeaderModifier: &services.HTTPHeaderModifier{
-			Set:    []services.HTTPHeaderValue{{Name: "X-Set", Value: "val"}},
-			Add:    []services.HTTPHeaderValue{{Name: "X-Add", Value: "added"}},
+		RequestHeaderModifier: &kubernetes.HTTPHeaderModifier{
+			Set:    []kubernetes.HTTPHeaderValue{{Name: "X-Set", Value: "val"}},
+			Add:    []kubernetes.HTTPHeaderValue{{Name: "X-Add", Value: "added"}},
 			Remove: []string{"X-Remove"},
 		},
-		ResponseHeaderModifier: &services.HTTPHeaderModifier{
-			Set: []services.HTTPHeaderValue{{Name: "X-Resp", Value: "resp"}},
+		ResponseHeaderModifier: &kubernetes.HTTPHeaderModifier{
+			Set: []kubernetes.HTTPHeaderValue{{Name: "X-Resp", Value: "resp"}},
 		},
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				PathType:    "PathPrefix",
 				PathValue:   "/",
-				BackendRefs: []services.BackendRef{{Name: "svc", Port: 80}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc", Port: 80}},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	filters := route.Spec.Rules[0].Filters
 	hasReq, hasResp := false, false
 	for _, f := range filters {
@@ -394,27 +394,27 @@ func TestBuildHTTPRouteObject_HeaderModifiers(t *testing.T) {
 }
 
 func TestBuildHTTPRouteObject_URLRewrite(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "rewrite-route",
 		Namespace:   "ns",
 		GatewayName: "gw",
 		Hostname:    "x.com",
-		URLRewrite: &services.HTTPURLRewrite{
+		URLRewrite: &kubernetes.HTTPURLRewrite{
 			Hostname: k8sStringPtr("new-host.com"),
-			Path: &services.HTTPPathRewrite{
+			Path: &kubernetes.HTTPPathRewrite{
 				Type:               "ReplacePrefixMatch",
 				ReplacePrefixMatch: "/new",
 			},
 		},
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				PathType:    "PathPrefix",
 				PathValue:   "/old",
-				BackendRefs: []services.BackendRef{{Name: "svc", Port: 80}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc", Port: 80}},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	found := false
 	for _, f := range route.Spec.Rules[0].Filters {
 		if f.Type == gatewayv1.HTTPRouteFilterURLRewrite {
@@ -436,27 +436,27 @@ func TestBuildHTTPRouteObject_URLRewrite(t *testing.T) {
 }
 
 func TestBuildHTTPRouteObject_NoMatchNoBackend(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "empty-rule",
 		Namespace:   "ns",
 		GatewayName: "gw",
 		Hostname:    "x.com",
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{}, // no path, no method, no headers, no query params, no backends
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	if len(route.Spec.Rules[0].Matches) != 0 {
 		t.Error("expected no matches for empty rule")
 	}
 }
 
 func TestBuildHTTPRouteObject_TypeMeta(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name: "tm", Namespace: "ns", GatewayName: "gw", Hostname: "x.com",
-		Rules: []services.HTTPRouteRule{{BackendRefs: []services.BackendRef{{Name: "s", Port: 80}}}},
+		Rules: []kubernetes.HTTPRouteRule{{BackendRefs: []kubernetes.BackendRef{{Name: "s", Port: 80}}}},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	if route.TypeMeta.Kind != "HTTPRoute" {
 		t.Errorf("kind = %s, want HTTPRoute", route.TypeMeta.Kind)
 	}
@@ -468,28 +468,28 @@ func TestBuildHTTPRouteObject_TypeMeta(t *testing.T) {
 // ─── BuildGRPCRouteObject ───────────────────────────────────────────────────
 
 func TestBuildGRPCRouteObject_Nil(t *testing.T) {
-	if services.BuildGRPCRouteObject(nil) != nil {
+	if kubernetes.BuildGRPCRouteObject(nil) != nil {
 		t.Error("expected nil for nil config")
 	}
 }
 
 func TestBuildGRPCRouteObject_ServiceAndMethodMatch(t *testing.T) {
-	config := &services.GRPCRouteConfig{
+	config := &kubernetes.GRPCRouteConfig{
 		Name:        "grpc-route",
 		Namespace:   "ns",
 		GatewayName: "gw",
 		GatewayID:   "gw-id",
 		RouteID:     "route-id",
 		Hostname:    "grpc.example.com",
-		Rules: []services.GRPCRouteRule{
+		Rules: []kubernetes.GRPCRouteRule{
 			{
-				GRPCService: &services.GRPCMethodMatchConfig{Type: "Exact", Value: "my.Service"},
-				GRPCMethod:  &services.GRPCMethodMatchConfig{Type: "Exact", Value: "GetItem"},
-				BackendRefs: []services.BackendRef{{Name: "grpc-svc", Port: 50051}},
+				GRPCService: &kubernetes.GRPCMethodMatchConfig{Type: "Exact", Value: "my.Service"},
+				GRPCMethod:  &kubernetes.GRPCMethodMatchConfig{Type: "Exact", Value: "GetItem"},
+				BackendRefs: []kubernetes.BackendRef{{Name: "grpc-svc", Port: 50051}},
 			},
 		},
 	}
-	route := services.BuildGRPCRouteObject(config)
+	route := kubernetes.BuildGRPCRouteObject(config)
 	if route == nil {
 		t.Fatal("expected non-nil GRPCRoute")
 	}
@@ -512,16 +512,16 @@ func TestBuildGRPCRouteObject_ServiceAndMethodMatch(t *testing.T) {
 }
 
 func TestBuildGRPCRouteObject_HeaderMatch(t *testing.T) {
-	config := &services.GRPCRouteConfig{
+	config := &kubernetes.GRPCRouteConfig{
 		Name: "grpc-hdr", Namespace: "ns", GatewayName: "gw", Hostname: "h.com",
-		Rules: []services.GRPCRouteRule{
+		Rules: []kubernetes.GRPCRouteRule{
 			{
-				Headers:     []services.HeaderMatch{{Name: "x-tenant", Type: "Exact", Value: "acme"}},
-				BackendRefs: []services.BackendRef{{Name: "svc", Port: 50051}},
+				Headers:     []kubernetes.HeaderMatch{{Name: "x-tenant", Type: "Exact", Value: "acme"}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc", Port: 50051}},
 			},
 		},
 	}
-	route := services.BuildGRPCRouteObject(config)
+	route := kubernetes.BuildGRPCRouteObject(config)
 	hdrs := route.Spec.Rules[0].Matches[0].Headers
 	if len(hdrs) != 1 || string(hdrs[0].Name) != "x-tenant" {
 		t.Error("header match wrong")
@@ -529,14 +529,14 @@ func TestBuildGRPCRouteObject_HeaderMatch(t *testing.T) {
 }
 
 func TestBuildGRPCRouteObject_Mirrors(t *testing.T) {
-	config := &services.GRPCRouteConfig{
+	config := &kubernetes.GRPCRouteConfig{
 		Name: "grpc-mirror", Namespace: "ns", GatewayName: "gw", Hostname: "h.com",
-		Mirrors: []services.MirrorRef{{Name: "mirror", Namespace: "mns", Port: 50052}},
-		Rules: []services.GRPCRouteRule{
-			{BackendRefs: []services.BackendRef{{Name: "svc", Port: 50051}}},
+		Mirrors: []kubernetes.MirrorRef{{Name: "mirror", Namespace: "mns", Port: 50052}},
+		Rules: []kubernetes.GRPCRouteRule{
+			{BackendRefs: []kubernetes.BackendRef{{Name: "svc", Port: 50051}}},
 		},
 	}
-	route := services.BuildGRPCRouteObject(config)
+	route := kubernetes.BuildGRPCRouteObject(config)
 	found := false
 	for _, f := range route.Spec.Rules[0].Filters {
 		if f.Type == gatewayv1.GRPCRouteFilterRequestMirror {
@@ -549,16 +549,16 @@ func TestBuildGRPCRouteObject_Mirrors(t *testing.T) {
 }
 
 func TestBuildGRPCRouteObject_RequestHeaderModifier(t *testing.T) {
-	config := &services.GRPCRouteConfig{
+	config := &kubernetes.GRPCRouteConfig{
 		Name: "grpc-hmod", Namespace: "ns", GatewayName: "gw", Hostname: "h.com",
-		RequestHeaderModifier: &services.HTTPHeaderModifier{
-			Set: []services.HTTPHeaderValue{{Name: "X-Set", Value: "val"}},
+		RequestHeaderModifier: &kubernetes.HTTPHeaderModifier{
+			Set: []kubernetes.HTTPHeaderValue{{Name: "X-Set", Value: "val"}},
 		},
-		Rules: []services.GRPCRouteRule{
-			{BackendRefs: []services.BackendRef{{Name: "svc", Port: 50051}}},
+		Rules: []kubernetes.GRPCRouteRule{
+			{BackendRefs: []kubernetes.BackendRef{{Name: "svc", Port: 50051}}},
 		},
 	}
-	route := services.BuildGRPCRouteObject(config)
+	route := kubernetes.BuildGRPCRouteObject(config)
 	found := false
 	for _, f := range route.Spec.Rules[0].Filters {
 		if f.Type == gatewayv1.GRPCRouteFilterRequestHeaderModifier {
@@ -571,17 +571,17 @@ func TestBuildGRPCRouteObject_RequestHeaderModifier(t *testing.T) {
 }
 
 func TestBuildGRPCRouteObject_ExternalBackend(t *testing.T) {
-	config := &services.GRPCRouteConfig{
+	config := &kubernetes.GRPCRouteConfig{
 		Name: "grpc-ext", Namespace: "ns", GatewayName: "gw", Hostname: "h.com",
-		Rules: []services.GRPCRouteRule{
+		Rules: []kubernetes.GRPCRouteRule{
 			{
-				BackendRefs: []services.BackendRef{
+				BackendRefs: []kubernetes.BackendRef{
 					{Name: "ext", Port: 443, IsExternal: true, Group: "gateway.envoyproxy.io", Kind: "Backend"},
 				},
 			},
 		},
 	}
-	route := services.BuildGRPCRouteObject(config)
+	route := kubernetes.BuildGRPCRouteObject(config)
 	ref := route.Spec.Rules[0].BackendRefs[0]
 	if ref.BackendRef.Group == nil || string(*ref.BackendRef.Group) != "gateway.envoyproxy.io" {
 		t.Error("external group wrong")
@@ -590,16 +590,16 @@ func TestBuildGRPCRouteObject_ExternalBackend(t *testing.T) {
 
 func TestBuildGRPCRouteObject_DefaultMatchType(t *testing.T) {
 	// When Type is empty, it should default to Exact
-	config := &services.GRPCRouteConfig{
+	config := &kubernetes.GRPCRouteConfig{
 		Name: "grpc-default", Namespace: "ns", GatewayName: "gw", Hostname: "h.com",
-		Rules: []services.GRPCRouteRule{
+		Rules: []kubernetes.GRPCRouteRule{
 			{
-				GRPCService: &services.GRPCMethodMatchConfig{Type: "", Value: "my.Svc"},
-				BackendRefs: []services.BackendRef{{Name: "svc", Port: 50051}},
+				GRPCService: &kubernetes.GRPCMethodMatchConfig{Type: "", Value: "my.Svc"},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc", Port: 50051}},
 			},
 		},
 	}
-	route := services.BuildGRPCRouteObject(config)
+	route := kubernetes.BuildGRPCRouteObject(config)
 	match := route.Spec.Rules[0].Matches[0]
 	if match.Method.Type == nil || *match.Method.Type != gatewayv1.GRPCMethodMatchExact {
 		t.Error("expected default Exact match type")
@@ -609,31 +609,31 @@ func TestBuildGRPCRouteObject_DefaultMatchType(t *testing.T) {
 // ─── BuildSecurityPolicy ────────────────────────────────────────────────────
 
 func TestBuildSecurityPolicy_Nil(t *testing.T) {
-	if services.BuildSecurityPolicy(nil) != nil {
+	if kubernetes.BuildSecurityPolicy(nil) != nil {
 		t.Error("expected nil")
 	}
 }
 
 func TestBuildSecurityPolicy_NoFeatures(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
 	}
-	if services.BuildSecurityPolicy(config) != nil {
+	if kubernetes.BuildSecurityPolicy(config) != nil {
 		t.Error("expected nil when no features")
 	}
 }
 
 func TestBuildSecurityPolicy_CORSOnly(t *testing.T) {
 	maxAge := 3600
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-cors",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		CORS: &services.CORSPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		CORS: &kubernetes.CORSPolicyConfig{
 			AllowOrigins:     []string{"http://example.com", "http://*.foo.com"},
 			AllowMethods:     []string{"GET", "POST"},
 			AllowHeaders:     []string{"Authorization"},
@@ -642,7 +642,7 @@ func TestBuildSecurityPolicy_CORSOnly(t *testing.T) {
 			AllowCredentials: k8sBoolPtr(true),
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp == nil {
 		t.Fatal("expected non-nil SecurityPolicy")
 	}
@@ -664,37 +664,37 @@ func TestBuildSecurityPolicy_CORSOnly(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_CORSEmptyOrigins(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-cors-empty",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		CORS:      &services.CORSPolicyConfig{}, // empty - no origins, methods, headers
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		CORS:      &kubernetes.CORSPolicyConfig{}, // empty - no origins, methods, headers
 	}
-	if services.BuildSecurityPolicy(config) != nil {
+	if kubernetes.BuildSecurityPolicy(config) != nil {
 		t.Error("expected nil when CORS has no config")
 	}
 }
 
 func TestBuildSecurityPolicy_JWTAuth(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-jwt",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		JWT: &services.JWTAuthPolicyConfig{
-			Providers: []services.JWTProviderPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		JWT: &kubernetes.JWTAuthPolicyConfig{
+			Providers: []kubernetes.JWTProviderPolicyConfig{
 				{
 					Name:      "my-provider",
 					Issuer:    "https://issuer.example.com",
 					JWKSURL:   "https://issuer.example.com/.well-known/jwks.json",
 					Audiences: []string{"my-api"},
-					ClaimToHeaders: []services.JWTClaimToHeaderPolicyConfig{
+					ClaimToHeaders: []kubernetes.JWTClaimToHeaderPolicyConfig{
 						{Claim: "sub", Header: "X-User"},
 					},
 				},
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -722,33 +722,33 @@ func TestBuildSecurityPolicy_JWTAuth(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_JWTNoProviders(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-jwt-empty",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		JWT:       &services.JWTAuthPolicyConfig{},
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		JWT:       &kubernetes.JWTAuthPolicyConfig{},
 	}
-	if services.BuildSecurityPolicy(config) != nil {
+	if kubernetes.BuildSecurityPolicy(config) != nil {
 		t.Error("expected nil when JWT has no providers")
 	}
 }
 
 func TestBuildSecurityPolicy_APIKeyAuth(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-apikey",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		APIKeyAuth: &services.APIKeyAuthPolicyConfig{
-			CredentialRefs: []services.SecretRefConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		APIKeyAuth: &kubernetes.APIKeyAuthPolicyConfig{
+			CredentialRefs: []kubernetes.SecretRefConfig{
 				{Name: "secret1", Namespace: "ns"},
 				{Name: "secret2"},
 			},
-			ExtractFrom: []services.APIKeyExtractFromConfig{
+			ExtractFrom: []kubernetes.APIKeyExtractFromConfig{
 				{Headers: []string{"X-API-Key", "Authorization"}},
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -775,23 +775,23 @@ func TestBuildSecurityPolicy_APIKeyAuth(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_APIKeyNoCredentialRefs(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:       "sp-apikey-empty",
 		Namespace:  "ns",
-		TargetRef:  services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		APIKeyAuth: &services.APIKeyAuthPolicyConfig{},
+		TargetRef:  kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		APIKeyAuth: &kubernetes.APIKeyAuthPolicyConfig{},
 	}
-	if services.BuildSecurityPolicy(config) != nil {
+	if kubernetes.BuildSecurityPolicy(config) != nil {
 		t.Error("expected nil when API key has no credential refs")
 	}
 }
 
 func TestBuildSecurityPolicy_OIDC(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-oidc",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		OIDC: &services.OIDCPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		OIDC: &kubernetes.OIDCPolicyConfig{
 			Issuer:           "https://accounts.google.com",
 			ClientID:         "my-client-id",
 			ClientSecretName: "oidc-secret",
@@ -802,7 +802,7 @@ func TestBuildSecurityPolicy_OIDC(t *testing.T) {
 			CookieDomain:     "example.com",
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -824,13 +824,13 @@ func TestBuildSecurityPolicy_OIDC(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_Authorization_IPAllowlist(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-auth",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules: []services.AuthorizationRulePolicyConfig{
+			Rules: []kubernetes.AuthorizationRulePolicyConfig{
 				{
 					Action:      "Allow",
 					ClientCIDRs: []string{"10.0.0.0/8", "192.168.1.0/24"},
@@ -838,7 +838,7 @@ func TestBuildSecurityPolicy_Authorization_IPAllowlist(t *testing.T) {
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -863,16 +863,16 @@ func TestBuildSecurityPolicy_Authorization_IPAllowlist(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_Authorization_DenyAllNoRules(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-deny-all",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules:         []services.AuthorizationRulePolicyConfig{},
+			Rules:         []kubernetes.AuthorizationRulePolicyConfig{},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp == nil {
 		t.Fatal("expected non-nil for deny-all")
 	}
@@ -887,18 +887,18 @@ func TestBuildSecurityPolicy_Authorization_DenyAllNoRules(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_Authorization_JWTClaims(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-jwt-claims",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules: []services.AuthorizationRulePolicyConfig{
+			Rules: []kubernetes.AuthorizationRulePolicyConfig{
 				{
 					Action: "Allow",
-					JWT: &services.JWTPrincipalPolicyConfig{
+					JWT: &kubernetes.JWTPrincipalPolicyConfig{
 						Provider: "my-provider",
-						Claims: []services.JWTClaimRulePolicyConfig{
+						Claims: []kubernetes.JWTClaimRulePolicyConfig{
 							{Name: "role", Values: []string{"admin"}, ValueType: ""},
 							{Name: "scope", Values: []string{"read"}, ValueType: "Exact"},
 						},
@@ -907,7 +907,7 @@ func TestBuildSecurityPolicy_Authorization_JWTClaims(t *testing.T) {
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	spec := sp.Object["spec"].(map[string]interface{})
 	auth := spec["authorization"].(map[string]interface{})
 	rules := auth["rules"].([]interface{})
@@ -934,10 +934,10 @@ func TestBuildSecurityPolicy_Authorization_JWTClaims(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_ExtAuth_HTTP(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-extauth",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
 		ExtAuth: &models.ExtAuthConfig{
 			Type: "http",
 			HTTP: &models.ExtAuthHTTPConfig{
@@ -950,7 +950,7 @@ func TestBuildSecurityPolicy_ExtAuth_HTTP(t *testing.T) {
 			WithRequestBody:  &models.ExtAuthRequestBody{MaxBytes: 1024},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -974,10 +974,10 @@ func TestBuildSecurityPolicy_ExtAuth_HTTP(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_ExtAuth_GRPC(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-extauth-grpc",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
 		ExtAuth: &models.ExtAuthConfig{
 			Type: "grpc",
 			GRPC: &models.ExtAuthGRPCConfig{
@@ -985,7 +985,7 @@ func TestBuildSecurityPolicy_ExtAuth_GRPC(t *testing.T) {
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -999,21 +999,21 @@ func TestBuildSecurityPolicy_ExtAuth_GRPC(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_CombinedCORSAndJWT(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-combined",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		CORS: &services.CORSPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		CORS: &kubernetes.CORSPolicyConfig{
 			AllowOrigins: []string{"*"},
 			AllowMethods: []string{"GET"},
 		},
-		JWT: &services.JWTAuthPolicyConfig{
-			Providers: []services.JWTProviderPolicyConfig{
+		JWT: &kubernetes.JWTAuthPolicyConfig{
+			Providers: []kubernetes.JWTProviderPolicyConfig{
 				{Name: "p1", Issuer: "https://issuer.com", JWKSURL: "https://issuer.com/jwks"},
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -1027,18 +1027,18 @@ func TestBuildSecurityPolicy_CombinedCORSAndJWT(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_Metadata(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-meta",
 		Namespace: "test-ns",
 		GatewayID: "gw-123",
 		RouteID:   "rt-456",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		CORS: &services.CORSPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		CORS: &kubernetes.CORSPolicyConfig{
 			AllowOrigins: []string{"*"},
 			AllowMethods: []string{"GET"},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	meta := sp.Object["metadata"].(map[string]interface{})
 	if meta["name"] != "sp-meta" {
 		t.Error("name wrong")
@@ -1061,43 +1061,43 @@ func TestBuildSecurityPolicy_Metadata(t *testing.T) {
 // ─── BuildBackendTrafficPolicy ──────────────────────────────────────────────
 
 func TestBuildBackendTrafficPolicy_Nil(t *testing.T) {
-	if services.BuildBackendTrafficPolicy(nil) != nil {
+	if kubernetes.BuildBackendTrafficPolicy(nil) != nil {
 		t.Error("expected nil")
 	}
 }
 
 func TestBuildBackendTrafficPolicy_NoFeatures(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
 	}
-	if services.BuildBackendTrafficPolicy(config) != nil {
+	if kubernetes.BuildBackendTrafficPolicy(config) != nil {
 		t.Error("expected nil when no features")
 	}
 }
 
 func TestBuildBackendTrafficPolicy_Retry(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-retry",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Retry: &services.RetryPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Retry: &kubernetes.RetryPolicyConfig{
 			NumRetries: k8sInt32Ptr(3),
-			RetryOn: &services.RetryOnPolicyConfig{
+			RetryOn: &kubernetes.RetryOnPolicyConfig{
 				HTTPStatusCodes: []int{502, 503},
 				Triggers:        []string{"connect-failure", "reset"},
 			},
-			PerRetry: &services.PerRetryPolicyConfig{
+			PerRetry: &kubernetes.PerRetryPolicyConfig{
 				Timeout: k8sStringPtr("5s"),
-				BackOff: &services.BackOffPolicyConfig{
+				BackOff: &kubernetes.BackOffPolicyConfig{
 					BaseInterval: k8sStringPtr("1s"),
 					MaxInterval:  k8sStringPtr("10s"),
 				},
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	if btp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -1122,22 +1122,22 @@ func TestBuildBackendTrafficPolicy_Retry(t *testing.T) {
 }
 
 func TestBuildBackendTrafficPolicy_RateLimit(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-rl",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		RateLimit: &services.RateLimitPolicyConfig{
-			Global: &services.GlobalRateLimitPolicyConfig{
-				Rules: []services.RateLimitRulePolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		RateLimit: &kubernetes.RateLimitPolicyConfig{
+			Global: &kubernetes.GlobalRateLimitPolicyConfig{
+				Rules: []kubernetes.RateLimitRulePolicyConfig{
 					{
-						Limit: services.RateLimitValuePolicyConfig{Requests: 100, Unit: "Minute"},
-						ClientSelectors: []services.RateLimitSelectorPolicyConfig{
+						Limit: kubernetes.RateLimitValuePolicyConfig{Requests: 100, Unit: "Minute"},
+						ClientSelectors: []kubernetes.RateLimitSelectorPolicyConfig{
 							{
-								Headers: []services.RateLimitHeaderMatchPolicyConfig{
+								Headers: []kubernetes.RateLimitHeaderMatchPolicyConfig{
 									{Name: "X-Client", Value: "premium", Type: "Exact", Invert: false},
 								},
-								SourceCIDR: &services.RateLimitSourceCIDRPolicyConfig{Value: "10.0.0.0/8", Type: "Distinct"},
-								Path:       &services.RateLimitPathMatchPolicyConfig{Value: "/api", Type: "PathPrefix"},
+								SourceCIDR: &kubernetes.RateLimitSourceCIDRPolicyConfig{Value: "10.0.0.0/8", Type: "Distinct"},
+								Path:       &kubernetes.RateLimitPathMatchPolicyConfig{Value: "/api", Type: "PathPrefix"},
 								Methods:    []string{"GET", "POST"},
 							},
 						},
@@ -1146,7 +1146,7 @@ func TestBuildBackendTrafficPolicy_RateLimit(t *testing.T) {
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	if btp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -1174,13 +1174,13 @@ func TestBuildBackendTrafficPolicy_RateLimit(t *testing.T) {
 }
 
 func TestBuildBackendTrafficPolicy_Timeout(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-timeout",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Timeout: &services.BTPTimeoutPolicyConfig{
-			TCP: &services.BTPTCPTimeoutPolicyConfig{ConnectTimeout: "5s"},
-			HTTP: &services.BTPHTTPTimeoutPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Timeout: &kubernetes.BTPTimeoutPolicyConfig{
+			TCP: &kubernetes.BTPTCPTimeoutPolicyConfig{ConnectTimeout: "5s"},
+			HTTP: &kubernetes.BTPHTTPTimeoutPolicyConfig{
 				RequestTimeout:        "30s",
 				ConnectionIdleTimeout: "60s",
 				MaxConnectionDuration: "120s",
@@ -1188,7 +1188,7 @@ func TestBuildBackendTrafficPolicy_Timeout(t *testing.T) {
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	if btp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -1208,11 +1208,11 @@ func TestBuildBackendTrafficPolicy_Timeout(t *testing.T) {
 }
 
 func TestBuildBackendTrafficPolicy_CircuitBreaker(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-cb",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		CircuitBreaker: &services.CircuitBreakerPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		CircuitBreaker: &kubernetes.CircuitBreakerPolicyConfig{
 			MaxConnections:           k8sInt64Ptr(1024),
 			MaxPendingRequests:       k8sInt64Ptr(128),
 			MaxParallelRequests:      k8sInt64Ptr(64),
@@ -1220,7 +1220,7 @@ func TestBuildBackendTrafficPolicy_CircuitBreaker(t *testing.T) {
 			MaxRequestsPerConnection: k8sInt64Ptr(100),
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	if btp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -1236,18 +1236,18 @@ func TestBuildBackendTrafficPolicy_CircuitBreaker(t *testing.T) {
 
 func TestBuildBackendTrafficPolicy_HealthCheck_HTTP(t *testing.T) {
 	method := "GET"
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-hc",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		HealthCheck: &services.HealthCheckPolicyConfig{
-			Active: &services.ActiveHealthCheckPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		HealthCheck: &kubernetes.HealthCheckPolicyConfig{
+			Active: &kubernetes.ActiveHealthCheckPolicyConfig{
 				Timeout:            k8sStringPtr("5s"),
 				Interval:           k8sStringPtr("10s"),
 				UnhealthyThreshold: k8sUint32Ptr(3),
 				HealthyThreshold:   k8sUint32Ptr(2),
 				Type:               "HTTP",
-				HTTP: &services.HTTPActiveHealthCheckPolicyConfig{
+				HTTP: &kubernetes.HTTPActiveHealthCheckPolicyConfig{
 					Path:             "/health",
 					Method:           &method,
 					ExpectedStatuses: []int{200, 204},
@@ -1256,7 +1256,7 @@ func TestBuildBackendTrafficPolicy_HealthCheck_HTTP(t *testing.T) {
 			PanicThreshold: k8sUint32Ptr(50),
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	hc := spec["healthCheck"].(map[string]interface{})
 	active := hc["active"].(map[string]interface{})
@@ -1283,21 +1283,21 @@ func TestBuildBackendTrafficPolicy_HealthCheck_HTTP(t *testing.T) {
 }
 
 func TestBuildBackendTrafficPolicy_HealthCheck_TCP(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-hc-tcp",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		HealthCheck: &services.HealthCheckPolicyConfig{
-			Active: &services.ActiveHealthCheckPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		HealthCheck: &kubernetes.HealthCheckPolicyConfig{
+			Active: &kubernetes.ActiveHealthCheckPolicyConfig{
 				Type: "TCP",
-				TCP: &services.TCPActiveHealthCheckPolicyConfig{
+				TCP: &kubernetes.TCPActiveHealthCheckPolicyConfig{
 					SendText:    k8sStringPtr("ping"),
 					ReceiveText: k8sStringPtr("pong"),
 				},
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	hc := spec["healthCheck"].(map[string]interface{})
 	active := hc["active"].(map[string]interface{})
@@ -1313,20 +1313,20 @@ func TestBuildBackendTrafficPolicy_HealthCheck_TCP(t *testing.T) {
 }
 
 func TestBuildBackendTrafficPolicy_HealthCheck_GRPC(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-hc-grpc",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		HealthCheck: &services.HealthCheckPolicyConfig{
-			Active: &services.ActiveHealthCheckPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		HealthCheck: &kubernetes.HealthCheckPolicyConfig{
+			Active: &kubernetes.ActiveHealthCheckPolicyConfig{
 				Type: "GRPC",
-				GRPC: &services.GRPCActiveHealthCheckPolicyConfig{
+				GRPC: &kubernetes.GRPCActiveHealthCheckPolicyConfig{
 					Service: k8sStringPtr("grpc.health.v1.Health"),
 				},
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	hc := spec["healthCheck"].(map[string]interface{})
 	active := hc["active"].(map[string]interface{})
@@ -1337,12 +1337,12 @@ func TestBuildBackendTrafficPolicy_HealthCheck_GRPC(t *testing.T) {
 }
 
 func TestBuildBackendTrafficPolicy_HealthCheck_Passive(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-hc-passive",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		HealthCheck: &services.HealthCheckPolicyConfig{
-			Passive: &services.PassiveHealthCheckPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		HealthCheck: &kubernetes.HealthCheckPolicyConfig{
+			Passive: &kubernetes.PassiveHealthCheckPolicyConfig{
 				ConsecutiveGatewayErrors:       k8sUint32Ptr(5),
 				Consecutive5xxErrors:           k8sUint32Ptr(3),
 				Interval:                       k8sStringPtr("30s"),
@@ -1352,7 +1352,7 @@ func TestBuildBackendTrafficPolicy_HealthCheck_Passive(t *testing.T) {
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	hc := spec["healthCheck"].(map[string]interface{})
 	passive := hc["passive"].(map[string]interface{})
@@ -1368,15 +1368,15 @@ func TestBuildBackendTrafficPolicy_HealthCheck_Passive(t *testing.T) {
 }
 
 func TestBuildBackendTrafficPolicy_LoadBalancer_RoundRobin(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-lb",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		LoadBalancer: &services.LoadBalancerPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		LoadBalancer: &kubernetes.LoadBalancerPolicyConfig{
 			Type: "RoundRobin",
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	lb := spec["loadBalancer"].(map[string]interface{})
 	if lb["type"] != "RoundRobin" {
@@ -1385,21 +1385,21 @@ func TestBuildBackendTrafficPolicy_LoadBalancer_RoundRobin(t *testing.T) {
 }
 
 func TestBuildBackendTrafficPolicy_LoadBalancer_ConsistentHash_Header(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-lb-ch",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		LoadBalancer: &services.LoadBalancerPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		LoadBalancer: &kubernetes.LoadBalancerPolicyConfig{
 			Type: "ConsistentHash",
-			ConsistentHash: &services.ConsistentHashPolicyConfig{
+			ConsistentHash: &kubernetes.ConsistentHashPolicyConfig{
 				Type: "Header",
-				Header: &services.ConsistentHashHeaderPolicyConfig{
+				Header: &kubernetes.ConsistentHashHeaderPolicyConfig{
 					Name: "X-Session",
 				},
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	lb := spec["loadBalancer"].(map[string]interface{})
 	ch := lb["consistentHash"].(map[string]interface{})
@@ -1414,15 +1414,15 @@ func TestBuildBackendTrafficPolicy_LoadBalancer_ConsistentHash_Header(t *testing
 
 func TestBuildBackendTrafficPolicy_LoadBalancer_ConsistentHash_Cookie(t *testing.T) {
 	ttl := "3600s"
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-lb-cookie",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		LoadBalancer: &services.LoadBalancerPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		LoadBalancer: &kubernetes.LoadBalancerPolicyConfig{
 			Type: "ConsistentHash",
-			ConsistentHash: &services.ConsistentHashPolicyConfig{
+			ConsistentHash: &kubernetes.ConsistentHashPolicyConfig{
 				Type: "Cookie",
-				Cookie: &services.ConsistentHashCookiePolicyConfig{
+				Cookie: &kubernetes.ConsistentHashCookiePolicyConfig{
 					Name:       "session",
 					TTL:        &ttl,
 					Attributes: map[string]string{"SameSite": "Strict"},
@@ -1430,7 +1430,7 @@ func TestBuildBackendTrafficPolicy_LoadBalancer_ConsistentHash_Cookie(t *testing
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	lb := spec["loadBalancer"].(map[string]interface{})
 	ch := lb["consistentHash"].(map[string]interface{})
@@ -1448,17 +1448,17 @@ func TestBuildBackendTrafficPolicy_LoadBalancer_ConsistentHash_Cookie(t *testing
 }
 
 func TestBuildBackendTrafficPolicy_Compression(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-comp",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Compression: []services.CompressionPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Compression: []kubernetes.CompressionPolicyConfig{
 			{Type: "Gzip"},
 			{Type: "Brotli"},
 			{Type: "Zstd"},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	compressor := spec["compressor"].([]interface{})
 	if len(compressor) != 3 {
@@ -1474,22 +1474,22 @@ func TestBuildBackendTrafficPolicy_Compression(t *testing.T) {
 }
 
 func TestBuildBackendTrafficPolicy_FaultInjection(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-fi",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		FaultInjection: &services.FaultInjectionPolicyConfig{
-			Delay: &services.FaultInjectionDelayPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		FaultInjection: &kubernetes.FaultInjectionPolicyConfig{
+			Delay: &kubernetes.FaultInjectionDelayPolicyConfig{
 				FixedDelay: "2s",
 				Percentage: k8sFloat32Ptr(50.0),
 			},
-			Abort: &services.FaultInjectionAbortPolicyConfig{
+			Abort: &kubernetes.FaultInjectionAbortPolicyConfig{
 				HTTPStatus: k8sIntPtr(503),
 				Percentage: k8sFloat32Ptr(10.0),
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	fi := spec["faultInjection"].(map[string]interface{})
 	delay := fi["delay"].(map[string]interface{})
@@ -1506,15 +1506,15 @@ func TestBuildBackendTrafficPolicy_FaultInjection(t *testing.T) {
 }
 
 func TestBuildBackendTrafficPolicy_RequestBuffer(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-rb",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		RequestBuffer: &services.RequestBufferPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		RequestBuffer: &kubernetes.RequestBufferPolicyConfig{
 			Limit: "32Ki",
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	rb := spec["requestBuffer"].(map[string]interface{})
 	if rb["limit"] != "32Ki" {
@@ -1524,21 +1524,21 @@ func TestBuildBackendTrafficPolicy_RequestBuffer(t *testing.T) {
 
 func TestBuildBackendTrafficPolicy_ResponseOverride(t *testing.T) {
 	statusCode := 404
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-ro",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		ResponseOverride: []services.ResponseOverridePolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		ResponseOverride: []kubernetes.ResponseOverridePolicyConfig{
 			{
-				Match: services.ResponseOverrideMatchPolicyConfig{
-					StatusCodes: []services.StatusCodeMatchPolicyConfig{
+				Match: kubernetes.ResponseOverrideMatchPolicyConfig{
+					StatusCodes: []kubernetes.StatusCodeMatchPolicyConfig{
 						{Type: "Value", Value: &statusCode},
-						{Type: "Range", Range: &services.StatusCodeRangePolicyConfig{Start: 500, End: 599}},
+						{Type: "Range", Range: &kubernetes.StatusCodeRangePolicyConfig{Start: 500, End: 599}},
 					},
 				},
-				Response: services.ResponseOverrideResponsePolicyConfig{
+				Response: kubernetes.ResponseOverrideResponsePolicyConfig{
 					ContentType: "application/json",
-					Body: services.ResponseOverrideBodyPolicyConfig{
+					Body: kubernetes.ResponseOverrideBodyPolicyConfig{
 						Type:   "Inline",
 						Inline: `{"error": "not found"}`,
 					},
@@ -1546,7 +1546,7 @@ func TestBuildBackendTrafficPolicy_ResponseOverride(t *testing.T) {
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	ro := spec["responseOverride"].([]interface{})
 	if len(ro) != 1 {
@@ -1565,15 +1565,15 @@ func TestBuildBackendTrafficPolicy_ResponseOverride(t *testing.T) {
 }
 
 func TestBuildBackendTrafficPolicy_Metadata(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp-meta",
 		Namespace: "test-ns",
 		GatewayID: "gw-123",
 		RouteID:   "rt-456",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Retry:     &services.RetryPolicyConfig{NumRetries: k8sInt32Ptr(1)},
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Retry:     &kubernetes.RetryPolicyConfig{NumRetries: k8sInt32Ptr(1)},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	if btp.Object["kind"] != "BackendTrafficPolicy" {
 		t.Error("kind wrong")
 	}
@@ -1590,35 +1590,35 @@ func TestBuildBackendTrafficPolicy_Metadata(t *testing.T) {
 // ─── BuildClientTrafficPolicy ───────────────────────────────────────────────
 
 func TestBuildClientTrafficPolicy_Nil(t *testing.T) {
-	if services.BuildClientTrafficPolicy(nil) != nil {
+	if kubernetes.BuildClientTrafficPolicy(nil) != nil {
 		t.Error("expected nil")
 	}
 }
 
 func TestBuildClientTrafficPolicy_NoConfig(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp",
 		Namespace: "ns",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
 	}
-	if services.BuildClientTrafficPolicy(config) != nil {
+	if kubernetes.BuildClientTrafficPolicy(config) != nil {
 		t.Error("expected nil when no features configured")
 	}
 }
 
 func TestBuildClientTrafficPolicy_TCPKeepalive(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp-ka",
 		Namespace: "ns",
 		GatewayID: "gw-id",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
-		TCPKeepalive: &services.TCPKeepalivePolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
+		TCPKeepalive: &kubernetes.TCPKeepalivePolicyConfig{
 			Probes:   k8sInt32Ptr(5),
 			IdleTime: k8sStringPtr("60s"),
 			Interval: k8sStringPtr("10s"),
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	if ctp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -1633,13 +1633,13 @@ func TestBuildClientTrafficPolicy_TCPKeepalive(t *testing.T) {
 }
 
 func TestBuildClientTrafficPolicy_ProxyProtocol(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:                "ctp-pp",
 		Namespace:           "ns",
-		TargetRef:           services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
+		TargetRef:           kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
 		EnableProxyProtocol: true,
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	if spec["enableProxyProtocol"] != true {
 		t.Error("enableProxyProtocol wrong")
@@ -1647,17 +1647,17 @@ func TestBuildClientTrafficPolicy_ProxyProtocol(t *testing.T) {
 }
 
 func TestBuildClientTrafficPolicy_Connection(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp-conn",
 		Namespace: "ns",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
-		Connection: &services.ConnectionPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
+		Connection: &kubernetes.ConnectionPolicyConfig{
 			BufferLimit:    k8sStringPtr("32Ki"),
 			MaxConnections: k8sInt32Ptr(1000),
 			CloseDelay:     k8sStringPtr("5s"),
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	conn := spec["connection"].(map[string]interface{})
 	if conn["bufferLimit"] != "32Ki" {
@@ -1670,18 +1670,18 @@ func TestBuildClientTrafficPolicy_Connection(t *testing.T) {
 }
 
 func TestBuildClientTrafficPolicy_Timeout(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp-to",
 		Namespace: "ns",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
-		Timeout: &services.TimeoutPolicyConfig{
-			HTTP: &services.HTTPTimeoutPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
+		Timeout: &kubernetes.TimeoutPolicyConfig{
+			HTTP: &kubernetes.HTTPTimeoutPolicyConfig{
 				RequestReceivedTimeout: k8sStringPtr("30s"),
 				IdleTimeout:            k8sStringPtr("120s"),
 			},
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	timeout := spec["timeout"].(map[string]interface{})
 	httpTO := timeout["http"].(map[string]interface{})
@@ -1694,13 +1694,13 @@ func TestBuildClientTrafficPolicy_Timeout(t *testing.T) {
 }
 
 func TestBuildClientTrafficPolicy_HTTP3(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp-h3",
 		Namespace: "ns",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
-		HTTP3:     &services.HTTP3PolicyConfig{Enabled: true},
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
+		HTTP3:     &kubernetes.HTTP3PolicyConfig{Enabled: true},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	if _, ok := spec["http3"]; !ok {
 		t.Error("http3 missing")
@@ -1708,19 +1708,19 @@ func TestBuildClientTrafficPolicy_HTTP3(t *testing.T) {
 }
 
 func TestBuildClientTrafficPolicy_ClientIPDetection(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp-ip",
 		Namespace: "ns",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
-		ClientIPDetection: &services.ClientIPDetectionPolicyConfig{
-			XForwardedFor: &services.XForwardedForPolicyConfig{NumTrustedHops: 2},
-			CustomHeader: &services.CustomHeaderPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
+		ClientIPDetection: &kubernetes.ClientIPDetectionPolicyConfig{
+			XForwardedFor: &kubernetes.XForwardedForPolicyConfig{NumTrustedHops: 2},
+			CustomHeader: &kubernetes.CustomHeaderPolicyConfig{
 				Name:       "X-Real-IP",
 				FailClosed: true,
 			},
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	ipDet := spec["clientIPDetection"].(map[string]interface{})
 	xff := ipDet["xForwardedFor"].(map[string]interface{})
@@ -1737,17 +1737,17 @@ func TestBuildClientTrafficPolicy_ClientIPDetection(t *testing.T) {
 }
 
 func TestBuildClientTrafficPolicy_TLS(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp-tls",
 		Namespace: "ns",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
-		TLS: &services.TLSPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
+		TLS: &kubernetes.TLSPolicyConfig{
 			MinVersion: k8sStringPtr("TLS1.2"),
 			MaxVersion: k8sStringPtr("TLS1.3"),
 			Ciphers:    []string{"TLS_AES_128_GCM_SHA256"},
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	tls := spec["tls"].(map[string]interface{})
 	if tls["minVersion"] != "1.2" {
@@ -1759,22 +1759,22 @@ func TestBuildClientTrafficPolicy_TLS(t *testing.T) {
 }
 
 func TestBuildClientTrafficPolicy_ClientValidation(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp-mtls",
 		Namespace: "ns",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
-		ClientValidation: &services.ClientValidationPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
+		ClientValidation: &kubernetes.ClientValidationPolicyConfig{
 			Optional: true,
-			CACertificateRefs: []services.SecretRefPolicyConfig{
+			CACertificateRefs: []kubernetes.SecretRefPolicyConfig{
 				{Group: "", Kind: "Secret", Name: "ca-cert"},
 			},
-			SANMatchers: []services.SANMatcherPolicyConfig{
+			SANMatchers: []kubernetes.SANMatcherPolicyConfig{
 				{Type: "DNS", Match: "example.com"},
 			},
 			CertificateHashes: []string{"abc123"},
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	tls := spec["tls"].(map[string]interface{})
 	cv := tls["clientValidation"].(map[string]interface{})
@@ -1796,18 +1796,18 @@ func TestBuildClientTrafficPolicy_ClientValidation(t *testing.T) {
 }
 
 func TestBuildClientTrafficPolicy_Headers_XFCC(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp-xfcc",
 		Namespace: "ns",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
-		Headers: &services.HeadersPolicyConfig{
-			XForwardedClientCert: &services.XFCCPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
+		Headers: &kubernetes.HeadersPolicyConfig{
+			XForwardedClientCert: &kubernetes.XFCCPolicyConfig{
 				Mode:             "AppendForward",
 				CertDetailsToAdd: []string{"Hash", "DNS"},
 			},
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	headers := spec["headers"].(map[string]interface{})
 	xfcc := headers["xForwardedClientCert"].(map[string]interface{})
@@ -1824,14 +1824,14 @@ func TestBuildClientTrafficPolicy_Headers_XFCC(t *testing.T) {
 }
 
 func TestBuildClientTrafficPolicy_Metadata(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:                "ctp-meta",
 		Namespace:           "test-ns",
 		GatewayID:           "gw-789",
-		TargetRef:           services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
+		TargetRef:           kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "gw"},
 		EnableProxyProtocol: true,
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	if ctp.Object["kind"] != "ClientTrafficPolicy" {
 		t.Error("kind wrong")
 	}
@@ -1845,34 +1845,34 @@ func TestBuildClientTrafficPolicy_Metadata(t *testing.T) {
 // ─── BuildEnvoyExtensionPolicy ──────────────────────────────────────────────
 
 func TestBuildEnvoyExtensionPolicy_Nil(t *testing.T) {
-	if services.BuildEnvoyExtensionPolicy(nil) != nil {
+	if kubernetes.BuildEnvoyExtensionPolicy(nil) != nil {
 		t.Error("expected nil")
 	}
 }
 
 func TestBuildEnvoyExtensionPolicy_NoContent(t *testing.T) {
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep",
 		Namespace: "ns",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
 	}
-	if services.BuildEnvoyExtensionPolicy(config) != nil {
+	if kubernetes.BuildEnvoyExtensionPolicy(config) != nil {
 		t.Error("expected nil when no lua or wasm")
 	}
 }
 
 func TestBuildEnvoyExtensionPolicy_Lua_Inline(t *testing.T) {
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep-lua",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Lua: []services.LuaExtensionPolicyConfig{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Lua: []kubernetes.LuaExtensionPolicyConfig{
 			{Type: "Inline", Inline: "function envoy_on_request(handle) end"},
 		},
 	}
-	eep := services.BuildEnvoyExtensionPolicy(config)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	if eep == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -1890,20 +1890,20 @@ func TestBuildEnvoyExtensionPolicy_Lua_Inline(t *testing.T) {
 }
 
 func TestBuildEnvoyExtensionPolicy_Lua_ValueRef(t *testing.T) {
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep-lua-ref",
 		Namespace: "ns",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Lua: []services.LuaExtensionPolicyConfig{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Lua: []kubernetes.LuaExtensionPolicyConfig{
 			{
 				Type: "ValueRef",
-				ValueRef: &services.ValueRefPolicyConfig{
+				ValueRef: &kubernetes.ValueRefPolicyConfig{
 					Kind: "ConfigMap", Name: "lua-script", Namespace: "ns",
 				},
 			},
 		},
 	}
-	eep := services.BuildEnvoyExtensionPolicy(config)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	spec := eep.Object["spec"].(map[string]interface{})
 	lua := spec["lua"].([]map[string]interface{})
 	vr := lua[0]["valueRef"].(map[string]interface{})
@@ -1914,18 +1914,18 @@ func TestBuildEnvoyExtensionPolicy_Lua_ValueRef(t *testing.T) {
 
 func TestBuildEnvoyExtensionPolicy_Wasm_HTTP(t *testing.T) {
 	wasmConfig := `{"key":"value"}`
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep-wasm",
 		Namespace: "ns",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Wasm: []services.WasmExtensionPolicyConfig{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Wasm: []kubernetes.WasmExtensionPolicyConfig{
 			{
 				Name:   "my-wasm",
 				RootID: "root-1",
 				Config: &wasmConfig,
-				Code: services.WasmCodeSourcePolicyConfig{
+				Code: kubernetes.WasmCodeSourcePolicyConfig{
 					Type: "HTTP",
-					HTTP: &services.WasmHTTPSourcePolicyConfig{
+					HTTP: &kubernetes.WasmHTTPSourcePolicyConfig{
 						URL:    "https://example.com/wasm.wasm",
 						SHA256: "abc123",
 					},
@@ -1933,7 +1933,7 @@ func TestBuildEnvoyExtensionPolicy_Wasm_HTTP(t *testing.T) {
 			},
 		},
 	}
-	eep := services.BuildEnvoyExtensionPolicy(config)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	spec := eep.Object["spec"].(map[string]interface{})
 	wasm := spec["wasm"].([]map[string]interface{})
 	if len(wasm) != 1 {
@@ -1956,19 +1956,19 @@ func TestBuildEnvoyExtensionPolicy_Wasm_HTTP(t *testing.T) {
 }
 
 func TestBuildEnvoyExtensionPolicy_Wasm_Image(t *testing.T) {
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep-wasm-img",
 		Namespace: "ns",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Wasm: []services.WasmExtensionPolicyConfig{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Wasm: []kubernetes.WasmExtensionPolicyConfig{
 			{
 				Name: "img-wasm",
-				Code: services.WasmCodeSourcePolicyConfig{
+				Code: kubernetes.WasmCodeSourcePolicyConfig{
 					Type: "Image",
-					Image: &services.WasmImageSourcePolicyConfig{
+					Image: &kubernetes.WasmImageSourcePolicyConfig{
 						URL:    "oci://registry.example.com/wasm:v1",
 						SHA256: "sha256hash",
-						PullSecret: &services.ValueRefPolicyConfig{
+						PullSecret: &kubernetes.ValueRefPolicyConfig{
 							Kind: "Secret", Name: "pull-secret", Group: "", Namespace: "ns",
 						},
 					},
@@ -1976,7 +1976,7 @@ func TestBuildEnvoyExtensionPolicy_Wasm_Image(t *testing.T) {
 			},
 		},
 	}
-	eep := services.BuildEnvoyExtensionPolicy(config)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	spec := eep.Object["spec"].(map[string]interface{})
 	wasm := spec["wasm"].([]map[string]interface{})
 	code := wasm[0]["code"].(map[string]interface{})
@@ -1993,7 +1993,7 @@ func TestBuildEnvoyExtensionPolicy_Wasm_Image(t *testing.T) {
 // ─── BuildBackend ───────────────────────────────────────────────────────────
 
 func TestBuildBackend_FQDN(t *testing.T) {
-	config := &services.BackendConfig{
+	config := &kubernetes.BackendConfig{
 		Name:        "be-fqdn",
 		Namespace:   "ns",
 		RouteID:     "rt-id",
@@ -2002,7 +2002,7 @@ func TestBuildBackend_FQDN(t *testing.T) {
 		Address:     "api.example.com",
 		Port:        443,
 	}
-	be := services.BuildBackend(config)
+	be := kubernetes.BuildBackend(config)
 	if be == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -2022,7 +2022,7 @@ func TestBuildBackend_FQDN(t *testing.T) {
 }
 
 func TestBuildBackend_IP(t *testing.T) {
-	config := &services.BackendConfig{
+	config := &kubernetes.BackendConfig{
 		Name:        "be-ip",
 		Namespace:   "ns",
 		RouteID:     "rt-id",
@@ -2031,7 +2031,7 @@ func TestBuildBackend_IP(t *testing.T) {
 		Address:     "10.0.0.1",
 		Port:        8080,
 	}
-	be := services.BuildBackend(config)
+	be := kubernetes.BuildBackend(config)
 	spec := be.Object["spec"].(map[string]interface{})
 	endpoints := spec["endpoints"].([]interface{})
 	ep := endpoints[0].(map[string]interface{})
@@ -2042,7 +2042,7 @@ func TestBuildBackend_IP(t *testing.T) {
 }
 
 func TestBuildBackend_Fallback(t *testing.T) {
-	config := &services.BackendConfig{
+	config := &kubernetes.BackendConfig{
 		Name:        "be-fb",
 		Namespace:   "ns",
 		AddressType: "fqdn",
@@ -2050,7 +2050,7 @@ func TestBuildBackend_Fallback(t *testing.T) {
 		Port:        80,
 		Fallback:    true,
 	}
-	be := services.BuildBackend(config)
+	be := kubernetes.BuildBackend(config)
 	spec := be.Object["spec"].(map[string]interface{})
 	if spec["fallback"] != true {
 		t.Error("fallback should be true")
@@ -2058,7 +2058,7 @@ func TestBuildBackend_Fallback(t *testing.T) {
 }
 
 func TestBuildBackend_NoFallback(t *testing.T) {
-	config := &services.BackendConfig{
+	config := &kubernetes.BackendConfig{
 		Name:        "be-nofb",
 		Namespace:   "ns",
 		AddressType: "fqdn",
@@ -2066,7 +2066,7 @@ func TestBuildBackend_NoFallback(t *testing.T) {
 		Port:        80,
 		Fallback:    false,
 	}
-	be := services.BuildBackend(config)
+	be := kubernetes.BuildBackend(config)
 	spec := be.Object["spec"].(map[string]interface{})
 	if _, ok := spec["fallback"]; ok {
 		t.Error("fallback should not be set when false")
@@ -2074,22 +2074,22 @@ func TestBuildBackend_NoFallback(t *testing.T) {
 }
 
 func TestBuildBackend_TLS(t *testing.T) {
-	config := &services.BackendConfig{
+	config := &kubernetes.BackendConfig{
 		Name:        "be-tls",
 		Namespace:   "ns",
 		AddressType: "fqdn",
 		Address:     "tls.example.com",
 		Port:        443,
-		TLS: &services.BackendTLSPolicyConfig{
-			CACertificateRefs: []services.BackendCertificateRefConfig{
+		TLS: &kubernetes.BackendTLSPolicyConfig{
+			CACertificateRefs: []kubernetes.BackendCertificateRefConfig{
 				{Kind: "Secret", Name: "ca-secret", Namespace: "ns"},
 			},
-			ClientCertificateRef: &services.BackendSecretRefConfig{
+			ClientCertificateRef: &kubernetes.BackendSecretRefConfig{
 				Name: "client-cert", Namespace: "ns",
 			},
 		},
 	}
-	be := services.BuildBackend(config)
+	be := kubernetes.BuildBackend(config)
 	spec := be.Object["spec"].(map[string]interface{})
 	tls := spec["tls"].(map[string]interface{})
 	caRefs := tls["caCertificateRefs"].([]interface{})
@@ -2107,17 +2107,17 @@ func TestBuildBackend_TLS(t *testing.T) {
 }
 
 func TestBuildBackend_TLS_InsecureSkipVerify(t *testing.T) {
-	config := &services.BackendConfig{
+	config := &kubernetes.BackendConfig{
 		Name:        "be-insecure",
 		Namespace:   "ns",
 		AddressType: "fqdn",
 		Address:     "svc.default.svc.cluster.local",
 		Port:        443,
-		TLS: &services.BackendTLSPolicyConfig{
+		TLS: &kubernetes.BackendTLSPolicyConfig{
 			InsecureSkipVerify: true,
 		},
 	}
-	be := services.BuildBackend(config)
+	be := kubernetes.BuildBackend(config)
 	spec := be.Object["spec"].(map[string]interface{})
 	tls := spec["tls"].(map[string]interface{})
 
@@ -2133,20 +2133,20 @@ func TestBuildBackend_TLS_InsecureSkipVerify(t *testing.T) {
 }
 
 func TestBuildBackend_TLS_SNIOverride(t *testing.T) {
-	config := &services.BackendConfig{
+	config := &kubernetes.BackendConfig{
 		Name:        "be-sni",
 		Namespace:   "ns",
 		AddressType: "fqdn",
 		Address:     "backend.default.svc.cluster.local",
 		Port:        443,
-		TLS: &services.BackendTLSPolicyConfig{
-			CACertificateRefs: []services.BackendCertificateRefConfig{
+		TLS: &kubernetes.BackendTLSPolicyConfig{
+			CACertificateRefs: []kubernetes.BackendCertificateRefConfig{
 				{Kind: "Secret", Name: "ca-secret", Namespace: "ns"},
 			},
 			SNI: "custom-sni.example.com",
 		},
 	}
-	be := services.BuildBackend(config)
+	be := kubernetes.BuildBackend(config)
 	spec := be.Object["spec"].(map[string]interface{})
 	tls := spec["tls"].(map[string]interface{})
 
@@ -2156,17 +2156,17 @@ func TestBuildBackend_TLS_SNIOverride(t *testing.T) {
 }
 
 func TestBuildBackend_TLS_SNIAutoDerive_IP(t *testing.T) {
-	config := &services.BackendConfig{
+	config := &kubernetes.BackendConfig{
 		Name:        "be-ip",
 		Namespace:   "ns",
 		AddressType: "ip",
 		Address:     "10.0.0.1",
 		Port:        443,
-		TLS: &services.BackendTLSPolicyConfig{
+		TLS: &kubernetes.BackendTLSPolicyConfig{
 			InsecureSkipVerify: true,
 		},
 	}
-	be := services.BuildBackend(config)
+	be := kubernetes.BuildBackend(config)
 	spec := be.Object["spec"].(map[string]interface{})
 	tls := spec["tls"].(map[string]interface{})
 
@@ -2176,20 +2176,20 @@ func TestBuildBackend_TLS_SNIAutoDerive_IP(t *testing.T) {
 }
 
 func TestBuildBackend_TLS_MTLS_InsecureSkipVerify(t *testing.T) {
-	config := &services.BackendConfig{
+	config := &kubernetes.BackendConfig{
 		Name:        "be-mtls-insecure",
 		Namespace:   "ns",
 		AddressType: "fqdn",
 		Address:     "backend.default.svc.cluster.local",
 		Port:        443,
-		TLS: &services.BackendTLSPolicyConfig{
+		TLS: &kubernetes.BackendTLSPolicyConfig{
 			InsecureSkipVerify: true,
-			ClientCertificateRef: &services.BackendSecretRefConfig{
+			ClientCertificateRef: &kubernetes.BackendSecretRefConfig{
 				Name: "client-cert", Namespace: "ns",
 			},
 		},
 	}
-	be := services.BuildBackend(config)
+	be := kubernetes.BuildBackend(config)
 	spec := be.Object["spec"].(map[string]interface{})
 	tls := spec["tls"].(map[string]interface{})
 
@@ -2209,7 +2209,7 @@ func TestBuildBackend_TLS_MTLS_InsecureSkipVerify(t *testing.T) {
 }
 
 func TestBuildBackend_Labels(t *testing.T) {
-	config := &services.BackendConfig{
+	config := &kubernetes.BackendConfig{
 		Name:        "be-labels",
 		Namespace:   "ns",
 		RouteID:     "rt-id",
@@ -2218,7 +2218,7 @@ func TestBuildBackend_Labels(t *testing.T) {
 		Address:     "h.com",
 		Port:        80,
 	}
-	be := services.BuildBackend(config)
+	be := kubernetes.BuildBackend(config)
 	meta := be.Object["metadata"].(map[string]interface{})
 	labels := meta["labels"].(map[string]interface{})
 	if labels["fastgateway.dev/route-id"] != "rt-id" {
@@ -2232,13 +2232,13 @@ func TestBuildBackend_Labels(t *testing.T) {
 // ─── BuildGatewayObject ─────────────────────────────────────────────────────
 
 func TestBuildGatewayObject_Nil(t *testing.T) {
-	if services.BuildGatewayObject(nil) != nil {
+	if kubernetes.BuildGatewayObject(nil) != nil {
 		t.Error("expected nil")
 	}
 }
 
 func TestBuildGatewayObject_TLSOnly(t *testing.T) {
-	config := &services.GatewayConfig{
+	config := &kubernetes.GatewayConfig{
 		Name:             "gw",
 		Namespace:        "ns",
 		GatewayClassName: "eg",
@@ -2247,7 +2247,7 @@ func TestBuildGatewayObject_TLSOnly(t *testing.T) {
 		HTTPSPort:        443,
 		TLSSecretName:    "tls-secret",
 	}
-	gw := services.BuildGatewayObject(config)
+	gw := kubernetes.BuildGatewayObject(config)
 	spec := gw.Object["spec"].(map[string]interface{})
 	listeners := spec["listeners"].([]interface{})
 	if len(listeners) != 1 {
@@ -2260,7 +2260,7 @@ func TestBuildGatewayObject_TLSOnly(t *testing.T) {
 }
 
 func TestBuildGatewayObject_Both(t *testing.T) {
-	config := &services.GatewayConfig{
+	config := &kubernetes.GatewayConfig{
 		Name:             "gw",
 		Namespace:        "ns",
 		GatewayClassName: "eg",
@@ -2270,7 +2270,7 @@ func TestBuildGatewayObject_Both(t *testing.T) {
 		HTTPSPort:        443,
 		TLSSecretName:    "tls-secret",
 	}
-	gw := services.BuildGatewayObject(config)
+	gw := kubernetes.BuildGatewayObject(config)
 	spec := gw.Object["spec"].(map[string]interface{})
 	listeners := spec["listeners"].([]interface{})
 	if len(listeners) != 2 {
@@ -2279,7 +2279,7 @@ func TestBuildGatewayObject_Both(t *testing.T) {
 }
 
 func TestBuildGatewayObject_NoTLS(t *testing.T) {
-	config := &services.GatewayConfig{
+	config := &kubernetes.GatewayConfig{
 		Name:             "gw",
 		Namespace:        "ns",
 		GatewayClassName: "eg",
@@ -2287,7 +2287,7 @@ func TestBuildGatewayObject_NoTLS(t *testing.T) {
 		TLSMode:          "no_tls",
 		HTTPPort:         80,
 	}
-	gw := services.BuildGatewayObject(config)
+	gw := kubernetes.BuildGatewayObject(config)
 	spec := gw.Object["spec"].(map[string]interface{})
 	listeners := spec["listeners"].([]interface{})
 	if len(listeners) != 1 {
@@ -2300,7 +2300,7 @@ func TestBuildGatewayObject_NoTLS(t *testing.T) {
 }
 
 func TestBuildGatewayObject_Annotations(t *testing.T) {
-	config := &services.GatewayConfig{
+	config := &kubernetes.GatewayConfig{
 		Name:             "gw",
 		Namespace:        "ns",
 		GatewayClassName: "eg",
@@ -2309,7 +2309,7 @@ func TestBuildGatewayObject_Annotations(t *testing.T) {
 		HTTPPort:         80,
 		Annotations:      map[string]string{"key": "value"},
 	}
-	gw := services.BuildGatewayObject(config)
+	gw := kubernetes.BuildGatewayObject(config)
 	meta := gw.Object["metadata"].(map[string]interface{})
 	ann := meta["annotations"].(map[string]interface{})
 	if ann["key"] != "value" {
@@ -2318,7 +2318,7 @@ func TestBuildGatewayObject_Annotations(t *testing.T) {
 }
 
 func TestBuildGatewayObject_Passthrough(t *testing.T) {
-	config := &services.GatewayConfig{
+	config := &kubernetes.GatewayConfig{
 		Name:             "gw",
 		Namespace:        "ns",
 		GatewayClassName: "eg",
@@ -2328,7 +2328,7 @@ func TestBuildGatewayObject_Passthrough(t *testing.T) {
 		TLSSecretName:    "tls-secret",
 		TLSPolicy:        "passthrough",
 	}
-	gw := services.BuildGatewayObject(config)
+	gw := kubernetes.BuildGatewayObject(config)
 	spec := gw.Object["spec"].(map[string]interface{})
 	listeners := spec["listeners"].([]interface{})
 	l := listeners[0].(map[string]interface{})
@@ -2341,21 +2341,21 @@ func TestBuildGatewayObject_Passthrough(t *testing.T) {
 // ─── BuildHTTPRouteFilter ───────────────────────────────────────────────────
 
 func TestBuildHTTPRouteFilter_DirectResponse_Inline(t *testing.T) {
-	config := &services.HTTPRouteFilterConfig{
+	config := &kubernetes.HTTPRouteFilterConfig{
 		Name:      "hrf",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		DirectResponse: &services.DirectResponseFilterConfig{
+		DirectResponse: &kubernetes.DirectResponseFilterConfig{
 			StatusCode:  200,
 			ContentType: "text/plain",
-			Body: &services.DirectResponseBodyFilterConfig{
+			Body: &kubernetes.DirectResponseBodyFilterConfig{
 				Type:   "Inline",
 				Inline: "Hello World",
 			},
 		},
 	}
-	hrf := services.BuildHTTPRouteFilter(config)
+	hrf := kubernetes.BuildHTTPRouteFilter(config)
 	if hrf == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -2374,20 +2374,20 @@ func TestBuildHTTPRouteFilter_DirectResponse_Inline(t *testing.T) {
 }
 
 func TestBuildHTTPRouteFilter_DirectResponse_ValueRef(t *testing.T) {
-	config := &services.HTTPRouteFilterConfig{
+	config := &kubernetes.HTTPRouteFilterConfig{
 		Name:      "hrf-ref",
 		Namespace: "ns",
-		DirectResponse: &services.DirectResponseFilterConfig{
+		DirectResponse: &kubernetes.DirectResponseFilterConfig{
 			StatusCode: 404,
-			Body: &services.DirectResponseBodyFilterConfig{
+			Body: &kubernetes.DirectResponseBodyFilterConfig{
 				Type: "ValueRef",
-				ValueRef: &services.DirectResponseValueRef{
+				ValueRef: &kubernetes.DirectResponseValueRef{
 					Group: "", Kind: "ConfigMap", Name: "error-body",
 				},
 			},
 		},
 	}
-	hrf := services.BuildHTTPRouteFilter(config)
+	hrf := kubernetes.BuildHTTPRouteFilter(config)
 	spec := hrf.Object["spec"].(map[string]interface{})
 	dr := spec["directResponse"].(map[string]interface{})
 	body := dr["body"].(map[string]interface{})
@@ -2400,13 +2400,13 @@ func TestBuildHTTPRouteFilter_DirectResponse_ValueRef(t *testing.T) {
 // ─── BuildExtAuthBackend ────────────────────────────────────────────────────
 
 func TestBuildExtAuthBackend_Nil(t *testing.T) {
-	if services.BuildExtAuthBackend(nil) != nil {
+	if kubernetes.BuildExtAuthBackend(nil) != nil {
 		t.Error("expected nil")
 	}
 }
 
 func TestBuildExtAuthBackend_Basic(t *testing.T) {
-	config := &services.ExtAuthBackendConfig{
+	config := &kubernetes.ExtAuthBackendConfig{
 		Name:      "ext-auth-be",
 		Namespace: "ns",
 		GatewayID: "gw-id",
@@ -2417,7 +2417,7 @@ func TestBuildExtAuthBackend_Basic(t *testing.T) {
 			Port:      9090,
 		},
 	}
-	be := services.BuildExtAuthBackend(config)
+	be := kubernetes.BuildExtAuthBackend(config)
 	if be == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -2436,14 +2436,14 @@ func TestBuildExtAuthBackend_Basic(t *testing.T) {
 // ─── GenerateExtAuthBackendName ─────────────────────────────────────────────
 
 func TestGenerateExtAuthBackendName_GeneralMode(t *testing.T) {
-	name := services.GenerateExtAuthBackendName("12345678-abcd-efgh-ijkl", "")
+	name := kubernetes.GenerateExtAuthBackendName("12345678-abcd-efgh-ijkl", "")
 	if name != "fg-extauth-12345678" {
 		t.Errorf("name = %s, want fg-extauth-12345678", name)
 	}
 }
 
 func TestGenerateExtAuthBackendName_ClientMode(t *testing.T) {
-	name := services.GenerateExtAuthBackendName("12345678-abcd-efgh-ijkl", "abcdef01-2345-6789")
+	name := kubernetes.GenerateExtAuthBackendName("12345678-abcd-efgh-ijkl", "abcdef01-2345-6789")
 	if name != "fg-extauth-12345678-abcdef01" {
 		t.Errorf("name = %s, want fg-extauth-12345678-abcdef01", name)
 	}
@@ -2452,7 +2452,7 @@ func TestGenerateExtAuthBackendName_ClientMode(t *testing.T) {
 // ─── BuildExtAuthBackend (additional paths) ─────────────────────────────────
 
 func TestBuildExtAuthBackend_WithClientID(t *testing.T) {
-	config := &services.ExtAuthBackendConfig{
+	config := &kubernetes.ExtAuthBackendConfig{
 		Name:      "ext-auth-be",
 		Namespace: "ns",
 		GatewayID: "gw-id",
@@ -2464,7 +2464,7 @@ func TestBuildExtAuthBackend_WithClientID(t *testing.T) {
 			Port:      9090,
 		},
 	}
-	be := services.BuildExtAuthBackend(config)
+	be := kubernetes.BuildExtAuthBackend(config)
 	if be == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -2479,7 +2479,7 @@ func TestBuildExtAuthBackend_WithClientID(t *testing.T) {
 
 func TestBuildExtAuthBackend_ServiceNamespaceFallback(t *testing.T) {
 	// When Service.Namespace is empty, should fall back to config.Namespace
-	config := &services.ExtAuthBackendConfig{
+	config := &kubernetes.ExtAuthBackendConfig{
 		Name:      "ext-auth-be",
 		Namespace: "default-ns",
 		GatewayID: "gw-id",
@@ -2489,7 +2489,7 @@ func TestBuildExtAuthBackend_ServiceNamespaceFallback(t *testing.T) {
 			Port: 9090,
 		},
 	}
-	be := services.BuildExtAuthBackend(config)
+	be := kubernetes.BuildExtAuthBackend(config)
 	spec := be.Object["spec"].(map[string]interface{})
 	endpoints := spec["endpoints"].([]interface{})
 	ep := endpoints[0].(map[string]interface{})
@@ -2502,11 +2502,11 @@ func TestBuildExtAuthBackend_ServiceNamespaceFallback(t *testing.T) {
 // ─── BuildGatewayClassObject ────────────────────────────────────────────────
 
 func TestBuildGatewayClassObject_NoParametersRef(t *testing.T) {
-	config := &services.GatewayClassConfig{
+	config := &kubernetes.GatewayClassConfig{
 		Name:           "my-gc",
 		ControllerName: "gateway.envoyproxy.io/gatewayclass-controller",
 	}
-	gc := services.BuildGatewayClassObject(config)
+	gc := kubernetes.BuildGatewayClassObject(config)
 	if gc == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -2534,12 +2534,12 @@ func TestBuildGatewayClassObject_NoParametersRef(t *testing.T) {
 }
 
 func TestBuildGatewayClassObject_WithParametersRef(t *testing.T) {
-	config := &services.GatewayClassConfig{
+	config := &kubernetes.GatewayClassConfig{
 		Name:              "my-gc",
 		ControllerName:    "gateway.envoyproxy.io/gatewayclass-controller",
 		ParametersRefName: "my-envoy-proxy",
 	}
-	gc := services.BuildGatewayClassObject(config)
+	gc := kubernetes.BuildGatewayClassObject(config)
 	spec := gc.Object["spec"].(map[string]interface{})
 	paramRef := spec["parametersRef"].(map[string]interface{})
 	if paramRef["group"] != "gateway.envoyproxy.io" {
@@ -2559,12 +2559,12 @@ func TestBuildGatewayClassObject_WithParametersRef(t *testing.T) {
 // ─── BuildEnvoyProxyObject ──────────────────────────────────────────────────
 
 func TestBuildEnvoyProxyObject_MinimalClusterIP(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:        "my-proxy",
 		Namespace:   "egw-system",
 		ServiceType: "ClusterIP",
 	}
-	ep := services.BuildEnvoyProxyObject(config)
+	ep := kubernetes.BuildEnvoyProxyObject(config)
 	if ep == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -2593,7 +2593,7 @@ func TestBuildEnvoyProxyObject_MinimalClusterIP(t *testing.T) {
 }
 
 func TestBuildEnvoyProxyObject_LoadBalancerWithPolicy(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:                  "my-proxy",
 		Namespace:             "ns",
 		ServiceType:           "LoadBalancer",
@@ -2601,7 +2601,7 @@ func TestBuildEnvoyProxyObject_LoadBalancerWithPolicy(t *testing.T) {
 		LoadBalancerClass:     "service.k8s.aws/nlb",
 		Annotations:           map[string]string{"key": "val"},
 	}
-	ep := services.BuildEnvoyProxyObject(config)
+	ep := kubernetes.BuildEnvoyProxyObject(config)
 	spec := ep.Object["spec"].(map[string]interface{})
 	k8s := spec["provider"].(map[string]interface{})["kubernetes"].(map[string]interface{})
 	svc := k8s["envoyService"].(map[string]interface{})
@@ -2619,14 +2619,14 @@ func TestBuildEnvoyProxyObject_LoadBalancerWithPolicy(t *testing.T) {
 
 func TestBuildEnvoyProxyObject_ClusterIPNoTrafficPolicy(t *testing.T) {
 	// ExternalTrafficPolicy should not be set for ClusterIP even if configured
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:                  "my-proxy",
 		Namespace:             "ns",
 		ServiceType:           "ClusterIP",
 		ExternalTrafficPolicy: "Local",
 		LoadBalancerClass:     "some-class",
 	}
-	ep := services.BuildEnvoyProxyObject(config)
+	ep := kubernetes.BuildEnvoyProxyObject(config)
 	spec := ep.Object["spec"].(map[string]interface{})
 	k8s := spec["provider"].(map[string]interface{})["kubernetes"].(map[string]interface{})
 	svc := k8s["envoyService"].(map[string]interface{})
@@ -2640,7 +2640,7 @@ func TestBuildEnvoyProxyObject_ClusterIPNoTrafficPolicy(t *testing.T) {
 
 func TestBuildEnvoyProxyObject_FixedReplicas(t *testing.T) {
 	replicas := int32(3)
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:        "my-proxy",
 		Namespace:   "ns",
 		ServiceType: "ClusterIP",
@@ -2649,7 +2649,7 @@ func TestBuildEnvoyProxyObject_FixedReplicas(t *testing.T) {
 			Replicas: &replicas,
 		},
 	}
-	ep := services.BuildEnvoyProxyObject(config)
+	ep := kubernetes.BuildEnvoyProxyObject(config)
 	spec := ep.Object["spec"].(map[string]interface{})
 	k8s := spec["provider"].(map[string]interface{})["kubernetes"].(map[string]interface{})
 	dep := k8s["envoyDeployment"].(map[string]interface{})
@@ -2664,7 +2664,7 @@ func TestBuildEnvoyProxyObject_FixedReplicas(t *testing.T) {
 func TestBuildEnvoyProxyObject_HPAScaling(t *testing.T) {
 	minR := int32(2)
 	maxR := int32(10)
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:        "my-proxy",
 		Namespace:   "ns",
 		ServiceType: "ClusterIP",
@@ -2674,7 +2674,7 @@ func TestBuildEnvoyProxyObject_HPAScaling(t *testing.T) {
 			MaxReplicas: &maxR,
 		},
 	}
-	ep := services.BuildEnvoyProxyObject(config)
+	ep := kubernetes.BuildEnvoyProxyObject(config)
 	spec := ep.Object["spec"].(map[string]interface{})
 	k8s := spec["provider"].(map[string]interface{})["kubernetes"].(map[string]interface{})
 	hpa := k8s["envoyHpa"].(map[string]interface{})
@@ -2691,7 +2691,7 @@ func TestBuildEnvoyProxyObject_HPAScaling(t *testing.T) {
 }
 
 func TestBuildEnvoyProxyObject_ContainerResources(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:        "my-proxy",
 		Namespace:   "ns",
 		ServiceType: "ClusterIP",
@@ -2700,7 +2700,7 @@ func TestBuildEnvoyProxyObject_ContainerResources(t *testing.T) {
 			Limits:   &models.ResourceValues{CPU: "500m", Memory: "512Mi"},
 		},
 	}
-	ep := services.BuildEnvoyProxyObject(config)
+	ep := kubernetes.BuildEnvoyProxyObject(config)
 	spec := ep.Object["spec"].(map[string]interface{})
 	k8s := spec["provider"].(map[string]interface{})["kubernetes"].(map[string]interface{})
 	dep := k8s["envoyDeployment"].(map[string]interface{})
@@ -2723,13 +2723,13 @@ func TestBuildEnvoyProxyObject_ContainerResources(t *testing.T) {
 }
 
 func TestBuildEnvoyProxyObject_PodAnnotations(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:           "my-proxy",
 		Namespace:      "ns",
 		ServiceType:    "ClusterIP",
 		PodAnnotations: map[string]string{"prometheus.io/scrape": "true"},
 	}
-	ep := services.BuildEnvoyProxyObject(config)
+	ep := kubernetes.BuildEnvoyProxyObject(config)
 	spec := ep.Object["spec"].(map[string]interface{})
 	k8s := spec["provider"].(map[string]interface{})["kubernetes"].(map[string]interface{})
 	dep := k8s["envoyDeployment"].(map[string]interface{})
@@ -2741,13 +2741,13 @@ func TestBuildEnvoyProxyObject_PodAnnotations(t *testing.T) {
 }
 
 func TestBuildEnvoyProxyObject_MergeGateways(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:          "my-proxy",
 		Namespace:     "ns",
 		ServiceType:   "ClusterIP",
 		MergeGateways: true,
 	}
-	ep := services.BuildEnvoyProxyObject(config)
+	ep := kubernetes.BuildEnvoyProxyObject(config)
 	spec := ep.Object["spec"].(map[string]interface{})
 	if spec["mergeGateways"] != true {
 		t.Error("mergeGateways should be true")
@@ -2757,14 +2757,14 @@ func TestBuildEnvoyProxyObject_MergeGateways(t *testing.T) {
 // ─── BuildDirectResponseConfigMap ───────────────────────────────────────────
 
 func TestBuildDirectResponseConfigMap_Basic(t *testing.T) {
-	config := &services.DirectResponseConfigMapConfig{
+	config := &kubernetes.DirectResponseConfigMapConfig{
 		Name:        "dr-cm",
 		Namespace:   "ns",
 		GatewayID:   "gw-id",
 		RouteID:     "rt-id",
 		BodyContent: "<html>Error</html>",
 	}
-	cm := services.BuildDirectResponseConfigMap(config)
+	cm := kubernetes.BuildDirectResponseConfigMap(config)
 	if cm == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -2789,7 +2789,7 @@ func TestBuildDirectResponseConfigMap_Basic(t *testing.T) {
 
 func TestBuildHTTPRouteObject_DirectResponseRoute(t *testing.T) {
 	// When HTTPRouteFilterName is set, should produce ExtensionRef filter
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:                "dr-route",
 		Namespace:           "ns",
 		GatewayName:         "my-gw",
@@ -2797,14 +2797,14 @@ func TestBuildHTTPRouteObject_DirectResponseRoute(t *testing.T) {
 		RouteID:             "rt-id",
 		Hostname:            "example.com",
 		HTTPRouteFilterName: "my-hrf",
-		ResponseHeaderModifier: &services.HTTPHeaderModifier{
-			Set: []services.HTTPHeaderValue{{Name: "X-Custom", Value: "val"}},
+		ResponseHeaderModifier: &kubernetes.HTTPHeaderModifier{
+			Set: []kubernetes.HTTPHeaderValue{{Name: "X-Custom", Value: "val"}},
 		},
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{PathType: "PathPrefix", PathValue: "/health"},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	if route == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -2840,20 +2840,20 @@ func TestBuildHTTPRouteObject_DirectResponseRoute(t *testing.T) {
 
 func TestBuildHTTPRouteObject_DirectResponseOmitsRequestModifier(t *testing.T) {
 	// Direct response route should NOT include request header modifier
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:                "dr-route",
 		Namespace:           "ns",
 		GatewayName:         "my-gw",
 		Hostname:            "example.com",
 		HTTPRouteFilterName: "my-hrf",
-		RequestHeaderModifier: &services.HTTPHeaderModifier{
-			Set: []services.HTTPHeaderValue{{Name: "X-Req", Value: "val"}},
+		RequestHeaderModifier: &kubernetes.HTTPHeaderModifier{
+			Set: []kubernetes.HTTPHeaderValue{{Name: "X-Req", Value: "val"}},
 		},
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{PathType: "PathPrefix", PathValue: "/"},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	for _, f := range route.Spec.Rules[0].Filters {
 		if f.Type == gatewayv1.HTTPRouteFilterRequestHeaderModifier {
 			t.Error("direct response route should not have RequestHeaderModifier")
@@ -2863,26 +2863,26 @@ func TestBuildHTTPRouteObject_DirectResponseOmitsRequestModifier(t *testing.T) {
 
 func TestBuildHTTPRouteObject_RedirectWithPath(t *testing.T) {
 	port := 443
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "redir-route",
 		Namespace:   "ns",
 		GatewayName: "my-gw",
 		Hostname:    "example.com",
-		Redirect: &services.HTTPRedirectConfig{
+		Redirect: &kubernetes.HTTPRedirectConfig{
 			Scheme:     "https",
 			Hostname:   "new.example.com",
 			Port:       &port,
 			StatusCode: 301,
-			Path: &services.HTTPPathRewrite{
+			Path: &kubernetes.HTTPPathRewrite{
 				Type:            "ReplaceFullPath",
 				ReplaceFullPath: "/new-path",
 			},
 		},
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{PathType: "PathPrefix", PathValue: "/old"},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	rule := route.Spec.Rules[0]
 	if len(rule.BackendRefs) > 0 {
 		t.Error("redirect route should have no backend refs")
@@ -2917,23 +2917,23 @@ func TestBuildHTTPRouteObject_RedirectWithPath(t *testing.T) {
 }
 
 func TestBuildHTTPRouteObject_RedirectPrefixMatch(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "redir-route",
 		Namespace:   "ns",
 		GatewayName: "my-gw",
 		Hostname:    "example.com",
-		Redirect: &services.HTTPRedirectConfig{
+		Redirect: &kubernetes.HTTPRedirectConfig{
 			StatusCode: 302,
-			Path: &services.HTTPPathRewrite{
+			Path: &kubernetes.HTTPPathRewrite{
 				Type:               "ReplacePrefixMatch",
 				ReplacePrefixMatch: "/v2",
 			},
 		},
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{PathType: "PathPrefix", PathValue: "/v1"},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	for _, f := range route.Spec.Rules[0].Filters {
 		if f.Type == gatewayv1.HTTPRouteFilterRequestRedirect {
 			if f.RequestRedirect.Path.Type != gatewayv1.PrefixMatchHTTPPathModifier {
@@ -2948,44 +2948,44 @@ func TestBuildHTTPRouteObject_RedirectPrefixMatch(t *testing.T) {
 
 func TestBuildHTTPRouteObject_BackendWithWeight0(t *testing.T) {
 	// Weight=0 should not be set (let K8s default)
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "route",
 		Namespace:   "ns",
 		GatewayName: "my-gw",
 		Hostname:    "example.com",
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				PathType:  "PathPrefix",
 				PathValue: "/",
-				BackendRefs: []services.BackendRef{
+				BackendRefs: []kubernetes.BackendRef{
 					{Name: "svc1", Port: 80, Weight: 0},
 				},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	if route.Spec.Rules[0].BackendRefs[0].Weight != nil {
 		t.Error("weight=0 should not set Weight pointer")
 	}
 }
 
 func TestBuildHTTPRouteObject_BackendWithNamespace(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "route",
 		Namespace:   "ns",
 		GatewayName: "my-gw",
 		Hostname:    "example.com",
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				PathType:  "PathPrefix",
 				PathValue: "/",
-				BackendRefs: []services.BackendRef{
+				BackendRefs: []kubernetes.BackendRef{
 					{Name: "svc1", Port: 80, Namespace: "other-ns"},
 				},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	ref := route.Spec.Rules[0].BackendRefs[0]
 	if ref.Namespace == nil || string(*ref.Namespace) != "other-ns" {
 		t.Error("namespace not set on backend ref")
@@ -2995,13 +2995,13 @@ func TestBuildHTTPRouteObject_BackendWithNamespace(t *testing.T) {
 // ─── BuildSecurityPolicy (OIDC additional paths) ────────────────────────────
 
 func TestBuildSecurityPolicy_OIDC_WithScopes(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
-		OIDC: &services.OIDCPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
+		OIDC: &kubernetes.OIDCPolicyConfig{
 			Issuer:           "https://accounts.google.com",
 			ClientID:         "my-client-id",
 			ClientSecretName: "oidc-secret",
@@ -3012,7 +3012,7 @@ func TestBuildSecurityPolicy_OIDC_WithScopes(t *testing.T) {
 			CookieDomain:     ".example.com",
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -3031,11 +3031,11 @@ func TestBuildSecurityPolicy_OIDC_WithScopes(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_OIDC_NoCookieDomain(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		OIDC: &services.OIDCPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		OIDC: &kubernetes.OIDCPolicyConfig{
 			Issuer:           "https://issuer",
 			ClientID:         "cid",
 			ClientSecretName: "sec",
@@ -3044,7 +3044,7 @@ func TestBuildSecurityPolicy_OIDC_NoCookieDomain(t *testing.T) {
 			LogoutPath:       "/logout",
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	spec := sp.Object["spec"].(map[string]interface{})
 	oidc := spec["oidc"].(map[string]interface{})
 	if _, ok := oidc["cookieDomain"]; ok {
@@ -3059,18 +3059,18 @@ func TestBuildSecurityPolicy_OIDC_NoCookieDomain(t *testing.T) {
 
 func TestBuildSecurityPolicy_Authorization_JWTClaims_ScopeForceStringArray(t *testing.T) {
 	// "scope" claim should always be StringArray regardless of user-specified valueType
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules: []services.AuthorizationRulePolicyConfig{
+			Rules: []kubernetes.AuthorizationRulePolicyConfig{
 				{
 					Action: "Allow",
-					JWT: &services.JWTPrincipalPolicyConfig{
+					JWT: &kubernetes.JWTPrincipalPolicyConfig{
 						Provider: "my-provider",
-						Claims: []services.JWTClaimRulePolicyConfig{
+						Claims: []kubernetes.JWTClaimRulePolicyConfig{
 							{Name: "scope", Values: []string{"read", "write"}, ValueType: ""},
 							{Name: "role", Values: []string{"admin"}, ValueType: "StringArray"},
 						},
@@ -3079,7 +3079,7 @@ func TestBuildSecurityPolicy_Authorization_JWTClaims_ScopeForceStringArray(t *te
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -3106,18 +3106,18 @@ func TestBuildSecurityPolicy_Authorization_JWTClaims_ScopeForceStringArray(t *te
 
 func TestBuildSecurityPolicy_Authorization_JWTClaims_DefaultValueType(t *testing.T) {
 	// Non-scope claims with default/empty valueType should NOT have valueType set
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules: []services.AuthorizationRulePolicyConfig{
+			Rules: []kubernetes.AuthorizationRulePolicyConfig{
 				{
 					Action: "Allow",
-					JWT: &services.JWTPrincipalPolicyConfig{
+					JWT: &kubernetes.JWTPrincipalPolicyConfig{
 						Provider: "my-provider",
-						Claims: []services.JWTClaimRulePolicyConfig{
+						Claims: []kubernetes.JWTClaimRulePolicyConfig{
 							{Name: "role", Values: []string{"admin"}, ValueType: ""},
 						},
 					},
@@ -3125,7 +3125,7 @@ func TestBuildSecurityPolicy_Authorization_JWTClaims_DefaultValueType(t *testing
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	spec := sp.Object["spec"].(map[string]interface{})
 	auth := spec["authorization"].(map[string]interface{})
 	rules := auth["rules"].([]interface{})
@@ -3141,24 +3141,24 @@ func TestBuildSecurityPolicy_Authorization_JWTClaims_DefaultValueType(t *testing
 
 func TestBuildSecurityPolicy_Authorization_CIDRsAndJWT(t *testing.T) {
 	// Rule with both clientCIDRs and JWT principal
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules: []services.AuthorizationRulePolicyConfig{
+			Rules: []kubernetes.AuthorizationRulePolicyConfig{
 				{
 					Action:      "Allow",
 					ClientCIDRs: []string{"10.0.0.0/8"},
-					JWT: &services.JWTPrincipalPolicyConfig{
+					JWT: &kubernetes.JWTPrincipalPolicyConfig{
 						Provider: "prov",
 					},
 				},
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	spec := sp.Object["spec"].(map[string]interface{})
 	auth := spec["authorization"].(map[string]interface{})
 	rules := auth["rules"].([]interface{})
@@ -3176,18 +3176,18 @@ func TestBuildSecurityPolicy_Authorization_CIDRsAndJWT(t *testing.T) {
 
 func TestBuildSecurityPolicy_Authorization_SkipEmptyPrincipal(t *testing.T) {
 	// Rule with neither CIDRs nor JWT should be skipped
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules: []services.AuthorizationRulePolicyConfig{
+			Rules: []kubernetes.AuthorizationRulePolicyConfig{
 				{Action: "Allow"}, // no principal
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	spec := sp.Object["spec"].(map[string]interface{})
 	auth := spec["authorization"].(map[string]interface{})
 	// Deny-all with no valid rules should still produce defaultAction
@@ -3201,15 +3201,15 @@ func TestBuildSecurityPolicy_Authorization_SkipEmptyPrincipal(t *testing.T) {
 
 func TestBuildSecurityPolicy_Authorization_AllowDefaultAction(t *testing.T) {
 	// If defaultAction != "Deny" and no rules, should return nil
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Allow",
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	if sp != nil {
 		t.Error("should return nil when no security features")
 	}
@@ -3218,20 +3218,20 @@ func TestBuildSecurityPolicy_Authorization_AllowDefaultAction(t *testing.T) {
 // ─── BuildSecurityPolicy (API Key Auth additional paths) ────────────────────
 
 func TestBuildSecurityPolicy_APIKey_WithExtractFrom(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		APIKeyAuth: &services.APIKeyAuthPolicyConfig{
-			CredentialRefs: []services.SecretRefConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		APIKeyAuth: &kubernetes.APIKeyAuthPolicyConfig{
+			CredentialRefs: []kubernetes.SecretRefConfig{
 				{Name: "api-key-secret", Namespace: "ns"},
 			},
-			ExtractFrom: []services.APIKeyExtractFromConfig{
+			ExtractFrom: []kubernetes.APIKeyExtractFromConfig{
 				{Headers: []string{"X-Api-Key", "Authorization"}},
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	spec := sp.Object["spec"].(map[string]interface{})
 	apiKey := spec["apiKeyAuth"].(map[string]interface{})
 	refs := apiKey["credentialRefs"].([]interface{})
@@ -3257,17 +3257,17 @@ func TestBuildSecurityPolicy_APIKey_WithExtractFrom(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_APIKey_NoNamespace(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		APIKeyAuth: &services.APIKeyAuthPolicyConfig{
-			CredentialRefs: []services.SecretRefConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		APIKeyAuth: &kubernetes.APIKeyAuthPolicyConfig{
+			CredentialRefs: []kubernetes.SecretRefConfig{
 				{Name: "api-key-secret"},
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	spec := sp.Object["spec"].(map[string]interface{})
 	apiKey := spec["apiKeyAuth"].(map[string]interface{})
 	refs := apiKey["credentialRefs"].([]interface{})
@@ -3280,18 +3280,18 @@ func TestBuildSecurityPolicy_APIKey_NoNamespace(t *testing.T) {
 // ─── BuildSecurityPolicy (JWT additional paths) ─────────────────────────────
 
 func TestBuildSecurityPolicy_JWT_WithAudiencesAndClaimToHeaders(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		JWT: &services.JWTAuthPolicyConfig{
-			Providers: []services.JWTProviderPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		JWT: &kubernetes.JWTAuthPolicyConfig{
+			Providers: []kubernetes.JWTProviderPolicyConfig{
 				{
 					Name:      "my-jwt",
 					Issuer:    "https://issuer.example.com",
 					JWKSURL:   "https://issuer.example.com/.well-known/jwks.json",
 					Audiences: []string{"aud1", "aud2"},
-					ClaimToHeaders: []services.JWTClaimToHeaderPolicyConfig{
+					ClaimToHeaders: []kubernetes.JWTClaimToHeaderPolicyConfig{
 						{Claim: "sub", Header: "x-user-id"},
 						{Claim: "email", Header: "x-user-email"},
 					},
@@ -3299,7 +3299,7 @@ func TestBuildSecurityPolicy_JWT_WithAudiencesAndClaimToHeaders(t *testing.T) {
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	spec := sp.Object["spec"].(map[string]interface{})
 	jwt := spec["jwt"].(map[string]interface{})
 	providers := jwt["providers"].([]interface{})
@@ -3322,17 +3322,17 @@ func TestBuildSecurityPolicy_JWT_WithAudiencesAndClaimToHeaders(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_JWT_NoJWKSURL(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		JWT: &services.JWTAuthPolicyConfig{
-			Providers: []services.JWTProviderPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		JWT: &kubernetes.JWTAuthPolicyConfig{
+			Providers: []kubernetes.JWTProviderPolicyConfig{
 				{Name: "my-jwt", Issuer: "https://issuer.example.com"},
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	spec := sp.Object["spec"].(map[string]interface{})
 	jwt := spec["jwt"].(map[string]interface{})
 	providers := jwt["providers"].([]interface{})
@@ -3352,10 +3352,10 @@ func TestBuildSecurityPolicy_JWT_NoJWKSURL(t *testing.T) {
 
 func TestBuildSecurityPolicy_ExtAuth_WithBodyAndHeaders(t *testing.T) {
 	failOpen := true
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
 		ExtAuth: &models.ExtAuthConfig{
 			Type: "http",
 			HTTP: &models.ExtAuthHTTPConfig{
@@ -3368,7 +3368,7 @@ func TestBuildSecurityPolicy_ExtAuth_WithBodyAndHeaders(t *testing.T) {
 			WithRequestBody:  &models.ExtAuthRequestBody{MaxBytes: 4096},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	spec := sp.Object["spec"].(map[string]interface{})
 	extAuth := spec["extAuth"].(map[string]interface{})
 	if extAuth["failOpen"] != true {
@@ -3398,10 +3398,10 @@ func TestBuildSecurityPolicy_ExtAuth_WithBodyAndHeaders(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_ExtAuth_GRPC_WithNamespace(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
 		ExtAuth: &models.ExtAuthConfig{
 			Type: "grpc",
 			GRPC: &models.ExtAuthGRPCConfig{
@@ -3409,7 +3409,7 @@ func TestBuildSecurityPolicy_ExtAuth_GRPC_WithNamespace(t *testing.T) {
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	spec := sp.Object["spec"].(map[string]interface{})
 	extAuth := spec["extAuth"].(map[string]interface{})
 	grpcConfig := extAuth["grpc"].(map[string]interface{})
@@ -3423,25 +3423,25 @@ func TestBuildSecurityPolicy_ExtAuth_GRPC_WithNamespace(t *testing.T) {
 // ─── BuildBackendTrafficPolicy (rate limit with selectors) ──────────────────
 
 func TestBuildBackendTrafficPolicy_RateLimit_WithSelectors(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
-		RateLimit: &services.RateLimitPolicyConfig{
-			Global: &services.GlobalRateLimitPolicyConfig{
-				Rules: []services.RateLimitRulePolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
+		RateLimit: &kubernetes.RateLimitPolicyConfig{
+			Global: &kubernetes.GlobalRateLimitPolicyConfig{
+				Rules: []kubernetes.RateLimitRulePolicyConfig{
 					{
-						Limit: services.RateLimitValuePolicyConfig{Requests: 100, Unit: "Minute"},
-						ClientSelectors: []services.RateLimitSelectorPolicyConfig{
+						Limit: kubernetes.RateLimitValuePolicyConfig{Requests: 100, Unit: "Minute"},
+						ClientSelectors: []kubernetes.RateLimitSelectorPolicyConfig{
 							{
-								Headers: []services.RateLimitHeaderMatchPolicyConfig{
+								Headers: []kubernetes.RateLimitHeaderMatchPolicyConfig{
 									{Name: "X-User-Type", Value: "premium", Type: "Exact", Invert: false},
 									{Name: "X-Bot", Invert: true},
 								},
-								SourceCIDR: &services.RateLimitSourceCIDRPolicyConfig{Value: "10.0.0.0/8", Type: "Distinct"},
-								Path:       &services.RateLimitPathMatchPolicyConfig{Value: "/api", Type: "PathPrefix"},
+								SourceCIDR: &kubernetes.RateLimitSourceCIDRPolicyConfig{Value: "10.0.0.0/8", Type: "Distinct"},
+								Path:       &kubernetes.RateLimitPathMatchPolicyConfig{Value: "/api", Type: "PathPrefix"},
 								Methods:    []string{"GET", "POST"},
 							},
 						},
@@ -3450,7 +3450,7 @@ func TestBuildBackendTrafficPolicy_RateLimit_WithSelectors(t *testing.T) {
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	if btp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -3508,17 +3508,17 @@ func TestBuildBackendTrafficPolicy_RateLimit_WithSelectors(t *testing.T) {
 func TestBuildClientTrafficPolicy_TLSVersionConversion(t *testing.T) {
 	minV := "TLS1.2"
 	maxV := "TLSv1.3"
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp",
 		Namespace: "ns",
 		GatewayID: "gw-id",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "my-gw"},
-		TLS: &services.TLSPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "Gateway", Name: "my-gw"},
+		TLS: &kubernetes.TLSPolicyConfig{
 			MinVersion: &minV,
 			MaxVersion: &maxV,
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	if ctp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -3534,16 +3534,16 @@ func TestBuildClientTrafficPolicy_TLSVersionConversion(t *testing.T) {
 
 func TestBuildClientTrafficPolicy_TLSAutoVersion(t *testing.T) {
 	minV := "Auto"
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp",
 		Namespace: "ns",
 		GatewayID: "gw-id",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
-		TLS: &services.TLSPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
+		TLS: &kubernetes.TLSPolicyConfig{
 			MinVersion: &minV,
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	tls := spec["tls"].(map[string]interface{})
 	if tls["minVersion"] != "Auto" {
@@ -3552,18 +3552,18 @@ func TestBuildClientTrafficPolicy_TLSAutoVersion(t *testing.T) {
 }
 
 func TestBuildClientTrafficPolicy_TLSCiphersAndCurves(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp",
 		Namespace: "ns",
 		GatewayID: "gw-id",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
-		TLS: &services.TLSPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
+		TLS: &kubernetes.TLSPolicyConfig{
 			Ciphers:             []string{"TLS_AES_128_GCM_SHA256"},
 			ECDHCurves:          []string{"X25519"},
 			SignatureAlgorithms: []string{"RSA-PSS-RSAE-SHA256"},
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	tls := spec["tls"].(map[string]interface{})
 	// []interface{}, not []string: an unstructured.Unstructured may only
@@ -3592,23 +3592,23 @@ func TestBuildClientTrafficPolicy_TLSCiphersAndCurves(t *testing.T) {
 
 func TestBuildClientTrafficPolicy_ClientValidationWithoutTLS(t *testing.T) {
 	// ClientValidation without TLS config should create TLS spec section
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp",
 		Namespace: "ns",
 		GatewayID: "gw-id",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
-		ClientValidation: &services.ClientValidationPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
+		ClientValidation: &kubernetes.ClientValidationPolicyConfig{
 			Optional: true,
-			CACertificateRefs: []services.SecretRefPolicyConfig{
+			CACertificateRefs: []kubernetes.SecretRefPolicyConfig{
 				{Group: "", Kind: "Secret", Name: "ca-cert"},
 			},
-			SANMatchers: []services.SANMatcherPolicyConfig{
+			SANMatchers: []kubernetes.SANMatcherPolicyConfig{
 				{Type: "DNS", Match: "*.example.com"},
 			},
 			CertificateHashes: []string{"abc123"},
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	if ctp == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -3651,12 +3651,12 @@ func TestBuildClientTrafficPolicy_ConnectionAllFields(t *testing.T) {
 	bufLimit := "64Ki"
 	closeDelay := "5s"
 	maxDuration := "3600s"
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp",
 		Namespace: "ns",
 		GatewayID: "gw-id",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
-		Connection: &services.ConnectionPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
+		Connection: &kubernetes.ConnectionPolicyConfig{
 			BufferLimit:              &bufLimit,
 			MaxConnections:           int32Ptr(1000),
 			CloseDelay:               &closeDelay,
@@ -3664,7 +3664,7 @@ func TestBuildClientTrafficPolicy_ConnectionAllFields(t *testing.T) {
 			MaxRequestsPerConnection: int32Ptr(100),
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	conn := spec["connection"].(map[string]interface{})
 	if conn["bufferLimit"] != "64Ki" {
@@ -3688,19 +3688,19 @@ func TestBuildClientTrafficPolicy_ConnectionAllFields(t *testing.T) {
 // ─── BuildClientTrafficPolicy (CustomHeader IP detection) ──────────────────
 
 func TestBuildClientTrafficPolicy_ClientIPDetection_CustomHeader(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp",
 		Namespace: "ns",
 		GatewayID: "gw-id",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
-		ClientIPDetection: &services.ClientIPDetectionPolicyConfig{
-			CustomHeader: &services.CustomHeaderPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
+		ClientIPDetection: &kubernetes.ClientIPDetectionPolicyConfig{
+			CustomHeader: &kubernetes.CustomHeaderPolicyConfig{
 				Name:       "X-Real-IP",
 				FailClosed: true,
 			},
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	ipDetect := spec["clientIPDetection"].(map[string]interface{})
 	ch := ipDetect["customHeader"].(map[string]interface{})
@@ -3713,18 +3713,18 @@ func TestBuildClientTrafficPolicy_ClientIPDetection_CustomHeader(t *testing.T) {
 }
 
 func TestBuildClientTrafficPolicy_ClientIPDetection_CustomHeaderNoFailClosed(t *testing.T) {
-	config := &services.ClientTrafficPolicyConfig{
+	config := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      "ctp",
 		Namespace: "ns",
 		GatewayID: "gw-id",
-		TargetRef: services.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
-		ClientIPDetection: &services.ClientIPDetectionPolicyConfig{
-			CustomHeader: &services.CustomHeaderPolicyConfig{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{Group: "g", Kind: "Gateway", Name: "gw"},
+		ClientIPDetection: &kubernetes.ClientIPDetectionPolicyConfig{
+			CustomHeader: &kubernetes.CustomHeaderPolicyConfig{
 				Name: "X-Forwarded-For",
 			},
 		},
 	}
-	ctp := services.BuildClientTrafficPolicy(config)
+	ctp := kubernetes.BuildClientTrafficPolicy(config)
 	spec := ctp.Object["spec"].(map[string]interface{})
 	ipDetect := spec["clientIPDetection"].(map[string]interface{})
 	ch := ipDetect["customHeader"].(map[string]interface{})
@@ -3736,23 +3736,23 @@ func TestBuildClientTrafficPolicy_ClientIPDetection_CustomHeaderNoFailClosed(t *
 // ─── BuildGRPCRouteObject (additional paths) ────────────────────────────────
 
 func TestBuildGRPCRouteObject_ResponseHeaderModifier(t *testing.T) {
-	config := &services.GRPCRouteConfig{
+	config := &kubernetes.GRPCRouteConfig{
 		Name:        "grpc-route",
 		Namespace:   "ns",
 		GatewayName: "my-gw",
 		GatewayID:   "gw-id",
 		RouteID:     "rt-id",
 		Hostname:    "grpc.example.com",
-		ResponseHeaderModifier: &services.HTTPHeaderModifier{
-			Set: []services.HTTPHeaderValue{{Name: "X-Response", Value: "modified"}},
+		ResponseHeaderModifier: &kubernetes.HTTPHeaderModifier{
+			Set: []kubernetes.HTTPHeaderValue{{Name: "X-Response", Value: "modified"}},
 		},
-		Rules: []services.GRPCRouteRule{
+		Rules: []kubernetes.GRPCRouteRule{
 			{
-				BackendRefs: []services.BackendRef{{Name: "svc1", Port: 50051}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc1", Port: 50051}},
 			},
 		},
 	}
-	route := services.BuildGRPCRouteObject(config)
+	route := kubernetes.BuildGRPCRouteObject(config)
 	if route == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -3775,24 +3775,24 @@ func TestBuildGRPCRouteObject_ResponseHeaderModifier(t *testing.T) {
 }
 
 func TestBuildGRPCRouteObject_BothHeaderModifiers(t *testing.T) {
-	config := &services.GRPCRouteConfig{
+	config := &kubernetes.GRPCRouteConfig{
 		Name:        "grpc-route",
 		Namespace:   "ns",
 		GatewayName: "my-gw",
 		Hostname:    "grpc.example.com",
-		RequestHeaderModifier: &services.HTTPHeaderModifier{
-			Add: []services.HTTPHeaderValue{{Name: "X-Req", Value: "val"}},
+		RequestHeaderModifier: &kubernetes.HTTPHeaderModifier{
+			Add: []kubernetes.HTTPHeaderValue{{Name: "X-Req", Value: "val"}},
 		},
-		ResponseHeaderModifier: &services.HTTPHeaderModifier{
+		ResponseHeaderModifier: &kubernetes.HTTPHeaderModifier{
 			Remove: []string{"Server"},
 		},
-		Rules: []services.GRPCRouteRule{
+		Rules: []kubernetes.GRPCRouteRule{
 			{
-				BackendRefs: []services.BackendRef{{Name: "svc1", Port: 50051}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc1", Port: 50051}},
 			},
 		},
 	}
-	route := services.BuildGRPCRouteObject(config)
+	route := kubernetes.BuildGRPCRouteObject(config)
 	rule := route.Spec.Rules[0]
 	foundReq := false
 	foundRes := false
@@ -3813,18 +3813,18 @@ func TestBuildGRPCRouteObject_BothHeaderModifiers(t *testing.T) {
 }
 
 func TestBuildGRPCRouteObject_NoFiltersWhenNoModifiers(t *testing.T) {
-	config := &services.GRPCRouteConfig{
+	config := &kubernetes.GRPCRouteConfig{
 		Name:        "grpc-route",
 		Namespace:   "ns",
 		GatewayName: "my-gw",
 		Hostname:    "grpc.example.com",
-		Rules: []services.GRPCRouteRule{
+		Rules: []kubernetes.GRPCRouteRule{
 			{
-				BackendRefs: []services.BackendRef{{Name: "svc1", Port: 50051}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc1", Port: 50051}},
 			},
 		},
 	}
-	route := services.BuildGRPCRouteObject(config)
+	route := kubernetes.BuildGRPCRouteObject(config)
 	rule := route.Spec.Rules[0]
 	if len(rule.Filters) != 0 {
 		t.Errorf("expected 0 filters, got %d", len(rule.Filters))
@@ -3832,21 +3832,21 @@ func TestBuildGRPCRouteObject_NoFiltersWhenNoModifiers(t *testing.T) {
 }
 
 func TestBuildGRPCRouteObject_MirrorWithNamespace(t *testing.T) {
-	config := &services.GRPCRouteConfig{
+	config := &kubernetes.GRPCRouteConfig{
 		Name:        "grpc-route",
 		Namespace:   "ns",
 		GatewayName: "my-gw",
 		Hostname:    "grpc.example.com",
-		Mirrors: []services.MirrorRef{
+		Mirrors: []kubernetes.MirrorRef{
 			{Name: "mirror-svc", Namespace: "other-ns", Port: 50051},
 		},
-		Rules: []services.GRPCRouteRule{
+		Rules: []kubernetes.GRPCRouteRule{
 			{
-				BackendRefs: []services.BackendRef{{Name: "svc1", Port: 50051}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc1", Port: 50051}},
 			},
 		},
 	}
-	route := services.BuildGRPCRouteObject(config)
+	route := kubernetes.BuildGRPCRouteObject(config)
 	rule := route.Spec.Rules[0]
 	foundMirror := false
 	for _, f := range rule.Filters {
@@ -3869,21 +3869,21 @@ func TestBuildGRPCRouteObject_MirrorWithNamespace(t *testing.T) {
 
 func TestBuildHTTPRouteObject_URLRewriteHostnameOnly(t *testing.T) {
 	hostname := "new.example.com"
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "route",
 		Namespace:   "ns",
 		GatewayName: "my-gw",
 		Hostname:    "example.com",
-		URLRewrite:  &services.HTTPURLRewrite{Hostname: &hostname},
-		Rules: []services.HTTPRouteRule{
+		URLRewrite:  &kubernetes.HTTPURLRewrite{Hostname: &hostname},
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				PathType:    "PathPrefix",
 				PathValue:   "/",
-				BackendRefs: []services.BackendRef{{Name: "svc1", Port: 80}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc1", Port: 80}},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	rule := route.Spec.Rules[0]
 	foundRewrite := false
 	for _, f := range rule.Filters {
@@ -3904,21 +3904,21 @@ func TestBuildHTTPRouteObject_URLRewriteHostnameOnly(t *testing.T) {
 
 func TestBuildHTTPRouteObject_URLRewriteNilFields(t *testing.T) {
 	// When both hostname and path are nil, should not produce URLRewrite filter
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "route",
 		Namespace:   "ns",
 		GatewayName: "my-gw",
 		Hostname:    "example.com",
-		URLRewrite:  &services.HTTPURLRewrite{},
-		Rules: []services.HTTPRouteRule{
+		URLRewrite:  &kubernetes.HTTPURLRewrite{},
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				PathType:    "PathPrefix",
 				PathValue:   "/",
-				BackendRefs: []services.BackendRef{{Name: "svc1", Port: 80}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc1", Port: 80}},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	rule := route.Spec.Rules[0]
 	for _, f := range rule.Filters {
 		if f.Type == gatewayv1.HTTPRouteFilterURLRewrite {
@@ -3930,24 +3930,24 @@ func TestBuildHTTPRouteObject_URLRewriteNilFields(t *testing.T) {
 // ─── BuildHTTPRouteObject (mirrors with namespace) ──────────────────────────
 
 func TestBuildHTTPRouteObject_MirrorWithNamespace(t *testing.T) {
-	config := &services.HTTPRouteConfig{
+	config := &kubernetes.HTTPRouteConfig{
 		Name:        "route",
 		Namespace:   "ns",
 		GatewayName: "my-gw",
 		Hostname:    "example.com",
-		Mirrors: []services.MirrorRef{
+		Mirrors: []kubernetes.MirrorRef{
 			{Name: "mirror-svc", Port: 8080},
 			{Name: "mirror-svc2", Namespace: "cross-ns", Port: 8081},
 		},
-		Rules: []services.HTTPRouteRule{
+		Rules: []kubernetes.HTTPRouteRule{
 			{
 				PathType:    "PathPrefix",
 				PathValue:   "/",
-				BackendRefs: []services.BackendRef{{Name: "svc1", Port: 80}},
+				BackendRefs: []kubernetes.BackendRef{{Name: "svc1", Port: 80}},
 			},
 		},
 	}
-	route := services.BuildHTTPRouteObject(config)
+	route := kubernetes.BuildHTTPRouteObject(config)
 	rule := route.Spec.Rules[0]
 	mirrorCount := 0
 	for _, f := range rule.Filters {
@@ -3977,15 +3977,15 @@ func TestBuildHTTPRouteObject_MirrorWithNamespace(t *testing.T) {
 // ─── BuildBackendTrafficPolicy (BTP timeout all fields) ─────────────────────
 
 func TestBuildBackendTrafficPolicy_Timeout_AllFields(t *testing.T) {
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		Timeout: &services.BTPTimeoutPolicyConfig{
-			TCP: &services.BTPTCPTimeoutPolicyConfig{ConnectTimeout: "10s"},
-			HTTP: &services.BTPHTTPTimeoutPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		Timeout: &kubernetes.BTPTimeoutPolicyConfig{
+			TCP: &kubernetes.BTPTCPTimeoutPolicyConfig{ConnectTimeout: "10s"},
+			HTTP: &kubernetes.BTPHTTPTimeoutPolicyConfig{
 				RequestTimeout:        "30s",
 				ConnectionIdleTimeout: "60s",
 				MaxConnectionDuration: "3600s",
@@ -3993,7 +3993,7 @@ func TestBuildBackendTrafficPolicy_Timeout_AllFields(t *testing.T) {
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	timeout := spec["timeout"].(map[string]interface{})
 	tcp := timeout["tcp"].(map[string]interface{})
@@ -4020,18 +4020,18 @@ func TestBuildBackendTrafficPolicy_Timeout_AllFields(t *testing.T) {
 func TestBuildBackendTrafficPolicy_FaultInjection_GRPCAbort(t *testing.T) {
 	grpcStatus := 14
 	pct := float32(50.0)
-	config := &services.BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      "btp",
 		Namespace: "ns",
-		TargetRef: services.BackendTrafficPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
-		FaultInjection: &services.FaultInjectionPolicyConfig{
-			Abort: &services.FaultInjectionAbortPolicyConfig{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{Group: "g", Kind: "HTTPRoute", Name: "r"},
+		FaultInjection: &kubernetes.FaultInjectionPolicyConfig{
+			Abort: &kubernetes.FaultInjectionAbortPolicyConfig{
 				GRPCStatus: &grpcStatus,
 				Percentage: &pct,
 			},
 		},
 	}
-	btp := services.BuildBackendTrafficPolicy(config)
+	btp := kubernetes.BuildBackendTrafficPolicy(config)
 	spec := btp.Object["spec"].(map[string]interface{})
 	fi := spec["faultInjection"].(map[string]interface{})
 	abort := fi["abort"].(map[string]interface{})
@@ -4046,7 +4046,7 @@ func TestBuildBackendTrafficPolicy_FaultInjection_GRPCAbort(t *testing.T) {
 // ─── BuildGatewayObject (additional paths) ──────────────────────────────────
 
 func TestBuildGatewayObject_HTTPOnly(t *testing.T) {
-	config := &services.GatewayConfig{
+	config := &kubernetes.GatewayConfig{
 		Name:             "gw",
 		Namespace:        "ns",
 		GatewayClassName: "eg",
@@ -4054,7 +4054,7 @@ func TestBuildGatewayObject_HTTPOnly(t *testing.T) {
 		TLSMode:          "no_tls",
 		HTTPPort:         80,
 	}
-	gw := services.BuildGatewayObject(config)
+	gw := kubernetes.BuildGatewayObject(config)
 	if gw == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -4075,13 +4075,13 @@ func TestBuildGatewayObject_HTTPOnly(t *testing.T) {
 // ─── BuildHTTPRouteFilter (no direct response) ─────────────────────────────
 
 func TestBuildHTTPRouteFilter_NilDirectResponse(t *testing.T) {
-	config := &services.HTTPRouteFilterConfig{
+	config := &kubernetes.HTTPRouteFilterConfig{
 		Name:      "hrf",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
 	}
-	hrf := services.BuildHTTPRouteFilter(config)
+	hrf := kubernetes.BuildHTTPRouteFilter(config)
 	if hrf == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -4095,22 +4095,22 @@ func TestBuildHTTPRouteFilter_NilDirectResponse(t *testing.T) {
 
 func TestBuildEnvoyExtensionPolicy_Wasm_ImageWithPullSecret(t *testing.T) {
 	wasmConfig := `{"key": "value"}`
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
-		Wasm: []services.WasmExtensionPolicyConfig{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
+		Wasm: []kubernetes.WasmExtensionPolicyConfig{
 			{
 				Name:   "my-wasm",
 				RootID: "root",
-				Code: services.WasmCodeSourcePolicyConfig{
+				Code: kubernetes.WasmCodeSourcePolicyConfig{
 					Type: "Image",
-					Image: &services.WasmImageSourcePolicyConfig{
+					Image: &kubernetes.WasmImageSourcePolicyConfig{
 						URL:    "oci://registry.example.com/wasm:latest",
 						SHA256: "abc123",
-						PullSecret: &services.ValueRefPolicyConfig{
+						PullSecret: &kubernetes.ValueRefPolicyConfig{
 							Group: "", Kind: "Secret", Name: "pull-secret",
 						},
 					},
@@ -4119,7 +4119,7 @@ func TestBuildEnvoyExtensionPolicy_Wasm_ImageWithPullSecret(t *testing.T) {
 			},
 		},
 	}
-	eep := services.BuildEnvoyExtensionPolicy(config)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	if eep == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -4143,19 +4143,19 @@ func TestBuildEnvoyExtensionPolicy_Wasm_ImageWithPullSecret(t *testing.T) {
 // ─── BuildExtProcBackend ─────────────────────────────────────────────────────
 
 func TestBuildExtProcBackend(t *testing.T) {
-	config := &services.ExtProcBackendConfig{
+	config := &kubernetes.ExtProcBackendConfig{
 		Name:      "my-ext-proc-backend",
 		Namespace: "test-ns",
 		GatewayID: "gw-123",
 		RouteID:   "rt-456",
-		Service: services.ExtProcBackendRefPolicyConfig{
+		Service: kubernetes.ExtProcBackendRefPolicyConfig{
 			Name:      "ext-proc-svc",
 			Namespace: "ext-ns",
 			Port:      9001,
 		},
 	}
 
-	backend := services.BuildExtProcBackend(config)
+	backend := kubernetes.BuildExtProcBackend(config)
 	require.NotNil(t, backend)
 
 	assert.Equal(t, "gateway.envoyproxy.io/v1alpha1", backend.Object["apiVersion"])
@@ -4182,43 +4182,43 @@ func TestBuildExtProcBackend(t *testing.T) {
 }
 
 func TestBuildExtProcBackend_Nil(t *testing.T) {
-	backend := services.BuildExtProcBackend(nil)
+	backend := kubernetes.BuildExtProcBackend(nil)
 	assert.Nil(t, backend)
 }
 
 // ─── GenerateExtProcBackendName ──────────────────────────────────────────────
 
 func TestGenerateExtProcBackendName(t *testing.T) {
-	name := services.GenerateExtProcBackendName("route-abc-123")
+	name := kubernetes.GenerateExtProcBackendName("route-abc-123")
 	assert.Equal(t, "ext-proc-backend-route-abc-123", name)
 }
 
 // ─── BuildEnvoyExtensionPolicy – ext-proc paths ─────────────────────────────
 
 func TestBuildEnvoyExtensionPolicy_ExtProc(t *testing.T) {
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep-extproc",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
-		ExtProc: []services.ExtProcPolicyConfig{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
+		ExtProc: []kubernetes.ExtProcPolicyConfig{
 			{
-				BackendRef: services.ExtProcBackendRefPolicyConfig{
+				BackendRef: kubernetes.ExtProcBackendRefPolicyConfig{
 					Name:      "ext-svc",
 					Namespace: "ext-ns",
 					Port:      9001,
 				},
-				ProcessingMode: &services.ExtProcProcessingModeConfig{
-					Request:  &services.ExtProcBodyModeConfig{Body: "Buffered"},
-					Response: &services.ExtProcBodyModeConfig{Body: "Streamed"},
+				ProcessingMode: &kubernetes.ExtProcProcessingModeConfig{
+					Request:  &kubernetes.ExtProcBodyModeConfig{Body: "Buffered"},
+					Response: &kubernetes.ExtProcBodyModeConfig{Body: "Streamed"},
 				},
 				FailOpen: true,
 			},
 		},
 	}
 
-	eep := services.BuildEnvoyExtensionPolicy(config)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	require.NotNil(t, eep)
 
 	spec := eep.Object["spec"].(map[string]interface{})
@@ -4232,7 +4232,7 @@ func TestBuildEnvoyExtensionPolicy_ExtProc(t *testing.T) {
 	require.Len(t, refs, 1)
 	ref := refs[0].(map[string]interface{})
 	assert.Equal(t, "Backend", ref["kind"])
-	assert.Equal(t, services.GenerateExtProcBackendName("rt-id"), ref["name"])
+	assert.Equal(t, kubernetes.GenerateExtProcBackendName("rt-id"), ref["name"])
 	assert.Equal(t, "ns", ref["namespace"])
 
 	// processingMode
@@ -4247,15 +4247,15 @@ func TestBuildEnvoyExtensionPolicy_ExtProc(t *testing.T) {
 }
 
 func TestBuildEnvoyExtensionPolicy_ExtProc_Minimal(t *testing.T) {
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep-minimal",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
-		ExtProc: []services.ExtProcPolicyConfig{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
+		ExtProc: []kubernetes.ExtProcPolicyConfig{
 			{
-				BackendRef: services.ExtProcBackendRefPolicyConfig{
+				BackendRef: kubernetes.ExtProcBackendRefPolicyConfig{
 					Name:      "ext-svc",
 					Namespace: "ext-ns",
 					Port:      9001,
@@ -4265,7 +4265,7 @@ func TestBuildEnvoyExtensionPolicy_ExtProc_Minimal(t *testing.T) {
 		},
 	}
 
-	eep := services.BuildEnvoyExtensionPolicy(config)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	require.NotNil(t, eep)
 
 	spec := eep.Object["spec"].(map[string]interface{})
@@ -4281,22 +4281,22 @@ func TestBuildEnvoyExtensionPolicy_ExtProc_Minimal(t *testing.T) {
 
 func TestBuildEnvoyExtensionPolicy_ExtProc_WithLuaAndWasm(t *testing.T) {
 	wasmCfg := `{"key":"val"}`
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep-all",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
-		Lua: []services.LuaExtensionPolicyConfig{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
+		Lua: []kubernetes.LuaExtensionPolicyConfig{
 			{Type: "Inline", Inline: "print('hello')"},
 		},
-		Wasm: []services.WasmExtensionPolicyConfig{
+		Wasm: []kubernetes.WasmExtensionPolicyConfig{
 			{
 				Name:   "my-wasm",
 				RootID: "root",
-				Code: services.WasmCodeSourcePolicyConfig{
+				Code: kubernetes.WasmCodeSourcePolicyConfig{
 					Type: "HTTP",
-					HTTP: &services.WasmHTTPSourcePolicyConfig{
+					HTTP: &kubernetes.WasmHTTPSourcePolicyConfig{
 						URL:    "https://example.com/filter.wasm",
 						SHA256: "deadbeef",
 					},
@@ -4304,9 +4304,9 @@ func TestBuildEnvoyExtensionPolicy_ExtProc_WithLuaAndWasm(t *testing.T) {
 				Config: &wasmCfg,
 			},
 		},
-		ExtProc: []services.ExtProcPolicyConfig{
+		ExtProc: []kubernetes.ExtProcPolicyConfig{
 			{
-				BackendRef: services.ExtProcBackendRefPolicyConfig{
+				BackendRef: kubernetes.ExtProcBackendRefPolicyConfig{
 					Name:      "ext-svc",
 					Namespace: "ext-ns",
 					Port:      9001,
@@ -4316,7 +4316,7 @@ func TestBuildEnvoyExtensionPolicy_ExtProc_WithLuaAndWasm(t *testing.T) {
 		},
 	}
 
-	eep := services.BuildEnvoyExtensionPolicy(config)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	require.NotNil(t, eep)
 
 	spec := eep.Object["spec"].(map[string]interface{})
@@ -4336,19 +4336,19 @@ func TestBuildEnvoyExtensionPolicy_ExtProc_WithLuaAndWasm(t *testing.T) {
 
 func TestBuildEnvoyExtensionPolicy_ExtProc_WithWaf(t *testing.T) {
 	wasmCfg := `{"rules":"SecRule"}`
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep-waf-extproc",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
-		Wasm: []services.WasmExtensionPolicyConfig{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
+		Wasm: []kubernetes.WasmExtensionPolicyConfig{
 			{
 				Name:   "waf",
 				RootID: "waf-root",
-				Code: services.WasmCodeSourcePolicyConfig{
+				Code: kubernetes.WasmCodeSourcePolicyConfig{
 					Type: "HTTP",
-					HTTP: &services.WasmHTTPSourcePolicyConfig{
+					HTTP: &kubernetes.WasmHTTPSourcePolicyConfig{
 						URL:    "https://example.com/waf.wasm",
 						SHA256: "wafhash",
 					},
@@ -4356,21 +4356,21 @@ func TestBuildEnvoyExtensionPolicy_ExtProc_WithWaf(t *testing.T) {
 				Config: &wasmCfg,
 			},
 		},
-		ExtProc: []services.ExtProcPolicyConfig{
+		ExtProc: []kubernetes.ExtProcPolicyConfig{
 			{
-				BackendRef: services.ExtProcBackendRefPolicyConfig{
+				BackendRef: kubernetes.ExtProcBackendRefPolicyConfig{
 					Name:      "ext-svc",
 					Namespace: "ext-ns",
 					Port:      9001,
 				},
-				ProcessingMode: &services.ExtProcProcessingModeConfig{
-					Request: &services.ExtProcBodyModeConfig{Body: "Buffered"},
+				ProcessingMode: &kubernetes.ExtProcProcessingModeConfig{
+					Request: &kubernetes.ExtProcBodyModeConfig{Body: "Buffered"},
 				},
 			},
 		},
 	}
 
-	eep := services.BuildEnvoyExtensionPolicy(config)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	require.NotNil(t, eep)
 
 	spec := eep.Object["spec"].(map[string]interface{})
@@ -4390,28 +4390,28 @@ func TestBuildEnvoyExtensionPolicy_ExtProc_WithWaf(t *testing.T) {
 }
 
 func TestBuildEnvoyExtensionPolicy_ExtProc_NoneBodyMode(t *testing.T) {
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep-none-body",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
-		ExtProc: []services.ExtProcPolicyConfig{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
+		ExtProc: []kubernetes.ExtProcPolicyConfig{
 			{
-				BackendRef: services.ExtProcBackendRefPolicyConfig{
+				BackendRef: kubernetes.ExtProcBackendRefPolicyConfig{
 					Name:      "ext-svc",
 					Namespace: "ext-ns",
 					Port:      9001,
 				},
-				ProcessingMode: &services.ExtProcProcessingModeConfig{
-					Request:  &services.ExtProcBodyModeConfig{Body: "None"},
-					Response: &services.ExtProcBodyModeConfig{Body: "None"},
+				ProcessingMode: &kubernetes.ExtProcProcessingModeConfig{
+					Request:  &kubernetes.ExtProcBodyModeConfig{Body: "None"},
+					Response: &kubernetes.ExtProcBodyModeConfig{Body: "None"},
 				},
 			},
 		},
 	}
 
-	eep := services.BuildEnvoyExtensionPolicy(config)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	require.NotNil(t, eep)
 
 	spec := eep.Object["spec"].(map[string]interface{})
@@ -4424,15 +4424,15 @@ func TestBuildEnvoyExtensionPolicy_ExtProc_NoneBodyMode(t *testing.T) {
 }
 
 func TestBuildEnvoyExtensionPolicy_ExtProcOnly(t *testing.T) {
-	config := &services.EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      "eep-extproc-only",
 		Namespace: "ns",
 		GatewayID: "gw-id",
 		RouteID:   "rt-id",
-		TargetRef: services.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
-		ExtProc: []services.ExtProcPolicyConfig{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "my-route"},
+		ExtProc: []kubernetes.ExtProcPolicyConfig{
 			{
-				BackendRef: services.ExtProcBackendRefPolicyConfig{
+				BackendRef: kubernetes.ExtProcBackendRefPolicyConfig{
 					Name:      "ext-svc",
 					Namespace: "ext-ns",
 					Port:      9001,
@@ -4442,7 +4442,7 @@ func TestBuildEnvoyExtensionPolicy_ExtProcOnly(t *testing.T) {
 		},
 	}
 
-	eep := services.BuildEnvoyExtensionPolicy(config)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	require.NotNil(t, eep)
 
 	assert.Equal(t, "gateway.envoyproxy.io/v1alpha1", eep.Object["apiVersion"])
@@ -4482,16 +4482,16 @@ func TestBuildEnvoyExtensionPolicy_ExtProcOnly(t *testing.T) {
 // ─── Header & Method Authorization Tests ─────────────────────────────────────
 
 func TestBuildSecurityPolicy_Authorization_HeadersOnly(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-headers",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules: []services.AuthorizationRulePolicyConfig{
+			Rules: []kubernetes.AuthorizationRulePolicyConfig{
 				{
 					Action: "Allow",
-					Headers: []services.HeaderMatchPolicyConfig{
+					Headers: []kubernetes.HeaderMatchPolicyConfig{
 						{Name: "x-team", Values: []string{"backend", "frontend"}},
 						{Name: "x-env", Values: []string{"production"}},
 					},
@@ -4499,7 +4499,7 @@ func TestBuildSecurityPolicy_Authorization_HeadersOnly(t *testing.T) {
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	require.NotNil(t, sp)
 
 	spec := sp.Object["spec"].(map[string]interface{})
@@ -4533,13 +4533,13 @@ func TestBuildSecurityPolicy_Authorization_HeadersOnly(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_Authorization_MethodsOnly(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-methods",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules: []services.AuthorizationRulePolicyConfig{
+			Rules: []kubernetes.AuthorizationRulePolicyConfig{
 				{
 					Action:  "Allow",
 					Methods: []string{"GET", "POST"},
@@ -4547,7 +4547,7 @@ func TestBuildSecurityPolicy_Authorization_MethodsOnly(t *testing.T) {
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	require.NotNil(t, sp)
 
 	spec := sp.Object["spec"].(map[string]interface{})
@@ -4570,17 +4570,17 @@ func TestBuildSecurityPolicy_Authorization_MethodsOnly(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_Authorization_CIDRsHeadersMethods(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-combined",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules: []services.AuthorizationRulePolicyConfig{
+			Rules: []kubernetes.AuthorizationRulePolicyConfig{
 				{
 					Action:      "Allow",
 					ClientCIDRs: []string{"10.0.0.0/8"},
-					Headers: []services.HeaderMatchPolicyConfig{
+					Headers: []kubernetes.HeaderMatchPolicyConfig{
 						{Name: "x-user-id", Values: []string{"admin"}},
 					},
 					Methods: []string{"GET", "DELETE"},
@@ -4588,7 +4588,7 @@ func TestBuildSecurityPolicy_Authorization_CIDRsHeadersMethods(t *testing.T) {
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	require.NotNil(t, sp)
 
 	spec := sp.Object["spec"].(map[string]interface{})
@@ -4614,21 +4614,21 @@ func TestBuildSecurityPolicy_Authorization_CIDRsHeadersMethods(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_Authorization_HeadersAndJWT(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-headers-jwt",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules: []services.AuthorizationRulePolicyConfig{
+			Rules: []kubernetes.AuthorizationRulePolicyConfig{
 				{
 					Action: "Allow",
-					Headers: []services.HeaderMatchPolicyConfig{
+					Headers: []kubernetes.HeaderMatchPolicyConfig{
 						{Name: "x-team", Values: []string{"api"}},
 					},
-					JWT: &services.JWTPrincipalPolicyConfig{
+					JWT: &kubernetes.JWTPrincipalPolicyConfig{
 						Provider: "my-jwt",
-						Claims: []services.JWTClaimRulePolicyConfig{
+						Claims: []kubernetes.JWTClaimRulePolicyConfig{
 							{Name: "role", Values: []string{"admin"}},
 						},
 					},
@@ -4637,7 +4637,7 @@ func TestBuildSecurityPolicy_Authorization_HeadersAndJWT(t *testing.T) {
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	require.NotNil(t, sp)
 
 	spec := sp.Object["spec"].(map[string]interface{})
@@ -4663,13 +4663,13 @@ func TestBuildSecurityPolicy_Authorization_HeadersAndJWT(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy_Authorization_SkipRuleWithNoContent(t *testing.T) {
-	config := &services.SecurityPolicyConfig{
+	config := &kubernetes.SecurityPolicyConfig{
 		Name:      "sp-skip-empty",
 		Namespace: "ns",
-		TargetRef: services.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
-		Authorization: &services.AuthorizationPolicyConfig{
+		TargetRef: kubernetes.SecurityPolicyTargetRef{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute", Name: "rt"},
+		Authorization: &kubernetes.AuthorizationPolicyConfig{
 			DefaultAction: "Deny",
-			Rules: []services.AuthorizationRulePolicyConfig{
+			Rules: []kubernetes.AuthorizationRulePolicyConfig{
 				{
 					Action: "Allow",
 					// No CIDRs, no headers, no methods, no JWT — should be skipped
@@ -4681,7 +4681,7 @@ func TestBuildSecurityPolicy_Authorization_SkipRuleWithNoContent(t *testing.T) {
 			},
 		},
 	}
-	sp := services.BuildSecurityPolicy(config)
+	sp := kubernetes.BuildSecurityPolicy(config)
 	require.NotNil(t, sp)
 
 	spec := sp.Object["spec"].(map[string]interface{})
@@ -4697,22 +4697,8 @@ func TestBuildSecurityPolicy_Authorization_SkipRuleWithNoContent(t *testing.T) {
 
 // ─── TLS Secret Picker Tests ───────────────────────────────────────────────
 
-func TestTLSSecretInfo_Struct(t *testing.T) {
-	secret := services.TLSSecretInfo{
-		Name:                 "my-cert",
-		Namespace:            "fastgateway-system",
-		ManagedByFastgateway: false,
-		Labels:               map[string]string{"app": "test"},
-		CreatedAt:            "2026-01-01T00:00:00Z",
-	}
-	assert.Equal(t, "my-cert", secret.Name)
-	assert.Equal(t, "fastgateway-system", secret.Namespace)
-	assert.False(t, secret.ManagedByFastgateway)
-	assert.Equal(t, "2026-01-01T00:00:00Z", secret.CreatedAt)
-}
-
 func TestBuildGatewayObject_CrossNamespaceTLSSecret(t *testing.T) {
-	config := &services.GatewayConfig{
+	config := &kubernetes.GatewayConfig{
 		Name:               "test-gw",
 		Namespace:          "fastgateway-system",
 		GatewayClassName:   "eg",
@@ -4725,7 +4711,7 @@ func TestBuildGatewayObject_CrossNamespaceTLSSecret(t *testing.T) {
 		TLSPolicy:          "terminate",
 	}
 
-	gw := services.BuildGatewayObject(config)
+	gw := kubernetes.BuildGatewayObject(config)
 	require.NotNil(t, gw)
 
 	spec := gw.Object["spec"].(map[string]interface{})
@@ -4744,7 +4730,7 @@ func TestBuildGatewayObject_CrossNamespaceTLSSecret(t *testing.T) {
 }
 
 func TestBuildGatewayObject_SameNamespaceTLSSecret(t *testing.T) {
-	config := &services.GatewayConfig{
+	config := &kubernetes.GatewayConfig{
 		Name:             "test-gw",
 		Namespace:        "fastgateway-system",
 		GatewayClassName: "eg",
@@ -4757,7 +4743,7 @@ func TestBuildGatewayObject_SameNamespaceTLSSecret(t *testing.T) {
 		// TLSSecretNamespace is empty — same namespace
 	}
 
-	gw := services.BuildGatewayObject(config)
+	gw := kubernetes.BuildGatewayObject(config)
 	require.NotNil(t, gw)
 
 	spec := gw.Object["spec"].(map[string]interface{})
@@ -4776,7 +4762,7 @@ func TestBuildGatewayObject_SameNamespaceTLSSecret(t *testing.T) {
 }
 
 func TestBuildGatewayObject_FastgatewaySystemNamespaceOmitted(t *testing.T) {
-	config := &services.GatewayConfig{
+	config := &kubernetes.GatewayConfig{
 		Name:               "test-gw",
 		Namespace:          "fastgateway-system",
 		GatewayClassName:   "eg",
@@ -4789,7 +4775,7 @@ func TestBuildGatewayObject_FastgatewaySystemNamespaceOmitted(t *testing.T) {
 		TLSPolicy:          "terminate",
 	}
 
-	gw := services.BuildGatewayObject(config)
+	gw := kubernetes.BuildGatewayObject(config)
 	require.NotNil(t, gw)
 
 	spec := gw.Object["spec"].(map[string]interface{})
@@ -4814,7 +4800,7 @@ func TestBuildAccessLog_FileStdout_Text(t *testing.T) {
 			File: &models.TelemetryAccessLogFileSink{Path: "/dev/stdout"},
 		},
 	}
-	got := services.BuildAccessLog(cfg)
+	got := kubernetes.BuildAccessLog(cfg)
 	want := map[string]interface{}{
 		"settings": []interface{}{
 			map[string]interface{}{
@@ -4844,7 +4830,7 @@ func TestBuildAccessLog_FileStderr(t *testing.T) {
 			File: &models.TelemetryAccessLogFileSink{Path: "/dev/stderr"},
 		},
 	}
-	got := services.BuildAccessLog(cfg)
+	got := kubernetes.BuildAccessLog(cfg)
 	sinks := got["settings"].([]interface{})[0].(map[string]interface{})["sinks"].([]interface{})
 	assert.Equal(t, "/dev/stderr", sinks[0].(map[string]interface{})["file"].(map[string]interface{})["path"])
 }
@@ -4859,7 +4845,7 @@ func TestBuildAccessLog_OTel(t *testing.T) {
 			},
 		},
 	}
-	got := services.BuildAccessLog(cfg)
+	got := kubernetes.BuildAccessLog(cfg)
 	sinks := got["settings"].([]interface{})[0].(map[string]interface{})["sinks"].([]interface{})
 	require.Len(t, sinks, 1)
 	sink := sinks[0].(map[string]interface{})
@@ -4883,7 +4869,7 @@ func TestBuildAccessLog_JsonFormat(t *testing.T) {
 			File: &models.TelemetryAccessLogFileSink{Path: "/dev/stdout"},
 		},
 	}
-	got := services.BuildAccessLog(cfg)
+	got := kubernetes.BuildAccessLog(cfg)
 	format := got["settings"].([]interface{})[0].(map[string]interface{})["format"].(map[string]interface{})
 	assert.Equal(t, "JSON", format["type"])
 	assert.Equal(t, "%REQ(:METHOD)%", format["json"].(map[string]interface{})["method"])
@@ -4898,7 +4884,7 @@ func TestBuildAccessLog_Disabled(t *testing.T) {
 			File: &models.TelemetryAccessLogFileSink{Path: "/dev/stdout"},
 		},
 	}
-	got := services.BuildAccessLog(cfg)
+	got := kubernetes.BuildAccessLog(cfg)
 	settings := got["settings"].([]interface{})
 	require.Len(t, settings, 1)
 	format := settings[0].(map[string]interface{})["format"].(map[string]interface{})
@@ -4910,7 +4896,7 @@ func TestBuildAccessLog_Disabled(t *testing.T) {
 }
 
 func TestBuildAccessLog_Nil(t *testing.T) {
-	assert.Nil(t, services.BuildAccessLog(nil))
+	assert.Nil(t, kubernetes.BuildAccessLog(nil))
 }
 
 func TestBuildTracing_BasicSampling(t *testing.T) {
@@ -4920,7 +4906,7 @@ func TestBuildTracing_BasicSampling(t *testing.T) {
 			Namespace: "obs", Service: "col", Port: 4317,
 		},
 	}
-	got := services.BuildTracing(cfg)
+	got := kubernetes.BuildTracing(cfg)
 	assert.EqualValues(t, 10.0, got["samplingRate"])
 	provider := got["provider"].(map[string]interface{})
 	refs := provider["backendRefs"].([]interface{})
@@ -4941,7 +4927,7 @@ func TestBuildTracing_LiteralTag(t *testing.T) {
 			{Type: "literal", Tag: "env", Value: "prod"},
 		},
 	}
-	got := services.BuildTracing(cfg)
+	got := kubernetes.BuildTracing(cfg)
 	// EG CRD shape: customTags is a map keyed by tag name, not an array.
 	tags := got["customTags"].(map[string]interface{})
 	require.Len(t, tags, 1)
@@ -4958,7 +4944,7 @@ func TestBuildTracing_RequestHeaderTag(t *testing.T) {
 			{Type: "requestHeader", Tag: "tenant_id", Header: "x-tenant-id", DefaultValue: "unknown"},
 		},
 	}
-	got := services.BuildTracing(cfg)
+	got := kubernetes.BuildTracing(cfg)
 	tags := got["customTags"].(map[string]interface{})
 	require.Len(t, tags, 1)
 	tag := tags["tenant_id"].(map[string]interface{})
@@ -4976,7 +4962,7 @@ func TestBuildTracing_RequestHeaderTag_NoDefault(t *testing.T) {
 			{Type: "requestHeader", Tag: "tenant_id", Header: "x-tenant-id"},
 		},
 	}
-	got := services.BuildTracing(cfg)
+	got := kubernetes.BuildTracing(cfg)
 	tag := got["customTags"].(map[string]interface{})["tenant_id"].(map[string]interface{})
 	rh := tag["requestHeader"].(map[string]interface{})
 	_, hasDefault := rh["defaultValue"]
@@ -4988,26 +4974,26 @@ func TestBuildTracing_OffSampling(t *testing.T) {
 		SamplingRate: 0,
 		Provider:     models.TelemetryServiceRef{Namespace: "obs", Service: "col", Port: 4317},
 	}
-	got := services.BuildTracing(cfg)
+	got := kubernetes.BuildTracing(cfg)
 	assert.EqualValues(t, 0.0, got["samplingRate"])
 }
 
 func TestBuildTracing_Nil(t *testing.T) {
-	assert.Nil(t, services.BuildTracing(nil))
+	assert.Nil(t, kubernetes.BuildTracing(nil))
 }
 
 func TestBuildMetrics_PromDisabled(t *testing.T) {
 	cfg := &models.TelemetryMetricsConfig{
 		Prometheus: &models.TelemetryPrometheusConfig{Disable: true},
 	}
-	got := services.BuildMetrics(cfg)
+	got := kubernetes.BuildMetrics(cfg)
 	prom := got["prometheus"].(map[string]interface{})
 	assert.Equal(t, true, prom["disable"])
 }
 
 func TestBuildMetrics_VirtualHostStatsOn(t *testing.T) {
 	cfg := &models.TelemetryMetricsConfig{EnableVirtualHostStats: true}
-	got := services.BuildMetrics(cfg)
+	got := kubernetes.BuildMetrics(cfg)
 	assert.Equal(t, true, got["enableVirtualHostStats"])
 	_, hasPerEndpoint := got["enablePerEndpointStats"]
 	assert.False(t, hasPerEndpoint, "false flag is omitted")
@@ -5015,7 +5001,7 @@ func TestBuildMetrics_VirtualHostStatsOn(t *testing.T) {
 
 func TestBuildMetrics_PerEndpointStatsOn(t *testing.T) {
 	cfg := &models.TelemetryMetricsConfig{EnablePerEndpointStats: true}
-	got := services.BuildMetrics(cfg)
+	got := kubernetes.BuildMetrics(cfg)
 	assert.Equal(t, true, got["enablePerEndpointStats"])
 }
 
@@ -5025,7 +5011,7 @@ func TestBuildMetrics_OTelSink(t *testing.T) {
 			{Type: "openTelemetry", Namespace: "obs", Service: "col", Port: 4317},
 		},
 	}
-	got := services.BuildMetrics(cfg)
+	got := kubernetes.BuildMetrics(cfg)
 	sinks := got["sinks"].([]interface{})
 	require.Len(t, sinks, 1)
 	sink := sinks[0].(map[string]interface{})
@@ -5039,29 +5025,29 @@ func TestBuildMetrics_OTelSink(t *testing.T) {
 
 func TestBuildMetrics_AllOff_ReturnsEmptyMap(t *testing.T) {
 	cfg := &models.TelemetryMetricsConfig{}
-	got := services.BuildMetrics(cfg)
+	got := kubernetes.BuildMetrics(cfg)
 	assert.NotNil(t, got)
 	assert.Empty(t, got)
 }
 
 func TestBuildMetrics_Nil(t *testing.T) {
-	assert.Nil(t, services.BuildMetrics(nil))
+	assert.Nil(t, kubernetes.BuildMetrics(nil))
 }
 
 func TestBuildEnvoyProxyObject_TelemetryNil(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:        "ep-1",
 		Namespace:   "envoy-gateway-system",
 		ServiceType: "ClusterIP",
 	}
-	obj := services.BuildEnvoyProxyObject(config)
+	obj := kubernetes.BuildEnvoyProxyObject(config)
 	spec := obj.Object["spec"].(map[string]interface{})
 	_, has := spec["telemetry"]
 	assert.False(t, has, "spec.telemetry not emitted when all three are nil")
 }
 
 func TestBuildEnvoyProxyObject_TelemetryAccessLogOnly(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:        "ep-1",
 		Namespace:   "envoy-gateway-system",
 		ServiceType: "ClusterIP",
@@ -5073,7 +5059,7 @@ func TestBuildEnvoyProxyObject_TelemetryAccessLogOnly(t *testing.T) {
 			},
 		},
 	}
-	obj := services.BuildEnvoyProxyObject(config)
+	obj := kubernetes.BuildEnvoyProxyObject(config)
 	spec := obj.Object["spec"].(map[string]interface{})
 	tele, ok := spec["telemetry"].(map[string]interface{})
 	require.True(t, ok, "spec.telemetry must be present")
@@ -5086,7 +5072,7 @@ func TestBuildEnvoyProxyObject_TelemetryAccessLogOnly(t *testing.T) {
 }
 
 func TestBuildEnvoyProxyObject_TelemetryAllThreeSet(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:        "ep-1",
 		Namespace:   "envoy-gateway-system",
 		ServiceType: "ClusterIP",
@@ -5103,7 +5089,7 @@ func TestBuildEnvoyProxyObject_TelemetryAllThreeSet(t *testing.T) {
 		},
 		TelemetryMetrics: &models.TelemetryMetricsConfig{EnablePerEndpointStats: true},
 	}
-	obj := services.BuildEnvoyProxyObject(config)
+	obj := kubernetes.BuildEnvoyProxyObject(config)
 	tele := obj.Object["spec"].(map[string]interface{})["telemetry"].(map[string]interface{})
 	assert.Contains(t, tele, "accessLog")
 	assert.Contains(t, tele, "tracing")
@@ -5117,7 +5103,7 @@ func TestBuildPodPlacement_NodeSelectorAndPriorityClass(t *testing.T) {
 		NodeSelector:      map[string]string{"name": "nodepool-01"},
 		PriorityClassName: "system-cluster-critical",
 	}
-	got := services.BuildPodPlacement(cfg, "fastgateway-template-1")
+	got := kubernetes.BuildPodPlacement(cfg, "fastgateway-template-1")
 	assert.Equal(t, map[string]interface{}{
 		"name": "nodepool-01",
 	}, got["nodeSelector"])
@@ -5132,20 +5118,20 @@ func TestBuildPodPlacement_NodeSelectorAndPriorityClass(t *testing.T) {
 }
 
 func TestBuildPodPlacement_Nil(t *testing.T) {
-	assert.Nil(t, services.BuildPodPlacement(nil, "fastgateway-template-1"))
+	assert.Nil(t, kubernetes.BuildPodPlacement(nil, "fastgateway-template-1"))
 }
 
 func TestBuildPodPlacement_AllEmpty(t *testing.T) {
 	// A non-nil cfg with all default zero values should return nil so
 	// BuildEnvoyProxyObject does not emit empty envoyDeployment.pod sub-blocks.
 	cfg := &models.PodPlacementConfig{}
-	got := services.BuildPodPlacement(cfg, "fastgateway-template-1")
+	got := kubernetes.BuildPodPlacement(cfg, "fastgateway-template-1")
 	assert.Nil(t, got)
 }
 
 func TestBuildStrategy_EmptyTypeReturnsNil(t *testing.T) {
 	cfg := &models.DeploymentStrategyConfig{}
-	assert.Nil(t, services.BuildStrategy(cfg))
+	assert.Nil(t, kubernetes.BuildStrategy(cfg))
 }
 
 func TestBuildPodPlacement_TolerationsEqualNoSchedule(t *testing.T) {
@@ -5154,7 +5140,7 @@ func TestBuildPodPlacement_TolerationsEqualNoSchedule(t *testing.T) {
 			{Key: "dedicated", Operator: "Equal", Value: "gateway", Effect: "NoSchedule"},
 		},
 	}
-	got := services.BuildPodPlacement(cfg, "gc-1")
+	got := kubernetes.BuildPodPlacement(cfg, "gc-1")
 	tols := got["tolerations"].([]interface{})
 	require.Len(t, tols, 1)
 	row := tols[0].(map[string]interface{})
@@ -5173,7 +5159,7 @@ func TestBuildPodPlacement_TolerationsEqualNoExecuteWithSeconds(t *testing.T) {
 			{Key: "spot", Operator: "Equal", Value: "true", Effect: "NoExecute", TolerationSeconds: &seconds},
 		},
 	}
-	got := services.BuildPodPlacement(cfg, "gc-1")
+	got := kubernetes.BuildPodPlacement(cfg, "gc-1")
 	row := got["tolerations"].([]interface{})[0].(map[string]interface{})
 	assert.Equal(t, "NoExecute", row["effect"])
 	assert.EqualValues(t, 300, row["tolerationSeconds"])
@@ -5185,7 +5171,7 @@ func TestBuildPodPlacement_TolerationsExistsAnyEffect(t *testing.T) {
 			{Operator: "Exists"},
 		},
 	}
-	got := services.BuildPodPlacement(cfg, "gc-1")
+	got := kubernetes.BuildPodPlacement(cfg, "gc-1")
 	row := got["tolerations"].([]interface{})[0].(map[string]interface{})
 	assert.Equal(t, "Exists", row["operator"])
 	_, hasKey := row["key"]
@@ -5202,7 +5188,7 @@ func TestBuildPodPlacement_TopologySpread_AutoLabelSelector(t *testing.T) {
 			{MaxSkew: 1, TopologyKey: "topology.kubernetes.io/zone", WhenUnsatisfiable: "ScheduleAnyway"},
 		},
 	}
-	got := services.BuildPodPlacement(cfg, "fg-template-abc")
+	got := kubernetes.BuildPodPlacement(cfg, "fg-template-abc")
 	cs := got["topologySpreadConstraints"].([]interface{})
 	require.Len(t, cs, 1)
 	row := cs[0].(map[string]interface{})
@@ -5220,14 +5206,14 @@ func TestBuildPodPlacement_TopologySpread_DoNotSchedule(t *testing.T) {
 			{MaxSkew: 2, TopologyKey: "kubernetes.io/hostname", WhenUnsatisfiable: "DoNotSchedule"},
 		},
 	}
-	got := services.BuildPodPlacement(cfg, "gc-1")
+	got := kubernetes.BuildPodPlacement(cfg, "gc-1")
 	row := got["topologySpreadConstraints"].([]interface{})[0].(map[string]interface{})
 	assert.Equal(t, "DoNotSchedule", row["whenUnsatisfiable"])
 }
 
 func TestBuildPDB_MinAvailable_Int(t *testing.T) {
 	cfg := &models.PDBConfig{Kind: "minAvailable", Amount: "2"}
-	got := services.BuildPDB(cfg)
+	got := kubernetes.BuildPDB(cfg)
 	assert.EqualValues(t, 2, got["minAvailable"])
 	_, hasMax := got["maxUnavailable"]
 	assert.False(t, hasMax)
@@ -5235,29 +5221,29 @@ func TestBuildPDB_MinAvailable_Int(t *testing.T) {
 
 func TestBuildPDB_MinAvailable_Percent(t *testing.T) {
 	cfg := &models.PDBConfig{Kind: "minAvailable", Amount: "50%"}
-	got := services.BuildPDB(cfg)
+	got := kubernetes.BuildPDB(cfg)
 	assert.Equal(t, "50%", got["minAvailable"])
 }
 
 func TestBuildPDB_MaxUnavailable_Int(t *testing.T) {
 	cfg := &models.PDBConfig{Kind: "maxUnavailable", Amount: "1"}
-	got := services.BuildPDB(cfg)
+	got := kubernetes.BuildPDB(cfg)
 	assert.EqualValues(t, 1, got["maxUnavailable"])
 }
 
 func TestBuildPDB_MaxUnavailable_Percent(t *testing.T) {
 	cfg := &models.PDBConfig{Kind: "maxUnavailable", Amount: "25%"}
-	got := services.BuildPDB(cfg)
+	got := kubernetes.BuildPDB(cfg)
 	assert.Equal(t, "25%", got["maxUnavailable"])
 }
 
 func TestBuildPDB_Nil(t *testing.T) {
-	assert.Nil(t, services.BuildPDB(nil))
+	assert.Nil(t, kubernetes.BuildPDB(nil))
 }
 
 func TestBuildStrategy_Recreate(t *testing.T) {
 	cfg := &models.DeploymentStrategyConfig{Type: "Recreate"}
-	got := services.BuildStrategy(cfg)
+	got := kubernetes.BuildStrategy(cfg)
 	assert.Equal(t, "Recreate", got["type"])
 	_, hasRolling := got["rollingUpdate"]
 	assert.False(t, hasRolling)
@@ -5265,7 +5251,7 @@ func TestBuildStrategy_Recreate(t *testing.T) {
 
 func TestBuildStrategy_RollingDefault_NoOverrides(t *testing.T) {
 	cfg := &models.DeploymentStrategyConfig{Type: "RollingUpdate"}
-	got := services.BuildStrategy(cfg)
+	got := kubernetes.BuildStrategy(cfg)
 	assert.Equal(t, "RollingUpdate", got["type"])
 	_, hasRolling := got["rollingUpdate"]
 	assert.False(t, hasRolling, "no rollingUpdate sub-block when no overrides — K8s defaults apply")
@@ -5279,7 +5265,7 @@ func TestBuildStrategy_RollingCustom_PercentValues(t *testing.T) {
 			MaxUnavailable: "50%",
 		},
 	}
-	got := services.BuildStrategy(cfg)
+	got := kubernetes.BuildStrategy(cfg)
 	rolling := got["rollingUpdate"].(map[string]interface{})
 	assert.Equal(t, "25%", rolling["maxSurge"])
 	assert.Equal(t, "50%", rolling["maxUnavailable"])
@@ -5293,18 +5279,18 @@ func TestBuildStrategy_RollingCustom_IntValues(t *testing.T) {
 			MaxUnavailable: "1",
 		},
 	}
-	got := services.BuildStrategy(cfg)
+	got := kubernetes.BuildStrategy(cfg)
 	rolling := got["rollingUpdate"].(map[string]interface{})
 	assert.EqualValues(t, 2, rolling["maxSurge"])
 	assert.EqualValues(t, 1, rolling["maxUnavailable"])
 }
 
 func TestBuildStrategy_Nil(t *testing.T) {
-	assert.Nil(t, services.BuildStrategy(nil))
+	assert.Nil(t, kubernetes.BuildStrategy(nil))
 }
 
 func TestBuildEnvoyProxyObject_PodPlacementOnly(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:             "ep-1",
 		Namespace:        "envoy-gateway-system",
 		ServiceType:      "ClusterIP",
@@ -5313,14 +5299,14 @@ func TestBuildEnvoyProxyObject_PodPlacementOnly(t *testing.T) {
 			NodeSelector: map[string]string{"name": "nodepool-01"},
 		},
 	}
-	obj := services.BuildEnvoyProxyObject(config)
+	obj := kubernetes.BuildEnvoyProxyObject(config)
 	dep := obj.Object["spec"].(map[string]interface{})["provider"].(map[string]interface{})["kubernetes"].(map[string]interface{})["envoyDeployment"].(map[string]interface{})
 	pod := dep["pod"].(map[string]interface{})
 	assert.Equal(t, map[string]interface{}{"name": "nodepool-01"}, pod["nodeSelector"])
 }
 
 func TestBuildEnvoyProxyObject_PodPlacement_MergesWithAnnotations(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:             "ep-1",
 		Namespace:        "envoy-gateway-system",
 		ServiceType:      "ClusterIP",
@@ -5330,7 +5316,7 @@ func TestBuildEnvoyProxyObject_PodPlacement_MergesWithAnnotations(t *testing.T) 
 			NodeSelector: map[string]string{"name": "nodepool-01"},
 		},
 	}
-	obj := services.BuildEnvoyProxyObject(config)
+	obj := kubernetes.BuildEnvoyProxyObject(config)
 	dep := obj.Object["spec"].(map[string]interface{})["provider"].(map[string]interface{})["kubernetes"].(map[string]interface{})["envoyDeployment"].(map[string]interface{})
 	pod := dep["pod"].(map[string]interface{})
 	assert.NotNil(t, pod["annotations"])
@@ -5338,13 +5324,13 @@ func TestBuildEnvoyProxyObject_PodPlacement_MergesWithAnnotations(t *testing.T) 
 }
 
 func TestBuildEnvoyProxyObject_PDBOnly(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:        "ep-1",
 		Namespace:   "envoy-gateway-system",
 		ServiceType: "ClusterIP",
 		PDBConfig:   &models.PDBConfig{Kind: "minAvailable", Amount: "50%"},
 	}
-	obj := services.BuildEnvoyProxyObject(config)
+	obj := kubernetes.BuildEnvoyProxyObject(config)
 	k8s := obj.Object["spec"].(map[string]interface{})["provider"].(map[string]interface{})["kubernetes"].(map[string]interface{})
 	pdb := k8s["envoyPDB"].(map[string]interface{})
 	assert.Equal(t, "50%", pdb["minAvailable"])
@@ -5353,25 +5339,25 @@ func TestBuildEnvoyProxyObject_PDBOnly(t *testing.T) {
 }
 
 func TestBuildEnvoyProxyObject_StrategyOnly_TriggersEnvoyDeployment(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:               "ep-1",
 		Namespace:          "envoy-gateway-system",
 		ServiceType:        "ClusterIP",
 		DeploymentStrategy: &models.DeploymentStrategyConfig{Type: "Recreate"},
 	}
-	obj := services.BuildEnvoyProxyObject(config)
+	obj := kubernetes.BuildEnvoyProxyObject(config)
 	dep := obj.Object["spec"].(map[string]interface{})["provider"].(map[string]interface{})["kubernetes"].(map[string]interface{})["envoyDeployment"].(map[string]interface{})
 	strat := dep["strategy"].(map[string]interface{})
 	assert.Equal(t, "Recreate", strat["type"])
 }
 
 func TestBuildEnvoyProxyObject_PodSchedulingNil_NoNewKeys(t *testing.T) {
-	config := &services.EnvoyProxyConfig{
+	config := &kubernetes.EnvoyProxyConfig{
 		Name:        "ep-1",
 		Namespace:   "envoy-gateway-system",
 		ServiceType: "ClusterIP",
 	}
-	obj := services.BuildEnvoyProxyObject(config)
+	obj := kubernetes.BuildEnvoyProxyObject(config)
 	k8s := obj.Object["spec"].(map[string]interface{})["provider"].(map[string]interface{})["kubernetes"].(map[string]interface{})
 	_, hasDep := k8s["envoyDeployment"]
 	assert.False(t, hasDep)

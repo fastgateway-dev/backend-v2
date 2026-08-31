@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc/codes"
-
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/e2e/testdata/pb/delay"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"google.golang.org/grpc/codes"
 )
 
 // TestGRPCBTPTimeout ports grpc_btp_features/test_timeout.py.
@@ -54,7 +54,7 @@ func TestGRPCBTPTimeout(t *testing.T) {
 				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: podinfoService, Port: podinfoGRPCPort, Weight: 100},
 			},
 		},
-		BackendTrafficPolicy: &services.BackendTrafficPolicyInput{
+		BackendTrafficPolicy: &routeplan.BackendTrafficPolicyInput{
 			Timeout: &models.BTPTimeoutConfig{
 				HTTP: &models.BTPHTTPTimeoutConfig{RequestTimeout: "2s"},
 			},

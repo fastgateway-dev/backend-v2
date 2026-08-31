@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -50,7 +51,7 @@ func TestGRPCBTPRequestBuffer(t *testing.T) {
 				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: podinfoService, Port: podinfoGRPCPort, Weight: 100},
 			},
 		},
-		BackendTrafficPolicy: &services.BackendTrafficPolicyInput{
+		BackendTrafficPolicy: &routeplan.BackendTrafficPolicyInput{
 			RequestBuffer: &models.RequestBufferConfig{Limit: "1Ki"},
 		},
 	})

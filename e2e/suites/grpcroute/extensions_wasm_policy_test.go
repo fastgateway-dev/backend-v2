@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc/codes"
-
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"google.golang.org/grpc/codes"
 )
 
 // TestGRPCWasm ports grpc_extensions/test_wasm.py.
@@ -39,7 +39,7 @@ func TestGRPCWasm(t *testing.T) {
 				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: podinfoService, Port: podinfoGRPCPort, Weight: 100},
 			},
 		},
-		ExtensionPolicy: &services.EnvoyExtensionPolicyInput{
+		ExtensionPolicy: &routeplan.EnvoyExtensionPolicyInput{
 			Wasm: &models.WasmExtensionConfig{
 				Name:   "wasm-filter",
 				RootID: "my_root_id",

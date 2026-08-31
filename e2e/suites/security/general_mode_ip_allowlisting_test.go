@@ -9,6 +9,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -55,8 +56,8 @@ func TestGeneralModeIPAllowlisting(t *testing.T) {
 			},
 			URLRewrite: rewriteTo("/"),
 		},
-		SecurityPolicy: &services.SecurityPolicyInput{
-			Authorization: &services.AuthorizationInput{AllowedCIDRs: []string{"0.0.0.0/0"}},
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			Authorization: &routeplan.AuthorizationInput{AllowedCIDRs: []string{"0.0.0.0/0"}},
 		},
 	}
 	fx.Route(allowCfg)
@@ -85,10 +86,10 @@ func TestGeneralModeIPAllowlisting(t *testing.T) {
 				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: nginxService, Port: nginxPort, Weight: 100},
 			},
 		},
-		SecurityPolicy: &services.SecurityPolicyInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
 			// 192.0.2.0/24 is TEST-NET-1 (RFC 5737): reserved for
 			// documentation, guaranteed to never be a real client IP.
-			Authorization: &services.AuthorizationInput{AllowedCIDRs: []string{"192.0.2.0/24"}},
+			Authorization: &routeplan.AuthorizationInput{AllowedCIDRs: []string{"192.0.2.0/24"}},
 		},
 	}
 	fx.Route(denyCfg)

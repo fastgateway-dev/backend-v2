@@ -9,6 +9,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -16,10 +17,10 @@ import (
 // matching security_general_mode/test_waf.py's BLOCK_CONFIG/ALLOW_CONFIG
 // (identical wafPolicy settings in both -- mode "block", ruleset
 // "owasp-crs", paranoia level 2, anomaly threshold 5).
-func wafPolicy() *services.WafPolicyInput {
+func wafPolicy() *routeplan.WafPolicyInput {
 	anomalyThreshold := 5
 	paranoiaLevel := 2
-	return &services.WafPolicyInput{
+	return &routeplan.WafPolicyInput{
 		Mode:             "block",
 		Rulesets:         []string{"owasp-crs"},
 		ParanoiaLevel:    &paranoiaLevel,

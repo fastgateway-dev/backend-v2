@@ -7,13 +7,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/fastgateway-dev/backend-v2/internal/cluster"
 	"github.com/fastgateway-dev/backend-v2/internal/config"
 	"github.com/fastgateway-dev/backend-v2/internal/database"
 	"github.com/fastgateway-dev/backend-v2/internal/handlers"
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -84,7 +85,7 @@ func main() {
 		log.Fatalf("Failed to seed default admin user: %v", err)
 	}
 	projectService := services.NewProjectService(projectRepo, cfg)
-	k8sService := services.NewKubernetesService(projectService)
+	k8sService := cluster.New(projectService)
 	projectService.SetKubernetesService(k8sService) // Set K8s service for prerequisite validation
 	projectService.SetApprovalPolicyRepository(approvalPolicyRepo)
 	projectService.SetPresetRepository(presetRepo) // Set preset repo for seeding built-in presets
@@ -93,7 +94,7 @@ func main() {
 	domainService := services.NewDomainService(domainRepo, projectRepo, domainTemplateRepo, k8sService)
 	domainService.SetDomainSettingsRepository(domainSettingsRepo)
 	domainService.SetClientAttachmentRepository(clientAttachmentRepo) // Set client attachment repo for mTLS CA merging
-	wafConfig := services.WAFConfig{Image: cfg.WAFImage, Tag: cfg.WAFTag}
+	wafConfig := routeplan.WAFConfig{Image: cfg.WAFImage, Tag: cfg.WAFTag}
 	routeService := services.NewRouteService(routeRepo, approvalRepo, approvalPolicyRepo, domainRepo, teamRepo, wafConfig)
 	routeService.SetKubernetesService(k8sService)                            // Set K8s service for route deployment
 	routeService.SetProjectNamespaceRepository(projectNamespaceRepo)         // Set namespace repo for validation

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/google/uuid"
@@ -209,7 +210,7 @@ func (s *ClientService) Delete(ctx context.Context, id uuid.UUID) error {
 				}
 			}
 			if client.MTLSEnabled && client.MTLSCASecret != "" {
-				if err := s.k8sService.DeleteSecret(ctx, pid, FastGatewayNamespace, client.MTLSCASecret); err != nil {
+				if err := s.k8sService.DeleteSecret(ctx, pid, kubernetes.FastGatewayNamespace, client.MTLSCASecret); err != nil {
 					log.Printf("Warning: failed to delete mTLS CA secret for client %s in project %s: %v", id, pid, err)
 				}
 			}
@@ -893,7 +894,7 @@ func (s *ClientService) UpdateClientMTLS(ctx context.Context, clientID uuid.UUID
 			if tpErr == nil {
 				for _, tp := range teamProjects {
 					if tp.ProjectID != uuid.Nil {
-						_ = s.k8sService.DeleteSecret(ctx, tp.ProjectID, FastGatewayNamespace, client.MTLSCASecret)
+						_ = s.k8sService.DeleteSecret(ctx, tp.ProjectID, kubernetes.FastGatewayNamespace, client.MTLSCASecret)
 					}
 				}
 			}

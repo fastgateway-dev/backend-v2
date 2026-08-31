@@ -4,7 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +20,7 @@ func TestGoldenHTTPRouteDeploy(t *testing.T) {
 		}
 		t.Run(f.Name, func(t *testing.T) {
 			cfg := svc.buildHTTPRouteConfig(f.Route, f.Domain)
-			assertGolden(t, filepath.Join("httproute-deploy", f.Name), BuildHTTPRouteObject(cfg))
+			assertGolden(t, filepath.Join("httproute-deploy", f.Name), kubernetes.BuildHTTPRouteObject(cfg))
 		})
 	}
 }
@@ -35,8 +37,8 @@ func TestGoldenHTTPRoutePreview(t *testing.T) {
 			continue
 		}
 		t.Run(f.Name, func(t *testing.T) {
-			cfg := buildHTTPRouteConfigForYAML(f.Route, f.Domain)
-			assertGolden(t, filepath.Join("httproute-preview", f.Name), BuildHTTPRouteObject(cfg))
+			cfg := routeplan.BuildHTTPRouteConfigForYAML(f.Route, f.Domain)
+			assertGolden(t, filepath.Join("httproute-preview", f.Name), kubernetes.BuildHTTPRouteObject(cfg))
 		})
 	}
 }
@@ -65,7 +67,7 @@ func TestDifferentialHTTPRoute(t *testing.T) {
 		}
 		t.Run(f.Name, func(t *testing.T) {
 			deploy := svc.buildHTTPRouteConfig(f.Route, f.Domain)
-			preview := buildHTTPRouteConfigForYAML(f.Route, f.Domain)
+			preview := routeplan.BuildHTTPRouteConfigForYAML(f.Route, f.Domain)
 
 			if f.KnownDrift != "" {
 				require.NotEqualf(t, deploy, preview,
@@ -91,7 +93,7 @@ func TestGoldenGRPCRouteDeploy(t *testing.T) {
 		}
 		t.Run(f.Name, func(t *testing.T) {
 			cfg := svc.buildGRPCRouteConfig(f.Route, f.Domain)
-			assertGolden(t, filepath.Join("grpcroute-deploy", f.Name), BuildGRPCRouteObject(cfg))
+			assertGolden(t, filepath.Join("grpcroute-deploy", f.Name), kubernetes.BuildGRPCRouteObject(cfg))
 		})
 	}
 }
@@ -102,8 +104,8 @@ func TestGoldenGRPCRoutePreview(t *testing.T) {
 			continue
 		}
 		t.Run(f.Name, func(t *testing.T) {
-			cfg := buildGRPCRouteConfigForYAML(f.Route, f.Domain)
-			assertGolden(t, filepath.Join("grpcroute-preview", f.Name), BuildGRPCRouteObject(cfg))
+			cfg := routeplan.BuildGRPCRouteConfigForYAML(f.Route, f.Domain)
+			assertGolden(t, filepath.Join("grpcroute-preview", f.Name), kubernetes.BuildGRPCRouteObject(cfg))
 		})
 	}
 }
@@ -128,7 +130,7 @@ func TestDifferentialGRPCRoute(t *testing.T) {
 		}
 		t.Run(f.Name, func(t *testing.T) {
 			deploy := svc.buildGRPCRouteConfig(f.Route, f.Domain)
-			preview := buildGRPCRouteConfigForYAML(f.Route, f.Domain)
+			preview := routeplan.BuildGRPCRouteConfigForYAML(f.Route, f.Domain)
 			if f.KnownDrift != "" {
 				require.NotEqualf(t, deploy, preview, "fixture %q marked KnownDrift %q but paths agree", f.Name, f.KnownDrift)
 				return
@@ -175,7 +177,7 @@ func fixtureDirectResponseHRFRoute() *models.Route {
 
 func TestGoldenDirectResponseYAMLs(t *testing.T) {
 	route, domain := fixtureDirectResponseHRFRoute(), fixtureDomain()
-	hrfYAML, cmYAML := generateDirectResponseYAMLs(route, domain)
+	hrfYAML, cmYAML := routeplan.GenerateDirectResponseYAMLs(route, domain)
 
 	require.NotEmpty(t, hrfYAML, "HTTPRouteFilter YAML must not be empty for an inline body")
 	require.NotEmpty(t, cmYAML, "ConfigMap YAML must not be empty for an inline body")

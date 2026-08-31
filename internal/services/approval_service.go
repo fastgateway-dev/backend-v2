@@ -9,6 +9,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/google/uuid"
 )
 
@@ -25,7 +26,7 @@ type ApprovalService struct {
 	backendTrafficPolicyRepo repository.BackendTrafficPolicyRepositoryInterface
 	clientAttachmentService  *ClientAttachmentService
 	stageReviewRepo          repository.ApprovalStageReviewRepositoryInterface
-	wafConfig                WAFConfig
+	wafConfig                routeplan.WAFConfig
 }
 
 // NewApprovalService creates a new approval service
@@ -37,7 +38,7 @@ func NewApprovalService(
 	projectRepo repository.ProjectRepositoryInterface,
 	domainRepo repository.DomainRepositoryInterface,
 	k8sService KubernetesServiceInterface,
-	wafConfig WAFConfig,
+	wafConfig routeplan.WAFConfig,
 ) *ApprovalService {
 	return &ApprovalService{
 		approvalRepo: approvalRepo,
@@ -668,7 +669,7 @@ func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 			ProjectID: domain.ProjectID,
 			Config:    *spConfig,
 		}
-		return generateSecurityPolicyYAMLFromDB(tempRoute, domain, tempPolicy)
+		return routeplan.GenerateSecurityPolicyYAMLFromDB(tempRoute, domain, tempPolicy)
 	}
 
 	// Helper to generate BackendTrafficPolicy YAML from a config snapshot
@@ -682,7 +683,7 @@ func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 			ProjectID: domain.ProjectID,
 			Config:    *btpConfig,
 		}
-		return generateBackendTrafficPolicyYAMLFromDB(tempRoute, domain, tempPolicy)
+		return routeplan.GenerateBackendTrafficPolicyYAMLFromDB(tempRoute, domain, tempPolicy)
 	}
 
 	// Helper to generate EnvoyExtensionPolicy YAML from config snapshots (extensions + WAF)
@@ -711,7 +712,7 @@ func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 			}
 		}
 
-		return generateEnvoyExtensionPolicyYAMLFromSnapshot(tempRoute, domain, extPolicy, wafPolicy, s.wafConfig)
+		return routeplan.GenerateEnvoyExtensionPolicyYAMLFromSnapshot(tempRoute, domain, extPolicy, wafPolicy, s.wafConfig)
 	}
 
 	// Parse config snapshot and previous config from json.RawMessage
@@ -734,39 +735,39 @@ func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 		// For create, show only the proposed YAML
 		if snapshot.RouteConfig != nil {
 			tempRoute := buildTempRoute(*snapshot.RouteConfig)
-			result.ProposedYAML = generateHTTPRouteYAML(tempRoute, domain)
+			result.ProposedYAML = routeplan.GenerateHTTPRouteYAML(tempRoute, domain)
 			result.ProposedSecurityPolicyYAML = generateSPYaml(tempRoute, snapshot.SecurityPolicy)
 			result.ProposedBackendTrafficPolicyYAML = generateBTPYaml(tempRoute, snapshot.BackendTrafficPolicy)
 			result.ProposedEnvoyExtensionPolicyYAML = generateEEPYaml(tempRoute, snapshot.EnvoyExtensionPolicy, snapshot.WafPolicy)
-			result.ProposedBackendYAML = generateBackendYAMLs(tempRoute, domain)
+			result.ProposedBackendYAML = routeplan.GenerateBackendYAMLs(tempRoute, domain)
 		}
 
 	case models.ApprovalActionUpdate:
 		// For update, show current (previousConfig) and proposed (configSnapshot)
 		if previousSnapshot.RouteConfig != nil {
 			currentRoute := buildTempRoute(*previousSnapshot.RouteConfig)
-			result.CurrentYAML = generateHTTPRouteYAML(currentRoute, domain)
+			result.CurrentYAML = routeplan.GenerateHTTPRouteYAML(currentRoute, domain)
 			result.CurrentSecurityPolicyYAML = generateSPYaml(currentRoute, previousSnapshot.SecurityPolicy)
 			result.CurrentBackendTrafficPolicyYAML = generateBTPYaml(currentRoute, previousSnapshot.BackendTrafficPolicy)
 			result.CurrentEnvoyExtensionPolicyYAML = generateEEPYaml(currentRoute, previousSnapshot.EnvoyExtensionPolicy, previousSnapshot.WafPolicy)
-			result.CurrentBackendYAML = generateBackendYAMLs(currentRoute, domain)
+			result.CurrentBackendYAML = routeplan.GenerateBackendYAMLs(currentRoute, domain)
 		}
 		if snapshot.RouteConfig != nil {
 			proposedRoute := buildTempRoute(*snapshot.RouteConfig)
-			result.ProposedYAML = generateHTTPRouteYAML(proposedRoute, domain)
+			result.ProposedYAML = routeplan.GenerateHTTPRouteYAML(proposedRoute, domain)
 			result.ProposedSecurityPolicyYAML = generateSPYaml(proposedRoute, snapshot.SecurityPolicy)
 			result.ProposedBackendTrafficPolicyYAML = generateBTPYaml(proposedRoute, snapshot.BackendTrafficPolicy)
 			result.ProposedEnvoyExtensionPolicyYAML = generateEEPYaml(proposedRoute, snapshot.EnvoyExtensionPolicy, snapshot.WafPolicy)
-			result.ProposedBackendYAML = generateBackendYAMLs(proposedRoute, domain)
+			result.ProposedBackendYAML = routeplan.GenerateBackendYAMLs(proposedRoute, domain)
 		}
 
 	case models.ApprovalActionDelete:
 		// For delete, show current YAML (what will be deleted)
-		result.CurrentYAML = generateHTTPRouteYAML(route, domain)
+		result.CurrentYAML = routeplan.GenerateHTTPRouteYAML(route, domain)
 		result.CurrentSecurityPolicyYAML = generateSPYaml(route, previousSnapshot.SecurityPolicy)
 		result.CurrentBackendTrafficPolicyYAML = generateBTPYaml(route, previousSnapshot.BackendTrafficPolicy)
 		result.CurrentEnvoyExtensionPolicyYAML = generateEEPYaml(route, previousSnapshot.EnvoyExtensionPolicy, previousSnapshot.WafPolicy)
-		result.CurrentBackendYAML = generateBackendYAMLs(route, domain)
+		result.CurrentBackendYAML = routeplan.GenerateBackendYAMLs(route, domain)
 	}
 
 	result.ChangeDescription = approval.ChangeDescription

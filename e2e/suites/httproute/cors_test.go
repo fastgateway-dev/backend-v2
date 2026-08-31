@@ -8,16 +8,17 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
 // corsSecurityPolicy builds the shared CORS config used by both CORS
 // tests, matching tests/http_route_features/test_cors.py's PREFLIGHT_CONFIG
 // and ACTUAL_CONFIG (identical CORS settings in both).
-func corsSecurityPolicy() *services.SecurityPolicyInput {
+func corsSecurityPolicy() *routeplan.SecurityPolicyInput {
 	maxAge := 86400
 	allowCreds := true
-	return &services.SecurityPolicyInput{
+	return &routeplan.SecurityPolicyInput{
 		CORS: &models.CORSConfig{
 			AllowOrigins:     []string{"https://example.com"},
 			AllowMethods:     []string{"GET", "POST"},

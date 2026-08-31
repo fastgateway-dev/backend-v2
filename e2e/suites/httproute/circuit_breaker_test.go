@@ -10,6 +10,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -58,7 +59,7 @@ func TestCircuitBreaker(t *testing.T) {
 			},
 			URLRewrite: rewriteTo("/status/500"),
 		},
-		BackendTrafficPolicy: &services.BackendTrafficPolicyInput{
+		BackendTrafficPolicy: &routeplan.BackendTrafficPolicyInput{
 			CircuitBreaker: &models.CircuitBreakerConfig{
 				MaxParallelRequests: &maxParallel,
 				MaxPendingRequests:  &maxPending,

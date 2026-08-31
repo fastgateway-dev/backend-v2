@@ -10,6 +10,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -55,7 +56,7 @@ func TestResponseOverride(t *testing.T) {
 			// Deliberately NOT rewritten: this test wants nginx's natural
 			// 404 for the unique, never-existing path.
 		},
-		BackendTrafficPolicy: &services.BackendTrafficPolicyInput{
+		BackendTrafficPolicy: &routeplan.BackendTrafficPolicyInput{
 			ResponseOverride: []models.ResponseOverrideRule{
 				{
 					Match: models.ResponseOverrideMatch{

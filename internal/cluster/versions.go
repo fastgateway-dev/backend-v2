@@ -1,4 +1,4 @@
-package services
+package cluster
 
 import (
 	"context"
@@ -69,17 +69,17 @@ const envoyGatewayPrimaryDeployment = "envoy-gateway"
 
 var envoyGatewayImagePrefixes = []string{"/envoyproxy/gateway", "/envoy-gateway"}
 
-// NewKubernetesServiceWithClient builds a KubernetesService that returns the given
+// NewWithClient builds a Client that returns the given
 // dynamic.Interface from getClientFor regardless of projectID. Intended for tests.
-func NewKubernetesServiceWithClient(client dynamic.Interface) *KubernetesService {
-	return &KubernetesService{testClient: client}
+func NewWithClient(client dynamic.Interface) *Client {
+	return &Client{testClient: client}
 }
 
 // DetectVersions probes the project's cluster for the installed Envoy Gateway operator
 // version and Gateway API version. It returns a populated RawVersions even on partial
 // failures — error is only non-nil for unexpected programming errors. Per-probe failures
 // land in Errors and leave the corresponding *Version field empty.
-func (s *KubernetesService) DetectVersions(ctx context.Context, projectID uuid.UUID) (*RawVersions, error) {
+func (s *Client) DetectVersions(ctx context.Context, projectID uuid.UUID) (*RawVersions, error) {
 	ctx, cancel := context.WithTimeout(ctx, detectionTimeout)
 	defer cancel()
 
@@ -132,7 +132,7 @@ func (s *KubernetesService) DetectVersions(ctx context.Context, projectID uuid.U
 	return out, nil
 }
 
-func (s *KubernetesService) getClientFor(projectID uuid.UUID) (dynamic.Interface, error) {
+func (s *Client) getClientFor(projectID uuid.UUID) (dynamic.Interface, error) {
 	if s.testClient != nil {
 		return s.testClient, nil
 	}

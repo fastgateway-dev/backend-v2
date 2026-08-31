@@ -9,6 +9,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -77,8 +78,8 @@ func TestGeneralModeAPIKeyDenied(t *testing.T) {
 			// programmed yet". See the package doc comment and rewriteTo.
 			URLRewrite: rewriteTo("/"),
 		},
-		SecurityPolicy: &services.SecurityPolicyInput{
-			APIKeyAuth: &services.APIKeyAuthInput{SecretName: apiKeyAuthSecretName, HeaderName: "x-api-key"},
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			APIKeyAuth: &routeplan.APIKeyAuthInput{SecretName: apiKeyAuthSecretName, HeaderName: "x-api-key"},
 		},
 	}
 

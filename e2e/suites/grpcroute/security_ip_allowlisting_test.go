@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc/codes"
-
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"google.golang.org/grpc/codes"
 )
 
 // TestGRPCIPAllowlisting ports grpc_security/test_ip_allowlisting.py.
@@ -41,8 +41,8 @@ func TestGRPCIPAllowlisting(t *testing.T) {
 				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: podinfoService, Port: podinfoGRPCPort, Weight: 100},
 			},
 		},
-		SecurityPolicy: &services.SecurityPolicyInput{
-			Authorization: &services.AuthorizationInput{AllowedCIDRs: []string{"192.0.2.0/24"}},
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			Authorization: &routeplan.AuthorizationInput{AllowedCIDRs: []string{"192.0.2.0/24"}},
 		},
 	}
 
@@ -59,8 +59,8 @@ func TestGRPCIPAllowlisting(t *testing.T) {
 				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: podinfoService, Port: podinfoGRPCPort, Weight: 100},
 			},
 		},
-		SecurityPolicy: &services.SecurityPolicyInput{
-			Authorization: &services.AuthorizationInput{AllowedCIDRs: []string{"0.0.0.0/0"}},
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			Authorization: &routeplan.AuthorizationInput{AllowedCIDRs: []string{"0.0.0.0/0"}},
 		},
 	}
 

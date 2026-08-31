@@ -10,6 +10,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -42,7 +43,7 @@ func TestRetry(t *testing.T) {
 			},
 			URLRewrite: rewriteTo("/status/503"),
 		},
-		BackendTrafficPolicy: &services.BackendTrafficPolicyInput{
+		BackendTrafficPolicy: &routeplan.BackendTrafficPolicyInput{
 			Retry: &models.RetryConfig{
 				NumRetries: &numRetries,
 				RetryOn: &models.RetryOn{

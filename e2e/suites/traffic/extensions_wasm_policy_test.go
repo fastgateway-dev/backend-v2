@@ -9,7 +9,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 )
 
 // TestExtensionsWasm ports extensions/test_wasm.py, replacing the
@@ -32,7 +32,7 @@ func TestExtensionsWasm(t *testing.T) {
 	t.Parallel()
 
 	_, path, cfg := backendRouteConfig(t)
-	cfg.ExtensionPolicy = &services.EnvoyExtensionPolicyInput{
+	cfg.ExtensionPolicy = &routeplan.EnvoyExtensionPolicyInput{
 		Wasm: &models.WasmExtensionConfig{
 			Name:   "wasm-filter",
 			RootID: "my_root_id",

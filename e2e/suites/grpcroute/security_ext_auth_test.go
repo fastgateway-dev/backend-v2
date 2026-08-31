@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc/codes"
-
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/e2e/testdata/pb/echo"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"google.golang.org/grpc/codes"
 )
 
 // TestGRPCExtAuth ports grpc_security/test_ext_auth.py.
@@ -54,7 +54,7 @@ func TestGRPCExtAuth(t *testing.T) {
 				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: podinfoService, Port: podinfoGRPCPort, Weight: 100},
 			},
 		},
-		SecurityPolicy: &services.SecurityPolicyInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
 			ExtAuth: &models.ExtAuthConfig{
 				Type: "grpc",
 				GRPC: &models.ExtAuthGRPCConfig{

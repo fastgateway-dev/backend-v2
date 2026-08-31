@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/fastgateway-dev/backend-v2/internal/cluster"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
@@ -319,10 +320,10 @@ func TestProjectNamespaceService_Create_BackendOnlySetsServiceKindOnly(t *testin
 	mockDomainRepo.On("ListByProjectID", projectID, 1, 10000, "", "", map[string]string(nil)).
 		Return([]models.Domain{}, int64(0), nil)
 
-	var capturedConfig *services.ReferenceGrantConfig
-	mockK8s.On("CreateReferenceGrant", mock.Anything, projectID, mock.AnythingOfType("*services.ReferenceGrantConfig")).
+	var capturedConfig *cluster.ReferenceGrantConfig
+	mockK8s.On("CreateReferenceGrant", mock.Anything, projectID, mock.AnythingOfType("*cluster.ReferenceGrantConfig")).
 		Run(func(args mock.Arguments) {
-			capturedConfig = args.Get(2).(*services.ReferenceGrantConfig)
+			capturedConfig = args.Get(2).(*cluster.ReferenceGrantConfig)
 		}).Return(nil)
 	mockNSRepo.On("Update", mock.AnythingOfType("*models.ProjectNamespace")).Return(nil)
 
@@ -346,10 +347,10 @@ func TestProjectNamespaceService_Create_BothCapsSetsBothKinds(t *testing.T) {
 	mockDomainRepo.On("ListByProjectID", projectID, 1, 10000, "", "", map[string]string(nil)).
 		Return([]models.Domain{}, int64(0), nil)
 
-	var capturedConfig *services.ReferenceGrantConfig
-	mockK8s.On("CreateReferenceGrant", mock.Anything, projectID, mock.AnythingOfType("*services.ReferenceGrantConfig")).
+	var capturedConfig *cluster.ReferenceGrantConfig
+	mockK8s.On("CreateReferenceGrant", mock.Anything, projectID, mock.AnythingOfType("*cluster.ReferenceGrantConfig")).
 		Run(func(args mock.Arguments) {
-			capturedConfig = args.Get(2).(*services.ReferenceGrantConfig)
+			capturedConfig = args.Get(2).(*cluster.ReferenceGrantConfig)
 		}).Return(nil)
 	mockNSRepo.On("Update", mock.AnythingOfType("*models.ProjectNamespace")).Return(nil)
 
@@ -398,10 +399,10 @@ func TestProjectNamespaceService_Update_RecreatesRGForNewKinds(t *testing.T) {
 	mockDomainRepo.On("ListByProjectID", projectID, 1, 10000, "", "", map[string]string(nil)).
 		Return([]models.Domain{}, int64(0), nil)
 
-	var capturedConfig *services.ReferenceGrantConfig
-	mockK8s.On("RecreateReferenceGrant", mock.Anything, projectID, mock.AnythingOfType("*services.ReferenceGrantConfig")).
+	var capturedConfig *cluster.ReferenceGrantConfig
+	mockK8s.On("RecreateReferenceGrant", mock.Anything, projectID, mock.AnythingOfType("*cluster.ReferenceGrantConfig")).
 		Run(func(args mock.Arguments) {
-			capturedConfig = args.Get(2).(*services.ReferenceGrantConfig)
+			capturedConfig = args.Get(2).(*cluster.ReferenceGrantConfig)
 		}).Return(nil)
 	mockNSRepo.On("Update", mock.AnythingOfType("*models.ProjectNamespace")).Return(nil)
 
@@ -447,10 +448,10 @@ func TestProjectNamespaceService_Update_AddsCapsWhenNoPriorRG(t *testing.T) {
 	mockDomainRepo.On("ListByProjectID", projectID, 1, 10000, "", "", map[string]string(nil)).
 		Return([]models.Domain{}, int64(0), nil)
 
-	var capturedConfig *services.ReferenceGrantConfig
-	mockK8s.On("RecreateReferenceGrant", mock.Anything, projectID, mock.AnythingOfType("*services.ReferenceGrantConfig")).
+	var capturedConfig *cluster.ReferenceGrantConfig
+	mockK8s.On("RecreateReferenceGrant", mock.Anything, projectID, mock.AnythingOfType("*cluster.ReferenceGrantConfig")).
 		Run(func(args mock.Arguments) {
-			capturedConfig = args.Get(2).(*services.ReferenceGrantConfig)
+			capturedConfig = args.Get(2).(*cluster.ReferenceGrantConfig)
 		}).Return(nil)
 	mockNSRepo.On("Update", mock.AnythingOfType("*models.ProjectNamespace")).Return(nil)
 
