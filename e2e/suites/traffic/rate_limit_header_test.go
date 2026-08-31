@@ -9,7 +9,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 )
 
 // TestRateLimitHeaderBased ports rate_limiting/test_header_based.py:
@@ -20,7 +20,7 @@ func TestRateLimitHeaderBased(t *testing.T) {
 	t.Parallel()
 
 	_, path, cfg := backendRouteConfig(t)
-	cfg.BackendTrafficPolicy = &services.BackendTrafficPolicyInput{
+	cfg.BackendTrafficPolicy = &routeplan.BackendTrafficPolicyInput{
 		RateLimit: &models.RateLimitConfig{
 			Global: &models.GlobalRateLimitConfig{
 				Rules: []models.RateLimitRule{{

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
@@ -435,7 +436,7 @@ func TestDomainService_UpdateDomainSettings_MTLSEnabledWithCAs_UpdatesCTPWithCAR
 
 	// applyEnvoyGatewayClientTrafficPolicy calls CreateClientTrafficPolicy
 	k8sMock.On("CreateClientTrafficPolicy", mock.Anything, projectID,
-		mock.MatchedBy(func(config *services.ClientTrafficPolicyConfig) bool {
+		mock.MatchedBy(func(config *kubernetes.ClientTrafficPolicyConfig) bool {
 			if config.ClientValidation == nil {
 				return false
 			}

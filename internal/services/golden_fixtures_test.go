@@ -138,7 +138,7 @@ func goldenFixtures() []manifestFixture {
 	})
 
 	// 5. Direct response WITH multiple matches. HTTPRouteFilterName is set
-	//    once at the HTTPRouteConfig level, but BuildHTTPRouteObject emits the
+	//    once at the kubernetes.HTTPRouteConfig level, but BuildHTTPRouteObject emits the
 	//    extensionRef filter PER RULE (it builds filters inside the
 	//    `for _, rule := range config.Rules` loop). A multi-match
 	//    direct-response route therefore fans the same extensionRef filter out

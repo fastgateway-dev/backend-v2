@@ -4,7 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -45,26 +47,26 @@ func fixtureBackendTrafficPolicy() *models.BackendTrafficPolicy {
 
 func TestGoldenSecurityPolicyFromDB(t *testing.T) {
 	route, domain := fixtureRoute("secpol"), fixtureDomain()
-	cfg := securityPolicyConfigFromDB(route, domain, fixtureSecurityPolicy())
+	cfg := routeplan.SecurityPolicyConfigFromDB(route, domain, fixtureSecurityPolicy())
 	assertGolden(t, filepath.Join("securitypolicy-fromdb", "cors"), cfg)
 }
 
 // --- SecurityPolicy: broaden coverage beyond CORS (Authorization, APIKeyAuth,
 // JWT, ExtAuth), and a genuine cross-path differential ---
 //
-// Of the four SecurityPolicyConfig construction sites named in review:
-//   - route_service.go ~2397, inline inside deploySecurityPolicy: NOT reachable
+// Of the four kubernetes.SecurityPolicyConfig construction sites named in review:
+//   - inline inside deploySecurityPolicy (route_deploy.go:290): NOT reachable
 //     as a pure function. It reads s.securityPolicyRepo (DB), and calls
 //     s.buildClientIPAuthorizationConfig/s.countClientAttachments/
 //     s.hasAPIKeyClientAttachments/etc, all of which need a live repository.
-//     Confirmed by reading route_service.go:2315-2334. No fixture added for it.
-//   - securityPolicyConfigFromDB (route_service.go:3699 area): pure, reachable,
+//     Confirmed by reading route_deploy.go:290-316. No fixture added for it.
+//   - routeplan.SecurityPolicyConfigFromDB (internal/routeplan/securitypolicy.go:151): pure, reachable,
 //     covered below across 5 families (cors already existed; +4 here).
-//   - generateSecurityPolicyYAML (route_service.go:5344 area): pure, reachable,
-//     takes a *SecurityPolicyInput instead of a persisted *models.SecurityPolicy
+//   - routeplan.GenerateSecurityPolicyYAML (internal/routeplan/securitypolicy.go:166): pure, reachable,
+//     takes a *routeplan.SecurityPolicyInput instead of a persisted *models.SecurityPolicy
 //     -- an independently written implementation of the same field mapping.
 //     This is the genuine second path compared below.
-//   - buildAPIKeySecurityPolicyConfig (route_service.go:6839 area): pure (its
+//   - buildAPIKeySecurityPolicyConfig (internal/services/route_clients_apikey.go:503): pure (its
 //     one k8sService call, GetAPIKeySecretName, does not dereference the
 //     receiver and is safe on a zero-value RouteService{}). Covered below with
 //     its own golden; it targets a different manifest (a per-client route) so
@@ -100,7 +102,7 @@ func fixtureSecurityPolicyAPIKeyAuth() *models.SecurityPolicy {
 		ProjectID: uuid.MustParse("33333333-3333-3333-3333-333333333333"),
 		Config: models.SecurityPolicyConfig{
 			APIKeyAuth: &models.APIKeyAuthConfig{
-				CredentialRefs: []models.SecretRef{{Name: "route-api-key", Namespace: FastGatewayNamespace}},
+				CredentialRefs: []models.SecretRef{{Name: "route-api-key", Namespace: kubernetes.FastGatewayNamespace}},
 				ExtractFrom:    []models.APIKeyExtractFrom{{Headers: []string{"x-api-key"}}},
 			},
 		},
@@ -146,14 +148,14 @@ func fixtureSecurityPolicyExtAuth() *models.SecurityPolicy {
 }
 
 // fixtureSecurityPolicyInputFor mirrors each fixtureSecurityPolicy* family as
-// a *SecurityPolicyInput -- the shape generateSecurityPolicyYAML consumes.
+// a *routeplan.SecurityPolicyInput -- the shape routeplan.GenerateSecurityPolicyYAML consumes.
 // Field values are chosen to be the semantic equivalent of the DB fixture of
 // the same name so the differential test below is a meaningful comparison,
 // not just two empty configs agreeing on nothing.
-func fixtureSecurityPolicyInputFor(name string) *SecurityPolicyInput {
+func fixtureSecurityPolicyInputFor(name string) *routeplan.SecurityPolicyInput {
 	switch name {
 	case "cors":
-		return &SecurityPolicyInput{
+		return &routeplan.SecurityPolicyInput{
 			CORS: &models.CORSConfig{
 				AllowOrigins: []string{"https://app.example.com"},
 				AllowMethods: []string{"GET", "POST"},
@@ -161,23 +163,23 @@ func fixtureSecurityPolicyInputFor(name string) *SecurityPolicyInput {
 			},
 		}
 	case "authorization":
-		return &SecurityPolicyInput{
-			Authorization: &AuthorizationInput{
+		return &routeplan.SecurityPolicyInput{
+			Authorization: &routeplan.AuthorizationInput{
 				AllowedCIDRs: []string{"10.0.0.0/24"},
 				Headers:      []models.AuthorizationHeaderMatch{{Name: "x-tenant", Values: []string{"acme"}}},
 				Methods:      []string{"GET", "POST"},
 			},
 		}
 	case "apikeyauth":
-		return &SecurityPolicyInput{
-			APIKeyAuth: &APIKeyAuthInput{
+		return &routeplan.SecurityPolicyInput{
+			APIKeyAuth: &routeplan.APIKeyAuthInput{
 				SecretName: "route-api-key",
 				HeaderName: "x-api-key",
 			},
 		}
 	case "jwt":
-		return &SecurityPolicyInput{
-			JWT: &JWTInput{
+		return &routeplan.SecurityPolicyInput{
+			JWT: &routeplan.JWTInput{
 				Issuer:         "https://issuer.example.com",
 				JWKSURL:        "https://issuer.example.com/jwks",
 				Audiences:      []string{"api"},
@@ -185,7 +187,7 @@ func fixtureSecurityPolicyInputFor(name string) *SecurityPolicyInput {
 			},
 		}
 	case "extauth":
-		return &SecurityPolicyInput{
+		return &routeplan.SecurityPolicyInput{
 			ExtAuth: &models.ExtAuthConfig{
 				Type: "http",
 				HTTP: &models.ExtAuthHTTPConfig{
@@ -222,28 +224,28 @@ func TestGoldenSecurityPolicyFromDBFamilies(t *testing.T) {
 			continue // already covered by TestGoldenSecurityPolicyFromDB
 		}
 		t.Run(f.Name, func(t *testing.T) {
-			cfg := securityPolicyConfigFromDB(route, domain, f.Policy)
+			cfg := routeplan.SecurityPolicyConfigFromDB(route, domain, f.Policy)
 			assertGolden(t, filepath.Join("securitypolicy-fromdb", f.Name), cfg)
 		})
 	}
 }
 
 // securityPolicyFromDBYAML renders the fromDB path to YAML using the same
-// BuildSecurityPolicy + marshal steps generateSecurityPolicyYAMLFromDB uses
-// (that function itself just wraps securityPolicyConfigFromDB, so calling it
-// directly here would be circular). generateSecurityPolicyYAMLFromDB does
-// nothing beyond securityPolicyConfigFromDB + BuildSecurityPolicy + marshal --
-// see the note on generateSecurityPolicyYAMLFromDB itself
+// BuildSecurityPolicy + marshal steps routeplan.GenerateSecurityPolicyYAMLFromDB uses
+// (that function itself just wraps routeplan.SecurityPolicyConfigFromDB, so calling it
+// directly here would be circular). routeplan.GenerateSecurityPolicyYAMLFromDB does
+// nothing beyond routeplan.SecurityPolicyConfigFromDB + BuildSecurityPolicy + marshal --
+// see the note on routeplan.GenerateSecurityPolicyYAMLFromDB itself
 // (internal/routeplan/securitypolicy.go) explaining that ExtAuthBackendName
 // is deliberately left unset on every route-level path, so this helper sets
 // nothing extra and just reproduces those three steps.
 func securityPolicyFromDBYAML(t *testing.T, route *models.Route, domain *models.Domain, policy *models.SecurityPolicy) string {
 	t.Helper()
-	config := securityPolicyConfigFromDB(route, domain, policy)
+	config := routeplan.SecurityPolicyConfigFromDB(route, domain, policy)
 	if config == nil {
 		return ""
 	}
-	obj := BuildSecurityPolicy(config)
+	obj := kubernetes.BuildSecurityPolicy(config)
 	if obj == nil {
 		return ""
 	}
@@ -252,18 +254,18 @@ func securityPolicyFromDBYAML(t *testing.T, route *models.Route, domain *models.
 	return string(b)
 }
 
-func securityPolicyInputYAML(t *testing.T, route *models.Route, domain *models.Domain, input *SecurityPolicyInput) string {
+func securityPolicyInputYAML(t *testing.T, route *models.Route, domain *models.Domain, input *routeplan.SecurityPolicyInput) string {
 	t.Helper()
-	return generateSecurityPolicyYAML(route, domain, input, nil)
+	return routeplan.GenerateSecurityPolicyYAML(route, domain, input, nil)
 }
 
 // TestDifferentialSecurityPolicy compares the persisted-policy path
-// (securityPolicyConfigFromDB, used by both deployGeneralSecurityPolicy and
-// generateSecurityPolicyYAMLFromDB) against the pre-persistence input-based
-// path (generateSecurityPolicyYAML, used for approval/preview diffs before a
+// (routeplan.SecurityPolicyConfigFromDB, used by both deployGeneralSecurityPolicy and
+// routeplan.GenerateSecurityPolicyYAMLFromDB) against the pre-persistence input-based
+// path (routeplan.GenerateSecurityPolicyYAML, used for approval/preview diffs before a
 // SecurityPolicy row exists). Both gather their fixture data differently --
 // one from a persisted *models.SecurityPolicy row, the other from a
-// submitted SecurityPolicyInput -- but funnel it through the single shared
+// submitted routeplan.SecurityPolicyInput -- but funnel it through the single shared
 // AssembleSecurityPolicyConfig assembler (internal/routeplan/securitypolicy.go).
 // The field mapping itself is no longer duplicated, so this test's remaining
 // job is narrower than its name suggests: it guards against the two gather
@@ -292,21 +294,21 @@ func TestDifferentialSecurityPolicy(t *testing.T) {
 //
 // Its EnableAPIKey branch is NOT reachable as a pure function: it calls
 // s.k8sService.GetAPIKeySecretName(...), and k8sService is declared as the
-// KubernetesServiceInterface *interface* type (route_service.go:68), not a
-// concrete *KubernetesService. On a zero-value RouteService{} that field is a
+// KubernetesServiceInterface *interface* type (route_service.go:26), not a
+// concrete *cluster.Client. On a zero-value RouteService{} that field is a
 // nil interface, and calling a method through a nil interface panics --
 // unlike a nil concrete pointer receiver, there is no method table to
-// dispatch through. Confirmed by running it: panics at route_service.go:6868
+// dispatch through. Confirmed by running it: panics at route_clients_apikey.go:518
 // with "invalid memory address or nil pointer dereference". A fixture
 // exercising EnableAPIKey would need a hand-written stub implementing the
 // full KubernetesServiceInterface, which is out of scope here.
 //
 // The JWT branch below does not touch s.k8sService at all (verified by
-// reading route_service.go:6875-6990: no further use of the receiver once
+// reading route_clients_apikey.go:520-530: no further use of the receiver once
 // past the EnableAPIKey block), so it is reachable and gives real coverage
 // of the JWT-with-required-claims + IP-combination logic in this site.
-func fixtureJWTClientAuthCategory() ClientAuthCategory {
-	return ClientAuthCategory{
+func fixtureJWTClientAuthCategory() routeplan.ClientAuthCategory {
+	return routeplan.ClientAuthCategory{
 		ClientID:     uuid.MustParse("88888888-8888-8888-8888-888888888888"),
 		ClientName:   "acme-client",
 		EnableJWT:    true,
@@ -329,7 +331,7 @@ func TestGoldenSecurityPolicyAPIKeyClient(t *testing.T) {
 
 func TestGoldenBackendTrafficPolicyDeploy(t *testing.T) {
 	route, domain := fixtureRoute("btp"), fixtureDomain()
-	cfg := buildBackendTrafficPolicyConfig(route, domain, fixtureBackendTrafficPolicy())
+	cfg := routeplan.BuildBackendTrafficPolicyConfig(route, domain, fixtureBackendTrafficPolicy())
 	assertGolden(t, filepath.Join("backendtrafficpolicy-deploy", "timeout"), cfg)
 }
 
@@ -347,11 +349,11 @@ func TestGoldenBackendTrafficPolicyDeploy(t *testing.T) {
 // justified deleting one of the two bodies rather than keeping both.
 func deployBackendTrafficPolicyYAML(t *testing.T, route *models.Route, domain *models.Domain, policy *models.BackendTrafficPolicy) string {
 	t.Helper()
-	config := buildBackendTrafficPolicyConfig(route, domain, policy)
+	config := routeplan.BuildBackendTrafficPolicyConfig(route, domain, policy)
 	if config == nil {
 		return ""
 	}
-	obj := BuildBackendTrafficPolicy(config)
+	obj := kubernetes.BuildBackendTrafficPolicy(config)
 	if obj == nil {
 		return ""
 	}
@@ -370,7 +372,7 @@ func TestDifferentialBackendTrafficPolicy(t *testing.T) {
 	route, domain, policy := fixtureRoute("btp"), fixtureDomain(), fixtureBackendTrafficPolicy()
 
 	deployYAML := deployBackendTrafficPolicyYAML(t, route, domain, policy)
-	previewYAML := generateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
+	previewYAML := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, previewYAML, "preview YAML must not be empty for a policy with a timeout")
 	assertGolden(t, filepath.Join("backendtrafficpolicy-preview", "timeout"), previewYAML)
@@ -532,7 +534,7 @@ func TestGoldenBackendTrafficPolicyFamiliesDeploy(t *testing.T) {
 	route, domain := fixtureRoute("btp"), fixtureDomain()
 	for _, f := range btpFamilyFixtures() {
 		t.Run(f.Name, func(t *testing.T) {
-			cfg := buildBackendTrafficPolicyConfig(route, domain, f.Policy)
+			cfg := routeplan.BuildBackendTrafficPolicyConfig(route, domain, f.Policy)
 			assertGolden(t, filepath.Join("backendtrafficpolicy-deploy", f.Name), cfg)
 		})
 	}
@@ -543,7 +545,7 @@ func TestDifferentialBackendTrafficPolicyFamilies(t *testing.T) {
 	for _, f := range btpFamilyFixtures() {
 		t.Run(f.Name, func(t *testing.T) {
 			deployYAML := deployBackendTrafficPolicyYAML(t, route, domain, f.Policy)
-			previewYAML := generateBackendTrafficPolicyYAMLFromDB(route, domain, f.Policy)
+			previewYAML := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, f.Policy)
 
 			require.NotEmpty(t, previewYAML, "preview YAML must not be empty for fixture %q", f.Name)
 			assertGolden(t, filepath.Join("backendtrafficpolicy-preview", f.Name), previewYAML)
@@ -554,13 +556,13 @@ func TestDifferentialBackendTrafficPolicyFamilies(t *testing.T) {
 }
 
 // TestGoldenBackendTrafficPolicyInputFamilies closes a coverage gap:
-// generateBackendTrafficPolicyYAML (the pre-persist,
-// BackendTrafficPolicyInput-based path -- F2) previously had no golden
+// routeplan.GenerateBackendTrafficPolicyYAML (the pre-persist,
+// routeplan.BackendTrafficPolicyInput-based path -- F2) previously had no golden
 // coverage at all, only assert.Contains substring checks in
 // route_service_yaml_internal_test.go, and RequestBuffer was untested even
 // there. This exercises F2 directly (via the same
-// mapBackendTrafficPolicyConfigToInput adapter the real approval/preview
-// flow uses to turn a persisted policy into a BackendTrafficPolicyInput) and
+// routeplan.MapBackendTrafficPolicyConfigToInput adapter the real approval/preview
+// flow uses to turn a persisted policy into a routeplan.BackendTrafficPolicyInput) and
 // checks it against the same golden files backendtrafficpolicy-preview (F3)
 // already asserts -- F1, F2 and F3 must all agree on identical input.
 func TestGoldenBackendTrafficPolicyInputFamilies(t *testing.T) {
@@ -572,9 +574,9 @@ func TestGoldenBackendTrafficPolicyInputFamilies(t *testing.T) {
 
 	for _, f := range all {
 		t.Run(f.Name, func(t *testing.T) {
-			input := mapBackendTrafficPolicyConfigToInput(&f.Policy.Config)
-			inputYAML := generateBackendTrafficPolicyYAML(route, domain, input)
-			previewYAML := generateBackendTrafficPolicyYAMLFromDB(route, domain, f.Policy)
+			input := routeplan.MapBackendTrafficPolicyConfigToInput(&f.Policy.Config)
+			inputYAML := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, input)
+			previewYAML := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, f.Policy)
 
 			require.NotEmpty(t, inputYAML, "input-path YAML must not be empty for fixture %q", f.Name)
 			assertGolden(t, filepath.Join("backendtrafficpolicy-preview", f.Name), inputYAML)
@@ -674,7 +676,7 @@ func deployEnvoyExtensionPolicyYAML(t *testing.T, route *models.Route, domain *m
 	if config == nil {
 		return ""
 	}
-	obj := BuildEnvoyExtensionPolicy(config)
+	obj := kubernetes.BuildEnvoyExtensionPolicy(config)
 	if obj == nil {
 		return ""
 	}
@@ -702,7 +704,7 @@ func TestDifferentialEnvoyExtensionPolicy(t *testing.T) {
 	for _, f := range envoyExtensionPolicyFamilyFixtures() {
 		t.Run(f.Name, func(t *testing.T) {
 			deployYAML := deployEnvoyExtensionPolicyYAML(t, route, domain, f.Policy, f.WafPolicy)
-			snapshotYAML := generateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, f.Policy, f.WafPolicy, WAFConfig{})
+			snapshotYAML := routeplan.GenerateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, f.Policy, f.WafPolicy, routeplan.WAFConfig{})
 
 			require.Equalf(t, deployYAML, snapshotYAML,
 				"deploy and snapshot EnvoyExtensionPolicy assembly disagree for %q", f.Name)

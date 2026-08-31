@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/fastgateway-dev/backend-v2/internal/cluster"
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/google/uuid"
@@ -35,11 +37,11 @@ func (s *ProjectNamespaceService) getDomainNamespaces(projectID uuid.UUID) []str
 	domains, _, err := s.domainRepo.ListByProjectID(projectID, 1, 10000, "", "", nil)
 	if err != nil {
 		log.Printf("Failed to list domains for ReferenceGrant sync: %v", err)
-		return []string{FastGatewayNamespace}
+		return []string{kubernetes.FastGatewayNamespace}
 	}
 
-	seen := map[string]bool{FastGatewayNamespace: true}
-	namespaces := []string{FastGatewayNamespace}
+	seen := map[string]bool{kubernetes.FastGatewayNamespace: true}
+	namespaces := []string{kubernetes.FastGatewayNamespace}
 	for _, d := range domains {
 		if !seen[d.Namespace] {
 			namespaces = append(namespaces, d.Namespace)
@@ -146,7 +148,7 @@ func (s *ProjectNamespaceService) Create(projectID uuid.UUID, input *CreateProje
 	// Create ReferenceGrant only if the namespace can be referenced into.
 	toKinds := models.ReferenceGrantKindsForCapabilities(caps)
 	if len(toKinds) > 0 {
-		rgConfig := &ReferenceGrantConfig{
+		rgConfig := &cluster.ReferenceGrantConfig{
 			Name:           generateReferenceGrantName(projectID, input.Namespace),
 			FromNamespaces: s.getDomainNamespaces(projectID),
 			ToNamespace:    input.Namespace,
@@ -192,7 +194,7 @@ func (s *ProjectNamespaceService) Update(id uuid.UUID, input *UpdateProjectNames
 			ns.ReferenceGrantCreated = false
 		}
 	} else {
-		rgConfig := &ReferenceGrantConfig{
+		rgConfig := &cluster.ReferenceGrantConfig{
 			Name:           rgName,
 			FromNamespaces: s.getDomainNamespaces(ns.ProjectID),
 			ToNamespace:    ns.Namespace,
@@ -255,7 +257,7 @@ func (s *ProjectNamespaceService) Delete(id uuid.UUID) error {
 // IsNamespaceManaged checks if a namespace is managed by a project
 func (s *ProjectNamespaceService) IsNamespaceManaged(projectID uuid.UUID, namespace string) (bool, error) {
 	// The gateway namespace (fastgateway-system) is always implicitly managed
-	if namespace == FastGatewayNamespace || namespace == "" {
+	if namespace == kubernetes.FastGatewayNamespace || namespace == "" {
 		return true, nil
 	}
 	return s.nsRepo.ExistsByProjectAndNamespace(projectID, namespace)
@@ -296,7 +298,7 @@ func (s *ProjectNamespaceService) EnsureReferenceGrant(id uuid.UUID) error {
 		return nil
 	}
 
-	rgConfig := &ReferenceGrantConfig{
+	rgConfig := &cluster.ReferenceGrantConfig{
 		Name:           rgName,
 		FromNamespaces: s.getDomainNamespaces(ns.ProjectID),
 		ToNamespace:    ns.Namespace,

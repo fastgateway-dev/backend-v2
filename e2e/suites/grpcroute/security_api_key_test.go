@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc/codes"
-
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/e2e/testdata/pb/echo"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"google.golang.org/grpc/codes"
 )
 
 const (
@@ -72,8 +72,8 @@ func TestGRPCAPIKeyDenied(t *testing.T) {
 				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: podinfoService, Port: podinfoGRPCPort, Weight: 100},
 			},
 		},
-		SecurityPolicy: &services.SecurityPolicyInput{
-			APIKeyAuth: &services.APIKeyAuthInput{SecretName: apiKeyAuthSecretName, HeaderName: "x-api-key"},
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			APIKeyAuth: &routeplan.APIKeyAuthInput{SecretName: apiKeyAuthSecretName, HeaderName: "x-api-key"},
 		},
 	}
 

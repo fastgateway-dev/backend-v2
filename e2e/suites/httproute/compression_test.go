@@ -8,6 +8,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -32,7 +33,7 @@ func TestCompression(t *testing.T) {
 			// this the client's unique path would 404 on nginx.
 			URLRewrite: rewriteTo("/"),
 		},
-		BackendTrafficPolicy: &services.BackendTrafficPolicyInput{
+		BackendTrafficPolicy: &routeplan.BackendTrafficPolicyInput{
 			Compression: []models.CompressionConfig{
 				{Type: models.CompressionTypeGzip},
 				{Type: models.CompressionTypeBrotli},

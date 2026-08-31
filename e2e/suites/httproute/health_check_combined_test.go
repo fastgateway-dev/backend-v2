@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // TestHealthCheckCombined ports test_health_check_combined.py (active +
@@ -47,7 +47,7 @@ func TestHealthCheckCombined(t *testing.T) {
 			},
 			URLRewrite: rewriteTo("/"),
 		},
-		BackendTrafficPolicy: &services.BackendTrafficPolicyInput{
+		BackendTrafficPolicy: &routeplan.BackendTrafficPolicyInput{
 			HealthCheck: &models.HealthCheckConfig{
 				Active: &models.ActiveHealthCheckConfig{
 					Type:               "HTTP",

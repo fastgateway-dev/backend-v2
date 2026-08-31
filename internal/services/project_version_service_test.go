@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fastgateway-dev/backend-v2/internal/cluster"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/google/uuid"
@@ -22,7 +23,7 @@ func newPVS(k8s *mocks.MockKubernetesService, now func() time.Time) *services.Pr
 func TestProjectVersionService_CacheMiss(t *testing.T) {
 	k8s := new(mocks.MockKubernetesService)
 	pid := uuid.New()
-	k8s.On("DetectVersions", mock.Anything, pid).Return(&services.RawVersions{
+	k8s.On("DetectVersions", mock.Anything, pid).Return(&cluster.RawVersions{
 		EGVersion: "1.7.0", EGImage: "envoyproxy/gateway:v1.7.0", EGSource: "deployment/envoy-gateway",
 		GWVersion: "1.4.1", GWSource: "crd/gateways.gateway.networking.k8s.io",
 	}, nil).Once()
@@ -41,7 +42,7 @@ func TestProjectVersionService_CacheMiss(t *testing.T) {
 func TestProjectVersionService_CacheHit(t *testing.T) {
 	k8s := new(mocks.MockKubernetesService)
 	pid := uuid.New()
-	k8s.On("DetectVersions", mock.Anything, pid).Return(&services.RawVersions{
+	k8s.On("DetectVersions", mock.Anything, pid).Return(&cluster.RawVersions{
 		EGVersion: "1.7.0", GWVersion: "1.4.1",
 	}, nil).Once()
 
@@ -56,7 +57,7 @@ func TestProjectVersionService_CacheHit(t *testing.T) {
 func TestProjectVersionService_CacheExpiry(t *testing.T) {
 	k8s := new(mocks.MockKubernetesService)
 	pid := uuid.New()
-	k8s.On("DetectVersions", mock.Anything, pid).Return(&services.RawVersions{
+	k8s.On("DetectVersions", mock.Anything, pid).Return(&cluster.RawVersions{
 		EGVersion: "1.7.0", GWVersion: "1.4.1",
 	}, nil).Twice()
 
@@ -72,7 +73,7 @@ func TestProjectVersionService_CacheExpiry(t *testing.T) {
 func TestProjectVersionService_ForceRefresh(t *testing.T) {
 	k8s := new(mocks.MockKubernetesService)
 	pid := uuid.New()
-	k8s.On("DetectVersions", mock.Anything, pid).Return(&services.RawVersions{
+	k8s.On("DetectVersions", mock.Anything, pid).Return(&cluster.RawVersions{
 		EGVersion: "1.7.0", GWVersion: "1.4.1",
 	}, nil).Twice()
 
@@ -87,7 +88,7 @@ func TestProjectVersionService_ForceRefresh(t *testing.T) {
 func TestProjectVersionService_UnknownShortTTL(t *testing.T) {
 	k8s := new(mocks.MockKubernetesService)
 	pid := uuid.New()
-	k8s.On("DetectVersions", mock.Anything, pid).Return(&services.RawVersions{
+	k8s.On("DetectVersions", mock.Anything, pid).Return(&cluster.RawVersions{
 		Errors: []string{"forbidden"},
 	}, nil).Twice()
 
@@ -116,7 +117,7 @@ func TestProjectVersionService_Classification(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			k8s := new(mocks.MockKubernetesService)
 			pid := uuid.New()
-			k8s.On("DetectVersions", mock.Anything, pid).Return(&services.RawVersions{
+			k8s.On("DetectVersions", mock.Anything, pid).Return(&cluster.RawVersions{
 				EGVersion: c.eg, GWVersion: c.gw,
 			}, nil).Once()
 			now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
@@ -131,7 +132,7 @@ func TestProjectVersionService_Classification(t *testing.T) {
 func TestProjectVersionService_Invalidate(t *testing.T) {
 	k8s := new(mocks.MockKubernetesService)
 	pid := uuid.New()
-	k8s.On("DetectVersions", mock.Anything, pid).Return(&services.RawVersions{
+	k8s.On("DetectVersions", mock.Anything, pid).Return(&cluster.RawVersions{
 		EGVersion: "1.7.0", GWVersion: "1.4.1",
 	}, nil).Twice()
 

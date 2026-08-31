@@ -8,6 +8,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -51,7 +52,7 @@ func TestExternalAuthorizationHTTPDefaultHeaders(t *testing.T) {
 				{Type: models.BackendTypeKubernetes, Namespace: backendNamespace, Service: nginxService, Port: nginxPort, Weight: 100},
 			},
 		},
-		SecurityPolicy: &services.SecurityPolicyInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
 			ExtAuth: &models.ExtAuthConfig{
 				Type: "http",
 				HTTP: &models.ExtAuthHTTPConfig{

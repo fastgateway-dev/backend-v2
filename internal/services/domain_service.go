@@ -10,9 +10,11 @@ import (
 	"strings"
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
+	"github.com/fastgateway-dev/backend-v2/internal/cluster"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/google/uuid"
 	"sigs.k8s.io/yaml"
 )
@@ -77,10 +79,6 @@ func NewDomainService(domainRepo repository.DomainRepositoryInterface, projectRe
 	}
 }
 
-// FastGatewayNamespace is the namespace where all Gateway objects are deployed.
-// Alias to the extracted manifest package; callers migrate incrementally.
-const FastGatewayNamespace = kubernetes.FastGatewayNamespace
-
 // CreateDomainInput represents input for creating a domain
 type CreateDomainInput struct {
 	Name               string        `json:"name" binding:"required"`
@@ -102,9 +100,9 @@ type UpdateDomainInput struct {
 
 // ListTLSSecretsResponse is the API response for listing TLS secrets
 type ListTLSSecretsResponse struct {
-	Namespace           string          `json:"namespace"`
-	Secrets             []TLSSecretInfo `json:"secrets"`
-	AvailableNamespaces []string        `json:"availableNamespaces"`
+	Namespace           string                  `json:"namespace"`
+	Secrets             []cluster.TLSSecretInfo `json:"secrets"`
+	AvailableNamespaces []string                `json:"availableNamespaces"`
 }
 
 // Create creates a new domain
@@ -143,7 +141,7 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 	}
 
 	// Validate TLS secret namespace is managed by the project
-	if input.TLSSecretNamespace != "" && input.TLSSecretNamespace != FastGatewayNamespace {
+	if input.TLSSecretNamespace != "" && input.TLSSecretNamespace != kubernetes.FastGatewayNamespace {
 		if s.projectNamespaceRepo != nil {
 			managed, err := s.projectNamespaceRepo.ExistsByProjectAndNamespace(projectID, input.TLSSecretNamespace)
 			if err != nil {
@@ -164,9 +162,9 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 
 	// Default and validate domain namespace
 	if input.Namespace == "" {
-		input.Namespace = FastGatewayNamespace
+		input.Namespace = kubernetes.FastGatewayNamespace
 	}
-	if input.Namespace != FastGatewayNamespace {
+	if input.Namespace != kubernetes.FastGatewayNamespace {
 		if s.projectNamespaceRepo == nil {
 			return nil, errors.New("namespace management not configured")
 		}
@@ -210,7 +208,7 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 
 	// Create Gateway in Kubernetes
 	ctx := context.Background()
-	gatewayConfig := &GatewayConfig{
+	gatewayConfig := &kubernetes.GatewayConfig{
 		Name:               k8sGatewayName,
 		Namespace:          input.Namespace,
 		GatewayClassName:   k8sGatewayClass,
@@ -238,7 +236,7 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 	_ = s.domainRepo.Update(domain)
 
 	// Sync ReferenceGrants if domain is in a non-default namespace
-	if input.Namespace != FastGatewayNamespace {
+	if input.Namespace != kubernetes.FastGatewayNamespace {
 		s.syncReferenceGrants(projectID)
 	}
 
@@ -271,7 +269,7 @@ func (s *DomainService) Update(id uuid.UUID, input *UpdateDomainInput) (*models.
 	}
 
 	if input.TLSSecretNamespace != "" {
-		if input.TLSSecretNamespace != FastGatewayNamespace {
+		if input.TLSSecretNamespace != kubernetes.FastGatewayNamespace {
 			if s.projectNamespaceRepo != nil {
 				managed, err := s.projectNamespaceRepo.ExistsByProjectAndNamespace(domain.ProjectID, input.TLSSecretNamespace)
 				if err != nil {
@@ -323,7 +321,7 @@ func (s *DomainService) Delete(id uuid.UUID) error {
 
 	// Delete domain-level EnvoyExtensionPolicy from K8s and DB
 	eepName := domain.K8sGatewayName + "-eep"
-	extProcBackendName := GenerateExtProcBackendNameForDomain(domain.K8sGatewayName)
+	extProcBackendName := kubernetes.GenerateExtProcBackendNameForDomain(domain.K8sGatewayName)
 	_ = s.k8sService.DeleteBackend(ctx, domain.ProjectID, domain.Namespace, extProcBackendName)
 	if err := s.k8sService.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName); err != nil {
 		log.Printf("Failed to delete domain EnvoyExtensionPolicy from Kubernetes: %v", err)
@@ -359,7 +357,7 @@ func (s *DomainService) Delete(id uuid.UUID) error {
 	}
 
 	// After DB deletion, sync ReferenceGrants to potentially remove this namespace
-	if domainNamespace != FastGatewayNamespace {
+	if domainNamespace != kubernetes.FastGatewayNamespace {
 		s.syncReferenceGrants(projectID)
 	}
 
@@ -374,8 +372,8 @@ func (s *DomainService) getProjectDomainNamespaces(projectID uuid.UUID) ([]strin
 		return nil, fmt.Errorf("failed to list domains for namespace collection: %w", err)
 	}
 
-	seen := map[string]bool{FastGatewayNamespace: true}
-	namespaces := []string{FastGatewayNamespace}
+	seen := map[string]bool{kubernetes.FastGatewayNamespace: true}
+	namespaces := []string{kubernetes.FastGatewayNamespace}
 	for _, d := range domains {
 		if !seen[d.Namespace] {
 			namespaces = append(namespaces, d.Namespace)
@@ -417,7 +415,7 @@ func (s *DomainService) syncReferenceGrants(projectID uuid.UUID) {
 			_ = s.k8sService.DeleteReferenceGrant(ctx, projectID, bns.Namespace, rgName)
 			continue
 		}
-		rgConfig := &ReferenceGrantConfig{
+		rgConfig := &cluster.ReferenceGrantConfig{
 			Name:           rgName,
 			FromNamespaces: domainNamespaces,
 			ToNamespace:    bns.Namespace,
@@ -433,7 +431,7 @@ func (s *DomainService) syncReferenceGrants(projectID uuid.UUID) {
 	// allowing those namespaces to reference secrets there.
 	nonDefaultNamespaces := make([]string, 0)
 	for _, ns := range domainNamespaces {
-		if ns != FastGatewayNamespace {
+		if ns != kubernetes.FastGatewayNamespace {
 			nonDefaultNamespaces = append(nonDefaultNamespaces, ns)
 		}
 	}
@@ -442,10 +440,10 @@ func (s *DomainService) syncReferenceGrants(projectID uuid.UUID) {
 	secretsRGName := fmt.Sprintf("fastgateway-%s-secrets", shortID)
 
 	if len(nonDefaultNamespaces) > 0 {
-		rgConfig := &ReferenceGrantConfig{
+		rgConfig := &cluster.ReferenceGrantConfig{
 			Name:           secretsRGName,
 			FromNamespaces: nonDefaultNamespaces,
-			ToNamespace:    FastGatewayNamespace,
+			ToNamespace:    kubernetes.FastGatewayNamespace,
 			ToKinds:        []string{"Secret"},
 		}
 		if err := s.k8sService.RecreateReferenceGrant(ctx, projectID, rgConfig); err != nil {
@@ -453,7 +451,7 @@ func (s *DomainService) syncReferenceGrants(projectID uuid.UUID) {
 		}
 	} else {
 		// No non-default namespaces, clean up the secrets ReferenceGrant if it exists
-		_ = s.k8sService.DeleteReferenceGrant(ctx, projectID, FastGatewayNamespace, secretsRGName)
+		_ = s.k8sService.DeleteReferenceGrant(ctx, projectID, kubernetes.FastGatewayNamespace, secretsRGName)
 	}
 }
 
@@ -646,13 +644,13 @@ func (s *DomainService) UpdateDomainSettings(domainID uuid.UUID, input *UpdateDo
 }
 
 // buildCTPConfig builds a ClientTrafficPolicyConfig from domain and settings config
-func (s *DomainService) buildCTPConfig(domain *models.Domain, config *models.DomainSettingsConfig, caSecretRefs []SecretRefPolicyConfig) *ClientTrafficPolicyConfig {
+func (s *DomainService) buildCTPConfig(domain *models.Domain, config *models.DomainSettingsConfig, caSecretRefs []kubernetes.SecretRefPolicyConfig) *kubernetes.ClientTrafficPolicyConfig {
 	ctpName := domain.K8sGatewayName + "-ctp"
-	ctpConfig := &ClientTrafficPolicyConfig{
+	ctpConfig := &kubernetes.ClientTrafficPolicyConfig{
 		Name:      ctpName,
 		Namespace: domain.Namespace,
 		GatewayID: domain.ID.String(),
-		TargetRef: ClientTrafficPolicyTargetRef{
+		TargetRef: kubernetes.ClientTrafficPolicyTargetRef{
 			Group: "gateway.networking.k8s.io",
 			Kind:  "Gateway",
 			Name:  domain.K8sGatewayName,
@@ -661,7 +659,7 @@ func (s *DomainService) buildCTPConfig(domain *models.Domain, config *models.Dom
 
 	if config.ClientConnection != nil {
 		if config.ClientConnection.TCPKeepalive != nil {
-			ctpConfig.TCPKeepalive = &TCPKeepalivePolicyConfig{
+			ctpConfig.TCPKeepalive = &kubernetes.TCPKeepalivePolicyConfig{
 				Probes:   config.ClientConnection.TCPKeepalive.Probes,
 				IdleTime: config.ClientConnection.TCPKeepalive.IdleTime,
 				Interval: config.ClientConnection.TCPKeepalive.Interval,
@@ -671,7 +669,7 @@ func (s *DomainService) buildCTPConfig(domain *models.Domain, config *models.Dom
 			ctpConfig.EnableProxyProtocol = true
 		}
 		if config.ClientConnection.ConnectionLimit != nil || config.ClientConnection.BufferLimit != nil {
-			ctpConfig.Connection = &ConnectionPolicyConfig{}
+			ctpConfig.Connection = &kubernetes.ConnectionPolicyConfig{}
 			if config.ClientConnection.BufferLimit != nil {
 				ctpConfig.Connection.BufferLimit = config.ClientConnection.BufferLimit
 			}
@@ -685,8 +683,8 @@ func (s *DomainService) buildCTPConfig(domain *models.Domain, config *models.Dom
 	}
 
 	if config.Timeout != nil && config.Timeout.HTTP != nil {
-		ctpConfig.Timeout = &TimeoutPolicyConfig{
-			HTTP: &HTTPTimeoutPolicyConfig{
+		ctpConfig.Timeout = &kubernetes.TimeoutPolicyConfig{
+			HTTP: &kubernetes.HTTPTimeoutPolicyConfig{
 				RequestReceivedTimeout: config.Timeout.HTTP.RequestReceivedTimeout,
 				IdleTimeout:            config.Timeout.HTTP.IdleTimeout,
 			},
@@ -694,11 +692,11 @@ func (s *DomainService) buildCTPConfig(domain *models.Domain, config *models.Dom
 	}
 
 	if config.HTTP3 != nil && config.HTTP3.Enabled {
-		ctpConfig.HTTP3 = &HTTP3PolicyConfig{Enabled: true}
+		ctpConfig.HTTP3 = &kubernetes.HTTP3PolicyConfig{Enabled: true}
 	}
 
 	if config.TLS != nil && !config.TLS.IsEmpty() {
-		ctpConfig.TLS = &TLSPolicyConfig{
+		ctpConfig.TLS = &kubernetes.TLSPolicyConfig{
 			MinVersion:          config.TLS.MinVersion,
 			MaxVersion:          config.TLS.MaxVersion,
 			Ciphers:             config.TLS.Ciphers,
@@ -708,14 +706,14 @@ func (s *DomainService) buildCTPConfig(domain *models.Domain, config *models.Dom
 	}
 
 	if config.ClientIPDetection != nil {
-		ctpConfig.ClientIPDetection = &ClientIPDetectionPolicyConfig{}
+		ctpConfig.ClientIPDetection = &kubernetes.ClientIPDetectionPolicyConfig{}
 		if config.ClientIPDetection.XForwardedFor != nil {
-			ctpConfig.ClientIPDetection.XForwardedFor = &XForwardedForPolicyConfig{
+			ctpConfig.ClientIPDetection.XForwardedFor = &kubernetes.XForwardedForPolicyConfig{
 				NumTrustedHops: config.ClientIPDetection.XForwardedFor.NumTrustedHops,
 			}
 		}
 		if config.ClientIPDetection.CustomHeader != nil {
-			ctpConfig.ClientIPDetection.CustomHeader = &CustomHeaderPolicyConfig{
+			ctpConfig.ClientIPDetection.CustomHeader = &kubernetes.CustomHeaderPolicyConfig{
 				Name:       config.ClientIPDetection.CustomHeader.Name,
 				FailClosed: config.ClientIPDetection.CustomHeader.FailClosed,
 			}
@@ -724,19 +722,19 @@ func (s *DomainService) buildCTPConfig(domain *models.Domain, config *models.Dom
 
 	// mTLS client validation
 	if config.MTLS != nil && config.MTLS.Enabled && len(caSecretRefs) > 0 {
-		ctpConfig.ClientValidation = &ClientValidationPolicyConfig{
+		ctpConfig.ClientValidation = &kubernetes.ClientValidationPolicyConfig{
 			Optional:          config.MTLS.Optional,
 			CACertificateRefs: caSecretRefs,
 		}
 		for _, san := range config.MTLS.SANWhitelist {
-			ctpConfig.ClientValidation.SANMatchers = append(ctpConfig.ClientValidation.SANMatchers, SANMatcherPolicyConfig{
+			ctpConfig.ClientValidation.SANMatchers = append(ctpConfig.ClientValidation.SANMatchers, kubernetes.SANMatcherPolicyConfig{
 				Type:  san.Type,
 				Match: san.Value,
 			})
 		}
 		ctpConfig.ClientValidation.CertificateHashes = config.MTLS.HashWhitelist
-		ctpConfig.Headers = &HeadersPolicyConfig{
-			XForwardedClientCert: &XFCCPolicyConfig{
+		ctpConfig.Headers = &kubernetes.HeadersPolicyConfig{
+			XForwardedClientCert: &kubernetes.XFCCPolicyConfig{
 				Mode:             "AppendForward",
 				CertDetailsToAdd: []string{"Subject", "Cert", "DNS", "URI"},
 			},
@@ -759,16 +757,16 @@ func (s *DomainService) applyEnvoyGatewayClientTrafficPolicy(ctx context.Context
 
 // collectCASecretRefs builds the list of CA secret refs from domain config and active client mTLS attachments.
 // Used by applyEnvoyGatewayClientTrafficPolicy, GenerateYAMLs, and PreviewSettingsChanges.
-func (s *DomainService) collectCASecretRefs(domain *models.Domain, config *models.DomainSettingsConfig) []SecretRefPolicyConfig {
+func (s *DomainService) collectCASecretRefs(domain *models.Domain, config *models.DomainSettingsConfig) []kubernetes.SecretRefPolicyConfig {
 	if config.MTLS == nil || !config.MTLS.Enabled {
 		return nil
 	}
 
-	var refs []SecretRefPolicyConfig
+	var refs []kubernetes.SecretRefPolicyConfig
 
 	// Domain CAs
 	for _, ca := range config.MTLS.CACerts {
-		refs = append(refs, SecretRefPolicyConfig{
+		refs = append(refs, kubernetes.SecretRefPolicyConfig{
 			Group: "",
 			Kind:  "Secret",
 			Name:  ca.SecretName,
@@ -783,7 +781,7 @@ func (s *DomainService) collectCASecretRefs(domain *models.Domain, config *model
 		} else {
 			for _, client := range mtlsClients {
 				if client.MTLSCASecret != "" {
-					refs = append(refs, SecretRefPolicyConfig{
+					refs = append(refs, kubernetes.SecretRefPolicyConfig{
 						Group: "",
 						Kind:  "Secret",
 						Name:  client.MTLSCASecret,
@@ -817,9 +815,9 @@ type DomainCreatePreviewResult struct {
 	AIReview            *ai.ReviewResult `json:"aiReview,omitempty"`
 }
 
-// buildGatewayConfig builds a GatewayConfig from a domain, including template annotations
-func (s *DomainService) buildGatewayConfig(domain *models.Domain) *GatewayConfig {
-	config := &GatewayConfig{
+// buildGatewayConfig builds a kubernetes.GatewayConfig from a domain, including template annotations
+func (s *DomainService) buildGatewayConfig(domain *models.Domain) *kubernetes.GatewayConfig {
+	config := &kubernetes.GatewayConfig{
 		Name:             domain.K8sGatewayName,
 		Namespace:        domain.Namespace,
 		GatewayClassName: domain.K8sGatewayClass,
@@ -850,7 +848,7 @@ func (s *DomainService) GenerateYAMLs(domainID uuid.UUID) (*DomainYAMLs, error) 
 	result := &DomainYAMLs{}
 
 	// Build Gateway YAML
-	gatewayObj := BuildGatewayObject(s.buildGatewayConfig(domain))
+	gatewayObj := kubernetes.BuildGatewayObject(s.buildGatewayConfig(domain))
 	if gatewayObj != nil {
 		gatewayYaml, err := yaml.Marshal(gatewayObj.Object)
 		if err != nil {
@@ -865,7 +863,7 @@ func (s *DomainService) GenerateYAMLs(domainID uuid.UUID) (*DomainYAMLs, error) 
 		if err == nil && settings != nil && !settings.Config.IsEmpty() {
 			caRefs := s.collectCASecretRefs(domain, &settings.Config)
 			ctpConfig := s.buildCTPConfig(domain, &settings.Config, caRefs)
-			ctpObj := BuildClientTrafficPolicy(ctpConfig)
+			ctpObj := kubernetes.BuildClientTrafficPolicy(ctpConfig)
 			if ctpObj != nil {
 				ctpYaml, err := yaml.Marshal(ctpObj.Object)
 				if err != nil {
@@ -882,7 +880,7 @@ func (s *DomainService) GenerateYAMLs(domainID uuid.UUID) (*DomainYAMLs, error) 
 		if err == nil && btpPolicy != nil && !btpPolicy.Config.IsEmpty() {
 			btpK8sConfig := s.buildDomainBTPConfig(domain, &btpPolicy.Config)
 			if btpK8sConfig != nil {
-				btpObj := BuildBackendTrafficPolicy(btpK8sConfig)
+				btpObj := kubernetes.BuildBackendTrafficPolicy(btpK8sConfig)
 				if btpObj != nil {
 					btpYaml, err := yaml.Marshal(btpObj.Object)
 					if err != nil {
@@ -900,7 +898,7 @@ func (s *DomainService) GenerateYAMLs(domainID uuid.UUID) (*DomainYAMLs, error) 
 		if err == nil && extPolicy != nil && !extPolicy.Config.IsEmpty() {
 			extK8sConfig := s.buildDomainExtensionPolicyConfig(domain, &extPolicy.Config)
 			if extK8sConfig != nil {
-				extObj := BuildEnvoyExtensionPolicy(extK8sConfig)
+				extObj := kubernetes.BuildEnvoyExtensionPolicy(extK8sConfig)
 				if extObj != nil {
 					extYaml, err := yaml.Marshal(extObj.Object)
 					if err != nil {
@@ -937,12 +935,12 @@ func (s *DomainService) PreviewCreate(projectID uuid.UUID, input *DomainCreatePr
 	// Default namespace for preview
 	previewNamespace := input.Namespace
 	if previewNamespace == "" {
-		previewNamespace = FastGatewayNamespace
+		previewNamespace = kubernetes.FastGatewayNamespace
 	}
 
 	// Build Gateway config from input + template
 	k8sGatewayName := generateK8sName(input.Hostname)
-	gatewayConfig := &GatewayConfig{
+	gatewayConfig := &kubernetes.GatewayConfig{
 		Name:             k8sGatewayName,
 		Namespace:        previewNamespace,
 		GatewayClassName: dt.K8sGatewayClassName,
@@ -957,7 +955,7 @@ func (s *DomainService) PreviewCreate(projectID uuid.UUID, input *DomainCreatePr
 
 	result := &DomainCreatePreviewResult{}
 
-	gatewayObj := BuildGatewayObject(gatewayConfig)
+	gatewayObj := kubernetes.BuildGatewayObject(gatewayConfig)
 	if gatewayObj != nil {
 		gwYaml, err := yaml.Marshal(gatewayObj.Object)
 		if err != nil {
@@ -1020,7 +1018,7 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 	result := &DomainSettingsPreviewResult{}
 
 	// Build Gateway YAML (context, doesn't change on settings edit)
-	gatewayObj := BuildGatewayObject(s.buildGatewayConfig(domain))
+	gatewayObj := kubernetes.BuildGatewayObject(s.buildGatewayConfig(domain))
 	if gatewayObj != nil {
 		gwYaml, _ := yaml.Marshal(gatewayObj.Object)
 		result.CurrentGatewayYaml = string(gwYaml)
@@ -1032,7 +1030,7 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 		if err == nil && settings != nil && !settings.Config.IsEmpty() {
 			caRefs := s.collectCASecretRefs(domain, &settings.Config)
 			ctpConfig := s.buildCTPConfig(domain, &settings.Config, caRefs)
-			ctpObj := BuildClientTrafficPolicy(ctpConfig)
+			ctpObj := kubernetes.BuildClientTrafficPolicy(ctpConfig)
 			if ctpObj != nil {
 				ctpYaml, _ := yaml.Marshal(ctpObj.Object)
 				result.CurrentClientTrafficPolicyYaml = string(ctpYaml)
@@ -1052,7 +1050,7 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 	if !proposedConfig.IsEmpty() {
 		caRefs := s.collectCASecretRefs(domain, &proposedConfig)
 		ctpConfig := s.buildCTPConfig(domain, &proposedConfig, caRefs)
-		ctpObj := BuildClientTrafficPolicy(ctpConfig)
+		ctpObj := kubernetes.BuildClientTrafficPolicy(ctpConfig)
 		if ctpObj != nil {
 			ctpYaml, _ := yaml.Marshal(ctpObj.Object)
 			result.ProposedClientTrafficPolicyYaml = string(ctpYaml)
@@ -1065,7 +1063,7 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 		if err == nil && btpPolicy != nil && !btpPolicy.Config.IsEmpty() {
 			btpK8sConfig := s.buildDomainBTPConfig(domain, &btpPolicy.Config)
 			if btpK8sConfig != nil {
-				btpObj := BuildBackendTrafficPolicy(btpK8sConfig)
+				btpObj := kubernetes.BuildBackendTrafficPolicy(btpK8sConfig)
 				if btpObj != nil {
 					btpYaml, _ := yaml.Marshal(btpObj.Object)
 					result.CurrentBackendTrafficPolicyYaml = string(btpYaml)
@@ -1078,7 +1076,7 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 	if input.BackendTrafficPolicy != nil && !input.BackendTrafficPolicy.IsEmpty() {
 		btpK8sConfig := s.buildDomainBTPConfig(domain, input.BackendTrafficPolicy)
 		if btpK8sConfig != nil {
-			btpObj := BuildBackendTrafficPolicy(btpK8sConfig)
+			btpObj := kubernetes.BuildBackendTrafficPolicy(btpK8sConfig)
 			if btpObj != nil {
 				btpYaml, _ := yaml.Marshal(btpObj.Object)
 				result.ProposedBackendTrafficPolicyYaml = string(btpYaml)
@@ -1092,7 +1090,7 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 		if err == nil && extPolicy != nil && !extPolicy.Config.IsEmpty() {
 			extK8sConfig := s.buildDomainExtensionPolicyConfig(domain, &extPolicy.Config)
 			if extK8sConfig != nil {
-				extObj := BuildEnvoyExtensionPolicy(extK8sConfig)
+				extObj := kubernetes.BuildEnvoyExtensionPolicy(extK8sConfig)
 				if extObj != nil {
 					extYaml, _ := yaml.Marshal(extObj.Object)
 					result.CurrentEnvoyExtensionPolicyYaml = string(extYaml)
@@ -1105,7 +1103,7 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 	if input.ExtensionPolicy != nil && !input.ExtensionPolicy.IsEmpty() {
 		extK8sConfig := s.buildDomainExtensionPolicyConfig(domain, input.ExtensionPolicy)
 		if extK8sConfig != nil {
-			extObj := BuildEnvoyExtensionPolicy(extK8sConfig)
+			extObj := kubernetes.BuildEnvoyExtensionPolicy(extK8sConfig)
 			if extObj != nil {
 				extYaml, _ := yaml.Marshal(extObj.Object)
 				result.ProposedEnvoyExtensionPolicyYaml = string(extYaml)
@@ -1141,19 +1139,19 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 	return result, nil
 }
 
-// buildDomainBTPConfig builds a BackendTrafficPolicyConfig for a domain-level BTP targeting the Gateway
-func (s *DomainService) buildDomainBTPConfig(domain *models.Domain, btpConfig *models.BackendTrafficPolicyConfig) *BackendTrafficPolicyConfig {
+// buildDomainBTPConfig builds a kubernetes.BackendTrafficPolicyConfig for a domain-level BTP targeting the Gateway
+func (s *DomainService) buildDomainBTPConfig(domain *models.Domain, btpConfig *models.BackendTrafficPolicyConfig) *kubernetes.BackendTrafficPolicyConfig {
 	if btpConfig == nil || btpConfig.IsEmpty() {
 		return nil
 	}
 
-	config := &BackendTrafficPolicyConfig{
+	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      domain.K8sGatewayName + "-btp",
 		Namespace: domain.Namespace,
 		GatewayID: domain.ID.String(),
 		RouteID:   "",
 		DomainID:  domain.ID.String(),
-		TargetRef: BackendTrafficPolicyTargetRef{
+		TargetRef: kubernetes.BackendTrafficPolicyTargetRef{
 			Group: "gateway.networking.k8s.io",
 			Kind:  "Gateway",
 			Name:  domain.K8sGatewayName,
@@ -1162,60 +1160,60 @@ func (s *DomainService) buildDomainBTPConfig(domain *models.Domain, btpConfig *m
 
 	// Add compression configuration
 	if len(btpConfig.Compression) > 0 {
-		config.Compression = make([]CompressionPolicyConfig, 0, len(btpConfig.Compression))
+		config.Compression = make([]kubernetes.CompressionPolicyConfig, 0, len(btpConfig.Compression))
 		for _, comp := range btpConfig.Compression {
-			policyComp := CompressionPolicyConfig{
+			policyComp := kubernetes.CompressionPolicyConfig{
 				Type: string(comp.Type),
 			}
 			switch comp.Type {
 			case models.CompressionTypeGzip:
-				policyComp.Gzip = &GzipPolicyConfig{}
+				policyComp.Gzip = &kubernetes.GzipPolicyConfig{}
 			case models.CompressionTypeBrotli:
-				policyComp.Brotli = &BrotliPolicyConfig{}
+				policyComp.Brotli = &kubernetes.BrotliPolicyConfig{}
 			case models.CompressionTypeZstd:
-				policyComp.Zstd = &ZstdPolicyConfig{}
+				policyComp.Zstd = &kubernetes.ZstdPolicyConfig{}
 			}
 			config.Compression = append(config.Compression, policyComp)
 		}
 	}
 
 	if btpConfig.Retry != nil {
-		config.Retry = mapRetryConfigToPolicy(btpConfig.Retry)
+		config.Retry = routeplan.MapRetryConfigToPolicy(btpConfig.Retry)
 	}
 	if btpConfig.LoadBalancer != nil {
-		config.LoadBalancer = mapLoadBalancerConfigToPolicy(btpConfig.LoadBalancer)
+		config.LoadBalancer = routeplan.MapLoadBalancerConfigToPolicy(btpConfig.LoadBalancer)
 	}
 	if btpConfig.CircuitBreaker != nil {
-		config.CircuitBreaker = mapCircuitBreakerConfigToPolicy(btpConfig.CircuitBreaker)
+		config.CircuitBreaker = routeplan.MapCircuitBreakerConfigToPolicy(btpConfig.CircuitBreaker)
 	}
 	if btpConfig.RequestBuffer != nil {
-		config.RequestBuffer = &RequestBufferPolicyConfig{
+		config.RequestBuffer = &kubernetes.RequestBufferPolicyConfig{
 			Limit: btpConfig.RequestBuffer.Limit,
 		}
 	}
 	if len(btpConfig.ResponseOverride) > 0 {
-		config.ResponseOverride = mapResponseOverrideToPolicy(btpConfig.ResponseOverride)
+		config.ResponseOverride = routeplan.MapResponseOverrideToPolicy(btpConfig.ResponseOverride)
 	}
 	if btpConfig.Timeout != nil {
-		config.Timeout = mapTimeoutConfigToPolicy(btpConfig.Timeout)
+		config.Timeout = routeplan.MapTimeoutConfigToPolicy(btpConfig.Timeout)
 	}
 
 	return config
 }
 
 // buildDomainExtensionPolicyConfig builds an EnvoyExtensionPolicyK8sConfig for a domain-level extension policy targeting the Gateway
-func (s *DomainService) buildDomainExtensionPolicyConfig(domain *models.Domain, extConfig *models.EnvoyExtensionPolicyConfig) *EnvoyExtensionPolicyK8sConfig {
+func (s *DomainService) buildDomainExtensionPolicyConfig(domain *models.Domain, extConfig *models.EnvoyExtensionPolicyConfig) *kubernetes.EnvoyExtensionPolicyK8sConfig {
 	if extConfig == nil || extConfig.IsEmpty() {
 		return nil
 	}
 
-	config := &EnvoyExtensionPolicyK8sConfig{
+	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
 		Name:      domain.K8sGatewayName + "-eep",
 		Namespace: domain.Namespace,
 		GatewayID: domain.ID.String(),
 		RouteID:   "",
 		DomainID:  domain.ID.String(),
-		TargetRef: EnvoyExtensionPolicyTargetRef{
+		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{
 			Group: "gateway.networking.k8s.io",
 			Kind:  "Gateway",
 			Name:  domain.K8sGatewayName,
@@ -1224,12 +1222,12 @@ func (s *DomainService) buildDomainExtensionPolicyConfig(domain *models.Domain, 
 
 	// Add Lua extension configuration
 	if extConfig.Lua != nil {
-		luaConfig := LuaExtensionPolicyConfig{
+		luaConfig := kubernetes.LuaExtensionPolicyConfig{
 			Type:   extConfig.Lua.Type,
 			Inline: extConfig.Lua.Inline,
 		}
 		if extConfig.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &ValueRefPolicyConfig{
+			luaConfig.ValueRef = &kubernetes.ValueRefPolicyConfig{
 				Group:     extConfig.Lua.ValueRef.Group,
 				Kind:      extConfig.Lua.ValueRef.Kind,
 				Name:      extConfig.Lua.ValueRef.Name,
@@ -1241,27 +1239,27 @@ func (s *DomainService) buildDomainExtensionPolicyConfig(domain *models.Domain, 
 
 	// Add Wasm extension configuration
 	if extConfig.Wasm != nil {
-		wasmConfig := WasmExtensionPolicyConfig{
+		wasmConfig := kubernetes.WasmExtensionPolicyConfig{
 			Name:   extConfig.Wasm.Name,
 			RootID: extConfig.Wasm.RootID,
-			Code: WasmCodeSourcePolicyConfig{
+			Code: kubernetes.WasmCodeSourcePolicyConfig{
 				Type: extConfig.Wasm.Code.Type,
 			},
 			Config: extConfig.Wasm.Config,
 		}
 		if extConfig.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &WasmHTTPSourcePolicyConfig{
+			wasmConfig.Code.HTTP = &kubernetes.WasmHTTPSourcePolicyConfig{
 				URL:    extConfig.Wasm.Code.HTTP.URL,
 				SHA256: extConfig.Wasm.Code.HTTP.SHA256,
 			}
 		}
 		if extConfig.Wasm.Code.Image != nil {
-			imageConfig := &WasmImageSourcePolicyConfig{
+			imageConfig := &kubernetes.WasmImageSourcePolicyConfig{
 				URL:    extConfig.Wasm.Code.Image.URL,
 				SHA256: extConfig.Wasm.Code.Image.SHA256,
 			}
 			if extConfig.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &ValueRefPolicyConfig{
+				imageConfig.PullSecret = &kubernetes.ValueRefPolicyConfig{
 					Group:     extConfig.Wasm.Code.Image.PullSecret.Group,
 					Kind:      extConfig.Wasm.Code.Image.PullSecret.Kind,
 					Name:      extConfig.Wasm.Code.Image.PullSecret.Name,
@@ -1275,8 +1273,8 @@ func (s *DomainService) buildDomainExtensionPolicyConfig(domain *models.Domain, 
 
 	// Add ExtProc extension configuration
 	if extConfig.ExtProc != nil {
-		cfg := ExtProcPolicyConfig{
-			BackendRef: ExtProcBackendRefPolicyConfig{
+		cfg := kubernetes.ExtProcPolicyConfig{
+			BackendRef: kubernetes.ExtProcBackendRefPolicyConfig{
 				Name:      extConfig.ExtProc.BackendRef.Name,
 				Namespace: extConfig.ExtProc.BackendRef.Namespace,
 				Port:      extConfig.ExtProc.BackendRef.Port,
@@ -1284,12 +1282,12 @@ func (s *DomainService) buildDomainExtensionPolicyConfig(domain *models.Domain, 
 			FailOpen: extConfig.ExtProc.FailOpen,
 		}
 		if extConfig.ExtProc.ProcessingMode != nil {
-			cfg.ProcessingMode = &ExtProcProcessingModeConfig{}
+			cfg.ProcessingMode = &kubernetes.ExtProcProcessingModeConfig{}
 			if extConfig.ExtProc.ProcessingMode.Request != nil {
-				cfg.ProcessingMode.Request = &ExtProcBodyModeConfig{Body: extConfig.ExtProc.ProcessingMode.Request.Body}
+				cfg.ProcessingMode.Request = &kubernetes.ExtProcBodyModeConfig{Body: extConfig.ExtProc.ProcessingMode.Request.Body}
 			}
 			if extConfig.ExtProc.ProcessingMode.Response != nil {
-				cfg.ProcessingMode.Response = &ExtProcBodyModeConfig{Body: extConfig.ExtProc.ProcessingMode.Response.Body}
+				cfg.ProcessingMode.Response = &kubernetes.ExtProcBodyModeConfig{Body: extConfig.ExtProc.ProcessingMode.Response.Body}
 			}
 		}
 		config.ExtProc = append(config.ExtProc, cfg)
@@ -1337,7 +1335,7 @@ func (s *DomainService) applyDomainBackendTrafficPolicy(ctx context.Context, dom
 // applyDomainEnvoyExtensionPolicy saves and deploys or deletes the domain-level extension policy
 func (s *DomainService) applyDomainEnvoyExtensionPolicy(ctx context.Context, domain *models.Domain, extConfig *models.EnvoyExtensionPolicyConfig) error {
 	eepName := domain.K8sGatewayName + "-eep"
-	extProcBackendName := GenerateExtProcBackendNameForDomain(domain.K8sGatewayName)
+	extProcBackendName := kubernetes.GenerateExtProcBackendNameForDomain(domain.K8sGatewayName)
 
 	if extConfig == nil || extConfig.IsEmpty() {
 		// Delete from DB and K8s
@@ -1363,19 +1361,19 @@ func (s *DomainService) applyDomainEnvoyExtensionPolicy(ctx context.Context, dom
 
 	// Handle ext-proc Backend CRD lifecycle
 	if extConfig.ExtProc != nil {
-		backendConfig := &ExtProcBackendConfig{
+		backendConfig := &kubernetes.ExtProcBackendConfig{
 			Name:      extProcBackendName,
 			Namespace: domain.Namespace,
 			GatewayID: domain.ID.String(),
 			RouteID:   "",
 			DomainID:  domain.ID.String(),
-			Service: ExtProcBackendRefPolicyConfig{
+			Service: kubernetes.ExtProcBackendRefPolicyConfig{
 				Name:      extConfig.ExtProc.BackendRef.Name,
 				Namespace: extConfig.ExtProc.BackendRef.Namespace,
 				Port:      extConfig.ExtProc.BackendRef.Port,
 			},
 		}
-		backend := BuildExtProcBackend(backendConfig)
+		backend := kubernetes.BuildExtProcBackend(backendConfig)
 		if backend != nil {
 			if err := s.k8sService.UpdateBackendUnstructured(ctx, domain.ProjectID, backend); err != nil {
 				return fmt.Errorf("failed to create/update domain ext-proc Backend: %w", err)
@@ -1390,7 +1388,7 @@ func (s *DomainService) applyDomainEnvoyExtensionPolicy(ctx context.Context, dom
 	if k8sConfig == nil {
 		return nil
 	}
-	extPolicy := BuildEnvoyExtensionPolicy(k8sConfig)
+	extPolicy := kubernetes.BuildEnvoyExtensionPolicy(k8sConfig)
 	if extPolicy == nil {
 		return nil
 	}
@@ -1576,11 +1574,11 @@ func (s *DomainService) RemoveDomainMTLSCA(ctx context.Context, domainID uuid.UU
 func (s *DomainService) ListTLSSecrets(ctx context.Context, projectID uuid.UUID, namespace string) (*ListTLSSecretsResponse, error) {
 	// Default to fastgateway-system
 	if namespace == "" {
-		namespace = FastGatewayNamespace
+		namespace = kubernetes.FastGatewayNamespace
 	}
 
 	// Validate namespace is either fastgateway-system or managed by the project
-	if namespace != FastGatewayNamespace {
+	if namespace != kubernetes.FastGatewayNamespace {
 		if s.projectNamespaceRepo == nil {
 			return nil, errors.New("namespace management not configured")
 		}
@@ -1600,12 +1598,12 @@ func (s *DomainService) ListTLSSecrets(ctx context.Context, projectID uuid.UUID,
 	}
 
 	// Build available namespaces list — only those with the tls_secret capability.
-	availableNamespaces := []string{FastGatewayNamespace}
+	availableNamespaces := []string{kubernetes.FastGatewayNamespace}
 	if s.projectNamespaceRepo != nil {
 		projectNamespaces, err := s.projectNamespaceRepo.ListByCapability(projectID, models.NamespaceCapabilityTLSSecret)
 		if err == nil {
 			for _, ns := range projectNamespaces {
-				if ns.Namespace != FastGatewayNamespace {
+				if ns.Namespace != kubernetes.FastGatewayNamespace {
 					availableNamespaces = append(availableNamespaces, ns.Namespace)
 				}
 			}
@@ -1623,7 +1621,7 @@ func (s *DomainService) ListTLSSecrets(ctx context.Context, projectID uuid.UUID,
 // Sourced from project_namespaces with the deploy_gateway capability, plus
 // fastgateway-system always.
 func (s *DomainService) ListAvailableNamespaces(ctx context.Context, projectID uuid.UUID) ([]string, error) {
-	out := []string{FastGatewayNamespace}
+	out := []string{kubernetes.FastGatewayNamespace}
 	if s.projectNamespaceRepo == nil {
 		return out, nil
 	}
@@ -1631,7 +1629,7 @@ func (s *DomainService) ListAvailableNamespaces(ctx context.Context, projectID u
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{FastGatewayNamespace: true}
+	seen := map[string]bool{kubernetes.FastGatewayNamespace: true}
 	for _, r := range rows {
 		if !seen[r.Namespace] {
 			out = append(out, r.Namespace)

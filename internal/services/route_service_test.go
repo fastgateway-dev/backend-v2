@@ -5,8 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -29,7 +31,7 @@ func newTestRouteService() (
 	policyRepo := new(mocks.MockApprovalPolicyRepository)
 	domainRepo := new(mocks.MockDomainRepository)
 	teamRepo := new(mocks.MockTeamRepository)
-	svc := services.NewRouteService(routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo, services.WAFConfig{})
+	svc := services.NewRouteService(routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo, routeplan.WAFConfig{})
 	return svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo
 }
 
@@ -651,7 +653,7 @@ func TestRouteService_Update_WithSecurityPolicy(t *testing.T) {
 
 	input := &services.UpdateRouteInput{
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
 			CORS: &models.CORSConfig{
 				AllowOrigins: []string{"https://example.com"},
 			},
@@ -711,8 +713,8 @@ func TestRouteService_Update_ClientMode_RejectsGeneralSecurityFields(t *testing.
 
 	input := &services.UpdateRouteInput{
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			Authorization: &services.AuthorizationInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			Authorization: &routeplan.AuthorizationInput{
 				AllowedCIDRs: []string{"10.0.0.0/8"},
 			},
 		},
@@ -1810,7 +1812,7 @@ func TestRouteService_Update_WithBackendTrafficPolicy(t *testing.T) {
 
 	input := &services.UpdateRouteInput{
 		Config: makeBasicHTTPRouteConfig(),
-		BackendTrafficPolicy: &services.BackendTrafficPolicyInput{
+		BackendTrafficPolicy: &routeplan.BackendTrafficPolicyInput{
 			Retry: &models.RetryConfig{NumRetries: routeInt32Ptr(3)},
 		},
 	}
@@ -1978,7 +1980,7 @@ func TestRouteService_PreviewCreate_WithSecurityPolicy(t *testing.T) {
 		Name:   "user-api",
 		TeamID: uuid.New(),
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
 			CORS: &models.CORSConfig{
 				AllowOrigins: []string{"https://example.com"},
 			},
@@ -2345,7 +2347,7 @@ func TestRouteService_PreviewUpdate_WithSecurityPolicyChanges(t *testing.T) {
 
 	input := &services.UpdateRouteInput{
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
 			CORS: &models.CORSConfig{
 				AllowOrigins: []string{"https://new-origin.com"},
 				AllowMethods: []string{"GET"},
@@ -2401,8 +2403,8 @@ func TestRouteService_Create_GeneralMode_InvalidOIDC(t *testing.T) {
 		TeamID:       teamID,
 		SecurityMode: models.SecurityModeGeneral,
 		Config:       makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			OIDC: &services.OIDCInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			OIDC: &routeplan.OIDCInput{
 				Issuer: "", // Missing required field
 			},
 		},
@@ -2634,8 +2636,8 @@ func TestRouteService_Create_ClientMode_RejectsOIDC(t *testing.T) {
 		TeamID:       teamID,
 		SecurityMode: models.SecurityModeClient,
 		Config:       makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			OIDC: &services.OIDCInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			OIDC: &routeplan.OIDCInput{
 				Issuer:           "https://issuer.com",
 				ClientID:         "client-id",
 				ClientSecretName: "secret",
@@ -2673,8 +2675,8 @@ func TestRouteService_Create_ClientMode_RejectsJWT(t *testing.T) {
 		TeamID:       teamID,
 		SecurityMode: models.SecurityModeClient,
 		Config:       makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			JWT: &services.JWTInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			JWT: &routeplan.JWTInput{
 				Issuer:  "https://issuer.com",
 				JWKSURL: "https://issuer.com/.well-known/jwks.json",
 			},
@@ -2709,8 +2711,8 @@ func TestRouteService_Create_ClientMode_RejectsAPIKeyAuth(t *testing.T) {
 		TeamID:       teamID,
 		SecurityMode: models.SecurityModeClient,
 		Config:       makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			APIKeyAuth: &services.APIKeyAuthInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			APIKeyAuth: &routeplan.APIKeyAuthInput{
 				SecretName: "my-secret",
 				HeaderName: "x-api-key",
 			},
@@ -2744,8 +2746,8 @@ func TestRouteService_Create_GeneralMode_InvalidJWT(t *testing.T) {
 		Name:   "jwt-route",
 		TeamID: teamID,
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			JWT: &services.JWTInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			JWT: &routeplan.JWTInput{
 				Issuer: "", // Missing required field
 			},
 		},
@@ -2778,8 +2780,8 @@ func TestRouteService_Create_GeneralMode_JWT_MissingJWKSURL(t *testing.T) {
 		Name:   "jwt-route",
 		TeamID: teamID,
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			JWT: &services.JWTInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			JWT: &routeplan.JWTInput{
 				Issuer:  "https://issuer.com",
 				JWKSURL: "", // Missing
 			},
@@ -2813,8 +2815,8 @@ func TestRouteService_Create_GeneralMode_APIKey_MissingSecretName(t *testing.T) 
 		Name:   "apikey-route",
 		TeamID: teamID,
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			APIKeyAuth: &services.APIKeyAuthInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			APIKeyAuth: &routeplan.APIKeyAuthInput{
 				SecretName: "",
 				HeaderName: "x-api-key",
 			},
@@ -2848,8 +2850,8 @@ func TestRouteService_Create_GeneralMode_APIKey_MissingHeaderName(t *testing.T) 
 		Name:   "apikey-route",
 		TeamID: teamID,
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			APIKeyAuth: &services.APIKeyAuthInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			APIKeyAuth: &routeplan.APIKeyAuthInput{
 				SecretName: "my-secret",
 				HeaderName: "",
 			},
@@ -2883,8 +2885,8 @@ func TestRouteService_Create_GeneralMode_OIDC_NonHTTPS_RedirectURL(t *testing.T)
 		Name:   "oidc-route",
 		TeamID: teamID,
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			OIDC: &services.OIDCInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			OIDC: &routeplan.OIDCInput{
 				Issuer:           "https://issuer.com",
 				ClientID:         "client-id",
 				ClientSecretName: "secret",
@@ -2921,8 +2923,8 @@ func TestRouteService_Create_GeneralMode_OIDC_MissingClientID(t *testing.T) {
 		Name:   "oidc-route",
 		TeamID: teamID,
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			OIDC: &services.OIDCInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			OIDC: &routeplan.OIDCInput{
 				Issuer:   "https://issuer.com",
 				ClientID: "", // Missing
 			},
@@ -2956,8 +2958,8 @@ func TestRouteService_Create_GeneralMode_OIDC_MissingClientSecretName(t *testing
 		Name:   "oidc-route",
 		TeamID: teamID,
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			OIDC: &services.OIDCInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			OIDC: &routeplan.OIDCInput{
 				Issuer:           "https://issuer.com",
 				ClientID:         "client-id",
 				ClientSecretName: "", // Missing
@@ -2992,8 +2994,8 @@ func TestRouteService_Create_GeneralMode_OIDC_MissingLogoutPath(t *testing.T) {
 		Name:   "oidc-route",
 		TeamID: teamID,
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			OIDC: &services.OIDCInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			OIDC: &routeplan.OIDCInput{
 				Issuer:           "https://issuer.com",
 				ClientID:         "client-id",
 				ClientSecretName: "secret",
@@ -3030,8 +3032,8 @@ func TestRouteService_Create_GeneralMode_InvalidCIDR(t *testing.T) {
 		Name:   "ip-route",
 		TeamID: teamID,
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			Authorization: &services.AuthorizationInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			Authorization: &routeplan.AuthorizationInput{
 				AllowedCIDRs: []string{"not-a-cidr"},
 			},
 		},
@@ -3064,8 +3066,8 @@ func TestRouteService_Create_GeneralMode_EmptyCIDRList(t *testing.T) {
 		Name:   "ip-route",
 		TeamID: teamID,
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			Authorization: &services.AuthorizationInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			Authorization: &routeplan.AuthorizationInput{
 				AllowedCIDRs: []string{},
 			},
 		},
@@ -3509,7 +3511,7 @@ func TestRouteService_PreviewCreate_WithBTP(t *testing.T) {
 		Name:   "btp-route",
 		TeamID: uuid.New(),
 		Config: makeBasicHTTPRouteConfig(),
-		BackendTrafficPolicy: &services.BackendTrafficPolicyInput{
+		BackendTrafficPolicy: &routeplan.BackendTrafficPolicyInput{
 			Retry: &models.RetryConfig{NumRetries: routeInt32Ptr(3)},
 		},
 	}
@@ -3551,7 +3553,7 @@ func TestRouteService_PreviewUpdate_WithBTPChanges(t *testing.T) {
 
 	input := &services.UpdateRouteInput{
 		Config: makeBasicHTTPRouteConfig(),
-		BackendTrafficPolicy: &services.BackendTrafficPolicyInput{
+		BackendTrafficPolicy: &routeplan.BackendTrafficPolicyInput{
 			Retry: &models.RetryConfig{NumRetries: routeInt32Ptr(5)},
 		},
 	}
@@ -3745,23 +3747,23 @@ func TestRouteService_GenerateYAMLs_WithCORS(t *testing.T) {
 }
 
 // =========================================================================
-// BackendTrafficPolicyInput.HasContent
+// routeplan.BackendTrafficPolicyInput.HasContent
 // =========================================================================
 
 func TestRouteService_BTPInput_HasContent(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    services.BackendTrafficPolicyInput
+		input    routeplan.BackendTrafficPolicyInput
 		expected bool
 	}{
-		{"empty", services.BackendTrafficPolicyInput{}, false},
-		{"retry", services.BackendTrafficPolicyInput{Retry: &models.RetryConfig{NumRetries: routeInt32Ptr(3)}}, true},
-		{"loadbalancer", services.BackendTrafficPolicyInput{LoadBalancer: &models.LoadBalancerConfig{Type: "RoundRobin"}}, true},
-		{"circuit breaker", services.BackendTrafficPolicyInput{CircuitBreaker: &models.CircuitBreakerConfig{}}, true},
-		{"health check", services.BackendTrafficPolicyInput{HealthCheck: &models.HealthCheckConfig{}}, true},
-		{"fault injection", services.BackendTrafficPolicyInput{FaultInjection: &models.FaultInjectionConfig{}}, true},
-		{"rate limit", services.BackendTrafficPolicyInput{RateLimit: &models.RateLimitConfig{}}, true},
-		{"timeout", services.BackendTrafficPolicyInput{Timeout: &models.BTPTimeoutConfig{}}, true},
+		{"empty", routeplan.BackendTrafficPolicyInput{}, false},
+		{"retry", routeplan.BackendTrafficPolicyInput{Retry: &models.RetryConfig{NumRetries: routeInt32Ptr(3)}}, true},
+		{"loadbalancer", routeplan.BackendTrafficPolicyInput{LoadBalancer: &models.LoadBalancerConfig{Type: "RoundRobin"}}, true},
+		{"circuit breaker", routeplan.BackendTrafficPolicyInput{CircuitBreaker: &models.CircuitBreakerConfig{}}, true},
+		{"health check", routeplan.BackendTrafficPolicyInput{HealthCheck: &models.HealthCheckConfig{}}, true},
+		{"fault injection", routeplan.BackendTrafficPolicyInput{FaultInjection: &models.FaultInjectionConfig{}}, true},
+		{"rate limit", routeplan.BackendTrafficPolicyInput{RateLimit: &models.RateLimitConfig{}}, true},
+		{"timeout", routeplan.BackendTrafficPolicyInput{Timeout: &models.BTPTimeoutConfig{}}, true},
 	}
 
 	for _, tt := range tests {
@@ -3772,18 +3774,18 @@ func TestRouteService_BTPInput_HasContent(t *testing.T) {
 }
 
 // =========================================================================
-// EnvoyExtensionPolicyInput.HasContent
+// routeplan.EnvoyExtensionPolicyInput.HasContent
 // =========================================================================
 
 func TestRouteService_EEPInput_HasContent(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    services.EnvoyExtensionPolicyInput
+		input    routeplan.EnvoyExtensionPolicyInput
 		expected bool
 	}{
-		{"empty", services.EnvoyExtensionPolicyInput{}, false},
-		{"lua", services.EnvoyExtensionPolicyInput{Lua: &models.LuaExtensionConfig{}}, true},
-		{"wasm", services.EnvoyExtensionPolicyInput{Wasm: &models.WasmExtensionConfig{}}, true},
+		{"empty", routeplan.EnvoyExtensionPolicyInput{}, false},
+		{"lua", routeplan.EnvoyExtensionPolicyInput{Lua: &models.LuaExtensionConfig{}}, true},
+		{"wasm", routeplan.EnvoyExtensionPolicyInput{Wasm: &models.WasmExtensionConfig{}}, true},
 	}
 
 	for _, tt := range tests {
@@ -4112,8 +4114,8 @@ func TestRouteService_Create_GeneralMode_OIDC_MissingRedirectURL(t *testing.T) {
 		Name:   "oidc-route",
 		TeamID: teamID,
 		Config: makeBasicHTTPRouteConfig(),
-		SecurityPolicy: &services.SecurityPolicyInput{
-			OIDC: &services.OIDCInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			OIDC: &routeplan.OIDCInput{
 				Issuer:           "https://issuer.com",
 				ClientID:         "client-id",
 				ClientSecretName: "secret",
@@ -7446,10 +7448,10 @@ func TestRouteService_Deploy_WithFailoverBackends(t *testing.T) {
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Both backends should get UpdateBackend calls (failover enabled → all get Backend CRDs)
-	var capturedBackends []*services.BackendConfig
+	var capturedBackends []*kubernetes.BackendConfig
 	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).
 		Run(func(args mock.Arguments) {
-			bc := args.Get(2).(*services.BackendConfig)
+			bc := args.Get(2).(*kubernetes.BackendConfig)
 			capturedBackends = append(capturedBackends, bc)
 		}).Return(nil)
 	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
@@ -7523,10 +7525,10 @@ func TestRouteService_Deploy_WithExternalBackend_TLS(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	var capturedBackend *services.BackendConfig
+	var capturedBackend *kubernetes.BackendConfig
 	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).
 		Run(func(args mock.Arguments) {
-			capturedBackend = args.Get(2).(*services.BackendConfig)
+			capturedBackend = args.Get(2).(*kubernetes.BackendConfig)
 		}).Return(nil)
 	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
@@ -7598,10 +7600,10 @@ func TestRouteService_Deploy_WithExternalBackend_TLS_MTLS(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	var capturedBackend *services.BackendConfig
+	var capturedBackend *kubernetes.BackendConfig
 	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).
 		Run(func(args mock.Arguments) {
-			capturedBackend = args.Get(2).(*services.BackendConfig)
+			capturedBackend = args.Get(2).(*kubernetes.BackendConfig)
 		}).Return(nil)
 	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)
 	k8sMock.On("DeleteSecurityPolicy", mock.Anything, projectID, "fastgateway-system", route.K8sRouteName+"-security").Return(nil).Maybe()
@@ -7665,10 +7667,10 @@ func TestRouteService_Deploy_WithFailover_EmptyNamespace(t *testing.T) {
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	var capturedBackends []*services.BackendConfig
+	var capturedBackends []*kubernetes.BackendConfig
 	k8sMock.On("UpdateBackend", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.BackendConfig")).
 		Run(func(args mock.Arguments) {
-			bc := args.Get(2).(*services.BackendConfig)
+			bc := args.Get(2).(*kubernetes.BackendConfig)
 			capturedBackends = append(capturedBackends, bc)
 		}).Return(nil)
 	k8sMock.On("CreateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig")).Return(nil)

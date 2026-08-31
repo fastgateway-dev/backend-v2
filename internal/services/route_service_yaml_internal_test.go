@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,7 +67,7 @@ func TestInternalNormalizeCIDR(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, normalizeCIDR(tt.input))
+			assert.Equal(t, tt.expected, routeplan.NormalizeCIDR(tt.input))
 		})
 	}
 }
@@ -104,20 +106,20 @@ func TestInternalIsValidK8sName(t *testing.T) {
 // ─── getRouteKind ──────────────────────────────────────────────────────────
 
 func TestInternalGetRouteKind(t *testing.T) {
-	assert.Equal(t, "GRPCRoute", getRouteKind(models.RouteProtocolGRPC))
-	assert.Equal(t, "HTTPRoute", getRouteKind(models.RouteProtocolHTTP))
-	assert.Equal(t, "HTTPRoute", getRouteKind(models.RouteProtocol("unknown")))
+	assert.Equal(t, "GRPCRoute", routeplan.GetRouteKind(models.RouteProtocolGRPC))
+	assert.Equal(t, "HTTPRoute", routeplan.GetRouteKind(models.RouteProtocolHTTP))
+	assert.Equal(t, "HTTPRoute", routeplan.GetRouteKind(models.RouteProtocol("unknown")))
 }
 
-// ─── WAFConfig.ImageURL ─────────────────────────────────────────────────────
+// ─── routeplan.WAFConfig.ImageURL ──────────────────────────────────────────
 
 func TestInternalWAFConfigImageURL_Default(t *testing.T) {
-	url := WAFConfig{}.ImageURL()
+	url := routeplan.WAFConfig{}.ImageURL()
 	assert.Equal(t, "ghcr.io/corazawaf/coraza-proxy-wasm:0.6.0", url)
 }
 
 func TestInternalWAFConfigImageURL_Custom(t *testing.T) {
-	url := WAFConfig{Image: "custom-image", Tag: "1.0.0"}.ImageURL()
+	url := routeplan.WAFConfig{Image: "custom-image", Tag: "1.0.0"}.ImageURL()
 	assert.Equal(t, "custom-image:1.0.0", url)
 }
 
@@ -126,7 +128,7 @@ func TestInternalWAFConfigImageURL_Custom(t *testing.T) {
 func TestInternalGenerateHTTPRouteYAML_Basic(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateHTTPRouteYAML(route, domain)
+	result := routeplan.GenerateHTTPRouteYAML(route, domain)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "apiVersion")
@@ -146,7 +148,7 @@ func TestInternalGenerateHTTPRouteYAML_GRPC(t *testing.T) {
 		},
 	}
 	domain := testDomain()
-	result := generateHTTPRouteYAML(route, domain)
+	result := routeplan.GenerateHTTPRouteYAML(route, domain)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "kind: GRPCRoute")
@@ -160,7 +162,7 @@ func TestInternalGenerateHTTPRouteYAML_MultipleMatches(t *testing.T) {
 		{Path: &models.PathMatch{Type: "Exact", Value: "/health"}},
 	}
 	domain := testDomain()
-	result := generateHTTPRouteYAML(route, domain)
+	result := routeplan.GenerateHTTPRouteYAML(route, domain)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "/api/v1")
@@ -177,7 +179,7 @@ func TestInternalGenerateHTTPRouteYAML_HeaderAndQueryMatch(t *testing.T) {
 		},
 	}
 	domain := testDomain()
-	result := generateHTTPRouteYAML(route, domain)
+	result := routeplan.GenerateHTTPRouteYAML(route, domain)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "X-Custom")
@@ -188,7 +190,7 @@ func TestInternalGenerateHTTPRouteYAML_HeaderAndQueryMatch(t *testing.T) {
 func TestInternalGenerateBackendYAMLs_NoExternal(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateBackendYAMLs(route, domain)
+	result := routeplan.GenerateBackendYAMLs(route, domain)
 	assert.Empty(t, result)
 }
 
@@ -203,7 +205,7 @@ func TestInternalGenerateBackendYAMLs_External(t *testing.T) {
 		},
 	}
 	domain := testDomain()
-	result := generateBackendYAMLs(route, domain)
+	result := routeplan.GenerateBackendYAMLs(route, domain)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "kind: Backend")
@@ -217,7 +219,7 @@ func TestInternalGenerateBackendYAMLs_Failover(t *testing.T) {
 		{Type: models.BackendTypeKubernetes, Service: "fallback", Namespace: "default", Port: 8080, Fallback: true},
 	}
 	domain := testDomain()
-	result := generateBackendYAMLs(route, domain)
+	result := routeplan.GenerateBackendYAMLs(route, domain)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "kind: Backend")
@@ -230,7 +232,7 @@ func TestInternalGenerateBackendYAMLs_Failover(t *testing.T) {
 func TestInternalGenerateDirectResponseYAMLs_Nil(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	hrf, cm := generateDirectResponseYAMLs(route, domain)
+	hrf, cm := routeplan.GenerateDirectResponseYAMLs(route, domain)
 	assert.Empty(t, hrf)
 	assert.Empty(t, cm)
 }
@@ -246,7 +248,7 @@ func TestInternalGenerateDirectResponseYAMLs_WithBody(t *testing.T) {
 		},
 	}
 	domain := testDomain()
-	hrf, cm := generateDirectResponseYAMLs(route, domain)
+	hrf, cm := routeplan.GenerateDirectResponseYAMLs(route, domain)
 
 	require.NotEmpty(t, hrf)
 	require.NotEmpty(t, cm)
@@ -261,32 +263,32 @@ func TestInternalGenerateDirectResponseYAMLs_NoBody(t *testing.T) {
 		ContentType: "text/plain",
 	}
 	domain := testDomain()
-	hrf, cm := generateDirectResponseYAMLs(route, domain)
+	hrf, cm := routeplan.GenerateDirectResponseYAMLs(route, domain)
 
 	require.NotEmpty(t, hrf)
 	assert.Empty(t, cm) // No body means no ConfigMap
 	assert.Contains(t, hrf, "HTTPRouteFilter")
 }
 
-// ─── generateSecurityPolicyYAML ────────────────────────────────────────────
+// ─── routeplan.GenerateSecurityPolicyYAML ──────────────────────────────────
 
 func TestInternalGenerateSecurityPolicyYAML_NilInput(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateSecurityPolicyYAML(route, domain, nil, nil)
+	result := routeplan.GenerateSecurityPolicyYAML(route, domain, nil, nil)
 	assert.Empty(t, result)
 }
 
 func TestInternalGenerateSecurityPolicyYAML_CORSOnly(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &SecurityPolicyInput{
+	input := &routeplan.SecurityPolicyInput{
 		CORS: &models.CORSConfig{
 			AllowOrigins: []string{"https://example.com"},
 			AllowMethods: []string{"GET", "POST"},
 		},
 	}
-	result := generateSecurityPolicyYAML(route, domain, input, nil)
+	result := routeplan.GenerateSecurityPolicyYAML(route, domain, input, nil)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "SecurityPolicy")
@@ -296,7 +298,7 @@ func TestInternalGenerateSecurityPolicyYAML_CORSOnly(t *testing.T) {
 func TestInternalGenerateSecurityPolicyYAML_ClientCIDRs(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateSecurityPolicyYAML(route, domain, nil, []string{"10.0.0.1", "192.168.1.0/24"})
+	result := routeplan.GenerateSecurityPolicyYAML(route, domain, nil, []string{"10.0.0.1", "192.168.1.0/24"})
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "SecurityPolicy")
@@ -307,10 +309,10 @@ func TestInternalGenerateSecurityPolicyYAML_ClientCIDRs(t *testing.T) {
 func TestInternalGenerateSecurityPolicyYAML_GeneralAuth(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &SecurityPolicyInput{
-		Authorization: &AuthorizationInput{AllowedCIDRs: []string{"10.0.0.0/8"}},
+	input := &routeplan.SecurityPolicyInput{
+		Authorization: &routeplan.AuthorizationInput{AllowedCIDRs: []string{"10.0.0.0/8"}},
 	}
-	result := generateSecurityPolicyYAML(route, domain, input, nil)
+	result := routeplan.GenerateSecurityPolicyYAML(route, domain, input, nil)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "10.0.0.0/8")
@@ -320,13 +322,13 @@ func TestInternalGenerateSecurityPolicyYAML_GeneralAuth(t *testing.T) {
 func TestInternalGenerateSecurityPolicyYAML_APIKeyAuth(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &SecurityPolicyInput{
-		APIKeyAuth: &APIKeyAuthInput{
+	input := &routeplan.SecurityPolicyInput{
+		APIKeyAuth: &routeplan.APIKeyAuthInput{
 			SecretName: "my-api-keys",
 			HeaderName: "X-API-Key",
 		},
 	}
-	result := generateSecurityPolicyYAML(route, domain, input, nil)
+	result := routeplan.GenerateSecurityPolicyYAML(route, domain, input, nil)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "SecurityPolicy")
@@ -336,13 +338,13 @@ func TestInternalGenerateSecurityPolicyYAML_APIKeyAuth(t *testing.T) {
 func TestInternalGenerateSecurityPolicyYAML_JWT(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &SecurityPolicyInput{
-		JWT: &JWTInput{
+	input := &routeplan.SecurityPolicyInput{
+		JWT: &routeplan.JWTInput{
 			Issuer:  "https://issuer.example.com",
 			JWKSURL: "https://issuer.example.com/.well-known/jwks.json",
 		},
 	}
-	result := generateSecurityPolicyYAML(route, domain, input, nil)
+	result := routeplan.GenerateSecurityPolicyYAML(route, domain, input, nil)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "SecurityPolicy")
@@ -352,8 +354,8 @@ func TestInternalGenerateSecurityPolicyYAML_JWT(t *testing.T) {
 func TestInternalGenerateSecurityPolicyYAML_OIDC(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &SecurityPolicyInput{
-		OIDC: &OIDCInput{
+	input := &routeplan.SecurityPolicyInput{
+		OIDC: &routeplan.OIDCInput{
 			Issuer:           "https://accounts.google.com",
 			ClientID:         "my-client-id",
 			ClientSecretName: "oidc-secret",
@@ -361,7 +363,7 @@ func TestInternalGenerateSecurityPolicyYAML_OIDC(t *testing.T) {
 			LogoutPath:       "/logout",
 		},
 	}
-	result := generateSecurityPolicyYAML(route, domain, input, nil)
+	result := routeplan.GenerateSecurityPolicyYAML(route, domain, input, nil)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "SecurityPolicy")
@@ -372,7 +374,7 @@ func TestInternalGenerateSecurityPolicyYAML_OIDC(t *testing.T) {
 func TestInternalGenerateSecurityPolicyYAML_ExtAuth(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &SecurityPolicyInput{
+	input := &routeplan.SecurityPolicyInput{
 		ExtAuth: &models.ExtAuthConfig{
 			Type: "http",
 			HTTP: &models.ExtAuthHTTPConfig{
@@ -385,7 +387,7 @@ func TestInternalGenerateSecurityPolicyYAML_ExtAuth(t *testing.T) {
 			},
 		},
 	}
-	result := generateSecurityPolicyYAML(route, domain, input, nil)
+	result := routeplan.GenerateSecurityPolicyYAML(route, domain, input, nil)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "SecurityPolicy")
@@ -395,26 +397,26 @@ func TestInternalGenerateSecurityPolicyYAML_ExtAuth(t *testing.T) {
 func TestInternalGenerateSecurityPolicyYAML_CORSPlusAuth(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &SecurityPolicyInput{
+	input := &routeplan.SecurityPolicyInput{
 		CORS: &models.CORSConfig{
 			AllowOrigins: []string{"*"},
 			AllowMethods: []string{"GET"},
 		},
-		Authorization: &AuthorizationInput{AllowedCIDRs: []string{"10.0.0.0/8"}},
+		Authorization: &routeplan.AuthorizationInput{AllowedCIDRs: []string{"10.0.0.0/8"}},
 	}
-	result := generateSecurityPolicyYAML(route, domain, input, nil)
+	result := routeplan.GenerateSecurityPolicyYAML(route, domain, input, nil)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "cors")
 	assert.Contains(t, result, "10.0.0.0/8")
 }
 
-// ─── generateSecurityPolicyYAMLFromDB ──────────────────────────────────────
+// ─── routeplan.GenerateSecurityPolicyYAMLFromDB ────────────────────────────
 
 func TestInternalGenerateSecurityPolicyYAMLFromDB_Nil(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateSecurityPolicyYAMLFromDB(route, domain, nil)
+	result := routeplan.GenerateSecurityPolicyYAMLFromDB(route, domain, nil)
 	assert.Empty(t, result)
 }
 
@@ -429,7 +431,7 @@ func TestInternalGenerateSecurityPolicyYAMLFromDB_CORS(t *testing.T) {
 			},
 		},
 	}
-	result := generateSecurityPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateSecurityPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "SecurityPolicy")
@@ -449,7 +451,7 @@ func TestInternalGenerateSecurityPolicyYAMLFromDB_Authorization(t *testing.T) {
 			},
 		},
 	}
-	result := generateSecurityPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateSecurityPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "10.0.0.0/8")
@@ -460,26 +462,26 @@ func TestInternalGenerateSecurityPolicyYAMLFromDB_Authorization(t *testing.T) {
 func TestInternalGenerateBTPYAML_Nil(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateBackendTrafficPolicyYAML(route, domain, nil)
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, nil)
 	assert.Empty(t, result)
 }
 
 func TestInternalGenerateBTPYAML_EmptyInput(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateBackendTrafficPolicyYAML(route, domain, &BackendTrafficPolicyInput{})
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, &routeplan.BackendTrafficPolicyInput{})
 	assert.Empty(t, result)
 }
 
 func TestInternalGenerateBTPYAML_Compression(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &BackendTrafficPolicyInput{
+	input := &routeplan.BackendTrafficPolicyInput{
 		Compression: []models.CompressionConfig{
 			{Type: models.CompressionTypeGzip},
 		},
 	}
-	result := generateBackendTrafficPolicyYAML(route, domain, input)
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "BackendTrafficPolicy")
@@ -489,13 +491,13 @@ func TestInternalGenerateBTPYAML_Compression(t *testing.T) {
 func TestInternalGenerateBTPYAML_Retry(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &BackendTrafficPolicyInput{
+	input := &routeplan.BackendTrafficPolicyInput{
 		Retry: &models.RetryConfig{
 			NumRetries: ptrInt32(3),
 			RetryOn:    &models.RetryOn{Triggers: []string{"5xx"}},
 		},
 	}
-	result := generateBackendTrafficPolicyYAML(route, domain, input)
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "BackendTrafficPolicy")
@@ -505,12 +507,12 @@ func TestInternalGenerateBTPYAML_Retry(t *testing.T) {
 func TestInternalGenerateBTPYAML_LoadBalancer(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &BackendTrafficPolicyInput{
+	input := &routeplan.BackendTrafficPolicyInput{
 		LoadBalancer: &models.LoadBalancerConfig{
 			Type: models.LoadBalancerTypeRoundRobin,
 		},
 	}
-	result := generateBackendTrafficPolicyYAML(route, domain, input)
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "BackendTrafficPolicy")
@@ -520,12 +522,12 @@ func TestInternalGenerateBTPYAML_LoadBalancer(t *testing.T) {
 func TestInternalGenerateBTPYAML_CircuitBreaker(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &BackendTrafficPolicyInput{
+	input := &routeplan.BackendTrafficPolicyInput{
 		CircuitBreaker: &models.CircuitBreakerConfig{
 			MaxConnections: ptrInt64(100),
 		},
 	}
-	result := generateBackendTrafficPolicyYAML(route, domain, input)
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "BackendTrafficPolicy")
@@ -535,7 +537,7 @@ func TestInternalGenerateBTPYAML_CircuitBreaker(t *testing.T) {
 func TestInternalGenerateBTPYAML_HealthCheck(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &BackendTrafficPolicyInput{
+	input := &routeplan.BackendTrafficPolicyInput{
 		HealthCheck: &models.HealthCheckConfig{
 			Active: &models.ActiveHealthCheckConfig{
 				Type:     "HTTP",
@@ -544,7 +546,7 @@ func TestInternalGenerateBTPYAML_HealthCheck(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAML(route, domain, input)
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "BackendTrafficPolicy")
@@ -554,7 +556,7 @@ func TestInternalGenerateBTPYAML_HealthCheck(t *testing.T) {
 func TestInternalGenerateBTPYAML_FaultInjection(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &BackendTrafficPolicyInput{
+	input := &routeplan.BackendTrafficPolicyInput{
 		FaultInjection: &models.FaultInjectionConfig{
 			Delay: &models.FaultInjectionDelayConfig{
 				FixedDelay: "1s",
@@ -562,7 +564,7 @@ func TestInternalGenerateBTPYAML_FaultInjection(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAML(route, domain, input)
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "BackendTrafficPolicy")
@@ -572,7 +574,7 @@ func TestInternalGenerateBTPYAML_FaultInjection(t *testing.T) {
 func TestInternalGenerateBTPYAML_RateLimit(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &BackendTrafficPolicyInput{
+	input := &routeplan.BackendTrafficPolicyInput{
 		RateLimit: &models.RateLimitConfig{
 			Global: &models.GlobalRateLimitConfig{
 				Rules: []models.RateLimitRule{
@@ -581,7 +583,7 @@ func TestInternalGenerateBTPYAML_RateLimit(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAML(route, domain, input)
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "BackendTrafficPolicy")
@@ -591,7 +593,7 @@ func TestInternalGenerateBTPYAML_RateLimit(t *testing.T) {
 func TestInternalGenerateBTPYAML_Timeout(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &BackendTrafficPolicyInput{
+	input := &routeplan.BackendTrafficPolicyInput{
 		Timeout: &models.BTPTimeoutConfig{
 			TCP: &models.BTPTCPTimeoutConfig{ConnectTimeout: "5s"},
 			HTTP: &models.BTPHTTPTimeoutConfig{
@@ -599,7 +601,7 @@ func TestInternalGenerateBTPYAML_Timeout(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAML(route, domain, input)
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "BackendTrafficPolicy")
@@ -610,7 +612,7 @@ func TestInternalGenerateBTPYAML_ResponseOverride(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
 	statusVal := 503
-	input := &BackendTrafficPolicyInput{
+	input := &routeplan.BackendTrafficPolicyInput{
 		ResponseOverride: []models.ResponseOverrideRule{
 			{
 				Match: models.ResponseOverrideMatch{
@@ -625,7 +627,7 @@ func TestInternalGenerateBTPYAML_ResponseOverride(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAML(route, domain, input)
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "BackendTrafficPolicy")
@@ -637,7 +639,7 @@ func TestInternalGenerateBTPYAML_ResponseOverride(t *testing.T) {
 func TestInternalGenerateBTPYAMLFromDB_Nil(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateBackendTrafficPolicyYAMLFromDB(route, domain, nil)
+	result := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, nil)
 	assert.Empty(t, result)
 }
 
@@ -645,7 +647,7 @@ func TestInternalGenerateBTPYAMLFromDB_EmptyConfig(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
 	policy := &models.BackendTrafficPolicy{Config: models.BackendTrafficPolicyConfig{}}
-	result := generateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
 	assert.Empty(t, result)
 }
 
@@ -667,7 +669,7 @@ func TestInternalGenerateBTPYAMLFromDB_WithRetry(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "BackendTrafficPolicy")
@@ -679,27 +681,27 @@ func TestInternalGenerateBTPYAMLFromDB_WithRetry(t *testing.T) {
 func TestInternalGenerateEEPYAML_Nil(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateEnvoyExtensionPolicyYAML(route, domain, nil)
+	result := routeplan.GenerateEnvoyExtensionPolicyYAML(route, domain, nil)
 	assert.Empty(t, result)
 }
 
 func TestInternalGenerateEEPYAML_EmptyInput(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateEnvoyExtensionPolicyYAML(route, domain, &EnvoyExtensionPolicyInput{})
+	result := routeplan.GenerateEnvoyExtensionPolicyYAML(route, domain, &routeplan.EnvoyExtensionPolicyInput{})
 	assert.Empty(t, result)
 }
 
 func TestInternalGenerateEEPYAML_Lua(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &EnvoyExtensionPolicyInput{
+	input := &routeplan.EnvoyExtensionPolicyInput{
 		Lua: &models.LuaExtensionConfig{
 			Type:   "Inline",
 			Inline: `function envoy_on_request(handle) end`,
 		},
 	}
-	result := generateEnvoyExtensionPolicyYAML(route, domain, input)
+	result := routeplan.GenerateEnvoyExtensionPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
@@ -709,7 +711,7 @@ func TestInternalGenerateEEPYAML_Lua(t *testing.T) {
 func TestInternalGenerateEEPYAML_Wasm(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	input := &EnvoyExtensionPolicyInput{
+	input := &routeplan.EnvoyExtensionPolicyInput{
 		Wasm: &models.WasmExtensionConfig{
 			Name: "my-wasm",
 			Code: models.WasmCodeSource{
@@ -718,7 +720,7 @@ func TestInternalGenerateEEPYAML_Wasm(t *testing.T) {
 			},
 		},
 	}
-	result := generateEnvoyExtensionPolicyYAML(route, domain, input)
+	result := routeplan.GenerateEnvoyExtensionPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
@@ -730,18 +732,18 @@ func TestInternalGenerateEEPYAML_Wasm(t *testing.T) {
 func TestInternalGenerateEEPYAMLWithWaf_NilInputs(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateEnvoyExtensionPolicyYAMLWithWaf(route, domain, nil, nil, WAFConfig{})
+	result := routeplan.GenerateEnvoyExtensionPolicyYAMLWithWaf(route, domain, nil, nil, routeplan.WAFConfig{})
 	assert.Empty(t, result)
 }
 
 func TestInternalGenerateEEPYAMLWithWaf_WafOnly(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	wafInput := &WafPolicyInput{
+	wafInput := &routeplan.WafPolicyInput{
 		Mode:     "block",
 		Rulesets: []string{"owasp-crs"},
 	}
-	result := generateEnvoyExtensionPolicyYAMLWithWaf(route, domain, nil, wafInput, WAFConfig{})
+	result := routeplan.GenerateEnvoyExtensionPolicyYAMLWithWaf(route, domain, nil, wafInput, routeplan.WAFConfig{})
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
@@ -751,17 +753,17 @@ func TestInternalGenerateEEPYAMLWithWaf_WafOnly(t *testing.T) {
 func TestInternalGenerateEEPYAMLWithWaf_LuaPlusWaf(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	extInput := &EnvoyExtensionPolicyInput{
+	extInput := &routeplan.EnvoyExtensionPolicyInput{
 		Lua: &models.LuaExtensionConfig{
 			Type:   "Inline",
 			Inline: `function envoy_on_request(handle) end`,
 		},
 	}
-	wafInput := &WafPolicyInput{
+	wafInput := &routeplan.WafPolicyInput{
 		Mode:     "detect",
 		Rulesets: []string{"owasp-crs"},
 	}
-	result := generateEnvoyExtensionPolicyYAMLWithWaf(route, domain, extInput, wafInput, WAFConfig{})
+	result := routeplan.GenerateEnvoyExtensionPolicyYAMLWithWaf(route, domain, extInput, wafInput, routeplan.WAFConfig{})
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
@@ -773,10 +775,10 @@ func TestInternalGenerateEEPYAMLWithWaf_LuaPlusWaf(t *testing.T) {
 
 func TestInternalMapRetryConfigToPolicy(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
-		assert.Nil(t, mapRetryConfigToPolicy(nil))
+		assert.Nil(t, routeplan.MapRetryConfigToPolicy(nil))
 	})
 	t.Run("basic", func(t *testing.T) {
-		result := mapRetryConfigToPolicy(&models.RetryConfig{
+		result := routeplan.MapRetryConfigToPolicy(&models.RetryConfig{
 			NumRetries: ptrInt32(3),
 			RetryOn:    &models.RetryOn{HTTPStatusCodes: []int{502, 503}, Triggers: []string{"5xx"}},
 			PerRetryPolicy: &models.PerRetryPolicy{
@@ -800,17 +802,17 @@ func TestInternalMapRetryConfigToPolicy(t *testing.T) {
 
 func TestInternalMapLoadBalancerConfigToPolicy(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
-		assert.Nil(t, mapLoadBalancerConfigToPolicy(nil))
+		assert.Nil(t, routeplan.MapLoadBalancerConfigToPolicy(nil))
 	})
 	t.Run("round robin", func(t *testing.T) {
-		result := mapLoadBalancerConfigToPolicy(&models.LoadBalancerConfig{
+		result := routeplan.MapLoadBalancerConfigToPolicy(&models.LoadBalancerConfig{
 			Type: models.LoadBalancerTypeRoundRobin,
 		})
 		require.NotNil(t, result)
 		assert.Equal(t, "RoundRobin", result.Type)
 	})
 	t.Run("consistent hash header", func(t *testing.T) {
-		result := mapLoadBalancerConfigToPolicy(&models.LoadBalancerConfig{
+		result := routeplan.MapLoadBalancerConfigToPolicy(&models.LoadBalancerConfig{
 			Type: models.LoadBalancerTypeConsistentHash,
 			ConsistentHash: &models.ConsistentHashConfig{
 				Type:   models.ConsistentHashTypeHeader,
@@ -825,7 +827,7 @@ func TestInternalMapLoadBalancerConfigToPolicy(t *testing.T) {
 		assert.Equal(t, "X-Session", result.ConsistentHash.Header.Name)
 	})
 	t.Run("consistent hash cookie", func(t *testing.T) {
-		result := mapLoadBalancerConfigToPolicy(&models.LoadBalancerConfig{
+		result := routeplan.MapLoadBalancerConfigToPolicy(&models.LoadBalancerConfig{
 			Type: models.LoadBalancerTypeConsistentHash,
 			ConsistentHash: &models.ConsistentHashConfig{
 				Type:   models.ConsistentHashTypeCookie,
@@ -842,10 +844,10 @@ func TestInternalMapLoadBalancerConfigToPolicy(t *testing.T) {
 
 func TestInternalMapCircuitBreakerConfigToPolicy(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
-		assert.Nil(t, mapCircuitBreakerConfigToPolicy(nil))
+		assert.Nil(t, routeplan.MapCircuitBreakerConfigToPolicy(nil))
 	})
 	t.Run("with values", func(t *testing.T) {
-		result := mapCircuitBreakerConfigToPolicy(&models.CircuitBreakerConfig{
+		result := routeplan.MapCircuitBreakerConfigToPolicy(&models.CircuitBreakerConfig{
 			MaxConnections:      ptrInt64(100),
 			MaxPendingRequests:  ptrInt64(50),
 			MaxParallelRequests: ptrInt64(10),
@@ -859,10 +861,10 @@ func TestInternalMapCircuitBreakerConfigToPolicy(t *testing.T) {
 
 func TestInternalMapHealthCheckConfigToPolicy(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
-		assert.Nil(t, mapHealthCheckConfigToPolicy(nil))
+		assert.Nil(t, routeplan.MapHealthCheckConfigToPolicy(nil))
 	})
 	t.Run("active HTTP", func(t *testing.T) {
-		result := mapHealthCheckConfigToPolicy(&models.HealthCheckConfig{
+		result := routeplan.MapHealthCheckConfigToPolicy(&models.HealthCheckConfig{
 			Active: &models.ActiveHealthCheckConfig{
 				Type:     "HTTP",
 				Interval: ptrString("10s"),
@@ -876,7 +878,7 @@ func TestInternalMapHealthCheckConfigToPolicy(t *testing.T) {
 		assert.Equal(t, "/healthz", result.Active.HTTP.Path)
 	})
 	t.Run("passive", func(t *testing.T) {
-		result := mapHealthCheckConfigToPolicy(&models.HealthCheckConfig{
+		result := routeplan.MapHealthCheckConfigToPolicy(&models.HealthCheckConfig{
 			Passive: &models.PassiveHealthCheckConfig{
 				Consecutive5xxErrors: ptrUint32(5),
 				Interval:             ptrString("30s"),
@@ -890,11 +892,11 @@ func TestInternalMapHealthCheckConfigToPolicy(t *testing.T) {
 
 func TestInternalMapFaultInjectionConfigToPolicy(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
-		assert.Nil(t, mapFaultInjectionConfigToPolicy(nil))
+		assert.Nil(t, routeplan.MapFaultInjectionConfigToPolicy(nil))
 	})
 	t.Run("delay and abort", func(t *testing.T) {
 		httpStatus := 503
-		result := mapFaultInjectionConfigToPolicy(&models.FaultInjectionConfig{
+		result := routeplan.MapFaultInjectionConfigToPolicy(&models.FaultInjectionConfig{
 			Delay: &models.FaultInjectionDelayConfig{FixedDelay: "500ms", Percentage: ptrFloat32(25)},
 			Abort: &models.FaultInjectionAbortConfig{HTTPStatus: &httpStatus, Percentage: ptrFloat32(10)},
 		})
@@ -908,13 +910,13 @@ func TestInternalMapFaultInjectionConfigToPolicy(t *testing.T) {
 
 func TestInternalMapRateLimitConfigToPolicy(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
-		assert.Nil(t, mapRateLimitConfigToPolicy(nil))
+		assert.Nil(t, routeplan.MapRateLimitConfigToPolicy(nil))
 	})
 	t.Run("nil global", func(t *testing.T) {
-		assert.Nil(t, mapRateLimitConfigToPolicy(&models.RateLimitConfig{}))
+		assert.Nil(t, routeplan.MapRateLimitConfigToPolicy(&models.RateLimitConfig{}))
 	})
 	t.Run("with rules", func(t *testing.T) {
-		result := mapRateLimitConfigToPolicy(&models.RateLimitConfig{
+		result := routeplan.MapRateLimitConfigToPolicy(&models.RateLimitConfig{
 			Global: &models.GlobalRateLimitConfig{
 				Rules: []models.RateLimitRule{
 					{
@@ -967,7 +969,7 @@ func TestInternalMapResponseOverrideToPolicy(t *testing.T) {
 			},
 		},
 	}
-	result := mapResponseOverrideToPolicy(rules)
+	result := routeplan.MapResponseOverrideToPolicy(rules)
 	require.Len(t, result, 1)
 	require.Len(t, result[0].Match.StatusCodes, 2)
 	assert.Equal(t, "Value", result[0].Match.StatusCodes[0].Type)
@@ -998,7 +1000,7 @@ func TestInternalMapResponseOverrideToPolicy_WithValueRef(t *testing.T) {
 			},
 		},
 	}
-	result := mapResponseOverrideToPolicy(rules)
+	result := routeplan.MapResponseOverrideToPolicy(rules)
 	require.Len(t, result, 1)
 	assert.Equal(t, "ValueRef", result[0].Response.Body.Type)
 	require.NotNil(t, result[0].Response.Body.ValueRef)
@@ -1008,10 +1010,10 @@ func TestInternalMapResponseOverrideToPolicy_WithValueRef(t *testing.T) {
 
 func TestInternalMapTimeoutConfigToPolicy(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
-		assert.Nil(t, mapTimeoutConfigToPolicy(nil))
+		assert.Nil(t, routeplan.MapTimeoutConfigToPolicy(nil))
 	})
 	t.Run("tcp and http", func(t *testing.T) {
-		result := mapTimeoutConfigToPolicy(&models.BTPTimeoutConfig{
+		result := routeplan.MapTimeoutConfigToPolicy(&models.BTPTimeoutConfig{
 			TCP:  &models.BTPTCPTimeoutConfig{ConnectTimeout: "5s"},
 			HTTP: &models.BTPHTTPTimeoutConfig{RequestTimeout: "30s", ConnectionIdleTimeout: "60s", MaxConnectionDuration: "300s", MaxStreamDuration: "120s"},
 		})
@@ -1031,7 +1033,7 @@ func TestInternalMapTimeoutConfigToPolicy(t *testing.T) {
 func TestInternalBuildHTTPRouteConfigForYAML(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	config := buildHTTPRouteConfigForYAML(route, domain)
+	config := routeplan.BuildHTTPRouteConfigForYAML(route, domain)
 
 	require.NotNil(t, config)
 	assert.Equal(t, "test-route-11111111", config.Name)
@@ -1052,7 +1054,7 @@ func TestInternalBuildHTTPRouteConfigForYAML_WithRedirect(t *testing.T) {
 	}
 	route.Config.Backends = nil
 	domain := testDomain()
-	config := buildHTTPRouteConfigForYAML(route, domain)
+	config := routeplan.BuildHTTPRouteConfigForYAML(route, domain)
 
 	require.NotNil(t, config)
 	require.NotNil(t, config.Redirect)
@@ -1066,7 +1068,7 @@ func TestInternalBuildHTTPRouteConfigForYAML_WithMirrors(t *testing.T) {
 		{Type: models.BackendTypeKubernetes, Service: "mirror-svc", Namespace: "mirror-ns", Port: 9090},
 	}
 	domain := testDomain()
-	config := buildHTTPRouteConfigForYAML(route, domain)
+	config := routeplan.BuildHTTPRouteConfigForYAML(route, domain)
 
 	require.NotNil(t, config)
 	require.Len(t, config.Mirrors, 1)
@@ -1083,7 +1085,7 @@ func TestInternalBuildGRPCRouteConfigForYAML(t *testing.T) {
 		},
 	}
 	domain := testDomain()
-	config := buildGRPCRouteConfigForYAML(route, domain)
+	config := routeplan.BuildGRPCRouteConfigForYAML(route, domain)
 
 	require.NotNil(t, config)
 	assert.Equal(t, "test-route-11111111", config.Name)
@@ -1098,14 +1100,14 @@ func TestInternalBuildGRPCRouteConfigForYAML(t *testing.T) {
 func TestInternalSecurityPolicyConfigFromDB_Nil(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	assert.Nil(t, securityPolicyConfigFromDB(route, domain, nil))
+	assert.Nil(t, routeplan.SecurityPolicyConfigFromDB(route, domain, nil))
 }
 
 func TestInternalSecurityPolicyConfigFromDB_EmptyConfig(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
 	policy := &models.SecurityPolicy{Config: models.SecurityPolicyConfig{}}
-	assert.Nil(t, securityPolicyConfigFromDB(route, domain, policy))
+	assert.Nil(t, routeplan.SecurityPolicyConfigFromDB(route, domain, policy))
 }
 
 func TestInternalSecurityPolicyConfigFromDB_CORS(t *testing.T) {
@@ -1124,7 +1126,7 @@ func TestInternalSecurityPolicyConfigFromDB_CORS(t *testing.T) {
 			},
 		},
 	}
-	config := securityPolicyConfigFromDB(route, domain, policy)
+	config := routeplan.SecurityPolicyConfigFromDB(route, domain, policy)
 	require.NotNil(t, config)
 	require.NotNil(t, config.CORS)
 	assert.Equal(t, []string{"https://app.example.com"}, config.CORS.AllowOrigins)
@@ -1154,7 +1156,7 @@ func TestInternalSecurityPolicyConfigFromDB_JWT(t *testing.T) {
 			},
 		},
 	}
-	config := securityPolicyConfigFromDB(route, domain, policy)
+	config := routeplan.SecurityPolicyConfigFromDB(route, domain, policy)
 	require.NotNil(t, config)
 	require.NotNil(t, config.JWT)
 	require.Len(t, config.JWT.Providers, 1)
@@ -1182,7 +1184,7 @@ func TestInternalSecurityPolicyConfigFromDB_OIDC(t *testing.T) {
 			},
 		},
 	}
-	config := securityPolicyConfigFromDB(route, domain, policy)
+	config := routeplan.SecurityPolicyConfigFromDB(route, domain, policy)
 	require.NotNil(t, config)
 	require.NotNil(t, config.OIDC)
 	assert.Equal(t, "https://accounts.google.com", config.OIDC.Issuer)
@@ -1206,10 +1208,10 @@ func TestInternalSecurityPolicyConfigFromDB_OIDC_DefaultNS(t *testing.T) {
 			},
 		},
 	}
-	config := securityPolicyConfigFromDB(route, domain, policy)
+	config := routeplan.SecurityPolicyConfigFromDB(route, domain, policy)
 	require.NotNil(t, config)
 	require.NotNil(t, config.OIDC)
-	assert.Equal(t, FastGatewayNamespace, config.OIDC.ClientSecretNS)
+	assert.Equal(t, kubernetes.FastGatewayNamespace, config.OIDC.ClientSecretNS)
 }
 
 func TestInternalSecurityPolicyConfigFromDB_ExtAuth(t *testing.T) {
@@ -1226,7 +1228,7 @@ func TestInternalSecurityPolicyConfigFromDB_ExtAuth(t *testing.T) {
 			},
 		},
 	}
-	config := securityPolicyConfigFromDB(route, domain, policy)
+	config := routeplan.SecurityPolicyConfigFromDB(route, domain, policy)
 	require.NotNil(t, config)
 	require.NotNil(t, config.ExtAuth)
 	assert.Equal(t, "http", config.ExtAuth.Type)
@@ -1243,7 +1245,7 @@ func TestInternalSecurityPolicyConfigFromDB_APIKeyAuth(t *testing.T) {
 			},
 		},
 	}
-	config := securityPolicyConfigFromDB(route, domain, policy)
+	config := routeplan.SecurityPolicyConfigFromDB(route, domain, policy)
 	require.NotNil(t, config)
 	require.NotNil(t, config.APIKeyAuth)
 	require.Len(t, config.APIKeyAuth.CredentialRefs, 1)
@@ -1255,7 +1257,7 @@ func TestInternalSecurityPolicyConfigFromDB_APIKeyAuth(t *testing.T) {
 func TestInternalGenerateEEPYAMLFromDB_Nil(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateEnvoyExtensionPolicyYAMLFromDB(route, domain, nil)
+	result := routeplan.GenerateEnvoyExtensionPolicyYAMLFromDB(route, domain, nil)
 	assert.Empty(t, result)
 }
 
@@ -1263,7 +1265,7 @@ func TestInternalGenerateEEPYAMLFromDB_EmptyConfig(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
 	policy := &models.EnvoyExtensionPolicy{Config: models.EnvoyExtensionPolicyConfig{}}
-	result := generateEnvoyExtensionPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateEnvoyExtensionPolicyYAMLFromDB(route, domain, policy)
 	assert.Empty(t, result)
 }
 
@@ -1278,7 +1280,7 @@ func TestInternalGenerateEEPYAMLFromDB_WithLua(t *testing.T) {
 			},
 		},
 	}
-	result := generateEnvoyExtensionPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateEnvoyExtensionPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
@@ -1299,7 +1301,7 @@ func TestInternalGenerateEEPYAMLFromDB_WithWasm(t *testing.T) {
 			},
 		},
 	}
-	result := generateEnvoyExtensionPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateEnvoyExtensionPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
@@ -1311,7 +1313,7 @@ func TestInternalGenerateEEPYAMLFromDB_WithWasm(t *testing.T) {
 func TestInternalGenerateEEPYAMLFromSnapshot_Empty(t *testing.T) {
 	route := testRoute()
 	domain := testDomain()
-	result := generateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, nil, nil, WAFConfig{})
+	result := routeplan.GenerateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, nil, nil, routeplan.WAFConfig{})
 	assert.Empty(t, result)
 }
 
@@ -1324,7 +1326,7 @@ func TestInternalGenerateEEPYAMLFromSnapshot_WithWaf(t *testing.T) {
 			Rulesets: []string{"owasp-crs"},
 		},
 	}
-	result := generateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, nil, wafPolicy, WAFConfig{})
+	result := routeplan.GenerateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, nil, wafPolicy, routeplan.WAFConfig{})
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
@@ -1348,7 +1350,7 @@ func TestInternalGenerateEEPYAMLFromSnapshot_ExtAndWaf(t *testing.T) {
 			Rulesets: []string{"owasp-crs"},
 		},
 	}
-	result := generateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, extPolicy, wafPolicy, WAFConfig{})
+	result := routeplan.GenerateEnvoyExtensionPolicyYAMLFromSnapshot(route, domain, extPolicy, wafPolicy, routeplan.WAFConfig{})
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "EnvoyExtensionPolicy")
@@ -1370,7 +1372,7 @@ func TestInternalGenerateBTPYAMLFromDB_Compression(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "Gzip")
@@ -1386,7 +1388,7 @@ func TestInternalGenerateBTPYAMLFromDB_LoadBalancer(t *testing.T) {
 			LoadBalancer: &models.LoadBalancerConfig{Type: models.LoadBalancerTypeLeastRequest},
 		},
 	}
-	result := generateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "LeastRequest")
@@ -1402,7 +1404,7 @@ func TestInternalGenerateBTPYAMLFromDB_FaultInjection(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "faultInjection")
@@ -1422,7 +1424,7 @@ func TestInternalGenerateBTPYAMLFromDB_RateLimit(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "rateLimit")
@@ -1438,7 +1440,7 @@ func TestInternalGenerateBTPYAMLFromDB_Timeout(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "timeout")
@@ -1465,7 +1467,7 @@ func TestInternalGenerateBTPYAMLFromDB_ResponseOverride(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "responseOverride")
@@ -1481,7 +1483,7 @@ func TestInternalGenerateBTPYAMLFromDB_CircuitBreaker(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "circuitBreaker")
@@ -1500,7 +1502,7 @@ func TestInternalGenerateBTPYAMLFromDB_HealthCheck(t *testing.T) {
 			},
 		},
 	}
-	result := generateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
+	result := routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, policy)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "healthCheck")
@@ -1515,10 +1517,10 @@ func TestInternalGenerateBTPYAML_GRPCRouteKind(t *testing.T) {
 		{GRPCService: &models.GRPCMethodMatch{Type: "Exact", Value: "svc.Service"}},
 	}
 	domain := testDomain()
-	input := &BackendTrafficPolicyInput{
+	input := &routeplan.BackendTrafficPolicyInput{
 		Retry: &models.RetryConfig{NumRetries: ptrInt32(2)},
 	}
-	result := generateBackendTrafficPolicyYAML(route, domain, input)
+	result := routeplan.GenerateBackendTrafficPolicyYAML(route, domain, input)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "GRPCRoute")
@@ -1528,10 +1530,10 @@ func TestInternalGenerateSecurityPolicyYAML_GRPCRouteKind(t *testing.T) {
 	route := testRoute()
 	route.Protocol = models.RouteProtocolGRPC
 	domain := testDomain()
-	input := &SecurityPolicyInput{
+	input := &routeplan.SecurityPolicyInput{
 		CORS: &models.CORSConfig{AllowOrigins: []string{"*"}},
 	}
-	result := generateSecurityPolicyYAML(route, domain, input, nil)
+	result := routeplan.GenerateSecurityPolicyYAML(route, domain, input, nil)
 
 	require.NotEmpty(t, result)
 	assert.Contains(t, result, "GRPCRoute")

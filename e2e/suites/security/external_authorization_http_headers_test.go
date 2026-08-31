@@ -8,6 +8,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -18,9 +19,9 @@ import (
 // external-auth. Matches
 // external_authorization/test_http_headers_to_ext_auth.py's ALLOWED_CONFIG
 // / DENIED_CONFIG (identical securityPolicy in both).
-func extAuthWithHeaders() *services.SecurityPolicyInput {
+func extAuthWithHeaders() *routeplan.SecurityPolicyInput {
 	failOpen := false
-	return &services.SecurityPolicyInput{
+	return &routeplan.SecurityPolicyInput{
 		ExtAuth: &models.ExtAuthConfig{
 			Type: "http",
 			HTTP: &models.ExtAuthHTTPConfig{

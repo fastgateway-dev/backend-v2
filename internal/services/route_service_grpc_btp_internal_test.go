@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 )
 
 // validateGRPCBackendTrafficPolicy is what stops a gRPC route from being
@@ -22,7 +23,7 @@ func TestValidateGRPCBackendTrafficPolicy(t *testing.T) {
 
 	t.Run("policy without requestBuffer is allowed", func(t *testing.T) {
 		limit := int64(5)
-		btp := &BackendTrafficPolicyInput{
+		btp := &routeplan.BackendTrafficPolicyInput{
 			CircuitBreaker: &models.CircuitBreakerConfig{MaxParallelRequests: &limit},
 		}
 		if err := validateGRPCBackendTrafficPolicy(btp); err != nil {
@@ -31,7 +32,7 @@ func TestValidateGRPCBackendTrafficPolicy(t *testing.T) {
 	})
 
 	t.Run("requestBuffer is rejected", func(t *testing.T) {
-		btp := &BackendTrafficPolicyInput{
+		btp := &routeplan.BackendTrafficPolicyInput{
 			RequestBuffer: &models.RequestBufferConfig{Limit: "1Ki"},
 		}
 		err := validateGRPCBackendTrafficPolicy(btp)

@@ -19,9 +19,10 @@ import (
 //
 // The client here has BOTH IP allowlisting (CIDR 0.0.0.0/0) and API key
 // auth enabled, combined with AND semantics (see
-// RouteService.buildAPIKeySecurityPolicyConfig's "AND logic" comment,
-// internal/services/route_service.go:6895 -- when requireIP is set, the
-// per-client authorization rule's ClientCIDRs are layered onto the SAME
+// RouteService.buildAPIKeySecurityPolicyConfig, which delegates to
+// routeplan.applyClientSecurityFeatures's "AND logic" comment,
+// internal/routeplan/securitypolicy_features.go:307 -- when requireIP is
+// set, the per-client authorization rule's ClientCIDRs are layered onto the SAME
 // rule as the API-key check, not evaluated as an independent
 // either-suffices condition). Because the CIDR is deliberately 0.0.0.0/0
 // (the only way to also exercise a genuine POSITIVE case, since the test

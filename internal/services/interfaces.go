@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
+	"github.com/fastgateway-dev/backend-v2/internal/cluster"
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/google/uuid"
@@ -150,28 +152,28 @@ type DomainTemplateServiceInterface interface {
 	PreviewCreate(projectID uuid.UUID, input *CreateDomainTemplateInput, userID uuid.UUID, opts *PreviewChangesOptions) (*DomainTemplateCreatePreviewResult, error)
 }
 
-// KubernetesServiceInterface defines the public methods of KubernetesService
+// KubernetesServiceInterface defines the public methods of *cluster.Client
 type KubernetesServiceInterface interface {
 	EnsureNamespace(ctx context.Context, projectID uuid.UUID, namespace string) error
-	CreateGateway(ctx context.Context, projectID uuid.UUID, config *GatewayConfig) error
+	CreateGateway(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayConfig) error
 	DeleteGateway(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateHTTPRoute(ctx context.Context, projectID uuid.UUID, config *HTTPRouteConfig) error
-	UpdateHTTPRoute(ctx context.Context, projectID uuid.UUID, config *HTTPRouteConfig) error
+	CreateHTTPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.HTTPRouteConfig) error
+	UpdateHTTPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.HTTPRouteConfig) error
 	DeleteHTTPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateGRPCRoute(ctx context.Context, projectID uuid.UUID, config *GRPCRouteConfig) error
-	UpdateGRPCRoute(ctx context.Context, projectID uuid.UUID, config *GRPCRouteConfig) error
+	CreateGRPCRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.GRPCRouteConfig) error
+	UpdateGRPCRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.GRPCRouteConfig) error
 	DeleteGRPCRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateSecurityPolicy(ctx context.Context, projectID uuid.UUID, config *SecurityPolicyConfig) error
-	UpdateSecurityPolicy(ctx context.Context, projectID uuid.UUID, config *SecurityPolicyConfig) error
+	CreateSecurityPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.SecurityPolicyConfig) error
+	UpdateSecurityPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.SecurityPolicyConfig) error
 	DeleteSecurityPolicy(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *BackendTrafficPolicyConfig) error
-	UpdateBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *BackendTrafficPolicyConfig) error
+	CreateBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendTrafficPolicyConfig) error
+	UpdateBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendTrafficPolicyConfig) error
 	DeleteBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, namespace, name string) error
 	CreateEnvoyExtensionPolicy(ctx context.Context, projectID uuid.UUID, policy *unstructured.Unstructured) error
 	UpdateEnvoyExtensionPolicy(ctx context.Context, projectID uuid.UUID, policy *unstructured.Unstructured) error
 	DeleteEnvoyExtensionPolicy(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateBackend(ctx context.Context, projectID uuid.UUID, config *BackendConfig) error
-	UpdateBackend(ctx context.Context, projectID uuid.UUID, config *BackendConfig) error
+	CreateBackend(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendConfig) error
+	UpdateBackend(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendConfig) error
 	DeleteBackend(ctx context.Context, projectID uuid.UUID, namespace, name string) error
 	UpdateBackendUnstructured(ctx context.Context, projectID uuid.UUID, backend *unstructured.Unstructured) error
 	DeleteBackendsByRoute(ctx context.Context, projectID uuid.UUID, namespace, routeID string) error
@@ -179,26 +181,26 @@ type KubernetesServiceInterface interface {
 	TestConnection(ctx context.Context, projectID uuid.UUID) (bool, string, error)
 	ListNamespaces(ctx context.Context, projectID uuid.UUID) ([]string, error)
 	ListServices(ctx context.Context, projectID uuid.UUID, namespace string) ([]map[string]interface{}, error)
-	ListTLSSecrets(ctx context.Context, projectID uuid.UUID, namespace string) ([]TLSSecretInfo, error)
+	ListTLSSecrets(ctx context.Context, projectID uuid.UUID, namespace string) ([]cluster.TLSSecretInfo, error)
 	ListGatewayClasses(ctx context.Context, projectID uuid.UUID) ([]string, error)
-	ValidatePrerequisites(ctx context.Context, apiURL, token string) (*PrerequisiteCheck, error)
-	CreateGatewayClass(ctx context.Context, projectID uuid.UUID, config *GatewayClassConfig) error
+	ValidatePrerequisites(ctx context.Context, apiURL, token string) (*cluster.PrerequisiteCheck, error)
+	CreateGatewayClass(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayClassConfig) error
 	DeleteGatewayClass(ctx context.Context, projectID uuid.UUID, name string) error
-	CreateEnvoyProxy(ctx context.Context, projectID uuid.UUID, config *EnvoyProxyConfig) error
-	UpdateEnvoyProxy(ctx context.Context, projectID uuid.UUID, config *EnvoyProxyConfig) error
+	CreateEnvoyProxy(ctx context.Context, projectID uuid.UUID, config *kubernetes.EnvoyProxyConfig) error
+	UpdateEnvoyProxy(ctx context.Context, projectID uuid.UUID, config *kubernetes.EnvoyProxyConfig) error
 	DeleteEnvoyProxy(ctx context.Context, projectID uuid.UUID, namespace, name string) error
 	ValidateEnvoyGatewayInstalled(ctx context.Context, projectID uuid.UUID) (bool, string, error)
-	CreateReferenceGrant(ctx context.Context, projectID uuid.UUID, config *ReferenceGrantConfig) error
+	CreateReferenceGrant(ctx context.Context, projectID uuid.UUID, config *cluster.ReferenceGrantConfig) error
 	DeleteReferenceGrant(ctx context.Context, projectID uuid.UUID, namespace, name string) error
 	GetReferenceGrant(ctx context.Context, projectID uuid.UUID, namespace, name string) (*unstructured.Unstructured, error)
 	ReferenceGrantExists(ctx context.Context, projectID uuid.UUID, namespace, name string) (bool, error)
-	RecreateReferenceGrant(ctx context.Context, projectID uuid.UUID, config *ReferenceGrantConfig) error
-	ApplyHTTPRouteFilter(ctx context.Context, projectID uuid.UUID, config *HTTPRouteFilterConfig) error
+	RecreateReferenceGrant(ctx context.Context, projectID uuid.UUID, config *cluster.ReferenceGrantConfig) error
+	ApplyHTTPRouteFilter(ctx context.Context, projectID uuid.UUID, config *kubernetes.HTTPRouteFilterConfig) error
 	DeleteHTTPRouteFilter(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	ApplyDirectResponseConfigMap(ctx context.Context, projectID uuid.UUID, config *DirectResponseConfigMapConfig) error
+	ApplyDirectResponseConfigMap(ctx context.Context, projectID uuid.UUID, config *kubernetes.DirectResponseConfigMapConfig) error
 	DeleteDirectResponseConfigMap(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *ClientTrafficPolicyConfig) error
-	UpdateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *ClientTrafficPolicyConfig) error
+	CreateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.ClientTrafficPolicyConfig) error
+	UpdateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.ClientTrafficPolicyConfig) error
 	DeleteClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, namespace, name string) error
 	GetAPIKeySecretName(clientID uuid.UUID) string
 	CreateAPIKeySecret(ctx context.Context, projectID uuid.UUID, clientID uuid.UUID, apiKey string) error
@@ -209,7 +211,7 @@ type KubernetesServiceInterface interface {
 	GetSecretData(ctx context.Context, projectID uuid.UUID, namespace, name, key string) ([]byte, error)
 	IsRateLimitAvailable(ctx context.Context, projectID uuid.UUID) (bool, error)
 	DeleteStaleAPIKeyResources(ctx context.Context, projectID uuid.UUID, namespace, routeID, baseRouteName string, expectedClientPrefixes map[string]bool) error
-	DetectVersions(ctx context.Context, projectID uuid.UUID) (*RawVersions, error)
+	DetectVersions(ctx context.Context, projectID uuid.UUID) (*cluster.RawVersions, error)
 }
 
 // MetricsServiceInterface defines the public methods of MetricsService.
@@ -398,7 +400,8 @@ var _ ClientServiceInterface = (*ClientService)(nil)
 var _ CommentServiceInterface = (*CommentService)(nil)
 var _ DomainServiceInterface = (*DomainService)(nil)
 var _ DomainTemplateServiceInterface = (*DomainTemplateService)(nil)
-var _ KubernetesServiceInterface = (*KubernetesService)(nil)
+var _ KubernetesServiceInterface = (*cluster.Client)(nil)
+var _ cluster.ProjectCredentials = (*ProjectService)(nil)
 var _ MetricsServiceInterface = (*MetricsService)(nil)
 var _ NotificationServiceInterface = (*NotificationService)(nil)
 var _ PresetServiceInterface = (*PresetService)(nil)

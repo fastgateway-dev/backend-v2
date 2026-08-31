@@ -10,6 +10,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -48,8 +49,8 @@ func TestTopologyIPRowsRequiredColumns(t *testing.T) {
 	const testCIDR = "203.0.113.0/24" // TEST-NET-3, RFC 5737
 
 	_, _, cfg := simpleRouteConfig(t)
-	cfg.SecurityPolicy = &services.SecurityPolicyInput{
-		Authorization: &services.AuthorizationInput{AllowedCIDRs: []string{testCIDR}},
+	cfg.SecurityPolicy = &routeplan.SecurityPolicyInput{
+		Authorization: &routeplan.AuthorizationInput{AllowedCIDRs: []string{testCIDR}},
 	}
 	fx := harness.NewFixture(t, env)
 	route := fx.Route(cfg)

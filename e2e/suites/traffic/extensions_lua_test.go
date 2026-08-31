@@ -9,7 +9,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 )
 
 // TestExtensionsLua ports extensions/test_lua.py: an inline Lua response
@@ -25,7 +25,7 @@ func TestExtensionsLua(t *testing.T) {
 end`
 
 	_, path, cfg := backendRouteConfig(t)
-	cfg.ExtensionPolicy = &services.EnvoyExtensionPolicyInput{
+	cfg.ExtensionPolicy = &routeplan.EnvoyExtensionPolicyInput{
 		Lua: &models.LuaExtensionConfig{Type: "Inline", Inline: luaScript},
 	}
 

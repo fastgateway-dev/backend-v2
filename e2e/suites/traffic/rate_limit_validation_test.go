@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -17,7 +18,7 @@ import (
 func rateLimitValidationConfig(t *testing.T, rules []models.RateLimitRule) services.CreateRouteInput {
 	t.Helper()
 	_, _, cfg := backendRouteConfig(t)
-	cfg.BackendTrafficPolicy = &services.BackendTrafficPolicyInput{
+	cfg.BackendTrafficPolicy = &routeplan.BackendTrafficPolicyInput{
 		RateLimit: &models.RateLimitConfig{Global: &models.GlobalRateLimitConfig{Rules: rules}},
 	}
 	return cfg

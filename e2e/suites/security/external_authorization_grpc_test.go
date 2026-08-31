@@ -8,6 +8,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -46,7 +47,7 @@ func TestExternalAuthorizationGRPC(t *testing.T) {
 			},
 			URLRewrite: rewriteTo("/"),
 		},
-		SecurityPolicy: &services.SecurityPolicyInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
 			ExtAuth: &models.ExtAuthConfig{
 				Type: "grpc",
 				GRPC: &models.ExtAuthGRPCConfig{

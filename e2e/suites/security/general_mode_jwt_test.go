@@ -9,6 +9,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -52,8 +53,8 @@ func TestGeneralModeJWT(t *testing.T) {
 			},
 			URLRewrite: rewriteTo("/"),
 		},
-		SecurityPolicy: &services.SecurityPolicyInput{
-			JWT: &services.JWTInput{
+		SecurityPolicy: &routeplan.SecurityPolicyInput{
+			JWT: &routeplan.JWTInput{
 				Issuer:    jwtIssuerURL(),
 				JWKSURL:   jwtIssuerURL() + "/jwks",
 				Audiences: []string{"my-api"},

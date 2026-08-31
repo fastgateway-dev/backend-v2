@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // envoyProxyGVR identifies Envoy Gateway's EnvoyProxy CRD for the dynamic
@@ -78,9 +78,9 @@ func getEnvoyProxy(t *testing.T, name string) *unstructured.Unstructured {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	obj, err := env.Kube.GetUnstructured(ctx, envoyProxyGVR, services.EnvoyGatewayNamespace, name)
+	obj, err := env.Kube.GetUnstructured(ctx, envoyProxyGVR, kubernetes.EnvoyGatewayNamespace, name)
 	if err != nil {
-		t.Fatalf("get EnvoyProxy %s/%s: %v", services.EnvoyGatewayNamespace, name, err)
+		t.Fatalf("get EnvoyProxy %s/%s: %v", kubernetes.EnvoyGatewayNamespace, name, err)
 	}
 	return obj
 }

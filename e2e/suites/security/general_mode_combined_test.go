@@ -9,6 +9,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -20,16 +21,16 @@ import (
 // carry identical securityPolicy content; only the allowedCIDRs value
 // differs between what this port treats as its "excluded" vs "allow-all"
 // variant).
-func combinedSecurityPolicy(allowedCIDRs []string) *services.SecurityPolicyInput {
+func combinedSecurityPolicy(allowedCIDRs []string) *routeplan.SecurityPolicyInput {
 	maxAge := 3600
-	return &services.SecurityPolicyInput{
+	return &routeplan.SecurityPolicyInput{
 		CORS: &models.CORSConfig{
 			AllowOrigins: []string{"https://example.com"},
 			AllowMethods: []string{"GET"},
 			AllowHeaders: []string{"Content-Type"},
 			MaxAge:       &maxAge,
 		},
-		Authorization: &services.AuthorizationInput{AllowedCIDRs: allowedCIDRs},
+		Authorization: &routeplan.AuthorizationInput{AllowedCIDRs: allowedCIDRs},
 	}
 }
 

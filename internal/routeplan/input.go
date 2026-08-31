@@ -11,7 +11,7 @@ import (
 // Built-in defaults for the coraza-proxy-wasm image, used by WAFConfig.ImageURL
 // when a field is left unset. Overriding these is done once, by
 // internal/config reading WAF_IMAGE/WAF_TAG and cmd/server/main.go passing the
-// result into services.WAFConfig — never by reading the environment here.
+// result into routeplan.WAFConfig — never by reading the environment here.
 const (
 	defaultWAFImage = "ghcr.io/corazawaf/coraza-proxy-wasm"
 	defaultWAFTag   = "0.6.0"

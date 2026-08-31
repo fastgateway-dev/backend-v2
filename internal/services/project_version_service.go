@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fastgateway-dev/backend-v2/internal/cluster"
 	"github.com/google/uuid"
 )
 
@@ -82,7 +83,7 @@ func (s *ProjectVersionService) Invalidate(projectID uuid.UUID) {
 	s.cache.Delete(projectID)
 }
 
-func buildVersionInfo(raw *RawVersions, now time.Time) *VersionInfo {
+func buildVersionInfo(raw *cluster.RawVersions, now time.Time) *VersionInfo {
 	return &VersionInfo{
 		Status:         ClassifyVersionPair(raw.EGVersion, raw.GWVersion),
 		EnvoyGateway:   buildProbe(raw.EGVersion, raw.EGImage, raw.EGSource, raw.EGError),
