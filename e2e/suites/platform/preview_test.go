@@ -103,7 +103,7 @@ func previewDirectResponseRouteConfig(t *testing.T) (name, path string, cfg serv
 //
 // This does not, and cannot, cover urlRewrite or requestHeaderModifier on a
 // directResponse route: the API rejects a directResponse route that sets
-// either field (see TestCreateRouteRejectsDirectResponseWithURLRewrite),
+// either field (see TestCreateRouteRejectsDirectResponseURLRewrite),
 // so no such route can ever reach the preview or deploy paths in the first
 // place.
 //
@@ -137,7 +137,7 @@ func TestPreviewCreateDirectResponseMatchesDeployedManifests(t *testing.T) {
 		deployedObject(t, ctx, httpRouteGVR, route.ID.String()))
 }
 
-// TestCreateRouteRejectsDirectResponseWithURLRewrite guards the API
+// TestCreateRouteRejectsDirectResponseURLRewrite guards the API
 // validation that makes a directResponse route with URLRewrite set
 // unreachable in the first place (route_service.go's Create, ~line 981):
 // "directResponse routes cannot have URL rewrite". This is the honest home
@@ -145,15 +145,15 @@ func TestPreviewCreateDirectResponseMatchesDeployedManifests(t *testing.T) {
 // used to (wrongly) try to guard via a fixture the API could never accept
 // -- turning that discovery into a permanent guard against the validation
 // silently regressing.
-func TestCreateRouteRejectsDirectResponseWithURLRewrite(t *testing.T) {
+func TestCreateRouteRejectsDirectResponseURLRewrite(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, path := uniquePath(t)
+	name, path := uniquePath(t)
 	cfg := services.CreateRouteInput{
-		Name:   path,
+		Name:   name,
 		TeamID: teamID(t),
 		Config: models.RouteConfig{
 			RouteType: models.RouteTypeDirectResponse,
