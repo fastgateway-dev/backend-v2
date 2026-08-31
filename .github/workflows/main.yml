@@ -260,12 +260,17 @@ jobs:
           kubectl -n default rollout status deployment/backend-tls-server-1 --timeout=120s
           kubectl -n default rollout status deployment/backend-mtls-server-1 --timeout=120s
 
-      # The four Go test doubles (e2e/servers/<name>) have no public image;
-      # build them from source and `kind load` them so the in-cluster
-      # Deployments (imagePullPolicy: Never, see e2e/deps/*.yaml) can start.
-      - name: Build and load the four test doubles into kind
+      # The Go test doubles (e2e/servers/<name>) have no public image; build
+      # them from source and `kind load` them so the in-cluster Deployments
+      # (imagePullPolicy: Never, see e2e/deps/*.yaml) can start.
+      #
+      # wasm-host serves the gRPC-safe proxy-wasm filter over plain HTTP inside
+      # the cluster, so the wasm tests no longer fetch a third-party .wasm from
+      # the public internet. Its Dockerfile verifies the module's pinned sha256
+      # at build time and fails loudly if the Go toolchain changes it.
+      - name: Build and load the test doubles into kind
         run: |
-          for svc in jwt-server external-auth grpc-external-auth ext-proc-server; do
+          for svc in jwt-server external-auth grpc-external-auth ext-proc-server wasm-host; do
             docker build -t "fastgateway-${svc}:latest" "e2e/servers/${svc}"
             kind load docker-image "fastgateway-${svc}:latest" --name "$KIND_CLUSTER"
           done
@@ -273,10 +278,12 @@ jobs:
           kubectl apply -f e2e/deps/external-auth.yaml
           kubectl apply -f e2e/deps/grpc-external-auth.yaml
           kubectl apply -f e2e/deps/ext-proc-server.yaml
+          kubectl apply -f e2e/deps/wasm-host.yaml
           kubectl -n default rollout status deployment/jwt-server --timeout=120s
           kubectl -n default rollout status deployment/external-auth --timeout=120s
           kubectl -n default rollout status deployment/grpc-external-auth --timeout=120s
           kubectl -n default rollout status deployment/ext-proc-server --timeout=120s
+          kubectl -n default rollout status deployment/wasm-host-deployment --timeout=120s
 
       - name: Resolve kind API server URL and FastGateway service-account token
         id: kube-creds

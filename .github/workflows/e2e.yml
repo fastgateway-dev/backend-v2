@@ -166,7 +166,7 @@ jobs:
 
       - name: Build and load the four test doubles into kind
         run: |
-          for svc in jwt-server external-auth grpc-external-auth ext-proc-server; do
+          for svc in jwt-server external-auth grpc-external-auth ext-proc-server wasm-host; do
             docker build -t "fastgateway-${svc}:latest" "e2e/servers/${svc}"
             kind load docker-image "fastgateway-${svc}:latest" --name "$KIND_CLUSTER"
           done
@@ -174,10 +174,12 @@ jobs:
           kubectl apply -f e2e/deps/external-auth.yaml
           kubectl apply -f e2e/deps/grpc-external-auth.yaml
           kubectl apply -f e2e/deps/ext-proc-server.yaml
+          kubectl apply -f e2e/deps/wasm-host.yaml
           kubectl -n default rollout status deployment/jwt-server --timeout=120s
           kubectl -n default rollout status deployment/external-auth --timeout=120s
           kubectl -n default rollout status deployment/grpc-external-auth --timeout=120s
           kubectl -n default rollout status deployment/ext-proc-server --timeout=120s
+          kubectl -n default rollout status deployment/wasm-host-deployment --timeout=120s
 
       - name: Resolve kind API server URL and FastGateway service-account token
         id: kube-creds

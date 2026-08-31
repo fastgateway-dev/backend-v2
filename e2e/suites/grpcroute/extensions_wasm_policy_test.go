@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
+	"github.com/fastgateway-dev/backend-v2/e2e/testdata/pb/echo"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 )
 
 // TestGRPCWasm ports grpc_extensions/test_wasm.py.
@@ -46,8 +48,8 @@ func TestGRPCWasm(t *testing.T) {
 				Code: models.WasmCodeSource{
 					Type: "HTTP",
 					HTTP: &models.WasmHTTPSource{
-						URL:    "https://raw.githubusercontent.com/envoyproxy/examples/main/wasm-cc/lib/envoy_filter_http_wasm_example.wasm",
-						SHA256: "79c9f85128bb0177b6511afa85d587224efded376ac0ef76df56595f1e6315c0",
+						URL:    harness.WasmFilterURL,
+						SHA256: harness.WasmFilterSHA256,
 					},
 				},
 			},
@@ -73,14 +75,47 @@ func TestGRPCWasm(t *testing.T) {
 		t.Fatalf("wasm: got code %v, want %v", res.Code, codes.OK)
 	}
 
-	res, resp, err := echoCall(ctx, wantBody, callOpt)
-	if err != nil {
-		t.Fatalf("wasm: request: %v", err)
+	// Polled, not read once: Envoy Gateway programs the EnvoyExtensionPolicy
+	// as a SEPARATE object AFTER the route, so the route can already serve
+	// traffic with the filter not yet applied. The HTTP port of this test
+	// polls for the same reason. Bounded by routeLiveTimeout, so a filter
+	// that never takes effect still fails rather than hanging.
+	deadline := time.Now().Add(routeLiveTimeout)
+	var res2 *harness.GRPCResult
+	var resp *echo.Message
+	for {
+		var err error
+		res2, resp, err = echoCall(ctx, wantBody, callOpt)
+		if err != nil {
+			t.Fatalf("wasm: request: %v", err)
+		}
+		if res2.Code == codes.OK && headerHas(res2.Header, harness.WasmFilterHeader, harness.WasmFilterHeaderValue) {
+			break
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("wasm: filter never applied: code=%v %s=%v, want OK with %q. "+
+				"A non-OK code here means the filter broke the RPC; OK without the header "+
+				"means the EnvoyExtensionPolicy never attached to the GRPCRoute.",
+				res2.Code, harness.WasmFilterHeader,
+				res2.Header.Get(harness.WasmFilterHeader), harness.WasmFilterHeaderValue)
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	if res.Code != codes.OK {
-		t.Fatalf("wasm: got code %v, want %v", res.Code, codes.OK)
-	}
+
+	// The filter must not have disturbed the gRPC payload: this is the
+	// property the previous demo filter violated by rewriting the body.
 	if resp.Body != wantBody {
 		t.Fatalf("wasm: got echoed body %q, want %q", resp.Body, wantBody)
 	}
+}
+
+// headerHas reports whether md carries key with value, case-insensitively on
+// the key (gRPC metadata keys are normalised to lower case).
+func headerHas(md metadata.MD, key, value string) bool {
+	for _, v := range md.Get(key) {
+		if v == value {
+			return true
+		}
+	}
+	return false
 }
