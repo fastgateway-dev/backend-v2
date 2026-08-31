@@ -14,9 +14,18 @@
 // the message framing and trailers are left untouched.
 package main
 
+// NOTE: this is github.com/proxy-wasm/proxy-wasm-go-sdk, which targets the
+// upstream Go compiler (Go 1.24+ WASI reactors) and is what the Dockerfile's
+// `GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared` produces. Do NOT swap
+// this for the github.com/tetratelabs/proxy-wasm-go-sdk fork: that one is
+// TinyGo-only, its proxy_abi_version_0_2_0 marker is a cgo `//export` the
+// standard Go compiler silently drops, so an official-Go build yields a module
+// with no Proxy-Wasm ABI version. Envoy then rejects it ("Missing or unknown
+// Proxy-Wasm ABI version") and, fail-closed, 503s every request. Requires the
+// proxy's Envoy >= 1.33 (Envoy Gateway 1.8 ships 1.38, so it's fine).
 import (
-	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
-	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
+	"github.com/proxy-wasm/proxy-wasm-go-sdk/proxywasm"
+	"github.com/proxy-wasm/proxy-wasm-go-sdk/proxywasm/types"
 )
 
 // HeaderName and HeaderValue are what the e2e tests assert on.
