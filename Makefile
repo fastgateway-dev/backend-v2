@@ -131,6 +131,7 @@ build-multiarch-e2e:
 	docker buildx build --platform $(PLATFORMS) -t $(REGISTRY)/external-auth:$(TAG) --push ./e2e/servers/external-auth
 	docker buildx build --platform $(PLATFORMS) -t $(REGISTRY)/grpc-external-auth:$(TAG) --push ./e2e/servers/grpc-external-auth
 	docker buildx build --platform $(PLATFORMS) -t $(REGISTRY)/ext-proc-server:$(TAG) --push ./e2e/servers/ext-proc-server
+	docker buildx build --platform $(PLATFORMS) -t $(REGISTRY)/wasm-host:$(TAG) --push ./e2e/servers/wasm-host
 
 build-multiarch-all: build-multiarch build-multiarch-e2e
 

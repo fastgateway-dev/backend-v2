@@ -1,0 +1,43 @@
+# Serves the gRPC-safe proxy-wasm filter (e2e/servers/wasm-host) over plain
+# HTTP inside the cluster. Envoy fetches the module from here, so the wasm
+# tests do not depend on reaching raw.githubusercontent.com.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wasm-host-deployment
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      run: wasm-host
+  template:
+    metadata:
+      labels:
+        run: wasm-host
+    spec:
+      containers:
+        - name: wasm-host
+          image: fastgateway-wasm-host:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /grpcsafe.wasm.sha256
+              port: 80
+            initialDelaySeconds: 1
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wasm-host-service
+  namespace: default
+spec:
+  selector:
+    run: wasm-host
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80

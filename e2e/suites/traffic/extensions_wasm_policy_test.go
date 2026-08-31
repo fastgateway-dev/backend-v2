@@ -39,8 +39,8 @@ func TestExtensionsWasm(t *testing.T) {
 			Code: models.WasmCodeSource{
 				Type: "HTTP",
 				HTTP: &models.WasmHTTPSource{
-					URL:    "https://raw.githubusercontent.com/envoyproxy/examples/main/wasm-cc/lib/envoy_filter_http_wasm_example.wasm",
-					SHA256: "79c9f85128bb0177b6511afa85d587224efded376ac0ef76df56595f1e6315c0",
+					URL:    harness.WasmFilterURL,
+					SHA256: harness.WasmFilterSHA256,
 				},
 			},
 		},
@@ -65,14 +65,14 @@ func TestExtensionsWasm(t *testing.T) {
 	// policy not yet applied. Bounded by routeLiveTimeout, so a policy
 	// that never takes effect still fails the test.
 	resp, err := harness.WaitForResponse(ctx, probe, func(r *harness.Response) bool {
-		return r.StatusCode == 200 && r.Header.Get("x-wasm-custom") == "FOO"
+		return r.StatusCode == 200 && r.Header.Get(harness.WasmFilterHeader) == harness.WasmFilterHeaderValue
 	}, routeLiveTimeout)
 	if err != nil {
 		status, got, body := 0, "", ""
 		if resp != nil {
-			status, got, body = resp.StatusCode, resp.Header.Get("x-wasm-custom"), truncate(resp.Body, 300)
+			status, got, body = resp.StatusCode, resp.Header.Get(harness.WasmFilterHeader), truncate(resp.Body, 300)
 		}
-		t.Fatalf("extensions wasm: status %d, x-wasm-custom header = %q, want 200 with %q (body: %s): %v",
-			status, got, "FOO", body, err)
+		t.Fatalf("extensions wasm: status %d, %s header = %q, want 200 with %q (body: %s): %v",
+			status, harness.WasmFilterHeader, got, harness.WasmFilterHeaderValue, body, err)
 	}
 }
