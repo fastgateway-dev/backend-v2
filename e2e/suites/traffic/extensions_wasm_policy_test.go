@@ -40,7 +40,7 @@ func TestExtensionsWasm(t *testing.T) {
 				Type: "HTTP",
 				HTTP: &models.WasmHTTPSource{
 					URL:    harness.WasmFilterURL,
-					SHA256: harness.WasmFilterSHA256,
+					SHA256: harness.WasmFilterSHA256(t),
 				},
 			},
 		},

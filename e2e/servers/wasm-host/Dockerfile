@@ -2,10 +2,12 @@
 # the cluster, so the e2e suite does not depend on fetching a third-party .wasm
 # from the public internet.
 #
-# The build is byte-reproducible (-trimpath, -s -w, empty -buildid), which is
-# what lets the tests pin a sha256. If the Go toolchain changes and the hash
-# moves, this image FAILS TO BUILD with a clear message rather than letting
-# Envoy reject the module later with an opaque checksum error.
+# The module's sha256 is COMPUTED here and written next to it, never pinned in
+# source. An earlier version pinned a hash produced on a developer machine and
+# verified it here; that broke immediately, because the wasm bytes differ
+# between Go patch releases (go1.25.2 locally vs go1.25.14 in the golang:1.25
+# image). CI reads the computed hash out of this image and passes it to the
+# tests, so no toolchain-reproducibility assumption is made anywhere.
 FROM golang:1.25 AS build
 WORKDIR /src
 COPY filter/go.mod filter/go.sum ./
@@ -14,17 +16,13 @@ COPY filter/ ./
 RUN GOOS=wasip1 GOARCH=wasm go build -trimpath -buildmode=c-shared \
         -ldflags="-s -w -buildid=" -o /grpcsafe.wasm .
 
-ARG EXPECTED_SHA256=37d25f3ac04170dd3062e56a773664d330f9dc05743203c193f0a1518867bcf3
-RUN actual=$(sha256sum /grpcsafe.wasm | cut -d' ' -f1); \
-    if [ "$actual" != "$EXPECTED_SHA256" ]; then \
-      echo "grpcsafe.wasm hash drift:"; \
-      echo "  expected $EXPECTED_SHA256"; \
-      echo "  actual   $actual"; \
-      echo "The Go toolchain or filter source changed. Update the pinned sha256 in"; \
-      echo "e2e/harness/wasmfilter.go and in this Dockerfile's EXPECTED_SHA256."; \
-      exit 1; \
-    fi; \
-    echo "$actual" > /grpcsafe.wasm.sha256
+# Sanity-check the artefact is a real wasm module (magic bytes \0asm) before
+# shipping it, so a broken build fails here rather than as an opaque Envoy
+# fetch error, then record its digest for the test run to consume.
+RUN head -c4 /grpcsafe.wasm | od -An -tx1 | tr -d ' \n' | grep -qx '0061736d' \
+      || { echo "grpcsafe.wasm is not a valid wasm module"; exit 1; }; \
+    sha256sum /grpcsafe.wasm | cut -d' ' -f1 > /grpcsafe.wasm.sha256; \
+    echo "grpcsafe.wasm sha256: $(cat /grpcsafe.wasm.sha256)"
 
 FROM nginx:1.25-alpine
 COPY --from=build /grpcsafe.wasm /usr/share/nginx/html/grpcsafe.wasm
