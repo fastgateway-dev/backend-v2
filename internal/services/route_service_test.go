@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // helpers -----------------------------------------------------------------
@@ -5480,10 +5481,10 @@ func setupDeployMocksForCreate(
 	domainRepo.On("GetByID", route.DomainID).Return(domain, nil)
 
 	// Policy repos return nothing (no policies)
-	secRepo.On("GetByRouteID", route.ID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", route.ID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", route.ID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", route.ID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", route.ID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", route.ID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", route.ID).Return(nil, gorm.ErrRecordNotFound)
 
 	// Client attachment repos return empty
 	caRepo.On("ListActiveByRouteID", route.ID).Return([]models.ClientRouteAttachment{}, nil)
@@ -5578,10 +5579,10 @@ func TestRouteService_Deploy_UpdateHTTPRoute_Success(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionUpdate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -5677,8 +5678,8 @@ func TestRouteService_Deploy_WithSecurityPolicy_General(t *testing.T) {
 	}
 	secRepo.On("GetByRouteID", routeID).Return(sp, nil)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -5712,9 +5713,9 @@ func TestRouteService_Deploy_WithBackendTrafficPolicy(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -5773,10 +5774,10 @@ func TestRouteService_Deploy_WithDirectResponse(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -5821,10 +5822,10 @@ func TestRouteService_Deploy_WithExternalBackend(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -5861,10 +5862,10 @@ func TestRouteService_Deploy_PendingDeploy_NoApproval(t *testing.T) {
 		Return(nil, errors.New("not found"))
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -6357,10 +6358,10 @@ func TestRouteService_Deploy_UpdateGRPCRoute_Success(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionUpdate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -6469,7 +6470,7 @@ func TestRouteService_Deploy_BackendTrafficPolicy_Error(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
 	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
@@ -6548,9 +6549,9 @@ func TestRouteService_Deploy_EnvoyExtensionPolicy_Error(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
@@ -6598,10 +6599,10 @@ func TestRouteService_Deploy_Update_WithDirectResponseAndBackends(t *testing.T) 
 		Return(&models.Approval{Action: models.ApprovalActionUpdate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -6646,10 +6647,10 @@ func TestRouteService_Deploy_Update_WithExternalBackends(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionUpdate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -6698,8 +6699,8 @@ func TestRouteService_Deploy_Update_WithSecurityPolicyAndBTP(t *testing.T) {
 			Timeout: &models.BTPTimeoutConfig{TCP: &models.BTPTCPTimeoutConfig{ConnectTimeout: "15s"}},
 		},
 	}, nil)
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -6736,9 +6737,9 @@ func TestRouteService_Deploy_Update_WithEnvoyExtensionPolicy(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionUpdate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -6964,7 +6965,7 @@ func TestRouteService_Deploy_Update_BackendTrafficPolicyError(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionUpdate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
 	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
@@ -7004,9 +7005,9 @@ func TestRouteService_Deploy_Update_EnvoyExtensionPolicyError(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionUpdate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
@@ -7164,10 +7165,10 @@ func TestRouteService_Deploy_ClientMode_Deny_NoClients(t *testing.T) {
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
 	// No security policy in DB
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 
 	// No client attachments at all
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
@@ -7210,10 +7211,10 @@ func TestRouteService_Deploy_ClientMode_Deny_WithClients(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 
 	// Has client attachments but none with IP/API key/JWT/MTLS enabled
 	attachments := []models.ClientRouteAttachment{
@@ -7263,10 +7264,10 @@ func TestRouteService_Deploy_ClientMode_Deny_WithIPClients(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 
 	// Client with IP allowlisting (no API key/JWT)
 	attachments := []models.ClientRouteAttachment{
@@ -7323,10 +7324,10 @@ func TestRouteService_Deploy_ClientMode_RequireIPAllowlist(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 
 	// Client with IP allowlisting
 	attachments := []models.ClientRouteAttachment{
@@ -7380,10 +7381,10 @@ func TestRouteService_Deploy_ClientMode_AllowAll_WithPerClientAuth(t *testing.T)
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 
 	// Client with API key enabled (per-client auth)
 	attachments := []models.ClientRouteAttachment{
@@ -7434,10 +7435,10 @@ func TestRouteService_Deploy_ClientMode_AllowAll_NoPerClientAuth(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 
 	// Client with IP allowlisting only (no API key/JWT/MTLS)
 	attachments := []models.ClientRouteAttachment{
@@ -7506,8 +7507,8 @@ func TestRouteService_Deploy_ClientMode_WithCORS(t *testing.T) {
 	}
 	secRepo.On("GetByRouteID", routeID).Return(sp, nil)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 
 	// No client attachments — but CORS is present → should deploy SecurityPolicy
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
@@ -7559,10 +7560,10 @@ func TestRouteService_Deploy_WithFailoverBackends(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -7637,10 +7638,10 @@ func TestRouteService_Deploy_WithExternalBackend_TLS(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -7712,10 +7713,10 @@ func TestRouteService_Deploy_WithExternalBackend_TLS_MTLS(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -7779,10 +7780,10 @@ func TestRouteService_Deploy_WithFailover_EmptyNamespace(t *testing.T) {
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 
-	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	secRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
-	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
+	wafRepo.On("GetByRouteID", routeID).Return(nil, gorm.ErrRecordNotFound)
 	caRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 	caRepo.On("UpdateStatusByRouteID", routeID, mock.Anything, mock.Anything).Return(nil).Maybe()
