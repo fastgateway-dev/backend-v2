@@ -121,7 +121,8 @@ func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route
 		// Update client attachment statuses: approved → active
 		s.updateClientAttachmentStatuses(route.ID)
 
-		route.Status = models.RouteStatusActive
+		// route.Status moves to active after the switch, through the state
+		// machine — see the transition below.
 
 	case models.ApprovalActionUpdate:
 		// Update Backend CRDs (for external backends or when failover is enabled)
@@ -192,7 +193,8 @@ func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route
 		// Update client attachment statuses: approved → active, pending_detach (approved) → removed
 		s.updateClientAttachmentStatuses(route.ID)
 
-		route.Status = models.RouteStatusActive
+		// route.Status moves to active after the switch, through the state
+		// machine — see the transition below.
 
 	case models.ApprovalActionDelete:
 		// Delete API key HTTPRoutes and their SecurityPolicies
@@ -269,7 +271,18 @@ func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route
 		return route, nil
 	}
 
-	if err := s.routeRepo.Update(route); err != nil {
+	// Only the create and update cases fall through to here; the delete case
+	// returns above after removing the row. Both of them mean "the route is
+	// now live in Kubernetes", which is exactly the active transition.
+	//
+	// This replaces the two assignments of active to route.Status that used to
+	// sit inside the switch plus the unconditional routeRepo.Update that
+	// followed it: routeStateMachine.To persists, so a second write here
+	// would be redundant. Deploy's entry guard rejects anything that is not
+	// approved or pending_deploy, so To is never on its no-op path and no
+	// route field mutation can be dropped (Deploy mutates no other field).
+	if err := s.state.To(route, models.RouteStatusActive,
+		fmt.Sprintf("deploy succeeded (action %s)", approval.Action)); err != nil {
 		return nil, err
 	}
 

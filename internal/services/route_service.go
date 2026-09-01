@@ -1,6 +1,7 @@
 package services
 
 import (
+	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/google/uuid"
@@ -28,6 +29,15 @@ type RouteService struct {
 	routeVersionService      *RouteVersionService
 	wafConfig                routeplan.WAFConfig
 
+	// approvals owns approval planning and traversal. Set via
+	// SetApprovalEngine at construction. See internal/approval.
+	approvals *approvalpkg.Engine
+
+	// state is the sole writer of route.Status. See route_state.go: before
+	// Phase 2D the field was assigned at 24 sites with no transition
+	// validation at all.
+	state *routeStateMachine
+
 	// idgen mints route IDs. Injected so the preview path is deterministic under
 	// test: the first 8 hex characters of the ID minted in PreviewCreate are
 	// embedded in every previewed resource name. Nil means uuid.New (see
@@ -44,7 +54,7 @@ func NewRouteService(
 	teamRepo repository.TeamRepositoryInterface,
 	wafConfig routeplan.WAFConfig,
 ) *RouteService {
-	return &RouteService{
+	svc := &RouteService{
 		routeRepo:    routeRepo,
 		approvalRepo: approvalRepo,
 		policyRepo:   policyRepo,
@@ -52,6 +62,10 @@ func NewRouteService(
 		teamRepo:     teamRepo,
 		wafConfig:    wafConfig,
 	}
+	// routeRepo is already a constructor parameter, so the state machine
+	// needs no setter of its own.
+	svc.state = &routeStateMachine{repo: routeRepo}
+	return svc
 }
 
 // SetKubernetesService sets the Kubernetes service (to avoid circular dependency)
@@ -117,6 +131,12 @@ func (s *RouteService) SetDomainService(ds *DomainService) {
 // SetRouteVersionService sets the route version service for version tracking
 func (s *RouteService) SetRouteVersionService(rvs *RouteVersionService) {
 	s.routeVersionService = rvs
+}
+
+// SetApprovalEngine sets the approval engine (to avoid a circular dependency:
+// the engine calls back into RouteService as a Completer).
+func (s *RouteService) SetApprovalEngine(e *approvalpkg.Engine) {
+	s.approvals = e
 }
 
 // SetProjectRepository sets the project repository for approval bypass

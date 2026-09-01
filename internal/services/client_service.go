@@ -31,6 +31,11 @@ type ClientService struct {
 	clientAttachmentRepo repository.ClientAttachmentRepositoryInterface
 	routeRepo            repository.RouteRepositoryInterface
 	k8sService           KubernetesServiceInterface
+
+	// state is the sole writer of route.Status. See route_state.go.
+	// routeRepo arrives through SetRouteRepository rather than the
+	// constructor, so state is built there.
+	state *routeStateMachine
 }
 
 // NewClientService creates a new ClientService
@@ -51,9 +56,14 @@ func (s *ClientService) SetClientAttachmentRepository(repo repository.ClientAtta
 	s.clientAttachmentRepo = repo
 }
 
-// SetRouteRepository sets the route repository (for IP cascade)
+// SetRouteRepository sets the route repository (for IP cascade).
+//
+// The state machine is built here, not in NewClientService: routeRepo is not
+// a constructor parameter, so this setter is the first point at which it is
+// available.
 func (s *ClientService) SetRouteRepository(repo repository.RouteRepositoryInterface) {
 	s.routeRepo = repo
+	s.state = &routeStateMachine{repo: repo}
 }
 
 // SetKubernetesService sets the Kubernetes service (for API key secrets)
@@ -250,8 +260,14 @@ func (s *ClientService) AddIP(clientID uuid.UUID, input *CreateClientIPInput, cr
 		return nil, err
 	}
 
-	// Cascade: mark affected routes as pending_deploy
-	s.cascadeIPChangeToRoutes(clientID)
+	// Cascade: mark affected routes as pending_deploy.
+	// RETURN: AddIP's success value is the created IP row, which the caller
+	// can re-read with ListIPs, so surfacing the cascade failure destroys
+	// nothing. A silently stale allowlist would.
+	if err := s.cascadeToAttachedRoutes(clientID, s.attachmentsWithIPAllowlist,
+		"client ip allowlist changed"); err != nil {
+		return nil, err
+	}
 
 	return s.clientIPRepo.GetByID(ip.ID)
 }
@@ -271,40 +287,124 @@ func (s *ClientService) RemoveIP(clientID uuid.UUID, ipID uuid.UUID) error {
 		return err
 	}
 
-	// Cascade: mark affected routes as pending_deploy
-	s.cascadeIPChangeToRoutes(clientID)
-
-	return nil
+	// Cascade: mark affected routes as pending_deploy.
+	// RETURN: error-only signature, nothing to lose, and a route still
+	// serving a removed IP is exactly what the caller needs to hear about.
+	return s.cascadeToAttachedRoutes(clientID, s.attachmentsWithIPAllowlist,
+		"client ip allowlist changed")
 }
 
-// cascadeIPChangeToRoutes marks routes with active IP-allowlisted attachments
-// for this client as pending_deploy so they pick up the new IPs on next deploy
-func (s *ClientService) cascadeIPChangeToRoutes(clientID uuid.UUID) {
-	if s.clientAttachmentRepo == nil || s.routeRepo == nil {
-		return
+// The five attachment queries the cascades used, one adapter each.
+//
+// They exist because cascadeToAttachedRoutes takes the query as a parameter
+// and clientAttachmentRepo is an OPTIONAL dependency: taking a method value
+// straight off a nil interface (s.clientAttachmentRepo.ListActiveBy...)
+// panics where it is written, before the callee's nil check can run. A
+// method value on the non-nil *ClientService is safe, and the body is not
+// evaluated until the cascade has checked its wiring.
+func (s *ClientService) attachmentsWithIPAllowlist(clientID uuid.UUID) ([]models.ClientRouteAttachment, error) {
+	return s.clientAttachmentRepo.ListActiveByClientIDWithIPAllowlist(clientID)
+}
+
+func (s *ClientService) attachmentsWithHeaderAuth(clientID uuid.UUID) ([]models.ClientRouteAttachment, error) {
+	return s.clientAttachmentRepo.ListActiveByClientIDWithHeaderAuth(clientID)
+}
+
+func (s *ClientService) attachmentsWithAPIKey(clientID uuid.UUID) ([]models.ClientRouteAttachment, error) {
+	return s.clientAttachmentRepo.ListActiveByClientIDWithAPIKey(clientID)
+}
+
+func (s *ClientService) attachmentsWithJWT(clientID uuid.UUID) ([]models.ClientRouteAttachment, error) {
+	return s.clientAttachmentRepo.ListActiveByClientIDWithJWT(clientID)
+}
+
+// allAttachments backs the allowed-methods cascade. Methods apply to every
+// attachment, not just one credential kind, so the query is the unfiltered
+// ListByClientID; cascadeToAttachedRoutes applies the active filter that
+// cascadeMethodChangeToRoutes used to apply inline.
+func (s *ClientService) allAttachments(clientID uuid.UUID) ([]models.ClientRouteAttachment, error) {
+	return s.clientAttachmentRepo.ListByClientID(clientID)
+}
+
+// cascadeToAttachedRoutes marks every active route attached to this client as
+// pending_deploy, so it picks up the client's changed configuration on the
+// next deploy.
+//
+// Before Phase 2D this existed five times -- once per credential kind
+// (cascadeIPChangeToRoutes, cascadeMethodChangeToRoutes,
+// cascadeHeaderChangeToRoutes, cascadeAPIKeyChangeToRoutes,
+// cascadeJWTChangeToRoutes) -- differing only in which repository query
+// selected the attachments. Two behaviours changed in the collapse:
+//
+//  1. ERRORS PROPAGATE. Every copy discarded every failure, including the
+//     final routeRepo.Update. After an API-key revocation that meant the
+//     route kept serving the revoked credential with nothing logged.
+//     Failures are now collected and returned as one aggregate error, and
+//     one bad row does NOT stop the fan-out.
+//  2. UNIFORM ACTIVE FILTERING. Four copies relied on a pre-filtered
+//     ListActiveByClientIDWith* query; cascadeMethodChangeToRoutes used the
+//     unfiltered ListByClientID plus a Go-side status check. The check now
+//     runs here for every query -- redundant for the filtered ones, and free.
+//
+// Missing wiring is NOT an error. clientAttachmentRepo and routeRepo arrive
+// through optional setters, and every caller's primary side effect (the IP
+// row, the new API key, the revoked JWT config) has already been persisted by
+// the time the cascade runs. Pre-2D an unwired service made the cascade a
+// silent no-op; turning that into a returned error would fail every client
+// mutation in a deployment that never wired the cascade at all. It is logged
+// instead.
+func (s *ClientService) cascadeToAttachedRoutes(
+	clientID uuid.UUID,
+	list func(uuid.UUID) ([]models.ClientRouteAttachment, error),
+	reason string,
+) error {
+	// DELIBERATE, TIME-BOXED DEVIATION from master design section 6.6
+	// (constructor wiring), recorded under controller ruling R13 -- not
+	// considered design, and not to be read as one.
+	//
+	// cmd/server/main.go wires both repositories unconditionally, so in
+	// production this branch is unreachable; the nil path exists only because
+	// the test tree constructs ClientService without them. The consistent fix
+	// is to make clientAttachmentRepo and routeRepo constructor parameters
+	// and update the call sites, which IS section 6.6 and belongs to Phase
+	// 2E. Until then this logs and returns nil rather than erroring, because
+	// returning an error here -- with 8 of the 9 call sites now propagating
+	// it -- would fail client mutations for every caller that has not wired
+	// the cascade.
+	if s.clientAttachmentRepo == nil || s.routeRepo == nil || s.state == nil {
+		log.Printf("WARNING: cannot cascade %q for client %s: route repository not wired", reason, clientID)
+		return nil
 	}
 
-	// Get active attachments with IP allowlisting for this client
-	attachments, err := s.clientAttachmentRepo.ListActiveByClientIDWithIPAllowlist(clientID)
+	attachments, err := list(clientID)
 	if err != nil {
-		return
+		return fmt.Errorf("cascade %q for client %s: list attachments: %w", reason, clientID, err)
 	}
 
+	var failures []error
 	for _, attachment := range attachments {
-		route, err := s.routeRepo.GetByID(attachment.RouteID)
-		if err != nil {
+		if attachment.Status != models.AttachmentStatusActive {
 			continue
 		}
-
-		// Only mark as pending_deploy if currently active
-		if route.Status == models.RouteStatusActive {
-			route.Status = models.RouteStatusPendingDeploy
-			if err := s.routeRepo.Update(route); err != nil {
-				// Log and continue, don't fail the IP operation
-				continue
-			}
+		route, err := s.routeRepo.GetByID(attachment.RouteID)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("route %s: %w", attachment.RouteID, err))
+			continue
+		}
+		// Only routes that are live in Kubernetes need redeploying; anything
+		// else picks the change up when it is deployed for the first time.
+		if route.Status != models.RouteStatusActive {
+			continue
+		}
+		if err := s.state.To(route, models.RouteStatusPendingDeploy, reason); err != nil {
+			failures = append(failures, fmt.Errorf("route %s: %w", route.ID, err))
 		}
 	}
+
+	if len(failures) > 0 {
+		return fmt.Errorf("cascade %q for client %s: %w", reason, clientID, errors.Join(failures...))
+	}
+	return nil
 }
 
 // ListIPs returns all IP addresses for a client
@@ -350,7 +450,11 @@ func (s *ClientService) AddHeader(clientID uuid.UUID, input *CreateClientHeaderI
 		return nil, err
 	}
 
-	s.cascadeHeaderChangeToRoutes(clientID)
+	// RETURN: the created header is re-readable via ListHeaders.
+	if err := s.cascadeToAttachedRoutes(clientID, s.attachmentsWithHeaderAuth,
+		"client header auth changed"); err != nil {
+		return nil, err
+	}
 
 	return s.clientHeaderRepo.GetByID(header.ID)
 }
@@ -367,8 +471,10 @@ func (s *ClientService) RemoveHeader(clientID uuid.UUID, headerID uuid.UUID) err
 	if err := s.clientHeaderRepo.Delete(headerID); err != nil {
 		return err
 	}
-	s.cascadeHeaderChangeToRoutes(clientID)
-	return nil
+	// RETURN: error-only signature; a route still matching a removed header
+	// value is a live authorization gap.
+	return s.cascadeToAttachedRoutes(clientID, s.attachmentsWithHeaderAuth,
+		"client header auth changed")
 }
 
 // ListHeaders returns all headers for a client
@@ -416,58 +522,15 @@ func (s *ClientService) SetAllowedMethods(clientID uuid.UUID, methods []string) 
 		return nil, err
 	}
 
-	// Cascade: mark affected routes as pending_deploy
-	s.cascadeMethodChangeToRoutes(clientID)
+	// Cascade: mark affected routes as pending_deploy.
+	// RETURN: the success value is the client record, already persisted and
+	// re-readable with Get.
+	if err := s.cascadeToAttachedRoutes(clientID, s.allAttachments,
+		"client allowed methods changed"); err != nil {
+		return nil, err
+	}
 
 	return s.clientRepo.GetByID(clientID)
-}
-
-// cascadeMethodChangeToRoutes marks routes with active attachments
-// for this client as pending_deploy so they pick up the method changes on next deploy.
-// Uses ListByClientID (broader than header-auth only) because methods apply to all attachments.
-func (s *ClientService) cascadeMethodChangeToRoutes(clientID uuid.UUID) {
-	if s.clientAttachmentRepo == nil || s.routeRepo == nil {
-		return
-	}
-	attachments, err := s.clientAttachmentRepo.ListByClientID(clientID)
-	if err != nil {
-		return
-	}
-	for _, attachment := range attachments {
-		if attachment.Status != models.AttachmentStatusActive {
-			continue
-		}
-		route, err := s.routeRepo.GetByID(attachment.RouteID)
-		if err != nil {
-			continue
-		}
-		if route.Status == models.RouteStatusActive {
-			route.Status = models.RouteStatusPendingDeploy
-			_ = s.routeRepo.Update(route)
-		}
-	}
-}
-
-// cascadeHeaderChangeToRoutes marks routes with active header-auth attachments
-// for this client as pending_deploy so they pick up the new headers on next deploy
-func (s *ClientService) cascadeHeaderChangeToRoutes(clientID uuid.UUID) {
-	if s.clientAttachmentRepo == nil || s.routeRepo == nil {
-		return
-	}
-	attachments, err := s.clientAttachmentRepo.ListActiveByClientIDWithHeaderAuth(clientID)
-	if err != nil {
-		return
-	}
-	for _, attachment := range attachments {
-		route, err := s.routeRepo.GetByID(attachment.RouteID)
-		if err != nil {
-			continue
-		}
-		if route.Status == models.RouteStatusActive {
-			route.Status = models.RouteStatusPendingDeploy
-			_ = s.routeRepo.Update(route)
-		}
-	}
 }
 
 // validateCIDR validates that the input is a valid CIDR notation or IP address
@@ -544,8 +607,18 @@ func (s *ClientService) GenerateAPIKey(ctx context.Context, clientID uuid.UUID, 
 		return nil, err
 	}
 
-	// Cascade: mark affected routes as pending_deploy
-	s.cascadeAPIKeyChangeToRoutes(clientID)
+	// Cascade: mark affected routes as pending_deploy.
+	// LOG, do not return. This is the one call site of the nine where
+	// reporting the error would destroy information: the response below
+	// carries the PLAINTEXT api key, which is shown once and is not
+	// recoverable from the database (only its bcrypt hash is stored). The
+	// client record has already been updated, so returning here would leave
+	// a client holding a key nobody can read. The cascade only delays a
+	// redeploy; losing the key does not.
+	if err := s.cascadeToAttachedRoutes(clientID, s.attachmentsWithAPIKey,
+		"client api key rotated"); err != nil {
+		log.Printf("WARNING: %v", err)
+	}
 
 	return &GenerateAPIKeyResponse{
 		APIKey:     apiKey,
@@ -578,40 +651,12 @@ func (s *ClientService) RevokeAPIKey(ctx context.Context, clientID uuid.UUID) er
 		return err
 	}
 
-	// Cascade: mark affected routes as pending_deploy
-	s.cascadeAPIKeyChangeToRoutes(clientID)
-
-	return nil
-}
-
-// cascadeAPIKeyChangeToRoutes marks routes with active API-key-enabled attachments
-// for this client as pending_deploy so they pick up the change on next deploy
-func (s *ClientService) cascadeAPIKeyChangeToRoutes(clientID uuid.UUID) {
-	if s.clientAttachmentRepo == nil || s.routeRepo == nil {
-		return
-	}
-
-	// Get active attachments with API key for this client
-	attachments, err := s.clientAttachmentRepo.ListActiveByClientIDWithAPIKey(clientID)
-	if err != nil {
-		return
-	}
-
-	for _, attachment := range attachments {
-		route, err := s.routeRepo.GetByID(attachment.RouteID)
-		if err != nil {
-			continue
-		}
-
-		// Only mark as pending_deploy if currently active
-		if route.Status == models.RouteStatusActive {
-			route.Status = models.RouteStatusPendingDeploy
-			if err := s.routeRepo.Update(route); err != nil {
-				// Log and continue, don't fail the API key operation
-				continue
-			}
-		}
-	}
+	// Cascade: mark affected routes as pending_deploy.
+	// RETURN: this is the motivating case for the change. Swallowed here, a
+	// failed cascade leaves the route serving the REVOKED credential with
+	// nothing logged.
+	return s.cascadeToAttachedRoutes(clientID, s.attachmentsWithAPIKey,
+		"client api key revoked")
 }
 
 // GetAPIKeyForDeploy retrieves the plaintext API key from DB for deployment
@@ -723,8 +768,13 @@ func (s *ClientService) ConfigureJWT(ctx context.Context, clientID uuid.UUID, in
 		return nil, errors.New("internal: failed to update client")
 	}
 
-	// Cascade: mark affected routes as pending_deploy
-	s.cascadeJWTChangeToRoutes(clientID)
+	// Cascade: mark affected routes as pending_deploy.
+	// RETURN: the response is a projection of the client record just
+	// persisted, so it is reconstructible from a Get.
+	if err := s.cascadeToAttachedRoutes(clientID, s.attachmentsWithJWT,
+		"client jwt configured"); err != nil {
+		return nil, err
+	}
 
 	return &ConfigureJWTResponse{
 		JWTEnabled:        true,
@@ -763,43 +813,11 @@ func (s *ClientService) RemoveJWT(ctx context.Context, clientID uuid.UUID) error
 		return errors.New("internal: failed to update client")
 	}
 
-	// Cascade: mark affected routes as pending_deploy
-	s.cascadeJWTChangeToRoutes(clientID)
-
-	return nil
-}
-
-// cascadeJWTChangeToRoutes marks routes with active JWT-enabled attachments
-// for this client as pending_deploy so they pick up the change on next deploy
-func (s *ClientService) cascadeJWTChangeToRoutes(clientID uuid.UUID) {
-	if s.clientAttachmentRepo == nil || s.routeRepo == nil {
-		log.Printf("WARNING: Cannot cascade JWT change for client %s: missing repository", clientID)
-		return
-	}
-
-	// Get active attachments with JWT for this client
-	attachments, err := s.clientAttachmentRepo.ListActiveByClientIDWithJWT(clientID)
-	if err != nil {
-		log.Printf("WARNING: Failed to list JWT attachments for client %s: %v", clientID, err)
-		return
-	}
-
-	for _, attachment := range attachments {
-		route, err := s.routeRepo.GetByID(attachment.RouteID)
-		if err != nil {
-			log.Printf("WARNING: Failed to get route %s for JWT cascade: %v", attachment.RouteID, err)
-			continue
-		}
-
-		// Only mark as pending_deploy if currently active
-		if route.Status == models.RouteStatusActive {
-			route.Status = models.RouteStatusPendingDeploy
-			if err := s.routeRepo.Update(route); err != nil {
-				log.Printf("WARNING: Failed to cascade JWT change to route %s: %v", route.ID, err)
-				continue
-			}
-		}
-	}
+	// Cascade: mark affected routes as pending_deploy.
+	// RETURN: error-only signature, and like RevokeAPIKey a stale route keeps
+	// accepting the JWT config that was just removed.
+	return s.cascadeToAttachedRoutes(clientID, s.attachmentsWithJWT,
+		"client jwt removed")
 }
 
 // =============================================================================

@@ -78,8 +78,12 @@ type ClientAttachmentServiceInterface interface {
 	ListByClientID(clientID uuid.UUID) ([]models.ClientRouteAttachment, error)
 	ListByRouteID(routeID uuid.UUID) ([]models.ClientRouteAttachment, error)
 	GetAttachment(id uuid.UUID) (*models.ClientRouteAttachment, error)
-	OnApprovalComplete(approval *models.Approval) error
-	OnApprovalRejected(approval *models.Approval) error
+	// approval.Completer -- the engine calls exactly one of these when a
+	// client_attachment approval reaches a terminal state. Renamed from
+	// OnApprovalComplete/OnApprovalRejected in Phase 2D Task 8.
+	OnApproved(approval *models.Approval) error
+	OnRejected(approval *models.Approval) error
+	OnCancelled(approval *models.Approval) error
 }
 
 // ClientServiceInterface defines the public methods of ClientService

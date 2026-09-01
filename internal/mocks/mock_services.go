@@ -371,12 +371,17 @@ func (m *MockClientAttachmentService) GetAttachment(id uuid.UUID) (*models.Clien
 	return args.Get(0).(*models.ClientRouteAttachment), args.Error(1)
 }
 
-func (m *MockClientAttachmentService) OnApprovalComplete(approval *models.Approval) error {
+func (m *MockClientAttachmentService) OnApproved(approval *models.Approval) error {
 	args := m.Called(approval)
 	return args.Error(0)
 }
 
-func (m *MockClientAttachmentService) OnApprovalRejected(approval *models.Approval) error {
+func (m *MockClientAttachmentService) OnRejected(approval *models.Approval) error {
+	args := m.Called(approval)
+	return args.Error(0)
+}
+
+func (m *MockClientAttachmentService) OnCancelled(approval *models.Approval) error {
 	args := m.Called(approval)
 	return args.Error(0)
 }

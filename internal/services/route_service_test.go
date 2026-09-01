@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -32,6 +33,23 @@ func newTestRouteService() (
 	domainRepo := new(mocks.MockDomainRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	svc := services.NewRouteService(routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo, routeplan.WAFConfig{})
+
+	// Phase 2D Task 7: submission goes through the approval engine, which
+	// plans the stages and persists the approval. approval.New panics on a
+	// nil dependency by design, so every slot gets a mock. The engine also
+	// always records stage reviews; the pre-2D nil guard that skipped them
+	// is gone.
+	stageReviewRepo := new(mocks.MockApprovalStageReviewRepository)
+	stageReviewRepo.On("ListByStageID", mock.Anything).
+		Return([]models.ApprovalStageReview{}, nil).Maybe()
+	stageReviewRepo.On("Create", mock.AnythingOfType("*models.ApprovalStageReview")).
+		Return(nil).Maybe()
+	stageReviewRepo.On("CountByStageAndDecision", mock.Anything, mock.Anything).
+		Return(int64(1), nil).Maybe()
+	engine := approvalpkg.New(approvalRepo, stageReviewRepo, policyRepo, teamRepo, new(mocks.MockProjectRepository))
+	engine.Register(models.ApprovalEntityRoute, svc)
+	svc.SetApprovalEngine(engine)
+
 	return svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo
 }
 
@@ -7789,4 +7807,217 @@ func TestDirectResponsePercentWarnings(t *testing.T) {
 			}
 		})
 	}
+}
+
+// =========================================================================
+// Approvals-disabled fast paths (project.ApprovalEnabled == false).
+//
+// Added in fix round 1 of Task 10+11. Before it, NOTHING in the test tree
+// stubbed a project with approvals off -- newTestRouteService never even
+// calls SetProjectRepository -- so the three route_write.go fast paths, all
+// migrated onto routeStateMachine.To in Task 10, ran unexercised. That same
+// blind spot is what let a wrong from-set for the attach fast paths ship (see
+// TestClientAttachmentService_AttachFromRoute_FastPath_*).
+//
+// The Create case is also the origin of the bug those tests caught: it leaves
+// the route at APPROVED, not active.
+// =========================================================================
+
+// newApprovalsDisabledProjectRepo is the one-line stub these paths needed all
+// along.
+func newApprovalsDisabledProjectRepo() *mocks.MockProjectRepository {
+	projectRepo := new(mocks.MockProjectRepository)
+	projectRepo.On("GetByID", mock.Anything).
+		Return(&models.Project{ApprovalEnabled: false}, nil).Maybe()
+	return projectRepo
+}
+
+func TestRouteService_Create_ApprovalsDisabled_LeavesRouteApproved(t *testing.T) {
+	svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo := newTestRouteService()
+	svc.SetProjectRepository(newApprovalsDisabledProjectRepo())
+
+	domainID, projectID, teamID, createdBy := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	routeRepo.On("ExistsByName", domainID, "user-api").Return(false, nil)
+	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID, Hostname: "example.com"}, nil)
+	teamRepo.On("GetByID", teamID).Return(&models.Team{ID: teamID, Name: "platform"}, nil)
+	routeRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
+		Return([]models.Route{}, int64(0), nil)
+	routeRepo.On("Create", mock.AnythingOfType("*models.Route")).Return(nil)
+	routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
+		return r.Status == models.RouteStatusApproved
+	})).Return(nil)
+
+	result, err := svc.Create(domainID, &services.CreateRouteInput{
+		Name: "user-api", TeamID: teamID, Config: makeBasicHTTPRouteConfig(),
+	}, createdBy)
+
+	require.NoError(t, err)
+	// THE ROUTE IS `approved`, NOT `active`. This is the fact the attach
+	// fast paths' {active} from-set contradicted.
+	assert.Equal(t, models.RouteStatusApproved, result.Status)
+	assert.Nil(t, result.PendingApproval, "no approval is submitted when approvals are disabled")
+	approvalRepo.AssertNotCalled(t, "Create", mock.Anything)
+	policyRepo.AssertNotCalled(t, "GetByProjectAndEntity", mock.Anything, mock.Anything, mock.Anything)
+	routeRepo.AssertExpectations(t)
+}
+
+func TestRouteService_Update_ApprovalsDisabled_GoesToPendingDeploy(t *testing.T) {
+	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteService()
+	svc.SetProjectRepository(newApprovalsDisabledProjectRepo())
+
+	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
+
+	routeRepo.On("GetByID", routeID).Return(&models.Route{
+		ID: routeID, DomainID: domainID, Name: "user-api",
+		Status: models.RouteStatusActive, SecurityMode: models.SecurityModeGeneral,
+		Config: makeBasicHTTPRouteConfig(), K8sRouteName: "user-api-12345678",
+	}, nil)
+	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID, Hostname: "example.com"}, nil)
+	routeRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
+		Return([]models.Route{}, int64(0), nil)
+	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
+	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
+
+	result, err := svc.Update(routeID, &services.UpdateRouteInput{
+		Config:      makeBasicHTTPRouteConfig(),
+		Description: "revised",
+	}, uuid.New())
+
+	require.NoError(t, err)
+	// active -> pending_update (persisted) -> pending_deploy, both through To.
+	assert.Equal(t, models.RouteStatusPendingDeploy, result.Status)
+	assert.Equal(t, "revised", result.Description, "the caller's field edits must survive both transitions")
+	approvalRepo.AssertNotCalled(t, "Create", mock.Anything)
+	routeRepo.AssertExpectations(t)
+}
+
+// The no-op branch of To's contract, on the one site that needed an explicit
+// persist: an orphaned pending_update route (Create/Update persists the status
+// before calling approvals.Submit, so a failed submit leaves one) must still
+// have its Description and Labels written.
+func TestRouteService_Update_OrphanedPendingUpdate_StillPersistsFieldEdits(t *testing.T) {
+	svc, routeRepo, approvalRepo, policyRepo, domainRepo, _ := newTestRouteService()
+
+	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
+
+	routeRepo.On("GetByID", routeID).Return(&models.Route{
+		ID: routeID, DomainID: domainID, Name: "user-api",
+		Status: models.RouteStatusPendingUpdate, SecurityMode: models.SecurityModeGeneral,
+		Config: makeBasicHTTPRouteConfig(), K8sRouteName: "user-api-12345678",
+	}, nil)
+	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID, Hostname: "example.com"}, nil)
+	routeRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
+		Return([]models.Route{}, int64(0), nil)
+	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
+
+	// To is on its no-op path here (pending_update -> pending_update), so it
+	// writes nothing; the explicit persist in Update is the only thing that
+	// carries the description.
+	persisted := false
+	routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
+		return r.Description == "revised after a failed submit"
+	})).Run(func(mock.Arguments) { persisted = true }).Return(nil)
+
+	_, err := svc.Update(routeID, &services.UpdateRouteInput{
+		Config:      makeBasicHTTPRouteConfig(),
+		Description: "revised after a failed submit",
+	}, uuid.New())
+
+	require.NoError(t, err)
+	assert.True(t, persisted, "field edits must be persisted even when the status transition is a no-op")
+}
+
+func TestRouteService_Delete_ApprovalsDisabled_GoesToPendingDeploy(t *testing.T) {
+	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteService()
+	svc.SetProjectRepository(newApprovalsDisabledProjectRepo())
+
+	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
+
+	routeRepo.On("GetByID", routeID).Return(&models.Route{
+		ID: routeID, DomainID: domainID, Name: "user-api", Status: models.RouteStatusActive,
+	}, nil)
+	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
+	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
+	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
+
+	result, err := svc.Delete(routeID, uuid.New())
+
+	require.NoError(t, err)
+	assert.Equal(t, models.RouteStatusPendingDeploy, result.Status)
+	approvalRepo.AssertNotCalled(t, "Create", mock.Anything)
+	routeRepo.AssertExpectations(t)
+}
+
+// =========================================================================
+// Orphaned pending_update / pending_delete routes (final fix wave, Fix 1)
+//
+// Update (route_write.go:665-675) and Delete (:911-916) both persist the new
+// status BEFORE calling approvals.Submit. A failed Submit therefore leaves the
+// route orphaned at pending_update / pending_delete with NO pending approval,
+// which is exactly the precondition Update and Delete gate on
+// (route_write.go:611-615 and :899-903, byte-identical). The other operation
+// must still be reachable on such a route -- it was, pre-2D.
+//
+// Phase 2D makes Submit fail more often, not less: internal/approval/
+// planning.go:120-159 now errors on repository failures, unknown scopes, and a
+// submitter belonging to no team. An instance owner or project admin passes
+// middleware/permissions.go:63 with no team membership at all, so an owner
+// submitting under a submitter_team policy orphans deterministically.
+// =========================================================================
+
+// An orphaned pending_update route must stay DELETABLE.
+func TestRouteService_Delete_OrphanedPendingUpdateRoute(t *testing.T) {
+	svc, routeRepo, approvalRepo, policyRepo, domainRepo, _ := newTestRouteService()
+
+	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
+
+	route := &models.Route{
+		ID: routeID, DomainID: domainID, Name: "user-api",
+		Status: models.RouteStatusPendingUpdate,
+	}
+
+	routeRepo.On("GetByID", routeID).Return(route, nil)
+	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
+	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
+	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
+
+	result, err := svc.Delete(routeID, uuid.New())
+
+	require.NoError(t, err)
+	assert.Equal(t, models.RouteStatusPendingDelete, result.Status)
+}
+
+// An orphaned pending_delete route must stay REVISABLE.
+func TestRouteService_Update_OrphanedPendingDeleteRoute(t *testing.T) {
+	svc, routeRepo, approvalRepo, policyRepo, domainRepo, _ := newTestRouteService()
+
+	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
+
+	route := &models.Route{
+		ID: routeID, DomainID: domainID, Name: "user-api",
+		Status: models.RouteStatusPendingDelete, SecurityMode: models.SecurityModeGeneral,
+		Config: makeBasicHTTPRouteConfig(), K8sRouteName: "user-api-12345678",
+	}
+
+	routeRepo.On("GetByID", routeID).Return(route, nil)
+	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID, Hostname: "example.com"}, nil)
+	routeRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
+		Return([]models.Route{}, int64(0), nil)
+	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
+	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
+
+	result, err := svc.Update(routeID, &services.UpdateRouteInput{
+		Config:      makeBasicHTTPRouteConfig(),
+		Description: "revised after a failed delete submit",
+	}, uuid.New())
+
+	require.NoError(t, err)
+	assert.Equal(t, models.RouteStatusPendingUpdate, result.Status)
 }
