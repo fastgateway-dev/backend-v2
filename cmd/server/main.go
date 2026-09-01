@@ -7,11 +7,13 @@ import (
 	"os/signal"
 	"syscall"
 
+	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
 	"github.com/fastgateway-dev/backend-v2/internal/cluster"
 	"github.com/fastgateway-dev/backend-v2/internal/config"
 	"github.com/fastgateway-dev/backend-v2/internal/database"
 	"github.com/fastgateway-dev/backend-v2/internal/handlers"
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
+	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
@@ -129,6 +131,16 @@ func main() {
 	clientAttachmentService.SetDomainSettingsRepository(domainSettingsRepo)
 	clientAttachmentService.SetStageReviewRepository(approvalStageReviewRepo)
 	approvalService.SetClientAttachmentService(clientAttachmentService) // Wire for approval completion callbacks
+
+	// Approval engine: the single owner of stage planning and traversal for
+	// every approvable entity type. Every dependency is required --
+	// approvalpkg.New panics on a nil one rather than degrading silently.
+	approvalEngine := approvalpkg.New(approvalRepo, approvalStageReviewRepo, approvalPolicyRepo, teamRepo, projectRepo)
+	approvalEngine.Register(models.ApprovalEntityRoute, routeService)
+	approvalEngine.Register(models.ApprovalEntityClientAttachment, clientAttachmentService)
+	routeService.SetApprovalEngine(approvalEngine)
+	clientAttachmentService.SetApprovalEngine(approvalEngine)
+	approvalService.SetApprovalEngine(approvalEngine)
 	projectNamespaceService := services.NewProjectNamespaceService(projectNamespaceRepo, projectRepo, domainRepo, k8sService)
 	projectVersionService := services.NewProjectVersionService(k8sService)
 

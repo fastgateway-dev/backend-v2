@@ -1,15 +1,25 @@
 package services
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
+	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/google/uuid"
 )
+
+// ClientAttachmentService is the client_attachment half of the approval
+// contract: internal/approval owns stage planning and traversal, and calls
+// back here when an approval reaches a terminal state.
+//
+// createApproval, resolveTeamScope, findStage, validateStageReviewer and
+// allStagesApproved used to live in this file -- a second, separately
+// written copy of what ApprovalService did for routes. They are gone;
+// internal/approval is the single implementation, exercised by
+// internal/approval/planning_test.go and traversal_test.go.
+var _ approvalpkg.Completer = (*ClientAttachmentService)(nil)
 
 // ClientAttachmentService handles client-route attachment business logic
 type ClientAttachmentService struct {
@@ -23,6 +33,14 @@ type ClientAttachmentService struct {
 	projectRepo        repository.ProjectRepositoryInterface
 	domainSettingsRepo repository.DomainSettingsRepositoryInterface
 	stageReviewRepo    repository.ApprovalStageReviewRepositoryInterface
+
+	// approvals is the shared approval engine. It is set after construction
+	// (SetApprovalEngine) because the engine holds this service as a
+	// Completer, so the two cannot both be built by a constructor.
+	approvals *approvalpkg.Engine
+
+	// state is the sole writer of route.Status. See route_state.go.
+	state *routeStateMachine
 }
 
 // NewClientAttachmentService creates a new ClientAttachmentService
@@ -45,6 +63,9 @@ func NewClientAttachmentService(
 		domainRepo:     domainRepo,
 		teamRepo:       teamRepo,
 		projectRepo:    projectRepo,
+		// routeRepo is a constructor parameter, so the state machine needs
+		// no setter of its own.
+		state: &routeStateMachine{repo: routeRepo},
 	}
 }
 
@@ -55,6 +76,12 @@ func (s *ClientAttachmentService) SetDomainSettingsRepository(repo repository.Do
 // SetStageReviewRepository sets the stage review repository for multi-approver support
 func (s *ClientAttachmentService) SetStageReviewRepository(repo repository.ApprovalStageReviewRepositoryInterface) {
 	s.stageReviewRepo = repo
+}
+
+// SetApprovalEngine sets the approval engine (to avoid a circular dependency:
+// the engine calls back into ClientAttachmentService as a Completer).
+func (s *ClientAttachmentService) SetApprovalEngine(e *approvalpkg.Engine) {
+	s.approvals = e
 }
 
 // AttachFromRouteInput represents input for attaching a client from the route side
@@ -130,20 +157,12 @@ func (s *ClientAttachmentService) AttachFromRoute(
 		return nil, errors.New("client does not have JWT configured; configure JWT first")
 	}
 
-	// Validate: if mTLS is enabled, client must have mTLS configured
-	if input.EnableMTLS && !client.MTLSEnabled {
-		return nil, errors.New("client does not have mTLS configured; configure mTLS first")
-	}
-
-	// Validate: if mTLS is enabled, domain must have mTLS enabled
-	if input.EnableMTLS {
-		if s.domainSettingsRepo == nil {
-			return nil, errors.New("domain settings not available; cannot validate mTLS")
-		}
-		settings, err := s.domainSettingsRepo.GetByDomainID(route.DomainID)
-		if err != nil || settings == nil || settings.Config.MTLS == nil || !settings.Config.MTLS.Enabled {
-			return nil, errors.New("domain mTLS must be enabled before attaching mTLS clients; enable mTLS in domain settings first")
-		}
+	// Validate: mTLS needs both a client-side config and an mTLS-enabled
+	// domain. AttachFromRoute and AttachFromClient carried byte-identical
+	// copies of this check before Phase 2D; validateMTLSPairing is the one
+	// implementation.
+	if err := s.validateMTLSPairing(input.EnableMTLS, client, route.DomainID); err != nil {
+		return nil, err
 	}
 
 	// Validate: if IP allowlist is enabled, client must have IP addresses configured
@@ -224,21 +243,45 @@ func (s *ClientAttachmentService) AttachFromRoute(
 			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
 		}
 		if !project.ApprovalEnabled {
-			// Skip approval — set attachment to approved, route to pending_deploy
-			attachment.Status = models.AttachmentStatusApproved
-			if err := s.attachmentRepo.Update(attachment); err != nil {
+			// Skip approval — set route to pending_deploy, attachment to approved.
+			// ORDER MATTERS. The route transition is attempted FIRST, and
+			// the attachment is only marked approved once it has succeeded.
+			//
+			// Until fix round 1 of Task 10+11 this ran the other way round,
+			// and a rejected transition left a PERSISTED approved attachment
+			// pointing at an untouched route -- a partial write the pre-2D
+			// code could not produce, because pre-2D the route write could
+			// not be rejected at all. Reordering is preferred to a rollback:
+			// a compensating attachmentRepo.Update can itself fail, leaving
+			// the same inconsistency with an extra failure mode. Bailing here
+			// leaves the attachment at pending_attach with no approval
+			// attached, which is exactly the state a failed approvals.Submit
+			// already leaves behind on the approvals-enabled path below.
+			//
+			// To owns route.Status and nothing else, and nothing else on the
+			// route has been mutated here, so its no-op path drops nothing.
+			if err := s.state.To(route, models.RouteStatusPendingDeploy,
+				"client attached from route side, project approvals disabled"); err != nil {
 				return nil, err
 			}
-			route.Status = models.RouteStatusPendingDeploy
-			if err := s.routeRepo.Update(route); err != nil {
+			attachment.Status = models.AttachmentStatusApproved
+			if err := s.attachmentRepo.Update(attachment); err != nil {
 				return nil, err
 			}
 			return s.attachmentRepo.GetByID(attachment.ID)
 		}
 	}
 
-	// Create the unified approval with stages from policy
-	if err := s.createApproval(domain.ProjectID, attachment.ID, models.ApprovalActionAttach, submittedBy); err != nil {
+	// Submit the approval. The engine plans the stages from the project's
+	// client_attachment policy and persists the approval itself, so there is
+	// no separate approvalRepo.Create here (Engine.Submit writes).
+	if _, err := s.approvals.Submit(approvalpkg.Spec{
+		ProjectID:   domain.ProjectID,
+		EntityType:  models.ApprovalEntityClientAttachment,
+		EntityID:    attachment.ID,
+		Action:      models.ApprovalActionAttach,
+		SubmittedBy: submittedBy,
+	}); err != nil {
 		return nil, err
 	}
 
@@ -300,20 +343,12 @@ func (s *ClientAttachmentService) AttachFromClient(
 		return nil, errors.New("client does not have JWT configured; configure JWT first")
 	}
 
-	// Validate: if mTLS is enabled, client must have mTLS configured
-	if input.EnableMTLS && !client.MTLSEnabled {
-		return nil, errors.New("client does not have mTLS configured; configure mTLS first")
-	}
-
-	// Validate: if mTLS is enabled, domain must have mTLS enabled
-	if input.EnableMTLS {
-		if s.domainSettingsRepo == nil {
-			return nil, errors.New("domain settings not available; cannot validate mTLS")
-		}
-		settings, err := s.domainSettingsRepo.GetByDomainID(route.DomainID)
-		if err != nil || settings == nil || settings.Config.MTLS == nil || !settings.Config.MTLS.Enabled {
-			return nil, errors.New("domain mTLS must be enabled before attaching mTLS clients; enable mTLS in domain settings first")
-		}
+	// Validate: mTLS needs both a client-side config and an mTLS-enabled
+	// domain. AttachFromRoute and AttachFromClient carried byte-identical
+	// copies of this check before Phase 2D; validateMTLSPairing is the one
+	// implementation.
+	if err := s.validateMTLSPairing(input.EnableMTLS, client, route.DomainID); err != nil {
+		return nil, err
 	}
 
 	// Validate: if IP allowlist is enabled, client must have IP addresses configured
@@ -388,21 +423,45 @@ func (s *ClientAttachmentService) AttachFromClient(
 			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
 		}
 		if !project.ApprovalEnabled {
-			// Skip approval — set attachment to approved, route to pending_deploy
-			attachment.Status = models.AttachmentStatusApproved
-			if err := s.attachmentRepo.Update(attachment); err != nil {
+			// Skip approval — set route to pending_deploy, attachment to approved.
+			// ORDER MATTERS. The route transition is attempted FIRST, and
+			// the attachment is only marked approved once it has succeeded.
+			//
+			// Until fix round 1 of Task 10+11 this ran the other way round,
+			// and a rejected transition left a PERSISTED approved attachment
+			// pointing at an untouched route -- a partial write the pre-2D
+			// code could not produce, because pre-2D the route write could
+			// not be rejected at all. Reordering is preferred to a rollback:
+			// a compensating attachmentRepo.Update can itself fail, leaving
+			// the same inconsistency with an extra failure mode. Bailing here
+			// leaves the attachment at pending_attach with no approval
+			// attached, which is exactly the state a failed approvals.Submit
+			// already leaves behind on the approvals-enabled path below.
+			//
+			// To owns route.Status and nothing else, and nothing else on the
+			// route has been mutated here, so its no-op path drops nothing.
+			if err := s.state.To(route, models.RouteStatusPendingDeploy,
+				"client attached from client side, project approvals disabled"); err != nil {
 				return nil, err
 			}
-			route.Status = models.RouteStatusPendingDeploy
-			if err := s.routeRepo.Update(route); err != nil {
+			attachment.Status = models.AttachmentStatusApproved
+			if err := s.attachmentRepo.Update(attachment); err != nil {
 				return nil, err
 			}
 			return s.attachmentRepo.GetByID(attachment.ID)
 		}
 	}
 
-	// Create the unified approval with stages from policy
-	if err := s.createApproval(domain.ProjectID, attachment.ID, models.ApprovalActionAttach, submittedBy); err != nil {
+	// Submit the approval. The engine plans the stages from the project's
+	// client_attachment policy and persists the approval itself, so there is
+	// no separate approvalRepo.Create here (Engine.Submit writes).
+	if _, err := s.approvals.Submit(approvalpkg.Spec{
+		ProjectID:   domain.ProjectID,
+		EntityType:  models.ApprovalEntityClientAttachment,
+		EntityID:    attachment.ID,
+		Action:      models.ApprovalActionAttach,
+		SubmittedBy: submittedBy,
+	}); err != nil {
 		return nil, err
 	}
 
@@ -438,13 +497,33 @@ func (s *ClientAttachmentService) RequestDetach(attachmentID uuid.UUID, submitte
 			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
 		}
 		if !project.ApprovalEnabled {
-			// Skip approval — set attachment to removed, route to pending_deploy
-			attachment.Status = models.AttachmentStatusRemoved
-			if err := s.attachmentRepo.Update(attachment); err != nil {
+			// Skip approval — set route to pending_deploy, attachment to removed.
+			// ORDER MATTERS. The route transition is attempted FIRST, and
+			// the attachment is only marked removed once it has succeeded.
+			//
+			// Until fix round 1 of Task 10+11 this ran the other way round,
+			// and a rejected transition left a PERSISTED removed attachment
+			// pointing at an untouched route -- a partial write the pre-2D
+			// code could not produce, because pre-2D the route write could
+			// not be rejected at all. Reordering is preferred to a rollback:
+			// a compensating attachmentRepo.Update can itself fail, leaving
+			// the same inconsistency with an extra failure mode. Bailing here
+			// leaves the attachment at pending_attach with no approval
+			// attached, which is exactly the state a failed approvals.Submit
+			// already leaves behind on the approvals-enabled path below.
+			// Here the partial write was worse still: a persisted "removed"
+			// attachment against a route that was never queued for redeploy
+			// means the client keeps working in Kubernetes while the database
+			// says it is detached.
+			//
+			// To owns route.Status and nothing else, and nothing else on the
+			// route has been mutated here, so its no-op path drops nothing.
+			if err := s.state.To(route, models.RouteStatusPendingDeploy,
+				"client detach requested, project approvals disabled"); err != nil {
 				return nil, err
 			}
-			route.Status = models.RouteStatusPendingDeploy
-			if err := s.routeRepo.Update(route); err != nil {
+			attachment.Status = models.AttachmentStatusRemoved
+			if err := s.attachmentRepo.Update(attachment); err != nil {
 				return nil, err
 			}
 			return s.attachmentRepo.GetByID(attachment.ID)
@@ -457,181 +536,42 @@ func (s *ClientAttachmentService) RequestDetach(attachmentID uuid.UUID, submitte
 		return nil, err
 	}
 
-	// Create the unified approval with stages from policy
-	if err := s.createApproval(domain.ProjectID, attachment.ID, models.ApprovalActionDetach, submittedBy); err != nil {
+	// Submit the approval. See the note in AttachFromRoute: Engine.Submit
+	// both plans the stages and persists the approval.
+	if _, err := s.approvals.Submit(approvalpkg.Spec{
+		ProjectID:   domain.ProjectID,
+		EntityType:  models.ApprovalEntityClientAttachment,
+		EntityID:    attachment.ID,
+		Action:      models.ApprovalActionDetach,
+		SubmittedBy: submittedBy,
+	}); err != nil {
 		return nil, err
 	}
 
 	return s.attachmentRepo.GetByID(attachment.ID)
 }
 
-// ApproveStage approves a specific stage in an approval
+// ApproveStage approves a specific stage of a client-attachment approval.
+//
+// The stage machine this used to implement by hand now lives in
+// internal/approval, which is also where the pre-2D divergences from the
+// route copy were resolved (see traversal.go's DIVERGENCE comments): the
+// repository error is no longer masked as "approval not found", the stage
+// is validated before self-review is checked, and an empty
+// RequiredPermission no longer skips the permission check.
+//
+// The method is kept so the handler wiring in cmd/server/main.go
+// (clientAttachmentHandler.ApproveStage) and
+// ClientAttachmentServiceInterface stay unchanged.
 func (s *ClientAttachmentService) ApproveStage(approvalID, stageID uuid.UUID, reviewer *models.User) (*models.Approval, error) {
-	approval, err := s.approvalRepo.GetByID(approvalID)
-	if err != nil {
-		return nil, errors.New("approval not found")
-	}
-
-	if approval.Status != models.ApprovalStatusPending {
-		return nil, errors.New("approval is not pending")
-	}
-
-	// Submitter cannot approve their own submission (unless project allows self-approval)
-	if approval.SubmittedBy == reviewer.ID {
-		allowed := false
-		if s.projectRepo != nil {
-			project, err := s.projectRepo.GetByID(approval.ProjectID)
-			if err == nil && project.SelfApprovalAllowed {
-				allowed = true
-			}
-		}
-		if !allowed {
-			return nil, errors.New("submitter cannot approve their own submission")
-		}
-	}
-
-	// Find the target stage
-	stage, err := s.findStage(approval, stageID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Validate the reviewer can approve this stage
-	if err := s.validateStageReviewer(approval, stage, reviewer); err != nil {
-		return nil, err
-	}
-
-	// Record the review for multi-approver tracking
-	if s.stageReviewRepo != nil {
-		// Check if this reviewer has already reviewed this stage
-		existingReviews, err := s.stageReviewRepo.ListByStageID(stage.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check existing reviews: %w", err)
-		}
-		for _, r := range existingReviews {
-			if r.ReviewerID == reviewer.ID {
-				return nil, errors.New("you have already reviewed this stage")
-			}
-		}
-
-		review := &models.ApprovalStageReview{
-			StageID:    stage.ID,
-			ReviewerID: reviewer.ID,
-			Decision:   "approved",
-		}
-		if err := s.stageReviewRepo.Create(review); err != nil {
-			return nil, fmt.Errorf("failed to record review: %w", err)
-		}
-
-		// Count approvals for this stage
-		count, err := s.stageReviewRepo.CountByStageAndDecision(stage.ID, "approved")
-		if err != nil {
-			return nil, fmt.Errorf("failed to count reviews: %w", err)
-		}
-
-		minRequired := models.EffectiveMinApprovers(stage.MinApprovers)
-		if count < int64(minRequired) {
-			// Not enough approvals yet — return current state without completing stage
-			return s.approvalRepo.GetByID(approvalID)
-		}
-	}
-
-	// Approve the stage (enough approvals received)
-	now := time.Now()
-	stage.ReviewedBy = &reviewer.ID
-	stage.Status = models.ApprovalStatusApproved
-	stage.ReviewedAt = &now
-
-	if err := s.approvalRepo.UpdateStage(stage); err != nil {
-		return nil, err
-	}
-
-	// Check if ALL stages are now approved
-	if s.allStagesApproved(approval, stageID) {
-		approval.Status = models.ApprovalStatusApproved
-		if err := s.approvalRepo.Update(approval); err != nil {
-			return nil, err
-		}
-		// Handle attachment status change on full approval
-		if err := s.OnApprovalComplete(approval); err != nil {
-			return nil, err
-		}
-	}
-
-	return s.approvalRepo.GetByID(approvalID)
+	return s.approvals.ApproveStage(approvalID, stageID, reviewer)
 }
 
-// RejectStage rejects a specific stage in an approval
+// RejectStage rejects a specific stage, which rejects the whole approval.
+// Delegates to the engine; see ApproveStage. Note the engine now REQUIRES a
+// non-empty comment, which this copy did not.
 func (s *ClientAttachmentService) RejectStage(approvalID, stageID uuid.UUID, reviewer *models.User, comment string) (*models.Approval, error) {
-	approval, err := s.approvalRepo.GetByID(approvalID)
-	if err != nil {
-		return nil, errors.New("approval not found")
-	}
-
-	if approval.Status != models.ApprovalStatusPending {
-		return nil, errors.New("approval is not pending")
-	}
-
-	// Submitter cannot reject their own submission (unless project allows self-approval)
-	if approval.SubmittedBy == reviewer.ID {
-		allowed := false
-		if s.projectRepo != nil {
-			project, err := s.projectRepo.GetByID(approval.ProjectID)
-			if err == nil && project.SelfApprovalAllowed {
-				allowed = true
-			}
-		}
-		if !allowed {
-			return nil, errors.New("submitter cannot reject their own submission")
-		}
-	}
-
-	// Find the target stage
-	stage, err := s.findStage(approval, stageID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Validate the reviewer can act on this stage
-	if err := s.validateStageReviewer(approval, stage, reviewer); err != nil {
-		return nil, err
-	}
-
-	// Record the rejection review for audit trail
-	if s.stageReviewRepo != nil {
-		review := &models.ApprovalStageReview{
-			StageID:    stage.ID,
-			ReviewerID: reviewer.ID,
-			Decision:   "rejected",
-		}
-		s.stageReviewRepo.Create(review) // Best-effort for audit trail
-	}
-
-	// Reject the stage
-	now := time.Now()
-	stage.ReviewedBy = &reviewer.ID
-	stage.Status = models.ApprovalStatusRejected
-	stage.Comment = comment
-	stage.ReviewedAt = &now
-
-	if err := s.approvalRepo.UpdateStage(stage); err != nil {
-		return nil, err
-	}
-
-	// Any rejection rejects the whole approval
-	approval.Status = models.ApprovalStatusRejected
-	if err := s.approvalRepo.Update(approval); err != nil {
-		return nil, err
-	}
-
-	// Update attachment status to rejected
-	attachment, err := s.attachmentRepo.GetByID(approval.EntityID)
-	if err == nil {
-		attachment.Status = models.AttachmentStatusRejected
-		s.attachmentRepo.Update(attachment)
-	}
-
-	return s.approvalRepo.GetByID(approvalID)
+	return s.approvals.RejectStage(approvalID, stageID, reviewer, comment)
 }
 
 // GetApproval returns an approval by ID
@@ -693,193 +633,10 @@ func (s *ClientAttachmentService) GetAttachment(id uuid.UUID) (*models.ClientRou
 	return s.attachmentRepo.GetByID(id)
 }
 
-// createApproval looks up the approval policy and creates a unified Approval with stages
-func (s *ClientAttachmentService) createApproval(projectID uuid.UUID, entityID uuid.UUID, action models.ApprovalAction, submittedBy uuid.UUID) error {
-	// Two-step policy lookup: try action-specific first, then fall back to default
-	actionStr := string(action)
-	policy, err := s.policyRepo.GetByProjectAndEntity(projectID, string(models.ApprovalEntityClientAttachment), &actionStr)
-	if err != nil || policy == nil {
-		policy, err = s.policyRepo.GetByProjectAndEntity(projectID, string(models.ApprovalEntityClientAttachment), nil)
-	}
-	if err != nil {
-		return fmt.Errorf("no approval policy found for client_attachment: %w", err)
-	}
-
-	// Parse the policy stages JSON
-	var templates []models.PolicyStageTemplate
-	if err := json.Unmarshal(policy.Stages, &templates); err != nil {
-		return fmt.Errorf("failed to parse approval policy stages: %w", err)
-	}
-
-	if len(templates) == 0 {
-		return errors.New("approval policy has no stages defined")
-	}
-
-	// Build approval stages by resolving team_scope for each template
-	stages := make([]models.ApprovalStage, 0, len(templates))
-	for _, tmpl := range templates {
-		resolvedTeamID, err := s.resolveTeamScope(tmpl.TeamScope, projectID, submittedBy)
-		if err != nil {
-			return fmt.Errorf("failed to resolve team scope %q for stage %d: %w", tmpl.TeamScope, tmpl.Order, err)
-		}
-
-		stages = append(stages, models.ApprovalStage{
-			StageOrder:         tmpl.Order,
-			RequiredPermission: tmpl.RequiredPermission,
-			RequiredTeamID:     resolvedTeamID,
-			MinApprovers:       models.EffectiveMinApprovers(tmpl.MinApprovers),
-			Status:             models.ApprovalStatusPending,
-		})
-	}
-
-	// Create the unified approval (GORM associations will create stages)
-	approval := &models.Approval{
-		ProjectID:   projectID,
-		EntityType:  models.ApprovalEntityClientAttachment,
-		EntityID:    entityID,
-		Action:      action,
-		SubmittedBy: submittedBy,
-		Status:      models.ApprovalStatusPending,
-		Stages:      stages,
-	}
-
-	return s.approvalRepo.Create(approval)
-}
-
-// resolveTeamScope resolves a team_scope string to a *uuid.UUID for the required team
-func (s *ClientAttachmentService) resolveTeamScope(scope string, projectID uuid.UUID, submittedBy uuid.UUID) (*uuid.UUID, error) {
-	switch scope {
-	case "any":
-		// No specific team required
-		return nil, nil
-
-	case "submitter_team":
-		// Find one of submitter's teams in the project
-		ptrs, err := s.teamRepo.GetUserTeamsInProject(projectID, submittedBy)
-		if err != nil || len(ptrs) == 0 {
-			return nil, errors.New("submitter is not a member of any team in this project")
-		}
-		teamID := ptrs[0].TeamID
-		return &teamID, nil
-
-	case "other_team":
-		// Find a team that is different from submitter's team(s) in the project
-		submitterPtrs, err := s.teamRepo.GetUserTeamsInProject(projectID, submittedBy)
-		if err != nil {
-			return nil, errors.New("failed to look up submitter teams")
-		}
-
-		// Build set of submitter team IDs
-		submitterTeams := make(map[uuid.UUID]bool)
-		for _, ptr := range submitterPtrs {
-			submitterTeams[ptr.TeamID] = true
-		}
-
-		// Get all teams in the project
-		allPtrs, err := s.teamRepo.ListProjectTeams(projectID)
-		if err != nil {
-			return nil, errors.New("failed to list project teams")
-		}
-
-		// Find one that is not a submitter team
-		for _, ptr := range allPtrs {
-			if !submitterTeams[ptr.TeamID] {
-				teamID := ptr.TeamID
-				return &teamID, nil
-			}
-		}
-
-		// No other team found; leave as nil (anyone with the permission can approve)
-		return nil, nil
-
-	default:
-		return nil, fmt.Errorf("unknown team_scope: %s", scope)
-	}
-}
-
-// findStage locates a stage by ID within an approval's stages
-func (s *ClientAttachmentService) findStage(approval *models.Approval, stageID uuid.UUID) (*models.ApprovalStage, error) {
-	for i := range approval.Stages {
-		if approval.Stages[i].ID == stageID {
-			return &approval.Stages[i], nil
-		}
-	}
-	return nil, errors.New("stage not found in this approval")
-}
-
-// validateStageReviewer checks that the reviewer is eligible to act on a stage:
-// - Stage must be pending
-// - All previous stages (lower order) must be approved
-// - If stage has required_permission, reviewer must have it in the project
-// - If stage has required_team_id, reviewer must be a member of that team
-func (s *ClientAttachmentService) validateStageReviewer(approval *models.Approval, stage *models.ApprovalStage, reviewer *models.User) error {
-	// Stage must be pending
-	if stage.Status != models.ApprovalStatusPending {
-		return errors.New("this stage has already been reviewed")
-	}
-
-	// All previous stages must be approved
-	for _, st := range approval.Stages {
-		if st.StageOrder < stage.StageOrder && st.Status != models.ApprovalStatusApproved {
-			return errors.New("previous stages must be approved before this stage can be reviewed")
-		}
-	}
-
-	// Check if reviewer is owner or project admin (bypass permission/team checks)
-	isOwner := reviewer.Role == models.UserRoleOwner
-	isProjectAdmin := false
-	if !isOwner {
-		isProjectAdmin, _ = s.projectRepo.IsAdmin(approval.ProjectID, reviewer.ID)
-	}
-
-	// Owner and project admin can approve any stage
-	if isOwner || isProjectAdmin {
-		return nil
-	}
-
-	// Check required_permission
-	if stage.RequiredPermission != "" {
-		hasPerm, err := s.teamRepo.HasPermissionInProject(approval.ProjectID, reviewer.ID, models.Permission(stage.RequiredPermission))
-		if err != nil {
-			return errors.New("failed to check reviewer permission")
-		}
-		if !hasPerm {
-			return fmt.Errorf("reviewer does not have the required permission %q in this project", stage.RequiredPermission)
-		}
-	}
-
-	// Check required_team_id
-	if stage.RequiredTeamID != nil {
-		isMember, err := s.teamRepo.IsMember(*stage.RequiredTeamID, reviewer.ID)
-		if err != nil {
-			return errors.New("failed to check team membership")
-		}
-		if !isMember {
-			return errors.New("reviewer must be a member of the required team for this stage")
-		}
-	}
-
-	return nil
-}
-
-// allStagesApproved checks if all stages in the approval are approved,
-// treating the given stageID as already approved (since it was just updated in memory
-// but the approval.Stages slice may not yet reflect the update)
-func (s *ClientAttachmentService) allStagesApproved(approval *models.Approval, justApprovedStageID uuid.UUID) bool {
-	for _, st := range approval.Stages {
-		if st.ID == justApprovedStageID {
-			// This one was just approved
-			continue
-		}
-		if st.Status != models.ApprovalStatusApproved {
-			return false
-		}
-	}
-	return true
-}
-
-// OnApprovalComplete handles the completion of a fully-approved approval
-func (s *ClientAttachmentService) OnApprovalComplete(approval *models.Approval) error {
+// OnApproved implements approval.Completer. It is the former
+// OnApprovalComplete, renamed to satisfy the interface; the body is
+// unchanged.
+func (s *ClientAttachmentService) OnApproved(approval *models.Approval) error {
 	attachment, err := s.attachmentRepo.GetByID(approval.EntityID)
 	if err != nil {
 		return err
@@ -902,16 +659,23 @@ func (s *ClientAttachmentService) OnApprovalComplete(approval *models.Approval) 
 	}
 
 	if route.Status == models.RouteStatusActive {
-		route.Status = models.RouteStatusPendingDeploy
-		// Use raw DB update to change just the status
-		return s.updateRouteStatus(route.ID, models.RouteStatusPendingDeploy)
+		// The assignment of pending_deploy to route.Status that used to sit
+		// here was DEAD:
+		// updateRouteStatus re-fetches its own copy of the route and writes
+		// that one, so this local mutation was never persisted and never
+		// read. Deleted in Phase 2D rather than migrated — migrating a write
+		// that does nothing would have added a spurious transition.
+		return s.updateRouteStatus(route.ID, models.RouteStatusPendingDeploy,
+			fmt.Sprintf("attachment approval %s approved (action %s)", approval.ID, approval.Action))
 	}
 
 	return nil
 }
 
-// OnApprovalRejected handles the rejection of a client attachment approval
-func (s *ClientAttachmentService) OnApprovalRejected(approval *models.Approval) error {
+// OnRejected implements approval.Completer. It is the former
+// OnApprovalRejected, renamed to satisfy the interface; the body is
+// unchanged.
+func (s *ClientAttachmentService) OnRejected(approval *models.Approval) error {
 	attachment, err := s.attachmentRepo.GetByID(approval.EntityID)
 	if err != nil {
 		return err
@@ -921,12 +685,70 @@ func (s *ClientAttachmentService) OnApprovalRejected(approval *models.Approval) 
 	return s.attachmentRepo.Update(attachment)
 }
 
-// updateRouteStatus updates only the status of a route
-func (s *ClientAttachmentService) updateRouteStatus(routeID uuid.UUID, status models.RouteStatus) error {
+// OnCancelled implements approval.Completer.
+//
+// The client-attachment approval API exposes no cancel endpoint of its own,
+// but the UNIFIED approval API does (POST /approvals/:id/cancel ->
+// ApprovalService.CancelApproval), and it accepts any entity type. Pre-2D,
+// ApprovalService.onApprovalCancelled dispatched a cancelled
+// client_attachment approval to ClientAttachmentService.OnApprovalRejected
+// (approval_service.go:568-571 at HEAD) -- i.e. a cancelled attachment
+// approval left the attachment marked "rejected", exactly like a rejection.
+//
+// That is reproduced here rather than invented: OnCancelled is OnRejected.
+// TestApprovalService_CancelApproval_ClientAttachment pins it.
+func (s *ClientAttachmentService) OnCancelled(approval *models.Approval) error {
+	return s.OnRejected(approval)
+}
+
+// validateMTLSPairing checks that an mTLS-enabled attachment has both a
+// client-side mTLS config and an mTLS-enabled domain.
+//
+// AttachFromRoute and AttachFromClient carried byte-identical copies of
+// this check before Phase 2D. The parameter list is exactly what those
+// blocks read: the request's EnableMTLS flag, the client (for MTLSEnabled)
+// and the route's domain ID (for the domain settings lookup); the domain
+// settings repository comes from the receiver. Every early return, and its
+// message, is unchanged -- including treating a lookup error, a missing
+// settings row and a disabled mTLS config as the same failure.
+func (s *ClientAttachmentService) validateMTLSPairing(enableMTLS bool, client *models.Client, domainID uuid.UUID) error {
+	if !enableMTLS {
+		return nil
+	}
+
+	// Client must have mTLS configured.
+	if !client.MTLSEnabled {
+		return errors.New("client does not have mTLS configured; configure mTLS first")
+	}
+
+	// Domain must have mTLS enabled.
+	if s.domainSettingsRepo == nil {
+		return errors.New("domain settings not available; cannot validate mTLS")
+	}
+	settings, err := s.domainSettingsRepo.GetByDomainID(domainID)
+	if err != nil || settings == nil || settings.Config.MTLS == nil || !settings.Config.MTLS.Enabled {
+		return errors.New("domain mTLS must be enabled before attaching mTLS clients; enable mTLS in domain settings first")
+	}
+
+	return nil
+}
+
+// updateRouteStatus updates only the status of a route.
+//
+// It re-fetches the route rather than taking its caller's copy, so a TOCTOU
+// gap survives between the caller's read of route.Status and this one. What
+// changed in Phase 2D is the consequence: the write now goes through
+// routeStateMachine.To, which validates the RE-FETCHED status. A route that
+// moved to a state with no legal edge to `status` in between now produces an
+// error instead of being blindly overwritten. The gap is narrowed, not
+// closed: a concurrent move to a state that does have such an edge is still
+// accepted silently. Closing it needs the caller's route passed in (or an
+// optimistic-concurrency check on the repository), which is out of scope
+// here.
+func (s *ClientAttachmentService) updateRouteStatus(routeID uuid.UUID, status models.RouteStatus, reason string) error {
 	route, err := s.routeRepo.GetByID(routeID)
 	if err != nil {
 		return err
 	}
-	route.Status = status
-	return s.routeRepo.Update(route)
+	return s.state.To(route, status, reason)
 }

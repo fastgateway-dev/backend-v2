@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 
+	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
@@ -338,9 +339,12 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
 		}
 		if !project.ApprovalEnabled {
-			// Skip approval — set route directly to approved
-			route.Status = models.RouteStatusApproved
-			if err := s.routeRepo.Update(route); err != nil {
+			// Skip approval — set route directly to approved.
+			// route was just persisted at pending_create (struct literal
+			// above), so this is pending_create -> approved and To always
+			// writes; nothing else has been mutated since routeRepo.Create.
+			if err := s.state.To(route, models.RouteStatusApproved,
+				"route created, project approvals disabled"); err != nil {
 				return nil, err
 			}
 			return route, nil
@@ -355,20 +359,19 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 		WafPolicy:            snapshotWaf,
 	})
 
-	approval := &models.Approval{
+	// Submit plans the stages and persists the approval; the service no
+	// longer builds either.
+	approval, err := s.approvals.Submit(approvalpkg.Spec{
 		ProjectID:         domain.ProjectID,
 		EntityType:        models.ApprovalEntityRoute,
 		EntityID:          route.ID,
 		Action:            models.ApprovalActionCreate,
 		ConfigSnapshot:    configSnapshot,
 		SubmittedBy:       createdBy,
-		Status:            models.ApprovalStatusPending,
 		ChangeDescription: input.ChangeDescription,
 		AIReview:          input.AIReview,
-		Stages:            s.buildRouteApprovalStages(domain.ProjectID, createdBy, "create"),
-	}
-
-	if err := s.approvalRepo.Create(approval); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -641,8 +644,8 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		}
 	}
 
-	// Update route status
-	route.Status = models.RouteStatusPendingUpdate
+	// Apply the caller's field changes BEFORE the status transition, so the
+	// state machine's write carries them.
 	if input.Description != "" {
 		route.Description = input.Description
 	}
@@ -653,7 +656,20 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		route.Labels = input.Labels
 	}
 
-	if err := s.routeRepo.Update(route); err != nil {
+	// Update route status.
+	//
+	// routeStateMachine.To owns route.Status and nothing else, and it does
+	// NOT write on a no-op transition (see its CONTRACT comment). Description
+	// and Labels above are exactly the mutations the pre-2D unconditional
+	// routeRepo.Update persisted, so an already-pending_update route — an
+	// orphan whose approval submit failed — must still be written explicitly
+	// or those edits are silently dropped.
+	if route.Status == models.RouteStatusPendingUpdate {
+		if err := s.routeRepo.Update(route); err != nil {
+			return nil, err
+		}
+	} else if err := s.state.To(route, models.RouteStatusPendingUpdate,
+		"route update submitted"); err != nil {
 		return nil, err
 	}
 
@@ -730,9 +746,11 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
 		}
 		if !project.ApprovalEnabled {
-			// Skip approval — set route directly to pending_deploy
-			route.Status = models.RouteStatusPendingDeploy
-			if err := s.routeRepo.Update(route); err != nil {
+			// Skip approval — set route directly to pending_deploy.
+			// route sits at pending_update, persisted above, and no field
+			// other than Status has been touched since.
+			if err := s.state.To(route, models.RouteStatusPendingDeploy,
+				"route update submitted, project approvals disabled"); err != nil {
 				return nil, err
 			}
 			return route, nil
@@ -757,7 +775,7 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		WafPolicy:            previousWafPolicy,
 	})
 
-	approval := &models.Approval{
+	approval, err := s.approvals.Submit(approvalpkg.Spec{
 		ProjectID:         domain.ProjectID,
 		EntityType:        models.ApprovalEntityRoute,
 		EntityID:          route.ID,
@@ -765,13 +783,10 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		ConfigSnapshot:    configSnapshot,
 		PreviousConfig:    prevConfigSnapshot,
 		SubmittedBy:       submittedBy,
-		Status:            models.ApprovalStatusPending,
 		ChangeDescription: input.ChangeDescription,
 		AIReview:          input.AIReview,
-		Stages:            s.buildRouteApprovalStages(domain.ProjectID, submittedBy, "update"),
-	}
-
-	if err := s.approvalRepo.Create(approval); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -893,10 +908,10 @@ func (s *RouteService) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Rout
 		return nil, err
 	}
 
-	// Update route status
-	route.Status = models.RouteStatusPendingDelete
-
-	if err := s.routeRepo.Update(route); err != nil {
+	// Update route status. Delete mutates no other route field, so To's
+	// no-op path (an already-pending_delete orphan) drops nothing.
+	if err := s.state.To(route, models.RouteStatusPendingDelete,
+		"route deletion submitted"); err != nil {
 		return nil, err
 	}
 
@@ -940,9 +955,10 @@ func (s *RouteService) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Rout
 			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
 		}
 		if !project.ApprovalEnabled {
-			// Skip approval — set route directly to pending_deploy
-			route.Status = models.RouteStatusPendingDeploy
-			if err := s.routeRepo.Update(route); err != nil {
+			// Skip approval — set route directly to pending_deploy.
+			// route sits at pending_delete, persisted above.
+			if err := s.state.To(route, models.RouteStatusPendingDeploy,
+				"route deletion submitted, project approvals disabled"); err != nil {
 				return nil, err
 			}
 			return route, nil
@@ -958,18 +974,15 @@ func (s *RouteService) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Rout
 		WafPolicy:            deletePrevWaf,
 	})
 
-	approval := &models.Approval{
+	approval, err := s.approvals.Submit(approvalpkg.Spec{
 		ProjectID:      domain.ProjectID,
 		EntityType:     models.ApprovalEntityRoute,
 		EntityID:       route.ID,
 		Action:         models.ApprovalActionDelete,
 		ConfigSnapshot: configSnapshot,
 		SubmittedBy:    submittedBy,
-		Status:         models.ApprovalStatusPending,
-		Stages:         s.buildRouteApprovalStages(domain.ProjectID, submittedBy, "delete"),
-	}
-
-	if err := s.approvalRepo.Create(approval); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 

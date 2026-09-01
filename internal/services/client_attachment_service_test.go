@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
@@ -13,6 +14,51 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// wireCASApprovalEngine gives a ClientAttachmentService the approval engine
+// that its AttachFrom*/RequestDetach (Submit) and ApproveStage/RejectStage
+// paths now delegate to, and registers the service as the client_attachment
+// completer. Phase 2D Task 8: those methods are pure delegation, so without
+// an engine they nil-panic.
+//
+// approvalpkg.New panics on a nil dependency, so every slot the caller
+// leaves nil is filled with a fresh mock. The stage-review store is always
+// stubbed: the engine records every review (the pre-2D nil guard silently
+// downgraded MinApprovers>1 to 1), and a single approval satisfies the
+// default MinApprovers of 1.
+func wireCASApprovalEngine(
+	svc *services.ClientAttachmentService,
+	approvalRepo *mocks.MockUnifiedApprovalRepository,
+	policyRepo *mocks.MockApprovalPolicyRepository,
+	teamRepo *mocks.MockTeamRepository,
+	projectRepo *mocks.MockProjectRepository,
+) *approvalpkg.Engine {
+	if approvalRepo == nil {
+		approvalRepo = new(mocks.MockUnifiedApprovalRepository)
+	}
+	if policyRepo == nil {
+		policyRepo = new(mocks.MockApprovalPolicyRepository)
+	}
+	if teamRepo == nil {
+		teamRepo = new(mocks.MockTeamRepository)
+	}
+	if projectRepo == nil {
+		projectRepo = new(mocks.MockProjectRepository)
+	}
+
+	stageReviewRepo := new(mocks.MockApprovalStageReviewRepository)
+	stageReviewRepo.On("ListByStageID", mock.Anything).
+		Return([]models.ApprovalStageReview{}, nil).Maybe()
+	stageReviewRepo.On("Create", mock.AnythingOfType("*models.ApprovalStageReview")).
+		Return(nil).Maybe()
+	stageReviewRepo.On("CountByStageAndDecision", mock.Anything, mock.Anything).
+		Return(int64(1), nil).Maybe()
+
+	engine := approvalpkg.New(approvalRepo, stageReviewRepo, policyRepo, teamRepo, projectRepo)
+	engine.Register(models.ApprovalEntityClientAttachment, svc)
+	svc.SetApprovalEngine(engine)
+	return engine
+}
 
 // ---------------------------------------------------------------------------
 // ListByClientID
@@ -151,6 +197,7 @@ func TestClientAttachmentService_AttachFromRoute_Success(t *testing.T) {
 	domainRepo := new(mocks.MockDomainRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	svc := services.NewClientAttachmentService(attachmentRepo, approvalRepo, policyRepo, clientRepo, routeRepo, domainRepo, teamRepo, nil)
+	wireCASApprovalEngine(svc, approvalRepo, policyRepo, teamRepo, nil)
 
 	clientID := uuid.New()
 	routeID := uuid.New()
@@ -268,6 +315,7 @@ func TestClientAttachmentService_AttachFromClient_Success(t *testing.T) {
 	domainRepo := new(mocks.MockDomainRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	svc := services.NewClientAttachmentService(attachmentRepo, approvalRepo, policyRepo, clientRepo, routeRepo, domainRepo, teamRepo, nil)
+	wireCASApprovalEngine(svc, approvalRepo, policyRepo, teamRepo, nil)
 
 	clientID := uuid.New()
 	routeID := uuid.New()
@@ -415,6 +463,7 @@ func TestClientAttachmentService_RequestDetach_Success(t *testing.T) {
 	domainRepo := new(mocks.MockDomainRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	svc := services.NewClientAttachmentService(attachmentRepo, approvalRepo, policyRepo, nil, routeRepo, domainRepo, teamRepo, nil)
+	wireCASApprovalEngine(svc, approvalRepo, policyRepo, teamRepo, nil)
 
 	attachmentID := uuid.New()
 	routeID := uuid.New()
@@ -485,6 +534,7 @@ func TestClientAttachmentService_ApproveStage_Success_SingleStage(t *testing.T) 
 	projectRepo := new(mocks.MockProjectRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	svc := services.NewClientAttachmentService(attachmentRepo, approvalRepo, nil, nil, routeRepo, nil, teamRepo, projectRepo)
+	wireCASApprovalEngine(svc, approvalRepo, nil, teamRepo, projectRepo)
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -516,7 +566,7 @@ func TestClientAttachmentService_ApproveStage_Success_SingleStage(t *testing.T) 
 	approvalRepo.On("UpdateStage", mock.AnythingOfType("*models.ApprovalStage")).Return(nil)
 	approvalRepo.On("Update", mock.AnythingOfType("*models.Approval")).Return(nil)
 
-	// OnApprovalComplete
+	// OnApproved (was OnApprovalComplete)
 	attachment := &models.ClientRouteAttachment{ID: attachmentID, RouteID: routeID, Status: models.AttachmentStatusPendingAttach}
 	attachmentRepo.On("GetByID", attachmentID).Return(attachment, nil)
 	attachmentRepo.On("Update", mock.AnythingOfType("*models.ClientRouteAttachment")).Return(nil)
@@ -535,6 +585,7 @@ func TestClientAttachmentService_ApproveStage_Success_MultiStage_FirstOnly(t *te
 	projectRepo := new(mocks.MockProjectRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	svc := services.NewClientAttachmentService(nil, approvalRepo, nil, nil, nil, nil, teamRepo, projectRepo)
+	wireCASApprovalEngine(svc, approvalRepo, nil, teamRepo, projectRepo)
 
 	approvalID := uuid.New()
 	stage1ID := uuid.New()
@@ -572,6 +623,7 @@ func TestClientAttachmentService_ApproveStage_WrongPermission(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	svc := services.NewClientAttachmentService(nil, approvalRepo, nil, nil, nil, nil, teamRepo, projectRepo)
+	wireCASApprovalEngine(svc, approvalRepo, nil, teamRepo, projectRepo)
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -605,6 +657,7 @@ func TestClientAttachmentService_ApproveStage_WrongPermission(t *testing.T) {
 func TestClientAttachmentService_ApproveStage_NotPending(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	svc := services.NewClientAttachmentService(nil, approvalRepo, nil, nil, nil, nil, nil, nil)
+	wireCASApprovalEngine(svc, approvalRepo, nil, nil, nil)
 
 	approvalID := uuid.New()
 	approval := &models.Approval{
@@ -621,7 +674,17 @@ func TestClientAttachmentService_ApproveStage_NotPending(t *testing.T) {
 
 func TestClientAttachmentService_ApproveStage_SubmitterCannotApprove(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewClientAttachmentService(nil, approvalRepo, nil, nil, nil, nil, nil, nil)
+	// The engine resolves the completer before it authorises the stage, so
+	// the approval needs its real EntityType; and the pre-2D
+	// `if s.projectRepo != nil` guard around the self-approval lookup is
+	// gone (an unwired project repo used to silently permit self-approval),
+	// so the lookup now always happens. A failed lookup still denies, which
+	// is what this test asserts.
+	projectID := uuid.New()
+	projectRepo := new(mocks.MockProjectRepository)
+	projectRepo.On("GetByID", projectID).Return(nil, errors.New("no project"))
+	svc := services.NewClientAttachmentService(nil, approvalRepo, nil, nil, nil, nil, nil, projectRepo)
+	wireCASApprovalEngine(svc, approvalRepo, nil, nil, projectRepo)
 
 	userID := uuid.New()
 	approvalID := uuid.New()
@@ -629,6 +692,8 @@ func TestClientAttachmentService_ApproveStage_SubmitterCannotApprove(t *testing.
 
 	approval := &models.Approval{
 		ID:          approvalID,
+		ProjectID:   projectID,
+		EntityType:  models.ApprovalEntityClientAttachment,
 		SubmittedBy: userID,
 		Status:      models.ApprovalStatusPending,
 		Stages: []models.ApprovalStage{
@@ -653,6 +718,7 @@ func TestClientAttachmentService_RejectStage_Success(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	svc := services.NewClientAttachmentService(attachmentRepo, approvalRepo, nil, nil, nil, nil, teamRepo, projectRepo)
+	wireCASApprovalEngine(svc, approvalRepo, nil, teamRepo, projectRepo)
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -692,6 +758,7 @@ func TestClientAttachmentService_RejectStage_Success(t *testing.T) {
 func TestClientAttachmentService_RejectStage_AlreadyRejected(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	svc := services.NewClientAttachmentService(nil, approvalRepo, nil, nil, nil, nil, nil, nil)
+	wireCASApprovalEngine(svc, approvalRepo, nil, nil, nil)
 
 	approvalID := uuid.New()
 	approval := &models.Approval{
@@ -772,10 +839,10 @@ func TestClientAttachmentService_ListApprovalsByProjectID_Empty(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// OnApprovalComplete
+// OnApproved (was OnApprovalComplete)
 // ---------------------------------------------------------------------------
 
-func TestClientAttachmentService_OnApprovalComplete_Success(t *testing.T) {
+func TestClientAttachmentService_OnApproved_Success(t *testing.T) {
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	svc := services.NewClientAttachmentService(attachmentRepo, nil, nil, nil, routeRepo, nil, nil, nil)
@@ -802,13 +869,13 @@ func TestClientAttachmentService_OnApprovalComplete_Success(t *testing.T) {
 	routeRepo.On("GetByID", routeID).Return(route, nil).Times(2)
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
 
-	err := svc.OnApprovalComplete(approval)
+	err := svc.OnApproved(approval)
 
 	require.NoError(t, err)
 	attachmentRepo.AssertExpectations(t)
 }
 
-func TestClientAttachmentService_OnApprovalComplete_RouteNotActive(t *testing.T) {
+func TestClientAttachmentService_OnApproved_RouteNotActive(t *testing.T) {
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	svc := services.NewClientAttachmentService(attachmentRepo, nil, nil, nil, routeRepo, nil, nil, nil)
@@ -832,12 +899,12 @@ func TestClientAttachmentService_OnApprovalComplete_RouteNotActive(t *testing.T)
 	attachmentRepo.On("Update", mock.AnythingOfType("*models.ClientRouteAttachment")).Return(nil)
 	routeRepo.On("GetByID", routeID).Return(route, nil)
 
-	err := svc.OnApprovalComplete(approval)
+	err := svc.OnApproved(approval)
 
 	require.NoError(t, err)
 }
 
-func TestClientAttachmentService_OnApprovalComplete_Detach(t *testing.T) {
+func TestClientAttachmentService_OnApproved_Detach(t *testing.T) {
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	svc := services.NewClientAttachmentService(attachmentRepo, nil, nil, nil, routeRepo, nil, nil, nil)
@@ -867,17 +934,17 @@ func TestClientAttachmentService_OnApprovalComplete_Detach(t *testing.T) {
 	routeRepo.On("GetByID", routeID).Return(route, nil).Times(2)
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
 
-	err := svc.OnApprovalComplete(approval)
+	err := svc.OnApproved(approval)
 
 	require.NoError(t, err)
 	attachmentRepo.AssertExpectations(t)
 }
 
 // ---------------------------------------------------------------------------
-// OnApprovalRejected
+// OnRejected (was OnApprovalRejected)
 // ---------------------------------------------------------------------------
 
-func TestClientAttachmentService_OnApprovalRejected_Success(t *testing.T) {
+func TestClientAttachmentService_OnRejected_Success(t *testing.T) {
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
 	svc := services.NewClientAttachmentService(attachmentRepo, nil, nil, nil, nil, nil, nil, nil)
 
@@ -888,7 +955,7 @@ func TestClientAttachmentService_OnApprovalRejected_Success(t *testing.T) {
 	attachmentRepo.On("GetByID", attachmentID).Return(attachment, nil)
 	attachmentRepo.On("Update", mock.AnythingOfType("*models.ClientRouteAttachment")).Return(nil)
 
-	err := svc.OnApprovalRejected(approval)
+	err := svc.OnRejected(approval)
 
 	require.NoError(t, err)
 }
@@ -947,6 +1014,45 @@ func newTestClientAttachmentServiceFull() (
 	*mocks.MockTeamRepository,
 	*mocks.MockProjectRepository,
 ) {
+	return newTestClientAttachmentServiceWithApprovals(true)
+}
+
+// newTestClientAttachmentServiceApprovalsDisabled is the sibling of
+// newTestClientAttachmentServiceFull for a project with ApprovalEnabled=false,
+// i.e. the attach/detach FAST PATHS.
+//
+// Those paths had no coverage at all before fix round 1 of Task 10+11 -- every
+// fixture in this file stubbed ApprovalEnabled=true -- which is how a wrong
+// derived from-set for route.Status reached the state machine unnoticed. It
+// cannot be an override on the Full helper: that helper registers its own
+// .Maybe() stub for the same method and arguments, and testify's
+// findExpectedCall returns the FIRST match with Repeatability > -1, so a later
+// On("GetByID", ...) would never be reached.
+func newTestClientAttachmentServiceApprovalsDisabled() (
+	*services.ClientAttachmentService,
+	*mocks.MockClientAttachmentRepository,
+	*mocks.MockUnifiedApprovalRepository,
+	*mocks.MockApprovalPolicyRepository,
+	*mocks.MockClientRepository,
+	*mocks.MockRouteRepository,
+	*mocks.MockDomainRepository,
+	*mocks.MockTeamRepository,
+	*mocks.MockProjectRepository,
+) {
+	return newTestClientAttachmentServiceWithApprovals(false)
+}
+
+func newTestClientAttachmentServiceWithApprovals(approvalEnabled bool) (
+	*services.ClientAttachmentService,
+	*mocks.MockClientAttachmentRepository,
+	*mocks.MockUnifiedApprovalRepository,
+	*mocks.MockApprovalPolicyRepository,
+	*mocks.MockClientRepository,
+	*mocks.MockRouteRepository,
+	*mocks.MockDomainRepository,
+	*mocks.MockTeamRepository,
+	*mocks.MockProjectRepository,
+) {
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	policyRepo := new(mocks.MockApprovalPolicyRepository)
@@ -960,11 +1066,272 @@ func newTestClientAttachmentServiceFull() (
 		attachmentRepo, approvalRepo, policyRepo,
 		clientRepo, routeRepo, domainRepo, teamRepo, projectRepo,
 	)
+	wireCASApprovalEngine(svc, approvalRepo, policyRepo, teamRepo, projectRepo)
 
-	// Default: approvals enabled (bypass check returns project with ApprovalEnabled=true)
-	projectRepo.On("GetByID", mock.Anything).Return(&models.Project{ApprovalEnabled: true}, nil).Maybe()
+	projectRepo.On("GetByID", mock.Anything).
+		Return(&models.Project{ApprovalEnabled: approvalEnabled}, nil).Maybe()
 
 	return svc, attachmentRepo, approvalRepo, policyRepo, clientRepo, routeRepo, domainRepo, teamRepo, projectRepo
+}
+
+// ---------------------------------------------------------------------------
+// Attach/detach FAST PATHS (project.ApprovalEnabled == false).
+//
+// Added in fix round 1 of Task 10+11. The derived from-set for these three
+// sites was {active}, argued from the approvals-ENABLED counterpart's
+// `route.Status == active` guard. That argument was wrong: neither attach
+// function reads route.Status at all, and in an approvals-disabled project
+// RouteService.Create leaves the route at APPROVED, never active. So the
+// ordinary flow create -> attach -> deploy hit
+// `illegal transition "approved" -> "pending_deploy"`.
+// ---------------------------------------------------------------------------
+
+// attachFastPathRouteStatusCase drives AttachFromRoute's approvals-disabled
+// branch against a route sitting at the given status.
+func attachFastPathRouteStatusCase(t *testing.T, status models.RouteStatus, wantRouteWrite bool) {
+	t.Helper()
+
+	svc, attachmentRepo, _, _, clientRepo, routeRepo, domainRepo, _, _ :=
+		newTestClientAttachmentServiceApprovalsDisabled()
+
+	routeID, clientID, domainID := uuid.New(), uuid.New(), uuid.New()
+	attachmentID, submittedBy := uuid.New(), uuid.New()
+
+	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID, IPAddressCount: 1}, nil)
+	routeRepo.On("GetByID", routeID).Return(&models.Route{
+		ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient, Status: status,
+	}, nil)
+	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: uuid.New()}, nil)
+
+	attachmentRepo.On("GetByClientAndRoute", clientID, routeID).Return(nil, errors.New("not found"))
+	attachmentRepo.On("Create", mock.AnythingOfType("*models.ClientRouteAttachment")).
+		Run(func(args mock.Arguments) {
+			args.Get(0).(*models.ClientRouteAttachment).ID = attachmentID
+		}).Return(nil)
+	attachmentRepo.On("Update", mock.MatchedBy(func(a *models.ClientRouteAttachment) bool {
+		return a.Status == models.AttachmentStatusApproved
+	})).Return(nil)
+	attachmentRepo.On("GetByID", attachmentID).
+		Return(&models.ClientRouteAttachment{ID: attachmentID, ClientID: clientID, RouteID: routeID}, nil)
+
+	routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
+		return r.ID == routeID && r.Status == models.RouteStatusPendingDeploy
+	})).Return(nil).Maybe()
+
+	result, err := svc.AttachFromRoute(routeID, &services.AttachFromRouteInput{
+		ClientID:          clientID,
+		EnableIPAllowlist: true,
+	}, submittedBy)
+
+	require.NoError(t, err, "attaching a client to a %s route must not be rejected by the state machine", status)
+	assert.NotNil(t, result)
+
+	if wantRouteWrite {
+		routeRepo.AssertCalled(t, "Update", mock.Anything)
+	} else {
+		routeRepo.AssertNotCalled(t, "Update", mock.Anything)
+	}
+}
+
+// The regression this fix round exists for: create a route in an
+// approvals-disabled project (which leaves it at `approved`, route_write.go
+// Create/approvals-disabled), then attach a client to it.
+func TestClientAttachmentService_AttachFromRoute_FastPath_ApprovedRoute(t *testing.T) {
+	attachFastPathRouteStatusCase(t, models.RouteStatusApproved, true)
+}
+
+func TestClientAttachmentService_AttachFromRoute_FastPath_ActiveRoute(t *testing.T) {
+	attachFastPathRouteStatusCase(t, models.RouteStatusActive, true)
+}
+
+// Already at the target: To's no-op path. No route write at all, where the
+// pre-2D code did a redundant same-value one.
+func TestClientAttachmentService_AttachFromRoute_FastPath_PendingDeployRouteIsANoOp(t *testing.T) {
+	attachFastPathRouteStatusCase(t, models.RouteStatusPendingDeploy, false)
+}
+
+// Reachable only through the runtime toggle (project_service.go UpdateProject
+// flips ApprovalEnabled): the route was created, and rejected, while approvals
+// were on; approvals are then turned off and a client is attached.
+func TestClientAttachmentService_AttachFromRoute_FastPath_RejectedRoute(t *testing.T) {
+	attachFastPathRouteStatusCase(t, models.RouteStatusRejected, true)
+}
+
+// Same toggle, or an orphan: Create persists pending_create before calling
+// approvals.Submit, so a failed submit leaves the row there with no approval.
+func TestClientAttachmentService_AttachFromRoute_FastPath_PendingCreateRoute(t *testing.T) {
+	attachFastPathRouteStatusCase(t, models.RouteStatusPendingCreate, true)
+}
+
+// ---------------------------------------------------------------------------
+// The same status-parameterised coverage for the OTHER two fast paths.
+//
+// Added in the final fix wave. Only AttachFromRoute got these in fix round 1;
+// AttachFromClient (client_attachment_service.go:443) and RequestDetach
+// (:521) were left uncovered on the grounds that their bodies are identical
+// to AttachFromRoute's. That is precisely the reasoning that produced the
+// Critical fix round 1 had to fix -- #9's derived from-set was copied from
+// #8's sibling rather than derived from the code, and was wrong -- so it is
+// not a basis for skipping the tests. Each site gets its own coverage.
+//
+// These are regression tests for the state machine, not for the attach logic:
+// each drives the real approvals-disabled branch against a route sitting at
+// the given status and asserts the transition to pending_deploy is not
+// rejected.
+// ---------------------------------------------------------------------------
+
+// attachFromClientFastPathRouteStatusCase drives AttachFromClient's
+// approvals-disabled branch against a route sitting at the given status.
+func attachFromClientFastPathRouteStatusCase(t *testing.T, status models.RouteStatus, wantRouteWrite bool) {
+	t.Helper()
+
+	svc, attachmentRepo, _, _, clientRepo, routeRepo, domainRepo, _, _ :=
+		newTestClientAttachmentServiceApprovalsDisabled()
+
+	routeID, clientID, domainID := uuid.New(), uuid.New(), uuid.New()
+	projectID := uuid.New()
+	attachmentID, submittedBy := uuid.New(), uuid.New()
+
+	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID, IPAddressCount: 1}, nil)
+	routeRepo.On("GetByID", routeID).Return(&models.Route{
+		ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient, Status: status,
+	}, nil)
+	// AttachFromClient additionally checks domain.ProjectID == input.ProjectID.
+	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
+
+	attachmentRepo.On("GetByClientAndRoute", clientID, routeID).Return(nil, errors.New("not found"))
+	attachmentRepo.On("Create", mock.AnythingOfType("*models.ClientRouteAttachment")).
+		Run(func(args mock.Arguments) {
+			args.Get(0).(*models.ClientRouteAttachment).ID = attachmentID
+		}).Return(nil)
+	attachmentRepo.On("Update", mock.MatchedBy(func(a *models.ClientRouteAttachment) bool {
+		return a.Status == models.AttachmentStatusApproved
+	})).Return(nil)
+	attachmentRepo.On("GetByID", attachmentID).
+		Return(&models.ClientRouteAttachment{ID: attachmentID, ClientID: clientID, RouteID: routeID}, nil)
+
+	routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
+		return r.ID == routeID && r.Status == models.RouteStatusPendingDeploy
+	})).Return(nil).Maybe()
+
+	result, err := svc.AttachFromClient(clientID, &services.AttachFromClientInput{
+		RouteID:           routeID,
+		ProjectID:         projectID,
+		EnableIPAllowlist: true,
+	}, submittedBy)
+
+	require.NoError(t, err, "attaching a client to a %s route must not be rejected by the state machine", status)
+	assert.NotNil(t, result)
+
+	if wantRouteWrite {
+		routeRepo.AssertCalled(t, "Update", mock.Anything)
+	} else {
+		routeRepo.AssertNotCalled(t, "Update", mock.Anything)
+	}
+}
+
+// The mirror of the regression fix round 1 existed for: Create in an
+// approvals-disabled project leaves the route at `approved`, not active.
+func TestClientAttachmentService_AttachFromClient_FastPath_ApprovedRoute(t *testing.T) {
+	attachFromClientFastPathRouteStatusCase(t, models.RouteStatusApproved, true)
+}
+
+func TestClientAttachmentService_AttachFromClient_FastPath_ActiveRoute(t *testing.T) {
+	attachFromClientFastPathRouteStatusCase(t, models.RouteStatusActive, true)
+}
+
+// Already at the target: To's no-op path, so no route write at all.
+func TestClientAttachmentService_AttachFromClient_FastPath_PendingDeployRouteIsANoOp(t *testing.T) {
+	attachFromClientFastPathRouteStatusCase(t, models.RouteStatusPendingDeploy, false)
+}
+
+// Reachable through the ApprovalEnabled runtime toggle
+// (ProjectService.UpdateProject).
+func TestClientAttachmentService_AttachFromClient_FastPath_RejectedRoute(t *testing.T) {
+	attachFromClientFastPathRouteStatusCase(t, models.RouteStatusRejected, true)
+}
+
+// Same toggle, or an orphan left by a failed approvals.Submit inside Create.
+func TestClientAttachmentService_AttachFromClient_FastPath_PendingCreateRoute(t *testing.T) {
+	attachFromClientFastPathRouteStatusCase(t, models.RouteStatusPendingCreate, true)
+}
+
+// detachFastPathRouteStatusCase drives RequestDetach's approvals-disabled
+// branch against a route sitting at the given status.
+//
+// RequestDetach's own derived from-set is narrower than the attach paths'
+// ({active, pending_update, pending_delete} -- it is guarded on
+// attachment.Status == active, and an attachment only becomes active inside a
+// successful Deploy, which sets route.Status = active in the same call). The
+// table is keyed globally on (from, to) though, so the attach paths' origins
+// are legal here too. These cases pin that actual behaviour rather than the
+// narrower per-site derivation; see known deviation (b) in verification.md.
+func detachFastPathRouteStatusCase(t *testing.T, status models.RouteStatus, wantRouteWrite bool) {
+	t.Helper()
+
+	svc, attachmentRepo, _, _, _, routeRepo, domainRepo, _, _ :=
+		newTestClientAttachmentServiceApprovalsDisabled()
+
+	routeID, clientID, domainID := uuid.New(), uuid.New(), uuid.New()
+	attachmentID, submittedBy := uuid.New(), uuid.New()
+
+	// Only an ACTIVE attachment can be detached (client_attachment_service.go
+	// :479-481); that guard is on the attachment, not the route.
+	attachmentRepo.On("GetByID", attachmentID).Return(&models.ClientRouteAttachment{
+		ID: attachmentID, ClientID: clientID, RouteID: routeID,
+		Status: models.AttachmentStatusActive,
+	}, nil)
+	routeRepo.On("GetByID", routeID).Return(&models.Route{
+		ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient, Status: status,
+	}, nil)
+	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: uuid.New()}, nil)
+
+	attachmentRepo.On("Update", mock.MatchedBy(func(a *models.ClientRouteAttachment) bool {
+		return a.Status == models.AttachmentStatusRemoved
+	})).Return(nil)
+
+	routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
+		return r.ID == routeID && r.Status == models.RouteStatusPendingDeploy
+	})).Return(nil).Maybe()
+
+	result, err := svc.RequestDetach(attachmentID, submittedBy)
+
+	require.NoError(t, err, "detaching a client from a %s route must not be rejected by the state machine", status)
+	assert.NotNil(t, result)
+
+	if wantRouteWrite {
+		routeRepo.AssertCalled(t, "Update", mock.Anything)
+	} else {
+		routeRepo.AssertNotCalled(t, "Update", mock.Anything)
+	}
+	// The attachment is only marked removed once the route transition has
+	// succeeded (the ORDER MATTERS note at :500-517).
+	attachmentRepo.AssertCalled(t, "Update", mock.Anything)
+}
+
+// The mainline: RequestDetach's own derivation says the route is active here.
+func TestClientAttachmentService_RequestDetach_FastPath_ActiveRoute(t *testing.T) {
+	detachFastPathRouteStatusCase(t, models.RouteStatusActive, true)
+}
+
+// Already at the target: To's no-op path, so no route write at all.
+func TestClientAttachmentService_RequestDetach_FastPath_PendingDeployRouteIsANoOp(t *testing.T) {
+	detachFastPathRouteStatusCase(t, models.RouteStatusPendingDeploy, false)
+}
+
+// Legal only by the global (from, to) keying -- RequestDetach's own from-set
+// does not contain approved. Pinned so that a future move to per-site keying
+// (a recorded 2E item) shows up here as a failing test rather than silently.
+func TestClientAttachmentService_RequestDetach_FastPath_ApprovedRoute(t *testing.T) {
+	detachFastPathRouteStatusCase(t, models.RouteStatusApproved, true)
+}
+
+func TestClientAttachmentService_RequestDetach_FastPath_RejectedRoute(t *testing.T) {
+	detachFastPathRouteStatusCase(t, models.RouteStatusRejected, true)
+}
+
+func TestClientAttachmentService_RequestDetach_FastPath_PendingCreateRoute(t *testing.T) {
+	detachFastPathRouteStatusCase(t, models.RouteStatusPendingCreate, true)
 }
 
 func TestClientAttachmentService_AttachFromRoute_ClientNotFound2(t *testing.T) {
@@ -1282,4 +1649,43 @@ func TestClientAttachmentService_AttachFromRoute_APIKeyNotConfigured(t *testing.
 
 	assert.Nil(t, result)
 	assert.EqualError(t, err, "client does not have an API key configured; generate one first")
+}
+
+// A rejected route transition must leave NO partial write behind.
+//
+// Until fix round 1 of Task 10+11 the fast path persisted
+// attachment.Status = approved BEFORE attempting the route transition, so a
+// rejection left an approved attachment pointing at an untouched route --
+// a state the pre-2D code could not produce, because pre-2D the route write
+// could not be rejected. The order is now reversed.
+//
+// An unknown route status is used as the trigger because, after the from-set
+// correction above, every real status is either legal or a no-op here; it is
+// the "no transitions defined from" arm of To rather than the illegal-pair
+// arm, which is the same failure as far as ordering is concerned.
+func TestClientAttachmentService_AttachFromRoute_FastPath_RejectedTransitionWritesNothing(t *testing.T) {
+	svc, attachmentRepo, _, _, clientRepo, routeRepo, domainRepo, _, _ :=
+		newTestClientAttachmentServiceApprovalsDisabled()
+
+	routeID, clientID, domainID := uuid.New(), uuid.New(), uuid.New()
+
+	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID, IPAddressCount: 1}, nil)
+	routeRepo.On("GetByID", routeID).Return(&models.Route{
+		ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient,
+		Status: models.RouteStatus("something-unrecognised"),
+	}, nil)
+	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: uuid.New()}, nil)
+	attachmentRepo.On("GetByClientAndRoute", clientID, routeID).Return(nil, errors.New("not found"))
+	attachmentRepo.On("Create", mock.AnythingOfType("*models.ClientRouteAttachment")).Return(nil)
+
+	result, err := svc.AttachFromRoute(routeID, &services.AttachFromRouteInput{
+		ClientID:          clientID,
+		EnableIPAllowlist: true,
+	}, uuid.New())
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	routeRepo.AssertNotCalled(t, "Update", mock.Anything)
+	// The decisive assertion: the attachment was NOT promoted to approved.
+	attachmentRepo.AssertNotCalled(t, "Update", mock.Anything)
 }
