@@ -15,6 +15,32 @@ import (
 	"gorm.io/gorm"
 )
 
+// noForceSSOPolicy answers "SSO is not forced", reproducing the pre-2E
+// behaviour of an unset ssoService: the guard at auth_service.go:79
+// (`if s.ssoService != nil && ...`) skipped the check entirely, and every
+// test in this file except the force-SSO one left the field nil.
+// Phase 2E Task 9 deleted that nil half: SSO is required, so
+// ShouldForceSSO is always consulted -- here, through this stub.
+type noForceSSOPolicy struct{}
+
+func (noForceSSOPolicy) ShouldForceSSO(string, models.UserRole) bool { return false }
+
+// configExpirySettings answers with the process configuration's own token
+// lifetimes, reproducing the pre-2E behaviour of an unset
+// systemSettingsService: auth_service.go:302 and :328 fell back to
+// s.config.JWTExpiry / s.config.RefreshTokenExpiry, and every test in this
+// file except the system-settings one left the field nil.
+// Phase 2E Task 9 deleted those s.config fallbacks: Settings is required,
+// and the real SystemSettingsService produces the same two values when
+// nothing is stored.
+type configExpirySettings struct{ cfg *config.Config }
+
+func (c configExpirySettings) GetJWTExpiry() time.Duration { return c.cfg.JWTExpiry }
+
+func (c configExpirySettings) GetRefreshTokenExpiry() time.Duration {
+	return c.cfg.RefreshTokenExpiry
+}
+
 func newTestAuthService() (*services.AuthService, *mocks.MockUserRepository, *mocks.MockAPITokenRepository) {
 	mockUserRepo := new(mocks.MockUserRepository)
 	mockAPITokenRepo := new(mocks.MockAPITokenRepository)
@@ -23,7 +49,13 @@ func newTestAuthService() (*services.AuthService, *mocks.MockUserRepository, *mo
 		JWTExpiry:          time.Hour,
 		RefreshTokenExpiry: 24 * time.Hour,
 	}
-	svc := services.NewAuthService(mockUserRepo, mockAPITokenRepo, cfg)
+	svc := services.NewAuthService(services.AuthServiceDeps{
+		UserRepo:     mockUserRepo,
+		APITokenRepo: mockAPITokenRepo,
+		Config:       cfg,
+		SSO:          noForceSSOPolicy{},
+		Settings:     configExpirySettings{cfg: cfg},
+	})
 	return svc, mockUserRepo, mockAPITokenRepo
 }
 
@@ -534,18 +566,26 @@ func TestAuthService_ValidateAPIToken_NotExpired(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SetSSOService / SetSystemSettingsService
+// SSOPolicy / TokenExpirySettings (Phase 2E Task 4: these replaced
+// SetSSOService and SetSystemSettingsService)
 // ---------------------------------------------------------------------------
 
-func TestAuthService_SetSSOService(t *testing.T) {
-	svc, _, _ := newTestAuthService()
-
-	// Should not panic when setting SSO service
+func TestAuthService_Login_ForceSSO(t *testing.T) {
+	// The SSO side still reaches AuthService as a real *SSOService, so this
+	// keeps exercising the production ShouldForceSSO implementation rather
+	// than a stub -- it is just typed as SSOPolicy now.
 	mockSSORepo := new(mocks.MockSSOConfigRepository)
-	ssoSvc := services.NewSSOService(mockSSORepo, nil, nil, nil, &config.Config{})
-	svc.SetSSOService(ssoSvc)
+	ssoSvc := services.NewSSOService(services.SSOServiceDeps{
+		SSOConfigRepo:   mockSSORepo,
+		UserRepo:        new(mocks.MockUserRepository),
+		TeamRepo:        new(mocks.MockTeamRepository),
+		EmailInviteRepo: new(mocks.MockTeamEmailInviteRepository),
+		Config:          &config.Config{},
+		Tokens:          &stubTokenIssuer{},
+		Settings:        stubBaseURLProvider{},
+	})
 
-	// Verify force SSO is now checked during login
+	// Verify force SSO is checked during login
 	// Login with a user who has force SSO applicable
 	mockUserRepo := new(mocks.MockUserRepository)
 	cfg := &config.Config{
@@ -553,8 +593,13 @@ func TestAuthService_SetSSOService(t *testing.T) {
 		JWTExpiry:          time.Hour,
 		RefreshTokenExpiry: 24 * time.Hour,
 	}
-	svc2 := services.NewAuthService(mockUserRepo, nil, cfg)
-	svc2.SetSSOService(ssoSvc)
+	svc2 := services.NewAuthService(services.AuthServiceDeps{
+		UserRepo:     mockUserRepo,
+		APITokenRepo: new(mocks.MockAPITokenRepository),
+		Config:       cfg,
+		SSO:          ssoSvc,
+		Settings:     configExpirySettings{cfg: cfg},
+	})
 
 	passwordHash, _ := services.HashPassword("password")
 	user := &models.User{
@@ -582,15 +627,40 @@ func TestAuthService_SetSSOService(t *testing.T) {
 	mockUserRepo.AssertExpectations(t)
 }
 
-func TestAuthService_SetSystemSettingsService(t *testing.T) {
-	svc, _, _ := newTestAuthService()
-	mockSettingsRepo := new(mocks.MockSystemSettingsRepository)
-	settingsSvc := services.NewSystemSettingsService(mockSettingsRepo, &config.Config{
-		JWTExpiry:          time.Hour,
-		RefreshTokenExpiry: 24 * time.Hour,
-	})
-	// Should not panic
-	svc.SetSystemSettingsService(settingsSvc)
+func TestNewAuthService_RequiresEveryDependency(t *testing.T) {
+	cfg := &config.Config{JWTExpiry: time.Hour, RefreshTokenExpiry: 24 * time.Hour}
+	full := func() services.AuthServiceDeps {
+		return services.AuthServiceDeps{
+			UserRepo:     new(mocks.MockUserRepository),
+			APITokenRepo: new(mocks.MockAPITokenRepository),
+			Config:       cfg,
+			SSO:          noForceSSOPolicy{},
+			Settings:     services.NewSystemSettingsService(new(mocks.MockSystemSettingsRepository), cfg),
+		}
+	}
+	require.NotPanics(t, func() { services.NewAuthService(full()) })
+
+	// *SystemSettingsService is the production TokenExpirySettings, and
+	// *ForceSSOPolicy the production SSOPolicy.
+	var _ services.TokenExpirySettings = (*services.SystemSettingsService)(nil)
+	var _ services.SSOPolicy = (*services.ForceSSOPolicy)(nil)
+
+	cases := map[string]func(*services.AuthServiceDeps){
+		"UserRepo":     func(d *services.AuthServiceDeps) { d.UserRepo = nil },
+		"APITokenRepo": func(d *services.AuthServiceDeps) { d.APITokenRepo = nil },
+		"Config":       func(d *services.AuthServiceDeps) { d.Config = nil },
+		"SSO":          func(d *services.AuthServiceDeps) { d.SSO = nil },
+		"Settings":     func(d *services.AuthServiceDeps) { d.Settings = nil },
+	}
+	for name, breakIt := range cases {
+		t.Run("nil "+name, func(t *testing.T) {
+			d := full()
+			breakIt(&d)
+			assert.PanicsWithValue(t,
+				"services.NewAuthService: missing required dependency: "+name,
+				func() { services.NewAuthService(d) })
+		})
+	}
 }
 
 func TestAuthService_GenerateAccessToken_WithSystemSettings(t *testing.T) {
@@ -601,12 +671,16 @@ func TestAuthService_GenerateAccessToken_WithSystemSettings(t *testing.T) {
 		JWTExpiry:          time.Hour,
 		RefreshTokenExpiry: 24 * time.Hour,
 	}
-	svc := services.NewAuthService(mockUserRepo, mockAPITokenRepo, cfg)
-
-	// Set system settings service with custom JWT expiry
+	// System settings service with custom JWT expiry
 	mockSettingsRepo := new(mocks.MockSystemSettingsRepository)
 	settingsSvc := services.NewSystemSettingsService(mockSettingsRepo, cfg)
-	svc.SetSystemSettingsService(settingsSvc)
+	svc := services.NewAuthService(services.AuthServiceDeps{
+		UserRepo:     mockUserRepo,
+		APITokenRepo: mockAPITokenRepo,
+		Config:       cfg,
+		SSO:          noForceSSOPolicy{},
+		Settings:     settingsSvc,
+	})
 
 	settings := &models.SystemSettings{JWTExpiry: "30m", RefreshTokenExpiry: "12h"}
 	mockSettingsRepo.On("Get").Return(settings, nil)

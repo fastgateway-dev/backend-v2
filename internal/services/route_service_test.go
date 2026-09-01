@@ -1,6 +1,7 @@
 package services_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -19,6 +20,200 @@ import (
 
 // helpers -----------------------------------------------------------------
 
+// fullRouteServiceDeps returns a RouteServiceDeps in which every required
+// dependency is populated. Phase 2E Task 2 made all fifteen repositories
+// constructor parameters, so nothing may be left nil.
+//
+// Several defaults carry stubbed behaviour rather than being bare mocks,
+// because before Phase 2E the test helpers left those fields nil and the
+// production nil-guards then skipped the work entirely. Each stub reproduces
+// the answer the skipped branch used to produce -- see the constructor
+// functions below. Phase 2E Task 9 has since deleted every one of those
+// nil-guards, so the stubs now describe production behaviour rather than a
+// degraded fallback.
+func fullRouteServiceDeps(t *testing.T) services.RouteServiceDeps {
+	t.Helper()
+	return newRouteServiceDeps()
+}
+
+func newRouteServiceDeps() services.RouteServiceDeps {
+	return services.RouteServiceDeps{
+		RouteRepo:                new(mocks.MockRouteRepository),
+		ApprovalRepo:             new(mocks.MockUnifiedApprovalRepository),
+		PolicyRepo:               new(mocks.MockApprovalPolicyRepository),
+		DomainRepo:               new(mocks.MockDomainRepository),
+		TeamRepo:                 new(mocks.MockTeamRepository),
+		ProjectNamespaceRepo:     newManagedNamespaceRepo(),
+		SecurityPolicyRepo:       newEmptySecurityPolicyRepo(),
+		BackendTrafficPolicyRepo: newEmptyBackendTrafficPolicyRepo(),
+		EnvoyExtensionPolicyRepo: newEmptyEnvoyExtensionPolicyRepo(),
+		WafPolicyRepo:            newEmptyWafPolicyRepo(),
+		ClientAttachmentRepo:     newEmptyClientAttachmentRepo(),
+		ClientIPRepo:             new(mocks.MockClientIPRepository),
+		ClientHeaderRepo:         newEmptyClientHeaderRepo(),
+		ClientRepo:               newNoClientsClientRepo(),
+		ProjectRepo:              newApprovalsEnabledProjectRepo(),
+		WafConfig:                routeplan.WAFConfig{},
+		Domains:                  noopCTPEnsurer{},
+		RouteVersions:            noopVersionRecorder{},
+		Approvals:                newRouteApprovalEngine(),
+
+		// Phase 2E Task 9 deleted route_deploy.go's compound
+		// "kubernetes service not configured" guard and made all seven
+		// cluster roles required, so every RouteService names them. These
+		// are bare mocks with no expectations: a test that reaches
+		// Kubernetes without saying so fails on an unexpected call, which
+		// is what the six deleted guard-pinning tests used to get as a
+		// silent error string instead. Tests that do deploy override all
+		// seven -- see newTestRouteServiceWithK8s.
+		K8sRoutes:        new(mocks.MockKubernetesService),
+		K8sPolicies:      new(mocks.MockKubernetesService),
+		K8sBackends:      new(mocks.MockKubernetesService),
+		K8sBackendReaper: new(mocks.MockKubernetesService),
+		K8sSecrets:       new(mocks.MockKubernetesService),
+		K8sAPIKeys:       new(mocks.MockKubernetesService),
+		K8sRefGrants:     new(mocks.MockKubernetesService),
+	}
+}
+
+// noopCTPEnsurer answers "nothing to re-apply", reproducing the pre-2E
+// behaviour of an unset domainService: route_clients_apikey.go's
+// `if s.domains != nil` skipped the client mTLS CA secret and
+// ClientTrafficPolicy block entirely when the field was nil, and every test
+// here left it nil. Phase 2E Task 9 deleted that guard; the stub keeps these
+// tests on the same observable path, since no test here attaches an mTLS
+// client.
+type noopCTPEnsurer struct{}
+
+func (noopCTPEnsurer) EnsureMTLSClientTrafficPolicy(context.Context, *models.Domain) error {
+	return nil
+}
+
+// noopVersionRecorder answers "version recorded", reproducing the pre-2E
+// behaviour of an unset routeVersionService: route_deploy.go skipped the
+// snapshot entirely when the field was nil, and every test here left it nil.
+// The production call already treats a CreateVersion failure as non-fatal, so
+// returning nil is exactly the observable pre-2E result. Phase 2E Task 9
+// deleted the guard, so the snapshot call now always happens -- against this
+// stub.
+type noopVersionRecorder struct{}
+
+func (noopVersionRecorder) CreateVersion(*models.Route, *models.Approval, uuid.UUID) error {
+	return nil
+}
+
+// newRouteApprovalEngine builds the approval engine RouteService now takes as
+// a required constructor parameter (Phase 2E Task 6). It is the same engine
+// newTestRouteServiceWith used to attach through SetApprovalEngine, built
+// before the service instead of after it. Callers that need the route
+// completer registered do that once the service exists.
+func newRouteApprovalEngine() *approvalpkg.Engine {
+	// The engine always records stage reviews; the pre-2D nil guard that
+	// skipped them is gone. approval.New panics on a nil dependency by
+	// design, so every slot gets a mock.
+	stageReviewRepo := new(mocks.MockApprovalStageReviewRepository)
+	stageReviewRepo.On("ListByStageID", mock.Anything).
+		Return([]models.ApprovalStageReview{}, nil).Maybe()
+	stageReviewRepo.On("Create", mock.AnythingOfType("*models.ApprovalStageReview")).
+		Return(nil).Maybe()
+	stageReviewRepo.On("CountByStageAndDecision", mock.Anything, mock.Anything).
+		Return(int64(1), nil).Maybe()
+	return approvalpkg.New(
+		new(mocks.MockUnifiedApprovalRepository),
+		stageReviewRepo,
+		new(mocks.MockApprovalPolicyRepository),
+		new(mocks.MockTeamRepository),
+		new(mocks.MockProjectRepository),
+	)
+}
+
+// newManagedNamespaceRepo answers "every namespace is managed by this
+// project", reproducing the pre-2E behaviour of an unset
+// projectNamespaceRepo (validation skipped).
+func newManagedNamespaceRepo() *mocks.MockProjectNamespaceRepository {
+	nsRepo := new(mocks.MockProjectNamespaceRepository)
+	nsRepo.On("ExistsByProjectAndNamespace", mock.Anything, mock.Anything).
+		Return(true, nil).Maybe()
+	return nsRepo
+}
+
+// newApprovalsEnabledProjectRepo answers "approvals are enabled", reproducing
+// the pre-2E behaviour of an unset projectRepo (the bypass branch skipped, so
+// submissions go through the approval engine).
+func newApprovalsEnabledProjectRepo() *mocks.MockProjectRepository {
+	projectRepo := new(mocks.MockProjectRepository)
+	projectRepo.On("GetByID", mock.Anything).
+		Return(&models.Project{ApprovalEnabled: true}, nil).Maybe()
+	return projectRepo
+}
+
+// The four "empty" policy repos and the empty attachment repo answer "nothing
+// configured", reproducing the pre-2E behaviour of the corresponding unset
+// field (route_query.go:36/80/93/106/119, route_clients.go:94,
+// route_write.go:622/631/640/735/920/928/936/944).
+func newEmptySecurityPolicyRepo() *mocks.MockSecurityPolicyRepository {
+	repo := new(mocks.MockSecurityPolicyRepository)
+	repo.On("GetByRouteID", mock.Anything).Return(nil, nil).Maybe()
+	repo.On("DeleteByRouteID", mock.Anything).Return(nil).Maybe()
+	repo.On("Create", mock.Anything).Return(nil).Maybe()
+	repo.On("Upsert", mock.Anything).Return(nil).Maybe()
+	return repo
+}
+
+func newEmptyBackendTrafficPolicyRepo() *mocks.MockBackendTrafficPolicyRepository {
+	repo := new(mocks.MockBackendTrafficPolicyRepository)
+	repo.On("GetByRouteID", mock.Anything).Return(nil, nil).Maybe()
+	repo.On("DeleteByRouteID", mock.Anything).Return(nil).Maybe()
+	repo.On("Create", mock.Anything).Return(nil).Maybe()
+	repo.On("Upsert", mock.Anything).Return(nil).Maybe()
+	return repo
+}
+
+func newEmptyEnvoyExtensionPolicyRepo() *mocks.MockEnvoyExtensionPolicyRepository {
+	repo := new(mocks.MockEnvoyExtensionPolicyRepository)
+	repo.On("GetByRouteID", mock.Anything).Return(nil, nil).Maybe()
+	repo.On("DeleteByRouteID", mock.Anything).Return(nil).Maybe()
+	repo.On("Create", mock.Anything).Return(nil).Maybe()
+	repo.On("Upsert", mock.Anything).Return(nil).Maybe()
+	return repo
+}
+
+func newEmptyWafPolicyRepo() *mocks.MockWafPolicyRepository {
+	repo := new(mocks.MockWafPolicyRepository)
+	repo.On("GetByRouteID", mock.Anything).Return(nil, nil).Maybe()
+	repo.On("DeleteByRouteID", mock.Anything).Return(nil).Maybe()
+	repo.On("Create", mock.Anything).Return(nil).Maybe()
+	repo.On("Upsert", mock.Anything).Return(nil).Maybe()
+	return repo
+}
+
+// newEmptyClientHeaderRepo and newNoClientsClientRepo answer "this client
+// contributes nothing to the base route", reproducing the pre-2E behaviour of
+// an unset clientHeaderRepo / clientRepo (route_clients.go:168, 206).
+func newEmptyClientHeaderRepo() *mocks.MockClientHeaderRepository {
+	repo := new(mocks.MockClientHeaderRepository)
+	repo.On("ListByClientID", mock.Anything).
+		Return([]models.ClientHeader{}, nil).Maybe()
+	return repo
+}
+
+func newNoClientsClientRepo() *mocks.MockClientRepository {
+	repo := new(mocks.MockClientRepository)
+	// An error makes every caller log-and-continue, which is exactly what the
+	// nil clientRepo used to produce: no client contributes to the plan.
+	repo.On("GetByID", mock.Anything).Return(nil, errors.New("no client repository wired in this test")).Maybe()
+	return repo
+}
+
+func newEmptyClientAttachmentRepo() *mocks.MockClientAttachmentRepository {
+	repo := new(mocks.MockClientAttachmentRepository)
+	repo.On("ListActiveByRouteID", mock.Anything).
+		Return([]models.ClientRouteAttachment{}, nil).Maybe()
+	repo.On("ListApprovedByRouteID", mock.Anything).
+		Return([]models.ClientRouteAttachment{}, nil).Maybe()
+	return repo
+}
+
 func newTestRouteService() (
 	*services.RouteService,
 	*mocks.MockRouteRepository,
@@ -27,18 +222,37 @@ func newTestRouteService() (
 	*mocks.MockDomainRepository,
 	*mocks.MockTeamRepository,
 ) {
-	routeRepo := new(mocks.MockRouteRepository)
-	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	policyRepo := new(mocks.MockApprovalPolicyRepository)
-	domainRepo := new(mocks.MockDomainRepository)
-	teamRepo := new(mocks.MockTeamRepository)
-	svc := services.NewRouteService(routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo, routeplan.WAFConfig{})
+	return newTestRouteServiceWith(nil)
+}
+
+// newTestRouteServiceWith builds the service after letting the caller adjust
+// the dependency struct. It replaces the per-test setter calls that Phase 2E
+// Task 2 deleted. The five mocks it returns are the ones it created itself,
+// so mutate must not replace RouteRepo, ApprovalRepo, PolicyRepo, DomainRepo
+// or TeamRepo.
+func newTestRouteServiceWith(mutate func(*services.RouteServiceDeps)) (
+	*services.RouteService,
+	*mocks.MockRouteRepository,
+	*mocks.MockUnifiedApprovalRepository,
+	*mocks.MockApprovalPolicyRepository,
+	*mocks.MockDomainRepository,
+	*mocks.MockTeamRepository,
+) {
+	deps := newRouteServiceDeps()
+	routeRepo := deps.RouteRepo.(*mocks.MockRouteRepository)
+	approvalRepo := deps.ApprovalRepo.(*mocks.MockUnifiedApprovalRepository)
+	policyRepo := deps.PolicyRepo.(*mocks.MockApprovalPolicyRepository)
+	domainRepo := deps.DomainRepo.(*mocks.MockDomainRepository)
+	teamRepo := deps.TeamRepo.(*mocks.MockTeamRepository)
 
 	// Phase 2D Task 7: submission goes through the approval engine, which
 	// plans the stages and persists the approval. approval.New panics on a
 	// nil dependency by design, so every slot gets a mock. The engine also
 	// always records stage reviews; the pre-2D nil guard that skipped them
-	// is gone.
+	// is gone. Phase 2E Task 6: the engine is a required constructor
+	// parameter, so it is built here -- from the same repositories as before,
+	// captured before mutate runs -- and the completer is registered once the
+	// service exists.
 	stageReviewRepo := new(mocks.MockApprovalStageReviewRepository)
 	stageReviewRepo.On("ListByStageID", mock.Anything).
 		Return([]models.ApprovalStageReview{}, nil).Maybe()
@@ -47,13 +261,22 @@ func newTestRouteService() (
 	stageReviewRepo.On("CountByStageAndDecision", mock.Anything, mock.Anything).
 		Return(int64(1), nil).Maybe()
 	engine := approvalpkg.New(approvalRepo, stageReviewRepo, policyRepo, teamRepo, new(mocks.MockProjectRepository))
+	deps.Approvals = engine
+
+	if mutate != nil {
+		mutate(&deps)
+	}
+	svc := services.NewRouteService(deps)
 	engine.Register(models.ApprovalEntityRoute, svc)
-	svc.SetApprovalEngine(engine)
 
 	return svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo
 }
 
-// newTestRouteServiceFull creates a RouteService with all optional repos set
+// newTestRouteServiceFull creates a RouteService and returns the extra policy
+// and client repositories alongside the core five, so tests can set
+// expectations on them. Since Phase 2E Task 2 every RouteService is "full" --
+// the constructor requires all of them -- so this differs from
+// newTestRouteService only in what it hands back.
 func newTestRouteServiceFull() (
 	*services.RouteService,
 	*mocks.MockRouteRepository,
@@ -68,20 +291,56 @@ func newTestRouteServiceFull() (
 	*mocks.MockClientAttachmentRepository,
 	*mocks.MockClientIPRepository,
 ) {
-	svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo := newTestRouteService()
-	secRepo := new(mocks.MockSecurityPolicyRepository)
-	btpRepo := new(mocks.MockBackendTrafficPolicyRepository)
-	eepRepo := new(mocks.MockEnvoyExtensionPolicyRepository)
-	wafRepo := new(mocks.MockWafPolicyRepository)
-	caRepo := new(mocks.MockClientAttachmentRepository)
-	cipRepo := new(mocks.MockClientIPRepository)
+	return newTestRouteServiceFullWith(nil)
+}
 
-	svc.SetSecurityPolicyRepository(secRepo)
-	svc.SetBackendTrafficPolicyRepository(btpRepo)
-	svc.SetEnvoyExtensionPolicyRepository(eepRepo)
-	svc.SetWafPolicyRepository(wafRepo)
-	svc.SetClientAttachmentRepository(caRepo)
-	svc.SetClientIPRepository(cipRepo)
+// newTestRouteServiceFullWith is newTestRouteServiceFull with a hook for
+// the caller to fill in extra dependencies -- the seven Kubernetes roles,
+// in practice. Phase 2E Task 7 replaced SetKubernetesService with those
+// constructor fields, so they can no longer be attached afterwards.
+func newTestRouteServiceFullWith(extra func(*services.RouteServiceDeps)) (
+	*services.RouteService,
+	*mocks.MockRouteRepository,
+	*mocks.MockUnifiedApprovalRepository,
+	*mocks.MockApprovalPolicyRepository,
+	*mocks.MockDomainRepository,
+	*mocks.MockTeamRepository,
+	*mocks.MockSecurityPolicyRepository,
+	*mocks.MockBackendTrafficPolicyRepository,
+	*mocks.MockEnvoyExtensionPolicyRepository,
+	*mocks.MockWafPolicyRepository,
+	*mocks.MockClientAttachmentRepository,
+	*mocks.MockClientIPRepository,
+) {
+	var secRepo *mocks.MockSecurityPolicyRepository
+	var btpRepo *mocks.MockBackendTrafficPolicyRepository
+	var eepRepo *mocks.MockEnvoyExtensionPolicyRepository
+	var wafRepo *mocks.MockWafPolicyRepository
+	var caRepo *mocks.MockClientAttachmentRepository
+	var cipRepo *mocks.MockClientIPRepository
+
+	svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo := newTestRouteServiceWith(
+		func(d *services.RouteServiceDeps) {
+			// Bare mocks, not the permissive defaults: these six are
+			// handed back so the caller can set its own expectations,
+			// exactly as it did when this helper called the (now deleted)
+			// setters.
+			secRepo = new(mocks.MockSecurityPolicyRepository)
+			btpRepo = new(mocks.MockBackendTrafficPolicyRepository)
+			eepRepo = new(mocks.MockEnvoyExtensionPolicyRepository)
+			wafRepo = new(mocks.MockWafPolicyRepository)
+			caRepo = new(mocks.MockClientAttachmentRepository)
+			cipRepo = new(mocks.MockClientIPRepository)
+			d.SecurityPolicyRepo = secRepo
+			d.BackendTrafficPolicyRepo = btpRepo
+			d.EnvoyExtensionPolicyRepo = eepRepo
+			d.WafPolicyRepo = wafRepo
+			d.ClientAttachmentRepo = caRepo
+			d.ClientIPRepo = cipRepo
+			if extra != nil {
+				extra(d)
+			}
+		})
 
 	return svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo, secRepo, btpRepo, eepRepo, wafRepo, caRepo, cipRepo
 }
@@ -1476,71 +1735,6 @@ func TestRouteService_Deploy_NoApprovedRequest(t *testing.T) {
 
 	assert.Nil(t, result)
 	assert.EqualError(t, err, "no approved request found for this route")
-}
-
-// =========================================================================
-// Deploy - k8s service not configured
-// =========================================================================
-
-func TestRouteService_Deploy_K8sServiceNotConfigured(t *testing.T) {
-	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteService()
-
-	routeID := uuid.New()
-	domainID := uuid.New()
-
-	route := &models.Route{
-		ID:       routeID,
-		DomainID: domainID,
-		Status:   models.RouteStatusApproved,
-	}
-	approval := &models.Approval{
-		ID:     uuid.New(),
-		Action: models.ApprovalActionCreate,
-	}
-	domain := &models.Domain{
-		ID:       domainID,
-		Hostname: "example.com",
-	}
-
-	routeRepo.On("GetByID", routeID).Return(route, nil)
-	approvalRepo.On("GetLatestApprovedByEntityID", models.ApprovalEntityRoute, routeID).Return(approval, nil)
-	domainRepo.On("GetByID", domainID).Return(domain, nil)
-
-	result, err := svc.Deploy(routeID, uuid.New())
-
-	assert.Nil(t, result)
-	assert.EqualError(t, err, "kubernetes service not configured")
-}
-
-// =========================================================================
-// Deploy - pending_deploy with no approval creates synthetic update
-// =========================================================================
-
-func TestRouteService_Deploy_PendingDeployNoApproval_K8sNotConfigured(t *testing.T) {
-	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteService()
-
-	routeID := uuid.New()
-	domainID := uuid.New()
-
-	route := &models.Route{
-		ID:       routeID,
-		DomainID: domainID,
-		Status:   models.RouteStatusPendingDeploy,
-	}
-	domain := &models.Domain{
-		ID:       domainID,
-		Hostname: "example.com",
-	}
-
-	routeRepo.On("GetByID", routeID).Return(route, nil)
-	approvalRepo.On("GetLatestApprovedByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
-	domainRepo.On("GetByID", domainID).Return(domain, nil)
-
-	result, err := svc.Deploy(routeID, uuid.New())
-
-	// Should reach K8s service check (synthetic approval created)
-	assert.Nil(t, result)
-	assert.EqualError(t, err, "kubernetes service not configured")
 }
 
 // =========================================================================
@@ -4047,14 +4241,14 @@ func TestRouteService_Create_GRPCRoute_RejectsQueryParamMatching(t *testing.T) {
 // =========================================================================
 
 func TestRouteService_Create_NamespaceNotManaged(t *testing.T) {
-	svc, routeRepo, _, _, domainRepo, teamRepo := newTestRouteService()
+	nsRepo := new(mocks.MockProjectNamespaceRepository)
+	svc, routeRepo, _, _, domainRepo, teamRepo := newTestRouteServiceWith(func(d *services.RouteServiceDeps) {
+		d.ProjectNamespaceRepo = nsRepo
+	})
 
 	domainID := uuid.New()
 	projectID := uuid.New()
 	teamID := uuid.New()
-
-	nsRepo := new(mocks.MockProjectNamespaceRepository)
-	svc.SetProjectNamespaceRepository(nsRepo)
 
 	routeRepo.On("ExistsByName", domainID, "ns-route").Return(false, nil)
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
@@ -4078,37 +4272,6 @@ func TestRouteService_Create_NamespaceNotManaged(t *testing.T) {
 
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "not managed by this project")
-}
-
-// =========================================================================
-// Deploy - pending deploy with no route approval creates synthetic update
-// =========================================================================
-
-func TestRouteService_Deploy_PendingDeploy_SyntheticUpdate(t *testing.T) {
-	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteService()
-
-	routeID := uuid.New()
-	domainID := uuid.New()
-
-	route := &models.Route{
-		ID:           routeID,
-		DomainID:     domainID,
-		Name:         "user-api",
-		Status:       models.RouteStatusPendingDeploy,
-		K8sRouteName: "user-api-12345678",
-		Config:       makeBasicHTTPRouteConfig(),
-	}
-
-	routeRepo.On("GetByID", routeID).Return(route, nil)
-	approvalRepo.On("GetLatestApprovedByEntityID", models.ApprovalEntityRoute, routeID).
-		Return(nil, errors.New("not found"))
-	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID}, nil)
-
-	// k8sService not set, so it should fail with kubernetes service not configured
-	result, err := svc.Deploy(routeID, uuid.New())
-
-	assert.Nil(t, result)
-	assert.EqualError(t, err, "kubernetes service not configured")
 }
 
 // =========================================================================
@@ -4232,32 +4395,6 @@ func TestRouteService_Deploy_NotApproved_Rejected(t *testing.T) {
 	routeRepo.AssertExpectations(t)
 }
 
-func TestRouteService_Deploy_K8sNotConfigured(t *testing.T) {
-	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteService()
-
-	routeID := uuid.New()
-	domainID := uuid.New()
-	projectID := uuid.New()
-	route := &models.Route{
-		ID:       routeID,
-		DomainID: domainID,
-		Name:     "user-api",
-		Status:   models.RouteStatusApproved,
-	}
-	routeRepo.On("GetByID", routeID).Return(route, nil)
-	approvalRepo.On("GetLatestApprovedByEntityID", models.ApprovalEntityRoute, routeID).
-		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
-	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
-
-	result, err := svc.Deploy(routeID, uuid.New())
-
-	assert.Nil(t, result)
-	assert.EqualError(t, err, "kubernetes service not configured")
-	routeRepo.AssertExpectations(t)
-	approvalRepo.AssertExpectations(t)
-	domainRepo.AssertExpectations(t)
-}
-
 func TestRouteService_Deploy_NoApprovedRequest_Orchestration(t *testing.T) {
 	svc, routeRepo, approvalRepo, _, _, _ := newTestRouteService()
 
@@ -4304,34 +4441,6 @@ func TestRouteService_Deploy_DomainNotFound(t *testing.T) {
 	domainRepo.AssertExpectations(t)
 }
 
-func TestRouteService_Deploy_PendingDeploy_SyntheticUpdateApproval(t *testing.T) {
-	// When status is pending_deploy and no approval exists, it should create synthetic update action
-	// but still fail on k8s not configured
-	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteService()
-
-	routeID := uuid.New()
-	domainID := uuid.New()
-	projectID := uuid.New()
-	route := &models.Route{
-		ID:       routeID,
-		DomainID: domainID,
-		Name:     "user-api",
-		Status:   models.RouteStatusPendingDeploy,
-	}
-	routeRepo.On("GetByID", routeID).Return(route, nil)
-	// No approval found - but that's ok for pending_deploy, will create synthetic update
-	approvalRepo.On("GetLatestApprovedByEntityID", models.ApprovalEntityRoute, routeID).
-		Return(nil, errors.New("not found"))
-	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
-
-	result, err := svc.Deploy(routeID, uuid.New())
-
-	// Should fail at k8s not configured (past the approval check)
-	assert.Nil(t, result)
-	assert.EqualError(t, err, "kubernetes service not configured")
-	routeRepo.AssertExpectations(t)
-}
-
 func TestRouteService_Deploy_NotApproved_PendingUpdate(t *testing.T) {
 	svc, routeRepo, _, _, _, _ := newTestRouteService()
 
@@ -4372,8 +4481,11 @@ func TestRouteService_Deploy_NotApproved_PendingDelete(t *testing.T) {
 // computeSecurityStatus - tested via GetByID (populates SecurityStatus)
 // =========================================================================
 
-func TestRouteService_ComputeSecurityStatus_GeneralMode_NoSecurityPolicyRepo(t *testing.T) {
-	// Without setting security policy repo, general mode should return "none"
+func TestRouteService_ComputeSecurityStatus_GeneralMode_NoSecurityPolicy(t *testing.T) {
+	// General mode with no stored security policy returns "none". Before
+	// Phase 2E Task 9 this test reached that answer through the
+	// `s.securityPolicyRepo == nil` guard; it now reaches it through the
+	// repository answering "no policy", which is the production path.
 	svc, routeRepo, _, _, _, _ := newTestRouteService()
 
 	routeID := uuid.New()
@@ -5114,9 +5226,10 @@ func TestRouteService_GetEnvoyExtensionPolicy_WithRepo_NotFound(t *testing.T) {
 // =========================================================================
 
 func TestRouteService_Create_BackendNamespaceNotManaged(t *testing.T) {
-	svc, routeRepo, _, _, domainRepo, teamRepo := newTestRouteService()
 	nsRepo := new(mocks.MockProjectNamespaceRepository)
-	svc.SetProjectNamespaceRepository(nsRepo)
+	svc, routeRepo, _, _, domainRepo, teamRepo := newTestRouteServiceWith(func(d *services.RouteServiceDeps) {
+		d.ProjectNamespaceRepo = nsRepo
+	})
 
 	domainID := uuid.New()
 	projectID := uuid.New()
@@ -5153,9 +5266,10 @@ func TestRouteService_Create_BackendNamespaceNotManaged(t *testing.T) {
 }
 
 func TestRouteService_Create_BackendNamespaceManaged(t *testing.T) {
-	svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo := newTestRouteService()
 	nsRepo := new(mocks.MockProjectNamespaceRepository)
-	svc.SetProjectNamespaceRepository(nsRepo)
+	svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo := newTestRouteServiceWith(func(d *services.RouteServiceDeps) {
+		d.ProjectNamespaceRepo = nsRepo
+	})
 
 	domainID := uuid.New()
 	projectID := uuid.New()
@@ -5207,9 +5321,10 @@ func TestRouteService_Create_BackendNamespaceManaged(t *testing.T) {
 }
 
 func TestRouteService_Create_MirrorNamespaceNotManaged(t *testing.T) {
-	svc, routeRepo, _, _, domainRepo, teamRepo := newTestRouteService()
 	nsRepo := new(mocks.MockProjectNamespaceRepository)
-	svc.SetProjectNamespaceRepository(nsRepo)
+	svc, routeRepo, _, _, domainRepo, teamRepo := newTestRouteServiceWith(func(d *services.RouteServiceDeps) {
+		d.ProjectNamespaceRepo = nsRepo
+	})
 
 	domainID := uuid.New()
 	projectID := uuid.New()
@@ -5306,9 +5421,17 @@ func newTestRouteServiceWithK8s() (
 	*mocks.MockClientIPRepository,
 	*mocks.MockKubernetesService,
 ) {
-	svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo, secRepo, btpRepo, eepRepo, wafRepo, caRepo, cipRepo := newTestRouteServiceFull()
 	k8sMock := new(mocks.MockKubernetesService)
-	svc.SetKubernetesService(k8sMock)
+	svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo, secRepo, btpRepo, eepRepo, wafRepo, caRepo, cipRepo := newTestRouteServiceFullWith(
+		func(d *services.RouteServiceDeps) {
+			d.K8sRoutes = k8sMock
+			d.K8sPolicies = k8sMock
+			d.K8sBackends = k8sMock
+			d.K8sBackendReaper = k8sMock
+			d.K8sSecrets = k8sMock
+			d.K8sAPIKeys = k8sMock
+			d.K8sRefGrants = k8sMock
+		})
 	return svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo, secRepo, btpRepo, eepRepo, wafRepo, caRepo, cipRepo, k8sMock
 }
 
@@ -5475,27 +5598,6 @@ func TestRouteService_Deploy_UpdateHTTPRoute_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusActive, result.Status)
 	k8sMock.AssertCalled(t, "UpdateHTTPRoute", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.HTTPRouteConfig"))
-}
-
-func TestRouteService_Deploy_K8sServiceNil(t *testing.T) {
-	svc, routeRepo, approvalRepo, _, domainRepo, _, _, _, _, _, _, _ := newTestRouteServiceFull()
-
-	routeID := uuid.New()
-	domainID := uuid.New()
-	projectID := uuid.New()
-
-	route := makeTestRoute(routeID, domainID)
-	domain := makeTestDomain(domainID, projectID)
-
-	routeRepo.On("GetByID", routeID).Return(route, nil)
-	approvalRepo.On("GetLatestApprovedByEntityID", models.ApprovalEntityRoute, routeID).
-		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
-	domainRepo.On("GetByID", domainID).Return(domain, nil)
-
-	result, err := svc.Deploy(routeID, uuid.New())
-
-	assert.Nil(t, result)
-	assert.EqualError(t, err, "kubernetes service not configured")
 }
 
 func TestRouteService_Deploy_RouteNotFound_K8s(t *testing.T) {
@@ -7833,8 +7935,9 @@ func newApprovalsDisabledProjectRepo() *mocks.MockProjectRepository {
 }
 
 func TestRouteService_Create_ApprovalsDisabled_LeavesRouteApproved(t *testing.T) {
-	svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo := newTestRouteService()
-	svc.SetProjectRepository(newApprovalsDisabledProjectRepo())
+	svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo := newTestRouteServiceWith(func(d *services.RouteServiceDeps) {
+		d.ProjectRepo = newApprovalsDisabledProjectRepo()
+	})
 
 	domainID, projectID, teamID, createdBy := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 
@@ -7863,8 +7966,9 @@ func TestRouteService_Create_ApprovalsDisabled_LeavesRouteApproved(t *testing.T)
 }
 
 func TestRouteService_Update_ApprovalsDisabled_GoesToPendingDeploy(t *testing.T) {
-	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteService()
-	svc.SetProjectRepository(newApprovalsDisabledProjectRepo())
+	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteServiceWith(func(d *services.RouteServiceDeps) {
+		d.ProjectRepo = newApprovalsDisabledProjectRepo()
+	})
 
 	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
 
@@ -7931,8 +8035,9 @@ func TestRouteService_Update_OrphanedPendingUpdate_StillPersistsFieldEdits(t *te
 }
 
 func TestRouteService_Delete_ApprovalsDisabled_GoesToPendingDeploy(t *testing.T) {
-	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteService()
-	svc.SetProjectRepository(newApprovalsDisabledProjectRepo())
+	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteServiceWith(func(d *services.RouteServiceDeps) {
+		d.ProjectRepo = newApprovalsDisabledProjectRepo()
+	})
 
 	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
 
@@ -8020,4 +8125,63 @@ func TestRouteService_Update_OrphanedPendingDeleteRoute(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.RouteStatusPendingUpdate, result.Status)
+}
+
+// =========================================================================
+// Constructor contract (Phase 2E Task 2)
+// =========================================================================
+
+func TestNewRouteService_RequiresEveryDependency(t *testing.T) {
+	// The fully-wired case must not panic.
+	require.NotPanics(t, func() { services.NewRouteService(fullRouteServiceDeps(t)) })
+
+	// Every required dependency must be named when it is missing. IDGen is
+	// deliberately excluded: it is an optional determinism seam.
+	cases := map[string]func(*services.RouteServiceDeps){
+		"RouteRepo":                func(d *services.RouteServiceDeps) { d.RouteRepo = nil },
+		"ApprovalRepo":             func(d *services.RouteServiceDeps) { d.ApprovalRepo = nil },
+		"PolicyRepo":               func(d *services.RouteServiceDeps) { d.PolicyRepo = nil },
+		"DomainRepo":               func(d *services.RouteServiceDeps) { d.DomainRepo = nil },
+		"TeamRepo":                 func(d *services.RouteServiceDeps) { d.TeamRepo = nil },
+		"ProjectNamespaceRepo":     func(d *services.RouteServiceDeps) { d.ProjectNamespaceRepo = nil },
+		"SecurityPolicyRepo":       func(d *services.RouteServiceDeps) { d.SecurityPolicyRepo = nil },
+		"BackendTrafficPolicyRepo": func(d *services.RouteServiceDeps) { d.BackendTrafficPolicyRepo = nil },
+		"EnvoyExtensionPolicyRepo": func(d *services.RouteServiceDeps) { d.EnvoyExtensionPolicyRepo = nil },
+		"WafPolicyRepo":            func(d *services.RouteServiceDeps) { d.WafPolicyRepo = nil },
+		"ClientAttachmentRepo":     func(d *services.RouteServiceDeps) { d.ClientAttachmentRepo = nil },
+		"ClientIPRepo":             func(d *services.RouteServiceDeps) { d.ClientIPRepo = nil },
+		"ClientHeaderRepo":         func(d *services.RouteServiceDeps) { d.ClientHeaderRepo = nil },
+		"ClientRepo":               func(d *services.RouteServiceDeps) { d.ClientRepo = nil },
+		"ProjectRepo":              func(d *services.RouteServiceDeps) { d.ProjectRepo = nil },
+		"Domains":                  func(d *services.RouteServiceDeps) { d.Domains = nil },
+		"RouteVersions":            func(d *services.RouteServiceDeps) { d.RouteVersions = nil },
+		"Approvals":                func(d *services.RouteServiceDeps) { d.Approvals = nil },
+		// The seven cluster roles. Phase 2E Task 9 deleted route_deploy.go's
+		// compound "kubernetes service not configured" guard, which covered
+		// six of them and silently omitted K8sRefGrants even though
+		// ensureReferenceGrantsForDomain dereferences it four lines later.
+		"K8sRoutes":        func(d *services.RouteServiceDeps) { d.K8sRoutes = nil },
+		"K8sPolicies":      func(d *services.RouteServiceDeps) { d.K8sPolicies = nil },
+		"K8sBackends":      func(d *services.RouteServiceDeps) { d.K8sBackends = nil },
+		"K8sBackendReaper": func(d *services.RouteServiceDeps) { d.K8sBackendReaper = nil },
+		"K8sSecrets":       func(d *services.RouteServiceDeps) { d.K8sSecrets = nil },
+		"K8sAPIKeys":       func(d *services.RouteServiceDeps) { d.K8sAPIKeys = nil },
+		"K8sRefGrants":     func(d *services.RouteServiceDeps) { d.K8sRefGrants = nil },
+	}
+	for name, breakIt := range cases {
+		t.Run("nil "+name, func(t *testing.T) {
+			d := fullRouteServiceDeps(t)
+			breakIt(&d)
+			assert.PanicsWithValue(t,
+				"services.NewRouteService: missing required dependency: "+name,
+				func() { services.NewRouteService(d) })
+		})
+	}
+}
+
+func TestNewRouteService_IDGenIsOptional(t *testing.T) {
+	d := fullRouteServiceDeps(t)
+	d.IDGen = nil
+	assert.NotPanics(t, func() { services.NewRouteService(d) },
+		"IDGen is an optional determinism seam; nil means uuid.New")
 }

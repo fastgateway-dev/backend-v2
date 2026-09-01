@@ -15,18 +15,18 @@ import (
 // ClientAttachmentHandler handles client-route attachment endpoints
 type ClientAttachmentHandler struct {
 	attachmentService services.ClientAttachmentServiceInterface
-	clientService     services.ClientServiceInterface
+	clientService     services.ClientReader
 	auditService      services.AuditServiceInterface
-	routeService      services.RouteServiceInterface
+	routeService      services.RouteApprovalReader
 	teamRepo          repository.TeamRepositoryInterface
 }
 
 // NewClientAttachmentHandler creates a new client attachment handler
 func NewClientAttachmentHandler(
 	attachmentService services.ClientAttachmentServiceInterface,
-	clientService services.ClientServiceInterface,
+	clientService services.ClientReader,
 	auditService services.AuditServiceInterface,
-	routeService services.RouteServiceInterface,
+	routeService services.RouteApprovalReader,
 	teamRepo repository.TeamRepositoryInterface,
 ) *ClientAttachmentHandler {
 	return &ClientAttachmentHandler{

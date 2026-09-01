@@ -18,6 +18,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 //go:embed openapi.yaml
@@ -78,87 +79,174 @@ func main() {
 	routeVersionRepo := repository.NewRouteVersionRepository(db)
 	approvalStageReviewRepo := repository.NewApprovalStageReviewRepository(db)
 
-	// Initialize services
-	authService := services.NewAuthService(userRepo, apiTokenRepo, cfg)
+	// Initialize services.
+	//
+	// Phase 2E: every dependency below arrives at construction. Task 7
+	// removed the last three setters (SetKubernetesService) by replacing the
+	// 58-method Kubernetes interface with the role interfaces in
+	// internal/services/k8s_roles.go; each service is handed only the roles
+	// it calls.
+	systemSettingsService := services.NewSystemSettingsService(systemSettingsRepo, cfg)
+
+	// ForceSSOPolicy is the force-SSO decision extracted out of SSOService so
+	// that AuthService can depend on it without depending on SSOService --
+	// SSOService needs AuthService as its TokenIssuer, which would otherwise
+	// be a construction cycle. It needs only the SSO config repository, so it
+	// can be built before either service and both dependencies stay required.
+	ssoForcePolicy := services.NewForceSSOPolicy(ssoConfigRepo)
+	authService := services.NewAuthService(services.AuthServiceDeps{
+		UserRepo:     userRepo,
+		APITokenRepo: apiTokenRepo,
+		Config:       cfg,
+		SSO:          ssoForcePolicy,
+		Settings:     systemSettingsService,
+	})
+	ssoService := services.NewSSOService(services.SSOServiceDeps{
+		SSOConfigRepo:   ssoConfigRepo,
+		UserRepo:        userRepo,
+		TeamRepo:        teamRepo,
+		EmailInviteRepo: emailInviteRepo,
+		Config:          cfg,
+		Tokens:          authService,
+		Settings:        systemSettingsService,
+	})
 	userService := services.NewUserService(userRepo)
 
 	// Seed default admin user (hashes password at runtime)
 	if err := userService.SeedDefaultAdmin(cfg.AdminUsername, cfg.AdminPassword, cfg.AdminEmail); err != nil {
 		log.Fatalf("Failed to seed default admin user: %v", err)
 	}
-	projectService := services.NewProjectService(projectRepo, cfg)
-	k8sService := cluster.New(projectService)
-	projectService.SetKubernetesService(k8sService) // Set K8s service for prerequisite validation
-	projectService.SetApprovalPolicyRepository(approvalPolicyRepo)
-	projectService.SetPresetRepository(presetRepo) // Set preset repo for seeding built-in presets
+	// ProjectService and the cluster client need each other: the client reads
+	// a project's connection details through cluster.ProjectCredentials, and
+	// ProjectService validates a cluster's prerequisites through
+	// services.Preflight. lazyProjectCredentials (bottom of this file) orders
+	// the two constructions, the same way the RouteUpdaterFunc closure below
+	// orders RouteService and RouteVersionService. cluster.Client only calls
+	// its credential source per request, never at construction.
+	var projectService *services.ProjectService
+	k8sService := cluster.New(lazyProjectCredentials{
+		get: func() cluster.ProjectCredentials { return projectService },
+	})
+	projectService = services.NewProjectService(services.ProjectServiceDeps{
+		ProjectRepo:        projectRepo,
+		ApprovalPolicyRepo: approvalPolicyRepo,
+		PresetRepo:         presetRepo,
+		Config:             cfg,
+		K8sPreflight:       k8sService,
+	})
 	presetService := services.NewPresetService(presetRepo)
 	teamService := services.NewTeamService(teamRepo, userRepo, presetRepo)
-	domainService := services.NewDomainService(domainRepo, projectRepo, domainTemplateRepo, k8sService)
-	domainService.SetDomainSettingsRepository(domainSettingsRepo)
-	domainService.SetClientAttachmentRepository(clientAttachmentRepo) // Set client attachment repo for mTLS CA merging
+	aiService := services.NewAIService(cfg)
+	domainTemplateService := services.NewDomainTemplateService(domainTemplateRepo, projectRepo, k8sService, aiService)
+	domainService := services.NewDomainService(services.DomainServiceDeps{
+		DomainRepo:           domainRepo,
+		ProjectRepo:          projectRepo,
+		DomainTemplateRepo:   domainTemplateRepo,
+		K8sGateways:          k8sService,
+		K8sSecrets:           k8sService,
+		K8sBackends:          k8sService,
+		K8sPolicies:          k8sService,
+		K8sRefGrants:         k8sService,
+		SettingsRepo:         domainSettingsRepo,
+		ClientAttachmentRepo: clientAttachmentRepo,
+		BtpRepo:              backendTrafficPolicyRepo,
+		ExtPolicyRepo:        envoyExtensionPolicyRepo,
+		ProjectNamespaceRepo: projectNamespaceRepo,
+		DtService:            domainTemplateService,
+		AiService:            aiService,
+	})
 	wafConfig := routeplan.WAFConfig{Image: cfg.WAFImage, Tag: cfg.WAFTag}
-	routeService := services.NewRouteService(routeRepo, approvalRepo, approvalPolicyRepo, domainRepo, teamRepo, wafConfig)
-	routeService.SetKubernetesService(k8sService)                            // Set K8s service for route deployment
-	routeService.SetProjectNamespaceRepository(projectNamespaceRepo)         // Set namespace repo for validation
-	routeService.SetSecurityPolicyRepository(securityPolicyRepo)             // Set security policy repo for Envoy SecurityPolicy
-	routeService.SetBackendTrafficPolicyRepository(backendTrafficPolicyRepo) // Set backend traffic policy repo for Envoy BackendTrafficPolicy
-	routeService.SetEnvoyExtensionPolicyRepository(envoyExtensionPolicyRepo) // Set envoy extension policy repo for Lua/Wasm extensions
-	routeService.SetWafPolicyRepository(wafPolicyRepo)                       // Set WAF policy repo for WAF/OWASP protection
-	routeService.SetClientAttachmentRepository(clientAttachmentRepo)         // Set client attachment repo for IP allowlisting during deploy
-	routeService.SetClientIPRepository(clientIPRepo)                         // Set client IP repo for IP allowlisting during deploy
-	routeService.SetClientHeaderRepository(clientHeaderRepo)
-	routeService.SetClientRepository(clientRepo)   // Set client repo for API key access during deploy
-	routeService.SetDomainService(domainService)   // Set domain service for mTLS CA regeneration during deploy
-	routeService.SetProjectRepository(projectRepo) // Set project repo for approval bypass
-	routeVersionService := services.NewRouteVersionService(routeVersionRepo, routeRepo)
-	routeVersionService.SetSecurityPolicyRepo(securityPolicyRepo)
-	routeVersionService.SetBackendTrafficPolicyRepo(backendTrafficPolicyRepo)
-	routeVersionService.SetEnvoyExtensionPolicyRepo(envoyExtensionPolicyRepo)
-	routeVersionService.SetWafPolicyRepo(wafPolicyRepo)
-	routeVersionService.SetRouteService(routeService)
-	routeService.SetRouteVersionService(routeVersionService)
-	approvalService := services.NewApprovalService(approvalRepo, approvalPolicyRepo, teamRepo, routeRepo, projectRepo, domainRepo, k8sService, wafConfig)
-	approvalService.SetSecurityPolicyRepository(securityPolicyRepo)             // Set security policy repo for diff generation
-	approvalService.SetBackendTrafficPolicyRepository(backendTrafficPolicyRepo) // Set backend traffic policy repo for diff generation
-	approvalService.SetStageReviewRepository(approvalStageReviewRepo)           // Set stage review repo for multi-approver support
-	auditService := services.NewAuditService(auditLogRepo)
-	clientService := services.NewClientService(clientRepo, clientIPRepo, teamRepo)
-	clientService.SetClientAttachmentRepository(clientAttachmentRepo) // Set client attachment repo for IP cascade
-	clientService.SetRouteRepository(routeRepo)                       // Set route repo for IP cascade
-	clientService.SetClientHeaderRepository(clientHeaderRepo)
-	clientService.SetKubernetesService(k8sService) // Set K8s service for API key secrets
-	clientAttachmentService := services.NewClientAttachmentService(clientAttachmentRepo, approvalRepo, approvalPolicyRepo, clientRepo, routeRepo, domainRepo, teamRepo, projectRepo)
-	clientAttachmentService.SetDomainSettingsRepository(domainSettingsRepo)
-	clientAttachmentService.SetStageReviewRepository(approvalStageReviewRepo)
-	approvalService.SetClientAttachmentService(clientAttachmentService) // Wire for approval completion callbacks
 
 	// Approval engine: the single owner of stage planning and traversal for
 	// every approvable entity type. Every dependency is required --
 	// approvalpkg.New panics on a nil one rather than degrading silently.
+	// It is built before its completers so each of them can take it as a
+	// required constructor parameter; Register runs once they all exist.
 	approvalEngine := approvalpkg.New(approvalRepo, approvalStageReviewRepo, approvalPolicyRepo, teamRepo, projectRepo)
+
+	// RouteService and RouteVersionService need each other: a deploy records
+	// a version snapshot, and a rollback resubmits a stored config through
+	// RouteService.Update. Both dependencies are required constructor
+	// parameters; the closure below is what orders the two constructions,
+	// and routeService is assigned on the statement immediately after
+	// NewRouteVersionService returns, long before any request can run it.
+	var routeService *services.RouteService
+	routeVersionService := services.NewRouteVersionService(services.RouteVersionServiceDeps{
+		VersionRepo:              routeVersionRepo,
+		RouteRepo:                routeRepo,
+		SecurityPolicyRepo:       securityPolicyRepo,
+		BackendTrafficPolicyRepo: backendTrafficPolicyRepo,
+		EnvoyExtensionPolicyRepo: envoyExtensionPolicyRepo,
+		WafPolicyRepo:            wafPolicyRepo,
+		RouteUpdater: services.RouteUpdaterFunc(
+			func(routeID uuid.UUID, input *services.UpdateRouteInput, submittedBy uuid.UUID) (*models.Route, error) {
+				return routeService.Update(routeID, input, submittedBy)
+			}),
+	})
+	routeService = services.NewRouteService(services.RouteServiceDeps{
+		RouteRepo:                routeRepo,
+		ApprovalRepo:             approvalRepo,
+		PolicyRepo:               approvalPolicyRepo,
+		DomainRepo:               domainRepo,
+		TeamRepo:                 teamRepo,
+		ProjectNamespaceRepo:     projectNamespaceRepo,
+		SecurityPolicyRepo:       securityPolicyRepo,
+		BackendTrafficPolicyRepo: backendTrafficPolicyRepo,
+		EnvoyExtensionPolicyRepo: envoyExtensionPolicyRepo,
+		WafPolicyRepo:            wafPolicyRepo,
+		ClientAttachmentRepo:     clientAttachmentRepo,
+		ClientIPRepo:             clientIPRepo,
+		ClientHeaderRepo:         clientHeaderRepo,
+		ClientRepo:               clientRepo,
+		ProjectRepo:              projectRepo,
+		WafConfig:                wafConfig,
+		Domains:                  domainService,
+		RouteVersions:            routeVersionService,
+		Approvals:                approvalEngine,
+		K8sRoutes:                k8sService,
+		K8sPolicies:              k8sService,
+		K8sBackends:              k8sService,
+		K8sBackendReaper:         k8sService,
+		K8sSecrets:               k8sService,
+		K8sAPIKeys:               k8sService,
+		K8sRefGrants:             k8sService,
+	})
+	approvalService := services.NewApprovalService(services.ApprovalServiceDeps{
+		ApprovalRepo: approvalRepo,
+		PolicyRepo:   approvalPolicyRepo,
+		RouteRepo:    routeRepo,
+		DomainRepo:   domainRepo,
+		WafConfig:    wafConfig,
+		Approvals:    approvalEngine,
+	})
+	auditService := services.NewAuditService(auditLogRepo)
+	clientService := services.NewClientService(services.ClientServiceDeps{
+		ClientRepo:           clientRepo,
+		ClientIPRepo:         clientIPRepo,
+		ClientHeaderRepo:     clientHeaderRepo,
+		TeamRepo:             teamRepo,
+		ClientAttachmentRepo: clientAttachmentRepo,
+		RouteRepo:            routeRepo,
+		K8sSecrets:           k8sService,
+		K8sAPIKeys:           k8sService,
+	})
+	clientAttachmentService := services.NewClientAttachmentService(services.ClientAttachmentServiceDeps{
+		AttachmentRepo:     clientAttachmentRepo,
+		ApprovalRepo:       approvalRepo,
+		ClientRepo:         clientRepo,
+		RouteRepo:          routeRepo,
+		DomainRepo:         domainRepo,
+		ProjectRepo:        projectRepo,
+		DomainSettingsRepo: domainSettingsRepo,
+		Approvals:          approvalEngine,
+	})
+
+	// Registration genuinely happens after all the completers exist.
 	approvalEngine.Register(models.ApprovalEntityRoute, routeService)
 	approvalEngine.Register(models.ApprovalEntityClientAttachment, clientAttachmentService)
-	routeService.SetApprovalEngine(approvalEngine)
-	clientAttachmentService.SetApprovalEngine(approvalEngine)
-	approvalService.SetApprovalEngine(approvalEngine)
-	projectNamespaceService := services.NewProjectNamespaceService(projectNamespaceRepo, projectRepo, domainRepo, k8sService)
-	projectVersionService := services.NewProjectVersionService(k8sService)
 
-	// Initialize SSO service
-	ssoService := services.NewSSOService(
-		ssoConfigRepo,
-		userRepo,
-		teamRepo,
-		emailInviteRepo,
-		cfg,
-	)
-	authService.SetSSOService(ssoService)
-	ssoService.SetTokenGenerator(authService.GenerateTokensForUser)
-
-	// Initialize system settings service
-	systemSettingsService := services.NewSystemSettingsService(systemSettingsRepo, cfg)
-	authService.SetSystemSettingsService(systemSettingsService)
-	ssoService.SetSystemSettingsService(systemSettingsService)
+	projectNamespaceService := services.NewProjectNamespaceService(projectNamespaceRepo, projectRepo, domainRepo, k8sService, k8sService)
+	projectVersionService := services.NewProjectVersionService(services.ProjectVersionServiceDeps{K8s: k8sService})
 
 	// Initialize email invite service
 	emailInviteService := services.NewTeamEmailInviteService(
@@ -170,12 +258,6 @@ func main() {
 	// Initialize comment and notification services
 	commentService := services.NewCommentService(commentRepo, notificationRepo, approvalRepo, teamRepo)
 	notificationService := services.NewNotificationService(notificationRepo)
-
-	// Initialize AI service
-	aiService := services.NewAIService(cfg)
-	domainTemplateService := services.NewDomainTemplateService(domainTemplateRepo, projectRepo, k8sService, aiService)
-	domainService.SetDomainTemplateService(domainTemplateService)
-	domainService.SetAIService(aiService)
 
 	// Initialize middleware
 	authMiddleware := middleware.NewAuthMiddleware(authService)
@@ -204,9 +286,6 @@ func main() {
 	openapiImportHandler := handlers.NewOpenAPIImportHandler(openapiImportService)
 	teamHandler := handlers.NewTeamHandler(teamService, teamRepo, auditService)
 	domainTemplateHandler := handlers.NewDomainTemplateHandler(domainTemplateService, auditService, domainRepo)
-	domainService.SetBackendTrafficPolicyRepository(backendTrafficPolicyRepo)
-	domainService.SetEnvoyExtensionPolicyRepository(envoyExtensionPolicyRepo)
-	domainService.SetProjectNamespaceRepository(projectNamespaceRepo)
 	domainHandler := handlers.NewDomainHandler(domainService, auditService, permChecker, backendTrafficPolicyRepo, envoyExtensionPolicyRepo)
 	routeHandler := handlers.NewRouteHandler(routeService, auditService, permChecker)
 	routeVersionHandler := handlers.NewRouteVersionHandler(routeVersionService, auditService)
@@ -611,4 +690,31 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down server...")
+}
+
+// lazyProjectCredentials resolves the credential source on first use, which
+// lets main() build *cluster.Client and *services.ProjectService in either
+// order. It exists because the two genuinely need each other: the cluster
+// client reads project connection details, and ProjectService validates a
+// cluster's prerequisites. cluster.Client calls these three methods lazily,
+// per request (internal/cluster/client.go), never at construction, so the
+// pointer is always assigned by the time any of them runs.
+//
+// Phase 2E Task 7 introduced this to replace
+// projectService.SetKubernetesService, the last of the three
+// SetKubernetesService setters.
+type lazyProjectCredentials struct {
+	get func() cluster.ProjectCredentials
+}
+
+func (l lazyProjectCredentials) GetByID(id uuid.UUID) (*models.Project, error) {
+	return l.get().GetByID(id)
+}
+
+func (l lazyProjectCredentials) GetDecryptedToken(id uuid.UUID) (string, error) {
+	return l.get().GetDecryptedToken(id)
+}
+
+func (l lazyProjectCredentials) GetDecryptedClientKey(id uuid.UUID) (string, error) {
+	return l.get().GetDecryptedClientKey(id)
 }

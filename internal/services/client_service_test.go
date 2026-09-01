@@ -14,6 +14,79 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// newTestClientService stands in for services.NewClientService now that
+// every dependency is required (Phase 2E Task 3). Every test below built its
+// ClientService positionally with just (clientRepo, clientIPRepo, teamRepo),
+// passing nil for whatever it did not need; this helper preserves that call
+// shape by substituting an inert mock for any nil argument, and for the
+// three dependencies (ClientHeaderRepo, ClientAttachmentRepo, RouteRepo)
+// that used to arrive through setters and have no positional slot here.
+//
+// ClientAttachmentRepo needs a working default, not just an inert one.
+// client_service.go:374's R13 guard used to make cascadeToAttachedRoutes a
+// silent no-op whenever clientAttachmentRepo/routeRepo/state were unset; that
+// guard is deleted in Phase 2E Task 3 (NewClientService now requires both),
+// so the cascade runs unconditionally, and every mutation method
+// (AddIP/RemoveIP/GenerateAPIKey/RevokeAPIKey/ConfigureJWT/RemoveJWT/
+// UpdateClientMTLS/AddHeader/RemoveHeader/SetAllowedMethods) now calls one of
+// ClientAttachmentRepo's five ListActiveByClientIDWith*/ListByClientID
+// query methods. FINDING (Phase 2E Task 3): none of the tests below expected
+// this call, so the default stub returns an empty attachment list for all
+// five, reproducing the same "nothing to cascade to" outcome the R13 guard
+// used to produce by skipping.
+func newTestClientService(
+	clientRepo *mocks.MockClientRepository,
+	clientIPRepo *mocks.MockClientIPRepository,
+	teamRepo *mocks.MockTeamRepository,
+) *services.ClientService {
+	if clientRepo == nil {
+		clientRepo = new(mocks.MockClientRepository)
+	}
+	if clientIPRepo == nil {
+		clientIPRepo = new(mocks.MockClientIPRepository)
+	}
+	if teamRepo == nil {
+		teamRepo = new(mocks.MockTeamRepository)
+	}
+	attachmentRepo := new(mocks.MockClientAttachmentRepository)
+	noAttachments := []models.ClientRouteAttachment{}
+	attachmentRepo.On("ListActiveByClientIDWithIPAllowlist", mock.Anything).Return(noAttachments, nil).Maybe()
+	attachmentRepo.On("ListActiveByClientIDWithHeaderAuth", mock.Anything).Return(noAttachments, nil).Maybe()
+	attachmentRepo.On("ListActiveByClientIDWithAPIKey", mock.Anything).Return(noAttachments, nil).Maybe()
+	attachmentRepo.On("ListActiveByClientIDWithJWT", mock.Anything).Return(noAttachments, nil).Maybe()
+	attachmentRepo.On("ListByClientID", mock.Anything).Return(noAttachments, nil).Maybe()
+
+	// K8sSecrets/K8sAPIKeys became required constructor parameters in Phase
+	// 2E Task 9 (fix round 1, ruling R12), which deleted the two conditions
+	// that used to skip the Kubernetes cleanup whenever they were unset:
+	// client_service.go:244 (Delete) and client_service.go:930
+	// (UpdateClientMTLS's disable branch). Both blocks are best-effort --
+	// every failure is logged or discarded and neither changes the method's
+	// return value -- so a stub that accepts the calls and answers nil
+	// reproduces exactly what the skipped path produced: no secret deleted,
+	// no error, same result. No test below asserts on these calls.
+	k8s := new(mocks.MockKubernetesService)
+	k8s.On("DeleteAPIKeySecret", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil).Maybe()
+	k8s.On("DeleteSecret", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil).Maybe()
+	// Same reason: the deleted conditions also gated this call, so no test
+	// below expects it.
+	teamRepo.On("ListTeamProjects", mock.Anything).
+		Return([]models.ProjectTeamRole{}, nil).Maybe()
+
+	return services.NewClientService(services.ClientServiceDeps{
+		ClientRepo:           clientRepo,
+		ClientIPRepo:         clientIPRepo,
+		ClientHeaderRepo:     new(mocks.MockClientHeaderRepository),
+		TeamRepo:             teamRepo,
+		ClientAttachmentRepo: attachmentRepo,
+		RouteRepo:            new(mocks.MockRouteRepository),
+		K8sSecrets:           k8s,
+		K8sAPIKeys:           k8s,
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Create
 // ---------------------------------------------------------------------------
@@ -22,7 +95,7 @@ func TestClientService_Create_Success(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	clientIPRepo := new(mocks.MockClientIPRepository)
 	teamRepo := new(mocks.MockTeamRepository)
-	svc := services.NewClientService(clientRepo, clientIPRepo, teamRepo)
+	svc := newTestClientService(clientRepo, clientIPRepo, teamRepo)
 
 	teamID := uuid.New()
 	createdBy := uuid.New()
@@ -56,7 +129,7 @@ func TestClientService_Create_DuplicateName(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	clientIPRepo := new(mocks.MockClientIPRepository)
 	teamRepo := new(mocks.MockTeamRepository)
-	svc := services.NewClientService(clientRepo, clientIPRepo, teamRepo)
+	svc := newTestClientService(clientRepo, clientIPRepo, teamRepo)
 
 	teamID := uuid.New()
 	teamRepo.On("GetByID", teamID).Return(&models.Team{ID: teamID}, nil)
@@ -75,7 +148,7 @@ func TestClientService_Create_TeamNotFound(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	clientIPRepo := new(mocks.MockClientIPRepository)
 	teamRepo := new(mocks.MockTeamRepository)
-	svc := services.NewClientService(clientRepo, clientIPRepo, teamRepo)
+	svc := newTestClientService(clientRepo, clientIPRepo, teamRepo)
 
 	teamID := uuid.New()
 	teamRepo.On("GetByID", teamID).Return(nil, errors.New("not found"))
@@ -95,7 +168,7 @@ func TestClientService_Create_TeamNotFound(t *testing.T) {
 
 func TestClientService_GetByID(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	id := uuid.New()
 	expected := &models.Client{ID: id, Name: "client-a"}
@@ -110,7 +183,7 @@ func TestClientService_GetByID(t *testing.T) {
 
 func TestClientService_GetByID_NotFound(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	id := uuid.New()
 	clientRepo.On("GetByID", id).Return(nil, errors.New("not found"))
@@ -126,7 +199,7 @@ func TestClientService_GetByID_NotFound(t *testing.T) {
 
 func TestClientService_Update_Success(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	id := uuid.New()
 	existing := &models.Client{ID: id, Name: "old-name"}
@@ -144,7 +217,7 @@ func TestClientService_Update_Success(t *testing.T) {
 
 func TestClientService_Update_NotFound(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	id := uuid.New()
 	clientRepo.On("GetByID", id).Return(nil, errors.New("not found"))
@@ -161,7 +234,7 @@ func TestClientService_Update_NotFound(t *testing.T) {
 
 func TestClientService_Delete_Success(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	id := uuid.New()
 	clientRepo.On("GetByID", id).Return(&models.Client{ID: id}, nil)
@@ -175,7 +248,7 @@ func TestClientService_Delete_Success(t *testing.T) {
 
 func TestClientService_Delete_NotFound(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	id := uuid.New()
 	clientRepo.On("GetByID", id).Return(nil, errors.New("not found"))
@@ -192,7 +265,7 @@ func TestClientService_Delete_NotFound(t *testing.T) {
 
 func TestClientService_List(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	clients := []models.Client{
 		{ID: uuid.New(), Name: "a"},
@@ -215,7 +288,7 @@ func TestClientService_List(t *testing.T) {
 func TestClientService_AddIP_Success(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	clientIPRepo := new(mocks.MockClientIPRepository)
-	svc := services.NewClientService(clientRepo, clientIPRepo, nil)
+	svc := newTestClientService(clientRepo, clientIPRepo, nil)
 
 	clientID := uuid.New()
 	createdBy := uuid.New()
@@ -237,7 +310,7 @@ func TestClientService_AddIP_Success(t *testing.T) {
 func TestClientService_AddIP_InvalidCIDR(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	clientIPRepo := new(mocks.MockClientIPRepository)
-	svc := services.NewClientService(clientRepo, clientIPRepo, nil)
+	svc := newTestClientService(clientRepo, clientIPRepo, nil)
 
 	clientID := uuid.New()
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID}, nil)
@@ -251,7 +324,7 @@ func TestClientService_AddIP_InvalidCIDR(t *testing.T) {
 func TestClientService_AddIP_ClientNotFound(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	clientIPRepo := new(mocks.MockClientIPRepository)
-	svc := services.NewClientService(clientRepo, clientIPRepo, nil)
+	svc := newTestClientService(clientRepo, clientIPRepo, nil)
 
 	clientID := uuid.New()
 	clientRepo.On("GetByID", clientID).Return(nil, errors.New("not found"))
@@ -269,7 +342,7 @@ func TestClientService_AddIP_ClientNotFound(t *testing.T) {
 func TestClientService_RemoveIP_Success(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	clientIPRepo := new(mocks.MockClientIPRepository)
-	svc := services.NewClientService(clientRepo, clientIPRepo, nil)
+	svc := newTestClientService(clientRepo, clientIPRepo, nil)
 
 	clientID := uuid.New()
 	ipID := uuid.New()
@@ -289,7 +362,7 @@ func TestClientService_RemoveIP_Success(t *testing.T) {
 func TestClientService_RemoveIP_WrongClient(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	clientIPRepo := new(mocks.MockClientIPRepository)
-	svc := services.NewClientService(clientRepo, clientIPRepo, nil)
+	svc := newTestClientService(clientRepo, clientIPRepo, nil)
 
 	clientID := uuid.New()
 	otherClientID := uuid.New()
@@ -309,7 +382,7 @@ func TestClientService_RemoveIP_WrongClient(t *testing.T) {
 func TestClientService_RemoveIP_NotFound(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	clientIPRepo := new(mocks.MockClientIPRepository)
-	svc := services.NewClientService(clientRepo, clientIPRepo, nil)
+	svc := newTestClientService(clientRepo, clientIPRepo, nil)
 
 	clientID := uuid.New()
 	ipID := uuid.New()
@@ -328,7 +401,7 @@ func TestClientService_RemoveIP_NotFound(t *testing.T) {
 func TestClientService_ListIPs_Success(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	clientIPRepo := new(mocks.MockClientIPRepository)
-	svc := services.NewClientService(clientRepo, clientIPRepo, nil)
+	svc := newTestClientService(clientRepo, clientIPRepo, nil)
 
 	clientID := uuid.New()
 	ips := []models.ClientIPAddress{
@@ -348,7 +421,7 @@ func TestClientService_ListIPs_Success(t *testing.T) {
 func TestClientService_ListIPs_ClientNotFound(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	clientIPRepo := new(mocks.MockClientIPRepository)
-	svc := services.NewClientService(clientRepo, clientIPRepo, nil)
+	svc := newTestClientService(clientRepo, clientIPRepo, nil)
 
 	clientID := uuid.New()
 	clientRepo.On("GetByID", clientID).Return(nil, errors.New("not found"))
@@ -365,7 +438,7 @@ func TestClientService_ListIPs_ClientNotFound(t *testing.T) {
 
 func TestClientService_Update_DuplicateName(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	id := uuid.New()
 	existing := &models.Client{ID: id, Name: "old-name"}
@@ -380,7 +453,7 @@ func TestClientService_Update_DuplicateName(t *testing.T) {
 
 func TestClientService_Update_SameNameNoCheck(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	id := uuid.New()
 	existing := &models.Client{ID: id, Name: "same-name", Description: "old"}
@@ -400,7 +473,7 @@ func TestClientService_Update_SameNameNoCheck(t *testing.T) {
 
 func TestClientService_GenerateAPIKey_Success(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	clientID := uuid.New()
 	createdBy := uuid.New()
@@ -420,7 +493,7 @@ func TestClientService_GenerateAPIKey_Success(t *testing.T) {
 
 func TestClientService_GenerateAPIKey_ClientNotFound(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	clientID := uuid.New()
 	clientRepo.On("GetByID", clientID).Return(nil, errors.New("not found"))
@@ -433,7 +506,7 @@ func TestClientService_GenerateAPIKey_ClientNotFound(t *testing.T) {
 
 func TestClientService_GenerateAPIKey_CustomHeaderName(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	clientID := uuid.New()
 	client := &models.Client{ID: clientID}
@@ -454,7 +527,7 @@ func TestClientService_GenerateAPIKey_CustomHeaderName(t *testing.T) {
 
 func TestClientService_GetAPIKeyForDeploy_Success(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	// The actual key encoded in base64
 	apiKey := "fg_live_abcdef123456"
@@ -472,7 +545,7 @@ func TestClientService_GetAPIKeyForDeploy_Success(t *testing.T) {
 }
 
 func TestClientService_GetAPIKeyForDeploy_NotEnabled(t *testing.T) {
-	svc := services.NewClientService(nil, nil, nil)
+	svc := newTestClientService(nil, nil, nil)
 
 	client := &models.Client{APIKeyEnabled: false}
 	_, err := svc.GetAPIKeyForDeploy(context.Background(), client)
@@ -482,7 +555,7 @@ func TestClientService_GetAPIKeyForDeploy_NotEnabled(t *testing.T) {
 }
 
 func TestClientService_GetAPIKeyForDeploy_NoData(t *testing.T) {
-	svc := services.NewClientService(nil, nil, nil)
+	svc := newTestClientService(nil, nil, nil)
 
 	client := &models.Client{APIKeyEnabled: true, APIKeyEncrypted: ""}
 	_, err := svc.GetAPIKeyForDeploy(context.Background(), client)
@@ -498,8 +571,7 @@ func TestClientService_GetAPIKeyForDeploy_NoData(t *testing.T) {
 func TestClientService_Delete_WithAPIKeyCleanup(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
-	svc.SetClientAttachmentRepository(attachmentRepo)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	id := uuid.New()
 	projectID := uuid.New()
@@ -526,7 +598,7 @@ func TestClientService_Delete_WithAPIKeyCleanup(t *testing.T) {
 
 func TestClientService_RevokeAPIKey_Success(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	clientID := uuid.New()
 	client := &models.Client{ID: clientID, APIKeyEnabled: true, APIKeyHash: "hash"}
@@ -541,7 +613,7 @@ func TestClientService_RevokeAPIKey_Success(t *testing.T) {
 
 func TestClientService_RevokeAPIKey_NoKey(t *testing.T) {
 	clientRepo := new(mocks.MockClientRepository)
-	svc := services.NewClientService(clientRepo, nil, nil)
+	svc := newTestClientService(clientRepo, nil, nil)
 
 	clientID := uuid.New()
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID, APIKeyEnabled: false}, nil)
@@ -550,4 +622,48 @@ func TestClientService_RevokeAPIKey_NoKey(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not have an API key")
+}
+
+// ---------------------------------------------------------------------------
+// NewClientService
+// ---------------------------------------------------------------------------
+
+func fullClientServiceDeps() services.ClientServiceDeps {
+	return services.ClientServiceDeps{
+		ClientRepo:           new(mocks.MockClientRepository),
+		ClientIPRepo:         new(mocks.MockClientIPRepository),
+		ClientHeaderRepo:     new(mocks.MockClientHeaderRepository),
+		TeamRepo:             new(mocks.MockTeamRepository),
+		ClientAttachmentRepo: new(mocks.MockClientAttachmentRepository),
+		RouteRepo:            new(mocks.MockRouteRepository),
+		K8sSecrets:           new(mocks.MockKubernetesService),
+		K8sAPIKeys:           new(mocks.MockKubernetesService),
+	}
+}
+
+func TestNewClientService_RequiresEveryDependency(t *testing.T) {
+	require.NotPanics(t, func() { services.NewClientService(fullClientServiceDeps()) })
+
+	cases := map[string]func(*services.ClientServiceDeps){
+		"ClientRepo":           func(d *services.ClientServiceDeps) { d.ClientRepo = nil },
+		"ClientIPRepo":         func(d *services.ClientServiceDeps) { d.ClientIPRepo = nil },
+		"ClientHeaderRepo":     func(d *services.ClientServiceDeps) { d.ClientHeaderRepo = nil },
+		"TeamRepo":             func(d *services.ClientServiceDeps) { d.TeamRepo = nil },
+		"ClientAttachmentRepo": func(d *services.ClientServiceDeps) { d.ClientAttachmentRepo = nil },
+		"RouteRepo":            func(d *services.ClientServiceDeps) { d.RouteRepo = nil },
+		// Required since Phase 2E Task 9 (fix round 1) deleted the two
+		// conditions that skipped Kubernetes secret cleanup when they were
+		// unset -- client_service.go Delete and UpdateClientMTLS.
+		"K8sSecrets": func(d *services.ClientServiceDeps) { d.K8sSecrets = nil },
+		"K8sAPIKeys": func(d *services.ClientServiceDeps) { d.K8sAPIKeys = nil },
+	}
+	for name, breakIt := range cases {
+		t.Run("nil "+name, func(t *testing.T) {
+			d := fullClientServiceDeps()
+			breakIt(&d)
+			assert.PanicsWithValue(t,
+				"services.NewClientService: missing required dependency: "+name,
+				func() { services.NewClientService(d) })
+		})
+	}
 }

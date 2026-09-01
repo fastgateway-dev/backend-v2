@@ -1,0 +1,37 @@
+# Phase 2E Task 10: every mock in internal/mocks is generated from the
+# interface it implements. Before this file they were written by hand, which
+# is how SetClientHeaderRepository and SetProjectRepository drifted out of
+# their interfaces unnoticed. `make mocks` regenerates; CI fails if the
+# checked-in mocks differ from what regeneration produces.
+#
+# The struct names are chosen to match the hand-written mocks they replace
+# (FooRepositoryInterface -> MockFooRepository), so the ~1,500 existing call
+# sites in internal/*/**_test.go keep compiling.
+all: false
+dir: internal/mocks
+pkgname: mocks
+structname: 'Mock{{ .InterfaceName | trimSuffix "Interface" }}'
+template: testify
+packages:
+  github.com/fastgateway-dev/backend-v2/internal/repository:
+    config:
+      all: true
+      filename: mock_repositories.go
+
+  github.com/fastgateway-dev/backend-v2/internal/services:
+    config:
+      all: true
+      filename: mock_services.go
+    interfaces:
+      # RouteHandlerService is the consumer-sized interface Task 8 split out
+      # of RouteServiceInterface; the mock keeps its established name.
+      RouteHandlerService:
+        config:
+          structname: MockRouteService
+          filename: mock_services.go
+
+  # The nineteen Kubernetes roles, as one mock. See internal/mocks/roles.
+  github.com/fastgateway-dev/backend-v2/internal/mocks/roles:
+    config:
+      all: true
+      filename: mock_kubernetes.go

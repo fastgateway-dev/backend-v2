@@ -53,37 +53,101 @@ type ssoState struct {
 	createdAt time.Time
 }
 
+// TokenIssuer mints an access/refresh token pair for an authenticated user.
+//
+// SSOService declares it rather than importing AuthService, so the two do not
+// form a type cycle; *AuthService satisfies it structurally. Before Phase 2E
+// this arrived as a bound method value handed over at cmd/server/main.go:201
+// through SetTokenGenerator, which is why sso_service.go carried a
+// "token generator not configured" guard. It is a required constructor
+// dependency now, not a determinism seam.
+type TokenIssuer interface {
+	GenerateTokensForUser(user *models.User) (accessToken, refreshToken string, err error)
+}
+
+// BaseURLProvider is the only thing SSOService needs from SystemSettingsService:
+// the externally reachable base URL that the OIDC callback is built from.
+// *SystemSettingsService satisfies it structurally.
+type BaseURLProvider interface {
+	GetBaseURL() string
+}
+
 // SSOService handles SSO/OIDC operations
 type SSOService struct {
-	ssoConfigRepo         repository.SSOConfigRepositoryInterface
-	userRepo              repository.UserRepositoryInterface
-	teamRepo              repository.TeamRepositoryInterface
-	emailInviteRepo       repository.TeamEmailInviteRepositoryInterface
-	config                *config.Config
-	systemSettingsService *SystemSettingsService
+	ssoConfigRepo   repository.SSOConfigRepositoryInterface
+	userRepo        repository.UserRepositoryInterface
+	teamRepo        repository.TeamRepositoryInterface
+	emailInviteRepo repository.TeamEmailInviteRepositoryInterface
+	config          *config.Config
+	settings        BaseURLProvider
 
-	// Token generation function (set via setter to avoid circular dependency)
-	generateTokens func(user *models.User) (accessToken string, refreshToken string, err error)
+	// tokens mints the token pair returned by a successful SSO callback.
+	tokens TokenIssuer
 
 	// In-memory state management for OAuth2 CSRF protection
 	states   map[string]*ssoState
 	statesMu sync.Mutex
 }
 
-// NewSSOService creates a new SSO service
-func NewSSOService(
-	ssoConfigRepo repository.SSOConfigRepositoryInterface,
-	userRepo repository.UserRepositoryInterface,
-	teamRepo repository.TeamRepositoryInterface,
-	emailInviteRepo repository.TeamEmailInviteRepositoryInterface,
-	cfg *config.Config,
-) *SSOService {
+// SSOServiceDeps carries everything SSOService needs. Every field is
+// required: before Phase 2E Tokens and Settings arrived through
+// SetTokenGenerator and SetSystemSettingsService, and two nil-guards existed
+// to tolerate the ones that might not have been called.
+type SSOServiceDeps struct {
+	SSOConfigRepo   repository.SSOConfigRepositoryInterface
+	UserRepo        repository.UserRepositoryInterface
+	TeamRepo        repository.TeamRepositoryInterface
+	EmailInviteRepo repository.TeamEmailInviteRepositoryInterface
+	Config          *config.Config
+
+	// Tokens mints the token pair a successful SSO callback returns.
+	// *AuthService satisfies it; see TokenIssuer.
+	Tokens TokenIssuer
+
+	// Settings supplies the base URL an SSO callback URL is validated
+	// against. *SystemSettingsService satisfies it; see BaseURLProvider.
+	Settings BaseURLProvider
+}
+
+// NewSSOService builds a fully-wired SSOService. It panics if a required
+// dependency is missing: before Phase 2E two of these arrived through setters
+// after construction, so a forgotten wiring line degraded silently at runtime
+// instead of failing at start-up. Master design section 6.6.
+func NewSSOService(deps SSOServiceDeps) *SSOService {
+	var missing []string
+	if deps.SSOConfigRepo == nil {
+		missing = append(missing, "SSOConfigRepo")
+	}
+	if deps.UserRepo == nil {
+		missing = append(missing, "UserRepo")
+	}
+	if deps.TeamRepo == nil {
+		missing = append(missing, "TeamRepo")
+	}
+	if deps.EmailInviteRepo == nil {
+		missing = append(missing, "EmailInviteRepo")
+	}
+	if deps.Config == nil {
+		missing = append(missing, "Config")
+	}
+	if deps.Tokens == nil {
+		missing = append(missing, "Tokens")
+	}
+	if deps.Settings == nil {
+		missing = append(missing, "Settings")
+	}
+	if len(missing) > 0 {
+		panic("services.NewSSOService: missing required dependency: " + strings.Join(missing, ", "))
+	}
+
 	s := &SSOService{
-		ssoConfigRepo:   ssoConfigRepo,
-		userRepo:        userRepo,
-		teamRepo:        teamRepo,
-		emailInviteRepo: emailInviteRepo,
-		config:          cfg,
+		ssoConfigRepo:   deps.SSOConfigRepo,
+		userRepo:        deps.UserRepo,
+		teamRepo:        deps.TeamRepo,
+		emailInviteRepo: deps.EmailInviteRepo,
+		config:          deps.Config,
+		tokens:          deps.Tokens,
+		settings:        deps.Settings,
 		states:          make(map[string]*ssoState),
 	}
 
@@ -91,17 +155,6 @@ func NewSSOService(
 	go s.cleanupStates()
 
 	return s
-}
-
-// SetTokenGenerator sets the function used to generate JWT tokens for a user.
-// This is called during wiring to break the circular dependency with AuthService.
-func (s *SSOService) SetTokenGenerator(fn func(*models.User) (string, string, error)) {
-	s.generateTokens = fn
-}
-
-// SetSystemSettingsService injects the system settings service
-func (s *SSOService) SetSystemSettingsService(svc *SystemSettingsService) {
-	s.systemSettingsService = svc
 }
 
 // GetPublicConfig returns the SSO configuration for the login page (no secrets)
@@ -133,10 +186,7 @@ func (s *SSOService) GetConfig() (*models.SSOConfig, error) {
 // UpdateConfig updates the SSO configuration (encrypts client secret)
 func (s *SSOService) UpdateConfig(input SSOConfigInput) (*models.SSOConfig, error) {
 	// Validate base URL is set and uses HTTPS (required for SSO callback)
-	if s.systemSettingsService == nil {
-		return nil, fmt.Errorf("SSO requires system settings service to be configured")
-	}
-	baseURL := s.systemSettingsService.GetBaseURL()
+	baseURL := s.settings.GetBaseURL()
 	if baseURL == "" {
 		return nil, fmt.Errorf("SSO requires a base URL to be configured in System Settings")
 	}
@@ -337,12 +387,8 @@ func (s *SSOService) HandleCallback(ctx context.Context, code, state, callbackUR
 		return nil, errors.New("user account is disabled")
 	}
 
-	// Generate tokens
-	if s.generateTokens == nil {
-		return nil, errors.New("token generator not configured")
-	}
-
-	accessToken, refreshToken, err := s.generateTokens(user)
+	// Generate tokens.
+	accessToken, refreshToken, err := s.tokens.GenerateTokensForUser(user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate tokens: %w", err)
 	}
@@ -420,15 +466,52 @@ func (s *SSOService) processEmailInvites(user *models.User) {
 	_ = s.emailInviteRepo.DeleteByEmail(user.Email)
 }
 
+// ForceSSOPolicy answers "must this user authenticate through SSO?" from the
+// stored SSO configuration.
+//
+// It is extracted from SSOService so AuthService can depend on the decision
+// without depending on SSOService: SSOService needs AuthService as its
+// TokenIssuer, so a direct AuthService -> SSOService dependency would be a
+// construction cycle. Both dependencies are required constructor parameters
+// because this type needs only the SSO config repository, and so can be built
+// before either service. Master design section 6.5.
+type ForceSSOPolicy struct {
+	ssoConfigRepo repository.SSOConfigRepositoryInterface
+}
+
+// NewForceSSOPolicy builds a ForceSSOPolicy. It panics if the repository is
+// missing, matching every other Phase 2E constructor.
+func NewForceSSOPolicy(ssoConfigRepo repository.SSOConfigRepositoryInterface) *ForceSSOPolicy {
+	if ssoConfigRepo == nil {
+		panic("services.NewForceSSOPolicy: missing required dependency: SSOConfigRepo")
+	}
+	return &ForceSSOPolicy{ssoConfigRepo: ssoConfigRepo}
+}
+
 // ShouldForceSSO checks if a user should be forced to use SSO login.
 // Owners are always exempt from force SSO.
+func (p *ForceSSOPolicy) ShouldForceSSO(email string, role models.UserRole) bool {
+	return shouldForceSSO(p.ssoConfigRepo, email, role)
+}
+
+// ShouldForceSSO checks if a user should be forced to use SSO login.
+// Owners are always exempt from force SSO.
+//
+// It delegates to the same implementation ForceSSOPolicy uses, so the two
+// can never disagree.
 func (s *SSOService) ShouldForceSSO(email string, role models.UserRole) bool {
+	return shouldForceSSO(s.ssoConfigRepo, email, role)
+}
+
+// shouldForceSSO is the single implementation behind both ShouldForceSSO
+// methods.
+func shouldForceSSO(ssoConfigRepo repository.SSOConfigRepositoryInterface, email string, role models.UserRole) bool {
 	// Owners are always exempt
 	if role == models.UserRoleOwner {
 		return false
 	}
 
-	cfg, err := s.ssoConfigRepo.Get()
+	cfg, err := ssoConfigRepo.Get()
 	if err != nil || !cfg.Enabled || !cfg.ForceSSO {
 		return false
 	}

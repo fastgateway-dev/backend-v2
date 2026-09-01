@@ -26,8 +26,13 @@ import (
 // the test does not exercise it.
 // ---------------------------------------------------------------------------
 
-func wireApprovalEngine(
-	svc *services.ApprovalService,
+// Phase 2E Task 6: the engine is a required ApprovalServiceDeps field, so it
+// is built before the service rather than attached afterwards through
+// SetApprovalEngine. newTestApprovalService calls this with its own
+// (nil-substituted) repositories, which is what every call site already
+// passed; a test that needs the engine itself calls newApprovalEngine
+// directly and hands it to newTestApprovalServiceWithEngine.
+func newApprovalEngine(
 	approvalRepo *mocks.MockUnifiedApprovalRepository,
 	teamRepo *mocks.MockTeamRepository,
 	projectRepo *mocks.MockProjectRepository,
@@ -58,18 +63,118 @@ func wireApprovalEngine(
 		Return(int64(1), nil).Maybe()
 
 	policyRepo := new(mocks.MockApprovalPolicyRepository)
+	k8s := new(mocks.MockKubernetesService)
 
 	engine := approvalpkg.New(approvalRepo, stageReviewRepo, policyRepo, teamRepo, projectRepo)
 	// RouteService is the route completer (approval.Completer +
 	// approval.CancelAuthorizer). Tests that exercise a client_attachment
 	// approval register that entity type themselves, using the returned
 	// engine.
-	routeSvc := services.NewRouteService(routeRepo, approvalRepo, policyRepo, new(mocks.MockDomainRepository), teamRepo, routeplan.WAFConfig{})
+	routeSvc := services.NewRouteService(services.RouteServiceDeps{
+		RouteRepo:                routeRepo,
+		ApprovalRepo:             approvalRepo,
+		PolicyRepo:               policyRepo,
+		DomainRepo:               new(mocks.MockDomainRepository),
+		TeamRepo:                 teamRepo,
+		ProjectNamespaceRepo:     new(mocks.MockProjectNamespaceRepository),
+		SecurityPolicyRepo:       new(mocks.MockSecurityPolicyRepository),
+		BackendTrafficPolicyRepo: new(mocks.MockBackendTrafficPolicyRepository),
+		EnvoyExtensionPolicyRepo: new(mocks.MockEnvoyExtensionPolicyRepository),
+		WafPolicyRepo:            new(mocks.MockWafPolicyRepository),
+		ClientAttachmentRepo:     new(mocks.MockClientAttachmentRepository),
+		ClientIPRepo:             new(mocks.MockClientIPRepository),
+		ClientHeaderRepo:         new(mocks.MockClientHeaderRepository),
+		ClientRepo:               new(mocks.MockClientRepository),
+		ProjectRepo:              projectRepo,
+		WafConfig:                routeplan.WAFConfig{},
+		Domains:                  noopCTPEnsurer{},
+		RouteVersions:            noopVersionRecorder{},
+		Approvals:                engine,
+		// Phase 2E Task 9 made the seven cluster roles required, so this
+		// RouteService -- which exists only to be the engine's route
+		// completer -- has to name them. No test here reaches Kubernetes;
+		// an unexpected call on a bare mock fails loudly, which is the
+		// point.
+		K8sRoutes:        k8s,
+		K8sPolicies:      k8s,
+		K8sBackends:      k8s,
+		K8sBackendReaper: k8s,
+		K8sSecrets:       k8s,
+		K8sAPIKeys:       k8s,
+		K8sRefGrants:     k8s,
+	})
 	engine.Register(models.ApprovalEntityRoute, routeSvc)
-	svc.SetApprovalEngine(engine)
 	// The engine is returned so a client_attachment test can register its own
 	// ClientAttachmentService as that entity type's completer (Task 8).
 	return engine
+}
+
+// newTestApprovalService stands in for services.NewApprovalService now that
+// every dependency is required (Phase 2E Task 3). Every test below built its
+// ApprovalService positionally, passing nil for whatever the test did not
+// need; this helper preserves that call shape by substituting an inert mock
+// for any nil argument so construction does not panic.
+//
+// Only approvalRepo, policyRepo, routeRepo and domainRepo are ever read by
+// ApprovalService itself (see the doc comment on ApprovalServiceDeps);
+// teamRepo and projectRepo reach it only through the engine. Phase 2E Task 10
+// deleted the k8sService parameter: it was defaulted to a fresh mock and then
+// never forwarded anywhere, so every caller was passing a mock into a void.
+func newTestApprovalService(
+	approvalRepo *mocks.MockUnifiedApprovalRepository,
+	policyRepo *mocks.MockApprovalPolicyRepository,
+	teamRepo *mocks.MockTeamRepository,
+	routeRepo *mocks.MockRouteRepository,
+	projectRepo *mocks.MockProjectRepository,
+	domainRepo *mocks.MockDomainRepository,
+	wafConfig routeplan.WAFConfig,
+) *services.ApprovalService {
+	return newTestApprovalServiceWithEngine(
+		newApprovalEngine(approvalRepo, teamRepo, projectRepo, routeRepo),
+		approvalRepo, policyRepo, teamRepo, routeRepo, projectRepo, domainRepo, wafConfig)
+}
+
+// newTestApprovalServiceWithEngine is newTestApprovalService for the tests
+// that need to hold the engine themselves -- to register a second entity
+// type's completer on it, for instance. Phase 2E Task 6 made the engine a
+// required constructor parameter, so it can no longer be attached after the
+// service is built.
+func newTestApprovalServiceWithEngine(
+	engine *approvalpkg.Engine,
+	approvalRepo *mocks.MockUnifiedApprovalRepository,
+	policyRepo *mocks.MockApprovalPolicyRepository,
+	teamRepo *mocks.MockTeamRepository,
+	routeRepo *mocks.MockRouteRepository,
+	projectRepo *mocks.MockProjectRepository,
+	domainRepo *mocks.MockDomainRepository,
+	wafConfig routeplan.WAFConfig,
+) *services.ApprovalService {
+	if approvalRepo == nil {
+		approvalRepo = new(mocks.MockUnifiedApprovalRepository)
+	}
+	if policyRepo == nil {
+		policyRepo = new(mocks.MockApprovalPolicyRepository)
+	}
+	if teamRepo == nil {
+		teamRepo = new(mocks.MockTeamRepository)
+	}
+	if routeRepo == nil {
+		routeRepo = new(mocks.MockRouteRepository)
+	}
+	if projectRepo == nil {
+		projectRepo = new(mocks.MockProjectRepository)
+	}
+	if domainRepo == nil {
+		domainRepo = new(mocks.MockDomainRepository)
+	}
+	return services.NewApprovalService(services.ApprovalServiceDeps{
+		ApprovalRepo: approvalRepo,
+		PolicyRepo:   policyRepo,
+		RouteRepo:    routeRepo,
+		DomainRepo:   domainRepo,
+		WafConfig:    wafConfig,
+		Approvals:    engine,
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +183,7 @@ func wireApprovalEngine(
 
 func TestApprovalService_GetByID_Success(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	id := uuid.New()
 	expected := &models.Approval{ID: id, Status: models.ApprovalStatusPending}
@@ -94,7 +199,7 @@ func TestApprovalService_GetByID_Success(t *testing.T) {
 
 func TestApprovalService_GetByID_NotFound(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	id := uuid.New()
 	approvalRepo.On("GetByID", id).Return(nil, errors.New("not found"))
@@ -112,7 +217,7 @@ func TestApprovalService_ListByProjectID_NoRoutes(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	domainRepo := new(mocks.MockDomainRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, routeplan.WAFConfig{})
 
 	projectID := uuid.New()
 	approvals := []models.Approval{
@@ -132,7 +237,7 @@ func TestApprovalService_ListByProjectID_WithRouteEnrichment(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	domainRepo := new(mocks.MockDomainRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, routeplan.WAFConfig{})
 
 	projectID := uuid.New()
 	routeID := uuid.New()
@@ -159,7 +264,7 @@ func TestApprovalService_ListByProjectID_WithRouteEnrichment(t *testing.T) {
 
 func TestApprovalService_ListByProjectID_RepoError(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	projectID := uuid.New()
 	approvalRepo.On("ListByProjectID", projectID, 1, 10, "", "").Return([]models.Approval(nil), int64(0), errors.New("db error"))
@@ -175,7 +280,7 @@ func TestApprovalService_ListByProjectID_RepoError(t *testing.T) {
 
 func TestApprovalService_CountPendingByProjectID(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	projectID := uuid.New()
 	approvalRepo.On("CountPendingByProjectID", projectID).Return(int64(5), nil)
@@ -193,7 +298,7 @@ func TestApprovalService_CountPendingByProjectID(t *testing.T) {
 
 func TestApprovalService_ListPolicies(t *testing.T) {
 	policyRepo := new(mocks.MockApprovalPolicyRepository)
-	svc := services.NewApprovalService(nil, policyRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(nil, policyRepo, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	projectID := uuid.New()
 	policies := []models.ApprovalPolicy{
@@ -214,7 +319,7 @@ func TestApprovalService_ListPolicies(t *testing.T) {
 
 func TestApprovalService_UpsertPolicy(t *testing.T) {
 	policyRepo := new(mocks.MockApprovalPolicyRepository)
-	svc := services.NewApprovalService(nil, policyRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(nil, policyRepo, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	policy := &models.ApprovalPolicy{
 		ID:        uuid.New(),
@@ -237,8 +342,7 @@ func TestApprovalService_ApproveStage_SingleStage_Success(t *testing.T) {
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, teamRepo, projectRepo, routeRepo)
+	svc := newTestApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -289,8 +393,7 @@ func TestApprovalService_ApproveStage_MultiStage_Success(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, nil, projectRepo, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, teamRepo, projectRepo, nil)
+	svc := newTestApprovalService(approvalRepo, nil, teamRepo, nil, projectRepo, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	stage1ID := uuid.New()
@@ -328,8 +431,7 @@ func TestApprovalService_ApproveStage_MultiStage_Success(t *testing.T) {
 func TestApprovalService_ApproveStage_SubmitterCannotApprove(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	projectRepo := new(mocks.MockProjectRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, projectRepo, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, nil, projectRepo, nil)
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, projectRepo, nil, routeplan.WAFConfig{})
 	// The engine always consults the project's self-approval setting; the
 	// pre-2D nil-repo guard that skipped this lookup is gone.
 	projectRepo.On("GetByID", mock.Anything).Return(nil, errors.New("not found"))
@@ -359,8 +461,7 @@ func TestApprovalService_ApproveStage_SubmitterCannotApprove(t *testing.T) {
 
 func TestApprovalService_ApproveStage_NotPending(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, nil, nil, nil)
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	approval := &models.Approval{
@@ -377,8 +478,7 @@ func TestApprovalService_ApproveStage_NotPending(t *testing.T) {
 
 func TestApprovalService_ApproveStage_StageNotFound(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, nil, nil, nil)
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	submitterID := uuid.New()
@@ -402,8 +502,7 @@ func TestApprovalService_ApproveStage_WrongPermission(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, nil, projectRepo, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, teamRepo, projectRepo, nil)
+	svc := newTestApprovalService(approvalRepo, nil, teamRepo, nil, projectRepo, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -443,15 +542,16 @@ func TestApprovalService_ApproveStage_ClientAttachment_Complete(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, routeplan.WAFConfig{})
-	engine := wireApprovalEngine(svc, approvalRepo, teamRepo, projectRepo, routeRepo)
+	engine := newApprovalEngine(approvalRepo, teamRepo, projectRepo, routeRepo)
+	svc := newTestApprovalServiceWithEngine(engine, approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, routeplan.WAFConfig{})
 
 	// Create a client attachment service and wire it in as the
 	// client_attachment completer (Phase 2D Task 8).
-	casSvc := services.NewClientAttachmentService(attachmentRepo, approvalRepo, nil, nil, routeRepo, nil, nil, nil)
-	svc.SetClientAttachmentService(casSvc)
-	engine.Register(models.ApprovalEntityClientAttachment, casSvc)
-	casSvc.SetApprovalEngine(engine)
+	// newTestClientAttachmentServiceWithEngine registers the service as the
+	// client_attachment completer on the engine, which is the only reason
+	// this test needs it.
+	_ = newTestClientAttachmentServiceWithEngine(engine,
+		attachmentRepo, approvalRepo, nil, nil, routeRepo, nil, nil, nil)
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -502,8 +602,7 @@ func TestApprovalService_RejectStage_Success(t *testing.T) {
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, teamRepo, projectRepo, routeRepo)
+	svc := newTestApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -540,8 +639,7 @@ func TestApprovalService_RejectStage_Success(t *testing.T) {
 }
 
 func TestApprovalService_RejectStage_EmptyComment(t *testing.T) {
-	svc := services.NewApprovalService(nil, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, nil, nil, nil, nil)
+	svc := newTestApprovalService(nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	_, err := svc.RejectStage(uuid.New(), uuid.New(), &models.User{ID: uuid.New()}, "")
 
@@ -551,8 +649,7 @@ func TestApprovalService_RejectStage_EmptyComment(t *testing.T) {
 
 func TestApprovalService_RejectStage_AlreadyRejected(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, nil, nil, nil)
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	approval := &models.Approval{
@@ -577,13 +674,14 @@ func TestApprovalService_RejectStage_ClientAttachment(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, routeplan.WAFConfig{})
-	engine := wireApprovalEngine(svc, approvalRepo, teamRepo, projectRepo, routeRepo)
+	engine := newApprovalEngine(approvalRepo, teamRepo, projectRepo, routeRepo)
+	svc := newTestApprovalServiceWithEngine(engine, approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, routeplan.WAFConfig{})
 
-	casSvc := services.NewClientAttachmentService(attachmentRepo, approvalRepo, nil, nil, nil, nil, nil, nil)
-	svc.SetClientAttachmentService(casSvc)
-	engine.Register(models.ApprovalEntityClientAttachment, casSvc)
-	casSvc.SetApprovalEngine(engine)
+	// newTestClientAttachmentServiceWithEngine registers the service as the
+	// client_attachment completer on the engine, which is the only reason
+	// this test needs it.
+	_ = newTestClientAttachmentServiceWithEngine(engine,
+		attachmentRepo, approvalRepo, nil, nil, nil, nil, nil, nil)
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -630,8 +728,7 @@ func TestApprovalService_RejectStage_Route_UpdateAction(t *testing.T) {
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, teamRepo, projectRepo, routeRepo)
+	svc := newTestApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -657,7 +754,12 @@ func TestApprovalService_RejectStage_Route_UpdateAction(t *testing.T) {
 	approvalRepo.On("GetByID", approvalID).Return(approval, nil).Times(2)
 	approvalRepo.On("UpdateStage", mock.AnythingOfType("*models.ApprovalStage")).Return(nil)
 	approvalRepo.On("Update", mock.AnythingOfType("*models.Approval")).Return(nil)
-	routeRepo.On("GetByID", entityID).Return(&models.Route{ID: entityID, Status: models.RouteStatusPendingDeploy}, nil)
+	// PHASE 2E TASK 11. This fixture used to start the route at PENDING_DEPLOY,
+	// and that is precisely the hazard the per-site key was introduced to close
+	// -- see TestApprovalService_RejectStage_Route_PendingDeployRouteIsRejected
+	// below. The route a rejected update approval reverts is the one Update
+	// left at pending_update. Assertion unchanged.
+	routeRepo.On("GetByID", entityID).Return(&models.Route{ID: entityID, Status: models.RouteStatusPendingUpdate}, nil)
 	routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
 		return r.Status == models.RouteStatusActive
 	})).Return(nil)
@@ -666,6 +768,62 @@ func TestApprovalService_RejectStage_Route_UpdateAction(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, result)
+}
+
+// PHASE 2E TASK 11 (ruling R12), the regression this task exists to prevent,
+// driven through the real RejectStage -> engine -> RouteService.OnRejected
+// path rather than against the state machine directly.
+//
+// A route whose update approval is in flight can be moved to pending_deploy
+// underneath it -- an attach or detach on the approvals-disabled fast path
+// does exactly that, and reads route.Status nowhere. Rejecting the approval
+// then used to write ACTIVE over that pending_deploy, because
+// pending_deploy -> active is legal at SiteDeploy and the table had no site
+// dimension. The queued redeploy was silently discarded: the route read as
+// live while the change it still needed had never been pushed.
+//
+// Per-site keying rejects it. The rejection propagates (internal/approval
+// traversal.go DIVERGENCE 5), so the caller sees the error rather than a
+// false success, and the route is left untouched for an operator to resolve.
+func TestApprovalService_RejectStage_Route_PendingDeployRouteIsRejected(t *testing.T) {
+	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
+	teamRepo := new(mocks.MockTeamRepository)
+	projectRepo := new(mocks.MockProjectRepository)
+	routeRepo := new(mocks.MockRouteRepository)
+	svc := newTestApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, routeplan.WAFConfig{})
+
+	approvalID := uuid.New()
+	stageID := uuid.New()
+	entityID := uuid.New()
+
+	approval := &models.Approval{
+		ID:          approvalID,
+		ProjectID:   uuid.New(),
+		EntityType:  models.ApprovalEntityRoute,
+		EntityID:    entityID,
+		Action:      models.ApprovalActionUpdate,
+		SubmittedBy: uuid.New(),
+		Status:      models.ApprovalStatusPending,
+		Stages: []models.ApprovalStage{
+			{ID: stageID, StageOrder: 1, RequiredPermission: "route.approve", Status: models.ApprovalStatusPending},
+		},
+	}
+	reviewer := &models.User{ID: uuid.New(), Role: models.UserRoleOwner}
+
+	approvalRepo.On("GetByID", approvalID).Return(approval, nil).Times(2)
+	approvalRepo.On("UpdateStage", mock.AnythingOfType("*models.ApprovalStage")).Return(nil)
+	approvalRepo.On("Update", mock.AnythingOfType("*models.Approval")).Return(nil)
+
+	route := &models.Route{ID: entityID, Status: models.RouteStatusPendingDeploy}
+	routeRepo.On("GetByID", entityID).Return(route, nil)
+
+	_, err := svc.RejectStage(approvalID, stageID, reviewer, "reverting")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SiteApprovalRejected")
+	assert.Equal(t, models.RouteStatusPendingDeploy, route.Status,
+		"the queued redeploy must survive: the route must not be flipped to active")
+	routeRepo.AssertNotCalled(t, "Update", mock.Anything)
 }
 
 // ---------------------------------------------------------------------------
@@ -677,8 +835,7 @@ func TestApprovalService_ApproveStage_Route_UpdateAction(t *testing.T) {
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, teamRepo, projectRepo, routeRepo)
+	svc := newTestApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -711,7 +868,17 @@ func TestApprovalService_ApproveStage_Route_UpdateAction(t *testing.T) {
 	approvalRepo.On("GetByID", approvalID).Return(approval, nil).Times(2)
 	approvalRepo.On("UpdateStage", mock.AnythingOfType("*models.ApprovalStage")).Return(nil)
 	approvalRepo.On("Update", mock.AnythingOfType("*models.Approval")).Return(nil)
-	routeRepo.On("GetByID", entityID).Return(&models.Route{ID: entityID, Status: models.RouteStatusActive}, nil)
+	// PHASE 2E TASK 11. This fixture used to start the route at ACTIVE, which
+	// no route carrying an in-flight UPDATE approval can be: RouteService.Update
+	// persists pending_update BEFORE calling approvals.Submit, and nothing moves
+	// it back while that approval is pending (Update/Delete refuse, the cascade
+	// skips non-active routes, Deploy needs approved/pending_deploy). Under the
+	// old global (from, to) key active -> pending_deploy was legal because the
+	// attach and cascade sites produce it, so the fictional status went
+	// unnoticed. Per-site keying rejects it at SiteApprovalApproved. The
+	// assertion below is unchanged; only the starting status was corrected to a
+	// reachable one.
+	routeRepo.On("GetByID", entityID).Return(&models.Route{ID: entityID, Status: models.RouteStatusPendingUpdate}, nil)
 	routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
 		return r.Status == models.RouteStatusPendingDeploy
 	})).Return(nil)
@@ -731,8 +898,7 @@ func TestApprovalService_ApproveStage_Route_DeleteAction(t *testing.T) {
 	teamRepo := new(mocks.MockTeamRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, teamRepo, projectRepo, routeRepo)
+	svc := newTestApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	stageID := uuid.New()
@@ -758,7 +924,10 @@ func TestApprovalService_ApproveStage_Route_DeleteAction(t *testing.T) {
 	approvalRepo.On("GetByID", approvalID).Return(approval, nil).Times(2)
 	approvalRepo.On("UpdateStage", mock.AnythingOfType("*models.ApprovalStage")).Return(nil)
 	approvalRepo.On("Update", mock.AnythingOfType("*models.Approval")).Return(nil)
-	routeRepo.On("GetByID", entityID).Return(&models.Route{ID: entityID, Status: models.RouteStatusActive}, nil)
+	// Same correction as the update case above, one action across: Delete
+	// persists pending_delete before submitting the approval this test
+	// completes, so active was never a status this callback could observe.
+	routeRepo.On("GetByID", entityID).Return(&models.Route{ID: entityID, Status: models.RouteStatusPendingDelete}, nil)
 	routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
 		return r.Status == models.RouteStatusPendingDeploy
 	})).Return(nil)
@@ -777,8 +946,7 @@ func TestApprovalService_CancelApproval_Success_BySubmitter(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	projectRepo := new(mocks.MockProjectRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, projectRepo, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, nil, projectRepo, routeRepo)
+	svc := newTestApprovalService(approvalRepo, nil, nil, routeRepo, projectRepo, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	userID := uuid.New()
@@ -810,8 +978,7 @@ func TestApprovalService_CancelApproval_Success_BySubmitter(t *testing.T) {
 
 func TestApprovalService_CancelApproval_NotPending(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, nil, nil, nil)
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	approval := &models.Approval{
@@ -831,8 +998,7 @@ func TestApprovalService_CancelApproval_NoPermission(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	teamRepo := new(mocks.MockTeamRepository)
 	routeRepo := new(mocks.MockRouteRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, teamRepo, projectRepo, routeRepo)
+	svc := newTestApprovalService(approvalRepo, nil, teamRepo, routeRepo, projectRepo, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	submitterID := uuid.New()
@@ -870,8 +1036,7 @@ func TestApprovalService_CancelApproval_UpdateAction_RevertsToActive(t *testing.
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	projectRepo := new(mocks.MockProjectRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, projectRepo, nil, nil, routeplan.WAFConfig{})
-	wireApprovalEngine(svc, approvalRepo, nil, projectRepo, routeRepo)
+	svc := newTestApprovalService(approvalRepo, nil, nil, routeRepo, projectRepo, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	userID := uuid.New()
@@ -892,7 +1057,11 @@ func TestApprovalService_CancelApproval_UpdateAction_RevertsToActive(t *testing.
 	approvalRepo.On("GetByID", approvalID).Return(approval, nil).Times(2)
 	projectRepo.On("IsAdmin", projectID, userID).Return(false, nil)
 	approvalRepo.On("Update", mock.AnythingOfType("*models.Approval")).Return(nil)
-	routeRepo.On("GetByID", entityID).Return(&models.Route{ID: entityID, Status: models.RouteStatusPendingDeploy}, nil)
+	// PHASE 2E TASK 11: same correction as RejectStage above. A cancelled
+	// update approval reverts the route Update left at pending_update; taking a
+	// pending_deploy route to active here would discard a queued redeploy and
+	// is now rejected.
+	routeRepo.On("GetByID", entityID).Return(&models.Route{ID: entityID, Status: models.RouteStatusPendingUpdate}, nil)
 	routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
 		return r.Status == models.RouteStatusActive
 	})).Return(nil)
@@ -911,13 +1080,14 @@ func TestApprovalService_CancelApproval_ClientAttachment(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	attachmentRepo := new(mocks.MockClientAttachmentRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, projectRepo, nil, nil, routeplan.WAFConfig{})
-	engine := wireApprovalEngine(svc, approvalRepo, nil, projectRepo, nil)
+	engine := newApprovalEngine(approvalRepo, nil, projectRepo, nil)
+	svc := newTestApprovalServiceWithEngine(engine, approvalRepo, nil, nil, nil, projectRepo, nil, routeplan.WAFConfig{})
 
-	casSvc := services.NewClientAttachmentService(attachmentRepo, approvalRepo, nil, nil, nil, nil, nil, nil)
-	svc.SetClientAttachmentService(casSvc)
-	engine.Register(models.ApprovalEntityClientAttachment, casSvc)
-	casSvc.SetApprovalEngine(engine)
+	// newTestClientAttachmentServiceWithEngine registers the service as the
+	// client_attachment completer on the engine, which is the only reason
+	// this test needs it.
+	_ = newTestClientAttachmentServiceWithEngine(engine,
+		attachmentRepo, approvalRepo, nil, nil, nil, nil, nil, nil)
 
 	approvalID := uuid.New()
 	userID := uuid.New()
@@ -958,7 +1128,7 @@ func TestApprovalService_GetDiff_CreateAction(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	domainRepo := new(mocks.MockDomainRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	entityID := uuid.New()
@@ -1010,7 +1180,7 @@ func TestApprovalService_GetDiff_UpdateAction(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	domainRepo := new(mocks.MockDomainRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	entityID := uuid.New()
@@ -1066,7 +1236,7 @@ func TestApprovalService_GetDiff_UpdateAction(t *testing.T) {
 
 func TestApprovalService_GetDiff_NonRouteEntity(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	approval := &models.Approval{
@@ -1086,7 +1256,7 @@ func TestApprovalService_GetDiff_DeleteAction(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
 	domainRepo := new(mocks.MockDomainRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, routeRepo, nil, domainRepo, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	entityID := uuid.New()
@@ -1133,7 +1303,7 @@ func TestApprovalService_GetDiff_DeleteAction(t *testing.T) {
 
 func TestApprovalService_UpdateAIReview_Success(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	aiReview := json.RawMessage(`{"summary":"looks good"}`)
@@ -1152,7 +1322,7 @@ func TestApprovalService_UpdateAIReview_Success(t *testing.T) {
 
 func TestApprovalService_UpdateAIReview_Error(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	svc := services.NewApprovalService(approvalRepo, nil, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
+	svc := newTestApprovalService(approvalRepo, nil, nil, nil, nil, nil, routeplan.WAFConfig{})
 
 	approvalID := uuid.New()
 	approval := &models.Approval{ID: approvalID}
@@ -1162,4 +1332,39 @@ func TestApprovalService_UpdateAIReview_Error(t *testing.T) {
 	err := svc.UpdateAIReview(approval)
 
 	require.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// NewApprovalService
+// ---------------------------------------------------------------------------
+
+func fullApprovalServiceDeps() services.ApprovalServiceDeps {
+	return services.ApprovalServiceDeps{
+		ApprovalRepo: new(mocks.MockUnifiedApprovalRepository),
+		PolicyRepo:   new(mocks.MockApprovalPolicyRepository),
+		RouteRepo:    new(mocks.MockRouteRepository),
+		DomainRepo:   new(mocks.MockDomainRepository),
+		Approvals:    newApprovalEngine(nil, nil, nil, nil),
+	}
+}
+
+func TestNewApprovalService_RequiresEveryDependency(t *testing.T) {
+	require.NotPanics(t, func() { services.NewApprovalService(fullApprovalServiceDeps()) })
+
+	cases := map[string]func(*services.ApprovalServiceDeps){
+		"ApprovalRepo": func(d *services.ApprovalServiceDeps) { d.ApprovalRepo = nil },
+		"PolicyRepo":   func(d *services.ApprovalServiceDeps) { d.PolicyRepo = nil },
+		"RouteRepo":    func(d *services.ApprovalServiceDeps) { d.RouteRepo = nil },
+		"DomainRepo":   func(d *services.ApprovalServiceDeps) { d.DomainRepo = nil },
+		"Approvals":    func(d *services.ApprovalServiceDeps) { d.Approvals = nil },
+	}
+	for name, breakIt := range cases {
+		t.Run("nil "+name, func(t *testing.T) {
+			d := fullApprovalServiceDeps()
+			breakIt(&d)
+			assert.PanicsWithValue(t,
+				"services.NewApprovalService: missing required dependency: "+name,
+				func() { services.NewApprovalService(d) })
+		})
+	}
 }

@@ -19,7 +19,7 @@ import (
 type DomainTemplateService struct {
 	dtRepo      repository.DomainTemplateRepositoryInterface
 	projectRepo repository.ProjectRepositoryInterface
-	k8sService  KubernetesServiceInterface
+	k8sService  GatewayClassApplier
 	aiService   *AIService
 }
 
@@ -27,7 +27,7 @@ type DomainTemplateService struct {
 func NewDomainTemplateService(
 	dtRepo repository.DomainTemplateRepositoryInterface,
 	projectRepo repository.ProjectRepositoryInterface,
-	k8sService KubernetesServiceInterface,
+	k8sService GatewayClassApplier,
 	aiService *AIService,
 ) *DomainTemplateService {
 	return &DomainTemplateService{
@@ -641,7 +641,14 @@ func (s *DomainTemplateService) PreviewChanges(id uuid.UUID, input *UpdateDomain
 		ProposedEnvoyProxyYaml: string(proposedYaml),
 	}
 
-	// AI review only when explicitly requested
+	// AI review only when explicitly requested.
+	//
+	// aiService is a genuinely OPTIONAL dependency here, unlike every other
+	// service in this package: NewDomainTemplateService is still a positional
+	// constructor with no nil checks at all (domain_template_service.go:27),
+	// so a caller really can pass nil. Phase 2E Task 9 kept this guard for
+	// that reason and deleted the equivalent ones in domain_service.go, whose
+	// AiService is a checked DomainServiceDeps field.
 	if s.aiService != nil && opts != nil && opts.IncludeAIReview {
 		ctx := context.Background()
 		description := "Domain template infrastructure settings update"
@@ -820,7 +827,8 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 		GatewayYaml:      string(gwYaml),
 	}
 
-	// Optional AI review
+	// Optional AI review. aiService is genuinely optional here -- see the
+	// note on the matching condition in updateInfrastructureSettings above.
 	if s.aiService != nil && opts != nil && opts.IncludeAIReview {
 		ctx := context.Background()
 		description := "New domain template infrastructure configuration"

@@ -23,6 +23,23 @@ jobs:
       - name: Build
         run: go build ./...
 
+      # Every mock in internal/mocks is generated from the interface it
+      # implements (.mockery.yml). Hand-maintained mocks are how
+      # SetClientHeaderRepository and SetProjectRepository drifted out of
+      # their interfaces unnoticed; regenerating here and failing on a diff
+      # makes that class of defect impossible.
+      #
+      # `make mocks` builds the generator from tools/go.mod, a separate
+      # module, so nothing about mockery reaches the product's go.mod.
+      #
+      # mocks-check detects drift with `git status --porcelain`, not
+      # `git diff`. `git diff` is blind to UNTRACKED files, so a .mockery.yml
+      # edit that emits a new generated file which is never committed produced
+      # no diff and this step went green on a mock that is not in the repo.
+      # See the comment on the target in the Makefile.
+      - name: Verify mocks are up to date
+        run: make mocks-check
+
       - name: Test
         run: go test ./... -count=1
 

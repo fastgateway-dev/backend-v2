@@ -17,11 +17,11 @@ import (
 type AIHandler struct {
 	aiService       services.AIServiceInterface
 	approvalService services.ApprovalServiceInterface
-	domainService   services.DomainServiceInterface
+	domainService   services.DomainReader
 }
 
 // NewAIHandler creates a new AI handler
-func NewAIHandler(aiService services.AIServiceInterface, approvalService services.ApprovalServiceInterface, domainService services.DomainServiceInterface) *AIHandler {
+func NewAIHandler(aiService services.AIServiceInterface, approvalService services.ApprovalServiceInterface, domainService services.DomainReader) *AIHandler {
 	return &AIHandler{
 		aiService:       aiService,
 		approvalService: approvalService,

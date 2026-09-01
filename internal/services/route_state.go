@@ -7,7 +7,88 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 )
 
-// legalTransitions is the complete route status transition table.
+// TransitionSite names one call site of routeStateMachine.To.
+//
+// PHASE 2E TASK 11 (ruling R12). Before this task legalTransitions was keyed
+// on (from, to) only, so ANY site could perform ANY transition that some
+// OTHER site was entitled to produce. Phase 2D recorded two consequences of
+// that and could not fix either without this key:
+//
+//   - transitions.md, "Known residual gaps" item 3 -- the detach fast path
+//     accepted the approved/rejected/pending_create origins that only the two
+//     ATTACH fast paths can actually reach.
+//   - The concrete hazard the final review found: OnRejected/update and
+//     OnCancelled/update could take a pending_deploy route to active, because
+//     pending_deploy -> active is legal for the DEPLOY site. That silently
+//     discards a queued redeploy -- the route stops being scheduled for a
+//     push it still needs.
+//
+// The constant's string value is its own identifier so that a rejection names
+// the site in the error; the doc comment on each carries the source location.
+type TransitionSite string
+
+const (
+	// SiteRouteCreateFastPath is route_write.go Create, approvals-disabled
+	// branch. The route was just persisted at pending_create.
+	SiteRouteCreateFastPath TransitionSite = "SiteRouteCreateFastPath"
+
+	// SiteRouteUpdate is route_write.go Update, the pending_update
+	// assignment. Enumeration site #19.
+	SiteRouteUpdate TransitionSite = "SiteRouteUpdate"
+
+	// SiteRouteUpdateFastPath is route_write.go Update, approvals-disabled
+	// branch. Enumeration site #20.
+	SiteRouteUpdateFastPath TransitionSite = "SiteRouteUpdateFastPath"
+
+	// SiteRouteDelete is route_write.go Delete, the pending_delete
+	// assignment. Enumeration site #21.
+	SiteRouteDelete TransitionSite = "SiteRouteDelete"
+
+	// SiteRouteDeleteFastPath is route_write.go Delete, approvals-disabled
+	// branch. Enumeration site #22.
+	SiteRouteDeleteFastPath TransitionSite = "SiteRouteDeleteFastPath"
+
+	// SiteApprovalApproved is route_approval.go RouteService.OnApproved.
+	// Enumeration sites #1, #2, #3.
+	SiteApprovalApproved TransitionSite = "SiteApprovalApproved"
+
+	// SiteApprovalRejected is route_approval.go RouteService.OnRejected.
+	// Enumeration sites #4, #5, #6.
+	SiteApprovalRejected TransitionSite = "SiteApprovalRejected"
+
+	// SiteApprovalCancelled is route_approval.go RouteService.OnCancelled,
+	// the update/delete case. Enumeration site #7. (A cancelled create
+	// deletes the row instead of moving its status.)
+	SiteApprovalCancelled TransitionSite = "SiteApprovalCancelled"
+
+	// SiteAttachFromRoute is client_attachment_service.go AttachFromRoute,
+	// approvals-disabled branch. Enumeration site #8.
+	SiteAttachFromRoute TransitionSite = "SiteAttachFromRoute"
+
+	// SiteAttachFromClient is client_attachment_service.go AttachFromClient,
+	// approvals-disabled branch. Enumeration site #9.
+	SiteAttachFromClient TransitionSite = "SiteAttachFromClient"
+
+	// SiteRequestDetach is client_attachment_service.go RequestDetach,
+	// approvals-disabled branch. Enumeration site #10.
+	SiteRequestDetach TransitionSite = "SiteRequestDetach"
+
+	// SiteAttachmentApproved is client_attachment_service.go
+	// updateRouteStatus, reached only from ClientAttachmentService.OnApproved
+	// under its route.Status == active guard.
+	SiteAttachmentApproved TransitionSite = "SiteAttachmentApproved"
+
+	// SiteClientCascade is client_service.go cascadeToAttachedRoutes, the
+	// single implementation behind the five cascade* methods. Guarded on
+	// route.Status == active.
+	SiteClientCascade TransitionSite = "SiteClientCascade"
+
+	// SiteDeploy is route_deploy.go Deploy. Enumeration sites #23, #24.
+	SiteDeploy TransitionSite = "SiteDeploy"
+)
+
+// legalTransitions is the complete route status transition table, keyed by
+// (site, from, to).
 //
 // PROVENANCE. It is derived from the 24 assignment sites that existed before
 // Phase 2D, enumerated in
@@ -24,137 +105,209 @@ import (
 // reasoning behind each, live in the "Derived from-sets" section of
 // transitions.md and are mirrored row-by-row in observedTransitions
 // (route_state_internal_test.go), which
-// TestLegalTransitions_CoversEveryObservedTransition checks this table against.
+// TestLegalTransitions_CoversEveryObservedTransition checks this table against
+// PER SITE, and TestLegalTransitions_HasNoUnobservedEntry checks in the other
+// direction, also per site. The two together pin exact set equality.
 //
-// Every entry below therefore traces to a site. Adding one is a behaviour
-// change and needs its own justification in transitions.md; it is not
-// something to do while migrating a call site.
-var legalTransitions = map[models.RouteStatus][]models.RouteStatus{
-	// A route awaiting its creation approval. The approval can complete
-	// (-> approved, route_approval.go OnApproved/create; route_write.go Create
-	// on the approvals-disabled path) or be rejected (-> rejected,
-	// OnRejected/create).
-	//
-	// pending_update and pending_delete are both here because Update
-	// (route_write.go:611-615) and Delete (:899-903) gate on byte-identical
-	// preconditions -- "no pending approval for this route" and nothing else
-	// -- so whatever one admits, the other admits. An orphaned pending_create
-	// route (Create persisted the row, then approvals.Submit failed) satisfies
-	// that precondition, and must stay both revisable and deletable.
-	// TestRouteService_Delete_PendingCreateRoute exercises the delete half;
-	// the update half has no test today, which is a coverage gap, not a
-	// difference in the code.
-	//
-	// A cancelled creation approval does not appear here: OnCancelled/create
-	// deletes the row rather than moving its status.
-	//
-	// pending_deploy was ADDED IN FIX ROUND 1 of Task 10+11. The
-	// attach/detach fast paths (client_attachment_service.go) read
-	// route.Status nowhere, and project.ApprovalEnabled is toggleable at
-	// runtime (ProjectService.UpdateProject), so a route created while
-	// approvals were on -- or orphaned at pending_create by a failed
-	// approvals.Submit -- can have a client attached to it after approvals
-	// are turned off.
-	models.RouteStatusPendingCreate: {
-		models.RouteStatusApproved,
-		models.RouteStatusRejected,
-		models.RouteStatusPendingUpdate,
-		models.RouteStatusPendingDelete,
-		models.RouteStatusPendingDeploy,
+// Every entry below therefore traces to a site -- now literally, not just in
+// the comments. Adding one is a behaviour change and needs its own
+// justification in transitions.md; it is not something to do while migrating
+// a call site.
+//
+// PHASE 2E TASK 11 re-keyed this map. The UNION over sites is unchanged: the
+// same 24 distinct (from, to) pairs are legal somewhere as before. What
+// changed is that each is now legal only where it is actually produced.
+var legalTransitions = map[TransitionSite]map[models.RouteStatus][]models.RouteStatus{
+
+	// --- route_write.go ---------------------------------------------------
+
+	// Create's approvals-disabled branch. The route was persisted at
+	// pending_create by the struct literal a few lines above, so this is the
+	// only pair the site can produce.
+	SiteRouteCreateFastPath: {
+		models.RouteStatusPendingCreate: {models.RouteStatusApproved},
 	},
 
-	// A route with an update approval in flight. Approval sends it to the
-	// deploy queue; rejection and cancellation both put the still-deployed
-	// route back to active.
+	// Update, site #19. Its ONLY precondition is "no pending approval for
+	// this route" (route_write.go:609-613); it reads route.Status nowhere
+	// else. Delete's precondition is byte-identical (:887-891), so whatever
+	// one admits the other admits -- which is what forces the two orphan
+	// origins below.
 	//
-	// pending_delete was ADDED IN THE FINAL FIX WAVE, and it is the same
-	// orphan class the pending_create row above already admits. Update
-	// (route_write.go:665-675) persists pending_update BEFORE calling
-	// approvals.Submit, so a failed Submit leaves the route at
-	// pending_update with NO pending approval -- which is precisely the
-	// precondition Delete gates on (:899-903). Deleting such a route worked
-	// before Phase 2D and must keep working.
+	//   - pending_create: Create persists the row, then approvals.Submit can
+	//     fail, leaving an orphan with no approval attached. It must stay
+	//     revisable, not merely deletable (fix round 1 of Task 10+11).
+	//   - pending_delete: the same orphan class one step out. Delete persists
+	//     pending_delete BEFORE submitting, so a failed Submit leaves a route
+	//     Update must still reach (final fix wave of Phase 2D).
+	//   - approved / active / rejected / pending_deploy: none carries a
+	//     PENDING approval, so all four satisfy the precondition. rejected is
+	//     the intended revise-and-resubmit recovery; pending_deploy carries an
+	//     already-approved approval, so a further update stacks on it.
 	//
-	// Phase 2D makes the orphan MORE likely, not less: internal/approval/
-	// planning.go:120-159 now errors on repository failures, unknown scopes
-	// and a submitter belonging to no team, where the pre-2D path did not.
-	// An instance owner or project admin passes middleware/permissions.go:63
-	// with no team membership at all, so an owner submitting under a
-	// submitter_team policy orphans deterministically.
-	models.RouteStatusPendingUpdate: {
-		models.RouteStatusPendingDeploy,
-		models.RouteStatusActive,
-		models.RouteStatusPendingDelete,
+	// pending_update -> pending_update is a no-op and never consults this
+	// table; Update persists such an orphan explicitly so its Description and
+	// Labels edits are not dropped.
+	SiteRouteUpdate: {
+		models.RouteStatusPendingCreate: {models.RouteStatusPendingUpdate},
+		models.RouteStatusPendingDelete: {models.RouteStatusPendingUpdate},
+		models.RouteStatusApproved:      {models.RouteStatusPendingUpdate},
+		models.RouteStatusActive:        {models.RouteStatusPendingUpdate},
+		models.RouteStatusRejected:      {models.RouteStatusPendingUpdate},
+		models.RouteStatusPendingDeploy: {models.RouteStatusPendingUpdate},
 	},
 
-	// Symmetric to pending_update, for a delete approval -- including the
-	// orphan case: Delete (route_write.go:911-916) likewise persists
-	// pending_delete before submitting, and Update's precondition
-	// (:611-615) is byte-identical to Delete's. Whatever one admits, the
-	// other admits.
-	models.RouteStatusPendingDelete: {
-		models.RouteStatusPendingDeploy,
-		models.RouteStatusActive,
-		models.RouteStatusPendingUpdate,
+	// Update's approvals-disabled branch, site #20. It runs after the
+	// pending_update assignment above has already persisted, so the route is
+	// at pending_update and nothing else.
+	SiteRouteUpdateFastPath: {
+		models.RouteStatusPendingUpdate: {models.RouteStatusPendingDeploy},
 	},
 
-	// Approved creation, not yet pushed to Kubernetes. Deploy takes it live;
-	// Update and Delete are both reachable because their only precondition is
-	// "no pending approval for this route", which an approved route satisfies.
+	// Delete, site #21. Exactly the mirror of SiteRouteUpdate: the two
+	// preconditions are byte-identical and neither function reads
+	// route.Status anywhere else. pending_update is here for the same orphan
+	// reason pending_delete is under SiteRouteUpdate.
+	// TestRouteService_Delete_PendingCreateRoute corroborates the
+	// pending_create origin but is not its justification.
+	SiteRouteDelete: {
+		models.RouteStatusPendingCreate: {models.RouteStatusPendingDelete},
+		models.RouteStatusPendingUpdate: {models.RouteStatusPendingDelete},
+		models.RouteStatusApproved:      {models.RouteStatusPendingDelete},
+		models.RouteStatusActive:        {models.RouteStatusPendingDelete},
+		models.RouteStatusRejected:      {models.RouteStatusPendingDelete},
+		models.RouteStatusPendingDeploy: {models.RouteStatusPendingDelete},
+	},
+
+	// Delete's approvals-disabled branch, site #22. Symmetric to
+	// SiteRouteUpdateFastPath.
+	SiteRouteDeleteFastPath: {
+		models.RouteStatusPendingDelete: {models.RouteStatusPendingDeploy},
+	},
+
+	// --- route_approval.go ------------------------------------------------
+
+	// OnApproved, sites #1/#2/#3. Argument A1: the callback runs only when an
+	// approval for THIS route reaches a terminal state, and the Create /
+	// Update / Delete that submitted it persisted the matching pending_*
+	// status first. So the action and the from-status move together --
+	// create from pending_create, update from pending_update, delete from
+	// pending_delete.
+	SiteApprovalApproved: {
+		models.RouteStatusPendingCreate: {models.RouteStatusApproved},
+		models.RouteStatusPendingUpdate: {models.RouteStatusPendingDeploy},
+		models.RouteStatusPendingDelete: {models.RouteStatusPendingDeploy},
+	},
+
+	// OnRejected, sites #4/#5/#6. Same A1 chain. A rejected update or delete
+	// returns the still-deployed route to active.
 	//
-	// pending_deploy was ADDED IN FIX ROUND 1 of Task 10+11, and this is the
-	// pair that was actually breaking production traffic. In a project with
-	// ApprovalEnabled=false, Create leaves the route at approved
-	// (route_write.go Create/approvals-disabled) -- NOT active -- and the
-	// attach fast paths then move it to pending_deploy without reading
-	// route.Status at all. The ordinary flow create -> attach client ->
-	// deploy therefore failed at the attach. See the "Fix round 1" section of
-	// task-10-11-report.md.
-	models.RouteStatusApproved: {
-		models.RouteStatusActive,
-		models.RouteStatusPendingUpdate,
-		models.RouteStatusPendingDelete,
-		models.RouteStatusPendingDeploy,
+	// THIS IS THE SITE THE RE-KEYING WAS FOR. pending_deploy is deliberately
+	// absent: pending_deploy -> active is legal at SiteDeploy, and under the
+	// old global key that made it legal here too. A rejected approval landing
+	// on a route with a queued redeploy would have flipped it to active and
+	// silently discarded the queued redeploy.
+	SiteApprovalRejected: {
+		models.RouteStatusPendingCreate: {models.RouteStatusRejected},
+		models.RouteStatusPendingUpdate: {models.RouteStatusActive},
+		models.RouteStatusPendingDelete: {models.RouteStatusActive},
 	},
 
-	// Live in Kubernetes. Everything that changes a live route's shape --
-	// the cascade in ClientService, client attach/detach, and an approved
-	// attachment -- routes through pending_deploy; Update and Delete open
-	// their respective approvals.
+	// OnCancelled, site #7. One case, two actions, so two origins. A
+	// cancelled create deletes the row rather than moving its status, so it
+	// contributes no entry. Same pending_deploy exclusion as OnRejected, for
+	// the same reason.
+	SiteApprovalCancelled: {
+		models.RouteStatusPendingUpdate: {models.RouteStatusActive},
+		models.RouteStatusPendingDelete: {models.RouteStatusActive},
+	},
+
+	// --- client_attachment_service.go -------------------------------------
+
+	// AttachFromRoute's approvals-disabled fast path, site #8. Argument A3:
+	// the function reads route.Status NOWHERE (verified line by line), so its
+	// from-set is "what status can a route hold in a project with
+	// ApprovalEnabled == false", and ApprovalEnabled is a runtime toggle
+	// (ProjectService.UpdateProject). transitions.md derives all six non-self
+	// statuses:
 	//
-	// active is no longer the ONLY origin of pending_deploy: fix round 1 of
-	// Task 10+11 established that the attach/detach fast paths reach it from
-	// approved, rejected and pending_create too. See those rows.
-	models.RouteStatusActive: {
-		models.RouteStatusPendingDeploy,
-		models.RouteStatusPendingUpdate,
-		models.RouteStatusPendingDelete,
+	//   - approved is the ORDINARY case and the one that broke in Task 10+11:
+	//     Create on the approvals-disabled path leaves the route at approved,
+	//     never active, so create -> attach -> deploy failed at the attach.
+	//   - active is a deployed route, the original mainline.
+	//   - rejected and pending_create arrive via the toggle (and
+	//     pending_create additionally as a failed-Submit orphan).
+	//   - pending_update / pending_delete: the same toggle. The global table
+	//     already carried both pairs from sites #2/#3 and #20/#22, so the
+	//     fixture recorded them there; under per-site keying they must be
+	//     stated here too, because this site can genuinely reach them.
+	//   - pending_deploy -> pending_deploy is a no-op, handled by To.
+	SiteAttachFromRoute: {
+		models.RouteStatusActive:        {models.RouteStatusPendingDeploy},
+		models.RouteStatusApproved:      {models.RouteStatusPendingDeploy},
+		models.RouteStatusRejected:      {models.RouteStatusPendingDeploy},
+		models.RouteStatusPendingCreate: {models.RouteStatusPendingDeploy},
+		models.RouteStatusPendingUpdate: {models.RouteStatusPendingDeploy},
+		models.RouteStatusPendingDelete: {models.RouteStatusPendingDeploy},
 	},
 
-	// A rejected creation. The route was never deployed, but it is still a
-	// row the owner can revise (-> pending_update) or clean up
-	// (-> pending_delete). It cannot go straight back to active or approved:
-	// nothing re-approves a route without a fresh approval.
+	// AttachFromClient's fast path, site #9. Identical body for this purpose;
+	// the two entry points differ only in which side submits.
+	SiteAttachFromClient: {
+		models.RouteStatusActive:        {models.RouteStatusPendingDeploy},
+		models.RouteStatusApproved:      {models.RouteStatusPendingDeploy},
+		models.RouteStatusRejected:      {models.RouteStatusPendingDeploy},
+		models.RouteStatusPendingCreate: {models.RouteStatusPendingDeploy},
+		models.RouteStatusPendingUpdate: {models.RouteStatusPendingDeploy},
+		models.RouteStatusPendingDelete: {models.RouteStatusPendingDeploy},
+	},
+
+	// RequestDetach's fast path, site #10. This site's from-set is genuinely
+	// NARROWER than the two attach sites', and per-site keying is what finally
+	// lets that be enforced -- transitions.md, "Known residual gaps" item 3
+	// recorded it as admitted-but-wrong under the global key.
 	//
-	// pending_deploy was ADDED IN FIX ROUND 1 of Task 10+11, for the same
-	// reason as the pending_create row: a rejected route can only exist in a
-	// project where approvals were once on, and ApprovalEnabled is toggleable
-	// at runtime, so the unguarded attach fast paths reach it. The route is
-	// still not re-approved by this -- pending_deploy only queues it for a
-	// deploy that the route team must still trigger.
-	models.RouteStatusRejected: {
-		models.RouteStatusPendingUpdate,
-		models.RouteStatusPendingDelete,
-		models.RouteStatusPendingDeploy,
+	// It is guarded on attachment.Status == active; an attachment only becomes
+	// active inside a successful Deploy, which sets route.Status = active in
+	// the same call. So the route was active at that moment and can only have
+	// moved on from there -- to pending_update or pending_delete (residual gap
+	// item 2: an attachment stays active across a later Update, so detach on
+	// an in-flight route is reachable). It can NEVER be back at approved,
+	// rejected or pending_create, and those three are correspondingly absent.
+	SiteRequestDetach: {
+		models.RouteStatusActive:        {models.RouteStatusPendingDeploy},
+		models.RouteStatusPendingUpdate: {models.RouteStatusPendingDeploy},
+		models.RouteStatusPendingDelete: {models.RouteStatusPendingDeploy},
 	},
 
-	// Approved changes queued for deployment. Deploy takes them live; a
-	// further Update or Delete may be submitted on top (no approval is
-	// pending, so route_write.go's precondition is satisfied).
-	models.RouteStatusPendingDeploy: {
-		models.RouteStatusActive,
-		models.RouteStatusPendingUpdate,
-		models.RouteStatusPendingDelete,
+	// updateRouteStatus, reached only from ClientAttachmentService.OnApproved
+	// under an explicit route.Status == active guard. (The assignment that
+	// used to sit in OnApproved was dead -- updateRouteStatus re-fetches its
+	// own copy -- and was deleted in Task 10+11. The guard is what makes this
+	// site {active}.)
+	SiteAttachmentApproved: {
+		models.RouteStatusActive: {models.RouteStatusPendingDeploy},
+	},
+
+	// --- client_service.go ------------------------------------------------
+
+	// cascadeToAttachedRoutes, the single implementation behind
+	// cascadeIPChangeToRoutes, cascadeMethodChangeToRoutes,
+	// cascadeHeaderChangeToRoutes, cascadeAPIKeyChangeToRoutes and
+	// cascadeJWTChangeToRoutes. It skips any route that is not active, so
+	// only routes live in Kubernetes are re-queued.
+	SiteClientCascade: {
+		models.RouteStatusActive: {models.RouteStatusPendingDeploy},
+	},
+
+	// --- route_deploy.go --------------------------------------------------
+
+	// Deploy, sites #23/#24. Its entry guard admits approved (a first deploy)
+	// and pending_deploy (a queued redeploy) and nothing else; the delete
+	// action returns earlier, having removed the row.
+	SiteDeploy: {
+		models.RouteStatusApproved:      {models.RouteStatusActive},
+		models.RouteStatusPendingDeploy: {models.RouteStatusActive},
 	},
 }
 
@@ -165,9 +318,14 @@ type routeStateMachine struct {
 	repo repository.RouteRepositoryInterface
 }
 
-// To validates and persists a status transition. reason is recorded in the
-// error on rejection and is what makes an illegal transition diagnosable.
-// A no-op transition (next == current) is allowed and does not write.
+// To validates and persists a status transition for one named call site.
+// reason is recorded in the error on rejection and is what makes an illegal
+// transition diagnosable. A no-op transition (next == current) is allowed and
+// does not write.
+//
+// site selects the row of legalTransitions to validate against. A transition
+// that is legal SOMEWHERE is not thereby legal HERE -- see the
+// SiteApprovalRejected entry for the case that motivated the key.
 //
 // CONTRACT -- To owns route.Status and nothing else.
 //
@@ -190,17 +348,22 @@ type routeStateMachine struct {
 //     route already at pending_update -- Create/Update persists the status
 //     before calling approvals.Submit, so a failed submit leaves one -- would
 //     otherwise have those edits dropped on a retry.
-func (m *routeStateMachine) To(route *models.Route, next models.RouteStatus, reason string) error {
+func (m *routeStateMachine) To(site TransitionSite, route *models.Route, next models.RouteStatus, reason string) error {
 	if route == nil {
-		return fmt.Errorf("route state: nil route (%s)", reason)
+		return fmt.Errorf("route state: nil route at site %s (%s)", site, reason)
 	}
 	if route.Status == next {
 		return nil
 	}
-	allowed, ok := legalTransitions[route.Status]
+	byStatus, ok := legalTransitions[site]
 	if !ok {
-		return fmt.Errorf("route state: no transitions defined from %q (route %s, %s)",
-			route.Status, route.ID, reason)
+		return fmt.Errorf("route state: unknown transition site %s (route %s, %s)",
+			site, route.ID, reason)
+	}
+	allowed, ok := byStatus[route.Status]
+	if !ok {
+		return fmt.Errorf("route state: no transitions defined from %q at site %s (route %s, %s)",
+			route.Status, site, route.ID, reason)
 	}
 	for _, candidate := range allowed {
 		if candidate == next {
@@ -208,6 +371,6 @@ func (m *routeStateMachine) To(route *models.Route, next models.RouteStatus, rea
 			return m.repo.Update(route)
 		}
 	}
-	return fmt.Errorf("route state: illegal transition %q -> %q (route %s, %s)",
-		route.Status, next, route.ID, reason)
+	return fmt.Errorf("route state: illegal transition %q -> %q at site %s (route %s, %s)",
+		route.Status, next, site, route.ID, reason)
 }

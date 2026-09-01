@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -25,63 +26,93 @@ var _ approvalpkg.Completer = (*ClientAttachmentService)(nil)
 type ClientAttachmentService struct {
 	attachmentRepo     repository.ClientAttachmentRepositoryInterface
 	approvalRepo       repository.UnifiedApprovalRepositoryInterface
-	policyRepo         repository.ApprovalPolicyRepositoryInterface
 	clientRepo         repository.ClientRepositoryInterface
 	routeRepo          repository.RouteRepositoryInterface
 	domainRepo         repository.DomainRepositoryInterface
-	teamRepo           repository.TeamRepositoryInterface
 	projectRepo        repository.ProjectRepositoryInterface
 	domainSettingsRepo repository.DomainSettingsRepositoryInterface
-	stageReviewRepo    repository.ApprovalStageReviewRepositoryInterface
 
-	// approvals is the shared approval engine. It is set after construction
-	// (SetApprovalEngine) because the engine holds this service as a
-	// Completer, so the two cannot both be built by a constructor.
+	// approvals is the shared approval engine. A required constructor
+	// dependency since Phase 2E Task 6: the engine holds this service as a
+	// Completer, so main.go builds the engine first and registers the
+	// completers afterwards.
 	approvals *approvalpkg.Engine
 
 	// state is the sole writer of route.Status. See route_state.go.
 	state *routeStateMachine
 }
 
-// NewClientAttachmentService creates a new ClientAttachmentService
-func NewClientAttachmentService(
-	attachmentRepo repository.ClientAttachmentRepositoryInterface,
-	approvalRepo repository.UnifiedApprovalRepositoryInterface,
-	policyRepo repository.ApprovalPolicyRepositoryInterface,
-	clientRepo repository.ClientRepositoryInterface,
-	routeRepo repository.RouteRepositoryInterface,
-	domainRepo repository.DomainRepositoryInterface,
-	teamRepo repository.TeamRepositoryInterface,
-	projectRepo repository.ProjectRepositoryInterface,
-) *ClientAttachmentService {
-	return &ClientAttachmentService{
-		attachmentRepo: attachmentRepo,
-		approvalRepo:   approvalRepo,
-		policyRepo:     policyRepo,
-		clientRepo:     clientRepo,
-		routeRepo:      routeRepo,
-		domainRepo:     domainRepo,
-		teamRepo:       teamRepo,
-		projectRepo:    projectRepo,
-		// routeRepo is a constructor parameter, so the state machine needs
-		// no setter of its own.
-		state: &routeStateMachine{repo: routeRepo},
+// ClientAttachmentServiceDeps carries everything ClientAttachmentService
+// needs. Every field is required.
+//
+// Phase 2E Task 7 deleted three of them -- PolicyRepo, TeamRepo and
+// StageReviewRepo. Each was stored in a field that nothing in this file ever
+// read: approval planning moved to internal/approval in Phase 2D, and the
+// repositories it used moved with it, but the constructor kept demanding
+// them. ProjectRepo and DomainSettingsRepo are live and stay.
+type ClientAttachmentServiceDeps struct {
+	AttachmentRepo     repository.ClientAttachmentRepositoryInterface
+	ApprovalRepo       repository.UnifiedApprovalRepositoryInterface
+	ClientRepo         repository.ClientRepositoryInterface
+	RouteRepo          repository.RouteRepositoryInterface
+	DomainRepo         repository.DomainRepositoryInterface
+	ProjectRepo        repository.ProjectRepositoryInterface
+	DomainSettingsRepo repository.DomainSettingsRepositoryInterface
+
+	// Approvals owns approval planning and traversal. The engine calls back
+	// into this service as a Completer, so main.go builds the engine first
+	// and registers the completers afterwards.
+	Approvals *approvalpkg.Engine
+}
+
+// NewClientAttachmentService builds a fully-wired ClientAttachmentService.
+// It panics if a required dependency is missing: before Phase 2E these
+// arrived through setters after construction, so a forgotten wiring line
+// degraded silently at runtime instead of failing at start-up. Master
+// design section 6.6.
+func NewClientAttachmentService(deps ClientAttachmentServiceDeps) *ClientAttachmentService {
+	var missing []string
+	if deps.AttachmentRepo == nil {
+		missing = append(missing, "AttachmentRepo")
 	}
-}
+	if deps.ApprovalRepo == nil {
+		missing = append(missing, "ApprovalRepo")
+	}
+	if deps.ClientRepo == nil {
+		missing = append(missing, "ClientRepo")
+	}
+	if deps.RouteRepo == nil {
+		missing = append(missing, "RouteRepo")
+	}
+	if deps.DomainRepo == nil {
+		missing = append(missing, "DomainRepo")
+	}
+	if deps.ProjectRepo == nil {
+		missing = append(missing, "ProjectRepo")
+	}
+	if deps.DomainSettingsRepo == nil {
+		missing = append(missing, "DomainSettingsRepo")
+	}
+	if deps.Approvals == nil {
+		missing = append(missing, "Approvals")
+	}
+	if len(missing) > 0 {
+		panic("services.NewClientAttachmentService: missing required dependency: " + strings.Join(missing, ", "))
+	}
 
-func (s *ClientAttachmentService) SetDomainSettingsRepository(repo repository.DomainSettingsRepositoryInterface) {
-	s.domainSettingsRepo = repo
-}
-
-// SetStageReviewRepository sets the stage review repository for multi-approver support
-func (s *ClientAttachmentService) SetStageReviewRepository(repo repository.ApprovalStageReviewRepositoryInterface) {
-	s.stageReviewRepo = repo
-}
-
-// SetApprovalEngine sets the approval engine (to avoid a circular dependency:
-// the engine calls back into ClientAttachmentService as a Completer).
-func (s *ClientAttachmentService) SetApprovalEngine(e *approvalpkg.Engine) {
-	s.approvals = e
+	return &ClientAttachmentService{
+		attachmentRepo:     deps.AttachmentRepo,
+		approvalRepo:       deps.ApprovalRepo,
+		clientRepo:         deps.ClientRepo,
+		routeRepo:          deps.RouteRepo,
+		domainRepo:         deps.DomainRepo,
+		projectRepo:        deps.ProjectRepo,
+		domainSettingsRepo: deps.DomainSettingsRepo,
+		approvals:          deps.Approvals,
+		// routeRepo is already a constructor dependency, so the state
+		// machine needs no setter of its own.
+		state: &routeStateMachine{repo: deps.RouteRepo},
+	}
 }
 
 // AttachFromRouteInput represents input for attaching a client from the route side
@@ -237,39 +268,37 @@ func (s *ClientAttachmentService) AttachFromRoute(
 	}
 
 	// Check if approvals are disabled for this project
-	if s.projectRepo != nil {
-		project, err := s.projectRepo.GetByID(domain.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	project, err := s.projectRepo.GetByID(domain.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	}
+	if !project.ApprovalEnabled {
+		// Skip approval — set route to pending_deploy, attachment to approved.
+		// ORDER MATTERS. The route transition is attempted FIRST, and
+		// the attachment is only marked approved once it has succeeded.
+		//
+		// Until fix round 1 of Task 10+11 this ran the other way round,
+		// and a rejected transition left a PERSISTED approved attachment
+		// pointing at an untouched route -- a partial write the pre-2D
+		// code could not produce, because pre-2D the route write could
+		// not be rejected at all. Reordering is preferred to a rollback:
+		// a compensating attachmentRepo.Update can itself fail, leaving
+		// the same inconsistency with an extra failure mode. Bailing here
+		// leaves the attachment at pending_attach with no approval
+		// attached, which is exactly the state a failed approvals.Submit
+		// already leaves behind on the approvals-enabled path below.
+		//
+		// To owns route.Status and nothing else, and nothing else on the
+		// route has been mutated here, so its no-op path drops nothing.
+		if err := s.state.To(SiteAttachFromRoute, route, models.RouteStatusPendingDeploy,
+			"client attached from route side, project approvals disabled"); err != nil {
+			return nil, err
 		}
-		if !project.ApprovalEnabled {
-			// Skip approval — set route to pending_deploy, attachment to approved.
-			// ORDER MATTERS. The route transition is attempted FIRST, and
-			// the attachment is only marked approved once it has succeeded.
-			//
-			// Until fix round 1 of Task 10+11 this ran the other way round,
-			// and a rejected transition left a PERSISTED approved attachment
-			// pointing at an untouched route -- a partial write the pre-2D
-			// code could not produce, because pre-2D the route write could
-			// not be rejected at all. Reordering is preferred to a rollback:
-			// a compensating attachmentRepo.Update can itself fail, leaving
-			// the same inconsistency with an extra failure mode. Bailing here
-			// leaves the attachment at pending_attach with no approval
-			// attached, which is exactly the state a failed approvals.Submit
-			// already leaves behind on the approvals-enabled path below.
-			//
-			// To owns route.Status and nothing else, and nothing else on the
-			// route has been mutated here, so its no-op path drops nothing.
-			if err := s.state.To(route, models.RouteStatusPendingDeploy,
-				"client attached from route side, project approvals disabled"); err != nil {
-				return nil, err
-			}
-			attachment.Status = models.AttachmentStatusApproved
-			if err := s.attachmentRepo.Update(attachment); err != nil {
-				return nil, err
-			}
-			return s.attachmentRepo.GetByID(attachment.ID)
+		attachment.Status = models.AttachmentStatusApproved
+		if err := s.attachmentRepo.Update(attachment); err != nil {
+			return nil, err
 		}
+		return s.attachmentRepo.GetByID(attachment.ID)
 	}
 
 	// Submit the approval. The engine plans the stages from the project's
@@ -417,39 +446,37 @@ func (s *ClientAttachmentService) AttachFromClient(
 	}
 
 	// Check if approvals are disabled for this project
-	if s.projectRepo != nil {
-		project, err := s.projectRepo.GetByID(domain.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	project, err := s.projectRepo.GetByID(domain.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	}
+	if !project.ApprovalEnabled {
+		// Skip approval — set route to pending_deploy, attachment to approved.
+		// ORDER MATTERS. The route transition is attempted FIRST, and
+		// the attachment is only marked approved once it has succeeded.
+		//
+		// Until fix round 1 of Task 10+11 this ran the other way round,
+		// and a rejected transition left a PERSISTED approved attachment
+		// pointing at an untouched route -- a partial write the pre-2D
+		// code could not produce, because pre-2D the route write could
+		// not be rejected at all. Reordering is preferred to a rollback:
+		// a compensating attachmentRepo.Update can itself fail, leaving
+		// the same inconsistency with an extra failure mode. Bailing here
+		// leaves the attachment at pending_attach with no approval
+		// attached, which is exactly the state a failed approvals.Submit
+		// already leaves behind on the approvals-enabled path below.
+		//
+		// To owns route.Status and nothing else, and nothing else on the
+		// route has been mutated here, so its no-op path drops nothing.
+		if err := s.state.To(SiteAttachFromClient, route, models.RouteStatusPendingDeploy,
+			"client attached from client side, project approvals disabled"); err != nil {
+			return nil, err
 		}
-		if !project.ApprovalEnabled {
-			// Skip approval — set route to pending_deploy, attachment to approved.
-			// ORDER MATTERS. The route transition is attempted FIRST, and
-			// the attachment is only marked approved once it has succeeded.
-			//
-			// Until fix round 1 of Task 10+11 this ran the other way round,
-			// and a rejected transition left a PERSISTED approved attachment
-			// pointing at an untouched route -- a partial write the pre-2D
-			// code could not produce, because pre-2D the route write could
-			// not be rejected at all. Reordering is preferred to a rollback:
-			// a compensating attachmentRepo.Update can itself fail, leaving
-			// the same inconsistency with an extra failure mode. Bailing here
-			// leaves the attachment at pending_attach with no approval
-			// attached, which is exactly the state a failed approvals.Submit
-			// already leaves behind on the approvals-enabled path below.
-			//
-			// To owns route.Status and nothing else, and nothing else on the
-			// route has been mutated here, so its no-op path drops nothing.
-			if err := s.state.To(route, models.RouteStatusPendingDeploy,
-				"client attached from client side, project approvals disabled"); err != nil {
-				return nil, err
-			}
-			attachment.Status = models.AttachmentStatusApproved
-			if err := s.attachmentRepo.Update(attachment); err != nil {
-				return nil, err
-			}
-			return s.attachmentRepo.GetByID(attachment.ID)
+		attachment.Status = models.AttachmentStatusApproved
+		if err := s.attachmentRepo.Update(attachment); err != nil {
+			return nil, err
 		}
+		return s.attachmentRepo.GetByID(attachment.ID)
 	}
 
 	// Submit the approval. The engine plans the stages from the project's
@@ -491,43 +518,41 @@ func (s *ClientAttachmentService) RequestDetach(attachmentID uuid.UUID, submitte
 	}
 
 	// Check if approvals are disabled for this project
-	if s.projectRepo != nil {
-		project, err := s.projectRepo.GetByID(domain.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	project, err := s.projectRepo.GetByID(domain.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	}
+	if !project.ApprovalEnabled {
+		// Skip approval — set route to pending_deploy, attachment to removed.
+		// ORDER MATTERS. The route transition is attempted FIRST, and
+		// the attachment is only marked removed once it has succeeded.
+		//
+		// Until fix round 1 of Task 10+11 this ran the other way round,
+		// and a rejected transition left a PERSISTED removed attachment
+		// pointing at an untouched route -- a partial write the pre-2D
+		// code could not produce, because pre-2D the route write could
+		// not be rejected at all. Reordering is preferred to a rollback:
+		// a compensating attachmentRepo.Update can itself fail, leaving
+		// the same inconsistency with an extra failure mode. Bailing here
+		// leaves the attachment at pending_attach with no approval
+		// attached, which is exactly the state a failed approvals.Submit
+		// already leaves behind on the approvals-enabled path below.
+		// Here the partial write was worse still: a persisted "removed"
+		// attachment against a route that was never queued for redeploy
+		// means the client keeps working in Kubernetes while the database
+		// says it is detached.
+		//
+		// To owns route.Status and nothing else, and nothing else on the
+		// route has been mutated here, so its no-op path drops nothing.
+		if err := s.state.To(SiteRequestDetach, route, models.RouteStatusPendingDeploy,
+			"client detach requested, project approvals disabled"); err != nil {
+			return nil, err
 		}
-		if !project.ApprovalEnabled {
-			// Skip approval — set route to pending_deploy, attachment to removed.
-			// ORDER MATTERS. The route transition is attempted FIRST, and
-			// the attachment is only marked removed once it has succeeded.
-			//
-			// Until fix round 1 of Task 10+11 this ran the other way round,
-			// and a rejected transition left a PERSISTED removed attachment
-			// pointing at an untouched route -- a partial write the pre-2D
-			// code could not produce, because pre-2D the route write could
-			// not be rejected at all. Reordering is preferred to a rollback:
-			// a compensating attachmentRepo.Update can itself fail, leaving
-			// the same inconsistency with an extra failure mode. Bailing here
-			// leaves the attachment at pending_attach with no approval
-			// attached, which is exactly the state a failed approvals.Submit
-			// already leaves behind on the approvals-enabled path below.
-			// Here the partial write was worse still: a persisted "removed"
-			// attachment against a route that was never queued for redeploy
-			// means the client keeps working in Kubernetes while the database
-			// says it is detached.
-			//
-			// To owns route.Status and nothing else, and nothing else on the
-			// route has been mutated here, so its no-op path drops nothing.
-			if err := s.state.To(route, models.RouteStatusPendingDeploy,
-				"client detach requested, project approvals disabled"); err != nil {
-				return nil, err
-			}
-			attachment.Status = models.AttachmentStatusRemoved
-			if err := s.attachmentRepo.Update(attachment); err != nil {
-				return nil, err
-			}
-			return s.attachmentRepo.GetByID(attachment.ID)
+		attachment.Status = models.AttachmentStatusRemoved
+		if err := s.attachmentRepo.Update(attachment); err != nil {
+			return nil, err
 		}
+		return s.attachmentRepo.GetByID(attachment.ID)
 	}
 
 	// Update attachment status
@@ -722,9 +747,6 @@ func (s *ClientAttachmentService) validateMTLSPairing(enableMTLS bool, client *m
 	}
 
 	// Domain must have mTLS enabled.
-	if s.domainSettingsRepo == nil {
-		return errors.New("domain settings not available; cannot validate mTLS")
-	}
 	settings, err := s.domainSettingsRepo.GetByDomainID(domainID)
 	if err != nil || settings == nil || settings.Config.MTLS == nil || !settings.Config.MTLS.Enabled {
 		return errors.New("domain mTLS must be enabled before attaching mTLS clients; enable mTLS in domain settings first")
@@ -750,5 +772,5 @@ func (s *ClientAttachmentService) updateRouteStatus(routeID uuid.UUID, status mo
 	if err != nil {
 		return err
 	}
-	return s.state.To(route, status, reason)
+	return s.state.To(SiteAttachmentApproved, route, status, reason)
 }

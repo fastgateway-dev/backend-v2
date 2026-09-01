@@ -18,16 +18,23 @@ type ProjectNamespaceService struct {
 	nsRepo      repository.ProjectNamespaceRepositoryInterface
 	projectRepo repository.ProjectRepositoryInterface
 	domainRepo  repository.DomainRepositoryInterface
-	k8sService  KubernetesServiceInterface
+
+	// k8sGrants owns this service's ReferenceGrant lifecycle and k8sNamespaces
+	// lists the cluster's namespaces. Before Phase 2E Task 7 both were one
+	// field naming all 58 cluster-client methods, of which this service calls
+	// five.
+	k8sGrants     ReferenceGrants
+	k8sNamespaces NamespaceLister
 }
 
 // NewProjectNamespaceService creates a new project namespace service
-func NewProjectNamespaceService(nsRepo repository.ProjectNamespaceRepositoryInterface, projectRepo repository.ProjectRepositoryInterface, domainRepo repository.DomainRepositoryInterface, k8sService KubernetesServiceInterface) *ProjectNamespaceService {
+func NewProjectNamespaceService(nsRepo repository.ProjectNamespaceRepositoryInterface, projectRepo repository.ProjectRepositoryInterface, domainRepo repository.DomainRepositoryInterface, k8sGrants ReferenceGrants, k8sNamespaces NamespaceLister) *ProjectNamespaceService {
 	return &ProjectNamespaceService{
-		nsRepo:      nsRepo,
-		projectRepo: projectRepo,
-		domainRepo:  domainRepo,
-		k8sService:  k8sService,
+		nsRepo:        nsRepo,
+		projectRepo:   projectRepo,
+		domainRepo:    domainRepo,
+		k8sGrants:     k8sGrants,
+		k8sNamespaces: k8sNamespaces,
 	}
 }
 
@@ -116,7 +123,7 @@ func (s *ProjectNamespaceService) Create(projectID uuid.UUID, input *CreateProje
 
 	// Validate that the namespace exists in the Kubernetes cluster
 	ctx := context.Background()
-	namespaces, err := s.k8sService.ListNamespaces(ctx, projectID)
+	namespaces, err := s.k8sNamespaces.ListNamespaces(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate namespace: %w", err)
 	}
@@ -155,7 +162,7 @@ func (s *ProjectNamespaceService) Create(projectID uuid.UUID, input *CreateProje
 			ToKinds:        toKinds,
 		}
 
-		if err := s.k8sService.CreateReferenceGrant(ctx, project.ID, rgConfig); err != nil {
+		if err := s.k8sGrants.CreateReferenceGrant(ctx, project.ID, rgConfig); err != nil {
 			log.Printf("Failed to create ReferenceGrant in Kubernetes: %v", err)
 			return ns, nil
 		}
@@ -190,7 +197,7 @@ func (s *ProjectNamespaceService) Update(id uuid.UUID, input *UpdateProjectNames
 	if len(toKinds) == 0 {
 		// No referenceable kinds; tear down any existing RG.
 		if ns.ReferenceGrantCreated {
-			_ = s.k8sService.DeleteReferenceGrant(ctx, ns.ProjectID, ns.Namespace, rgName)
+			_ = s.k8sGrants.DeleteReferenceGrant(ctx, ns.ProjectID, ns.Namespace, rgName)
 			ns.ReferenceGrantCreated = false
 		}
 	} else {
@@ -200,7 +207,7 @@ func (s *ProjectNamespaceService) Update(id uuid.UUID, input *UpdateProjectNames
 			ToNamespace:    ns.Namespace,
 			ToKinds:        toKinds,
 		}
-		if err := s.k8sService.RecreateReferenceGrant(ctx, ns.ProjectID, rgConfig); err != nil {
+		if err := s.k8sGrants.RecreateReferenceGrant(ctx, ns.ProjectID, rgConfig); err != nil {
 			log.Printf("Failed to recreate ReferenceGrant: %v", err)
 			ns.ReferenceGrantCreated = false
 		} else {
@@ -245,7 +252,7 @@ func (s *ProjectNamespaceService) Delete(id uuid.UUID) error {
 	if ns.ReferenceGrantCreated {
 		ctx := context.Background()
 		rgName := generateReferenceGrantName(ns.ProjectID, ns.Namespace)
-		if err := s.k8sService.DeleteReferenceGrant(ctx, ns.ProjectID, ns.Namespace, rgName); err != nil {
+		if err := s.k8sGrants.DeleteReferenceGrant(ctx, ns.ProjectID, ns.Namespace, rgName); err != nil {
 			log.Printf("Failed to delete ReferenceGrant from Kubernetes: %v", err)
 			// Continue with database deletion even if K8s deletion fails
 		}
@@ -277,7 +284,7 @@ func (s *ProjectNamespaceService) EnsureReferenceGrant(id uuid.UUID) error {
 
 	if len(toKinds) == 0 {
 		// Capabilities require no RG; clean up any stale one.
-		_ = s.k8sService.DeleteReferenceGrant(ctx, ns.ProjectID, ns.Namespace, rgName)
+		_ = s.k8sGrants.DeleteReferenceGrant(ctx, ns.ProjectID, ns.Namespace, rgName)
 		if ns.ReferenceGrantCreated {
 			ns.ReferenceGrantCreated = false
 			return s.nsRepo.Update(ns)
@@ -285,7 +292,7 @@ func (s *ProjectNamespaceService) EnsureReferenceGrant(id uuid.UUID) error {
 		return nil
 	}
 
-	exists, err := s.k8sService.ReferenceGrantExists(ctx, ns.ProjectID, ns.Namespace, rgName)
+	exists, err := s.k8sGrants.ReferenceGrantExists(ctx, ns.ProjectID, ns.Namespace, rgName)
 	if err != nil {
 		return fmt.Errorf("failed to check ReferenceGrant existence: %w", err)
 	}
@@ -305,7 +312,7 @@ func (s *ProjectNamespaceService) EnsureReferenceGrant(id uuid.UUID) error {
 		ToKinds:        toKinds,
 	}
 
-	if err := s.k8sService.CreateReferenceGrant(ctx, ns.ProjectID, rgConfig); err != nil {
+	if err := s.k8sGrants.CreateReferenceGrant(ctx, ns.ProjectID, rgConfig); err != nil {
 		return fmt.Errorf("failed to create ReferenceGrant: %w", err)
 	}
 

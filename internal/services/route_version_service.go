@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
@@ -19,43 +20,87 @@ type RouteVersionService struct {
 	backendTrafficPolicyRepo repository.BackendTrafficPolicyRepositoryInterface
 	envoyExtensionPolicyRepo repository.EnvoyExtensionPolicyRepositoryInterface
 	wafPolicyRepo            repository.WafPolicyRepositoryInterface
-	routeService             *RouteService
+	routeUpdater             RouteUpdater
 }
 
-// NewRouteVersionService creates a new RouteVersionService
-func NewRouteVersionService(
-	versionRepo repository.RouteVersionRepositoryInterface,
-	routeRepo repository.RouteRepositoryInterface,
-) *RouteVersionService {
-	return &RouteVersionService{
-		versionRepo: versionRepo,
-		routeRepo:   routeRepo,
+// RouteUpdater resubmits a route configuration through the normal update
+// (and therefore approval) flow. Update is the only method
+// RouteVersionService calls on RouteService, from Rollback.
+//
+// RouteVersionService declares it; *RouteService satisfies it structurally.
+// RouteService in turn needs RouteVersionRecorder, so the two form a genuine
+// cycle: main.go supplies this side as a RouteUpdaterFunc closure over the
+// routeService variable, which keeps the dependency required at construction
+// instead of arriving through a setter afterwards.
+type RouteUpdater interface {
+	Update(routeID uuid.UUID, input *UpdateRouteInput, submittedBy uuid.UUID) (*models.Route, error)
+}
+
+// RouteUpdaterFunc adapts a plain function to RouteUpdater.
+type RouteUpdaterFunc func(routeID uuid.UUID, input *UpdateRouteInput, submittedBy uuid.UUID) (*models.Route, error)
+
+// Update calls f.
+func (f RouteUpdaterFunc) Update(routeID uuid.UUID, input *UpdateRouteInput, submittedBy uuid.UUID) (*models.Route, error) {
+	return f(routeID, input, submittedBy)
+}
+
+// RouteVersionServiceDeps carries everything RouteVersionService needs.
+// Every field is required: before Phase 2E four of these arrived through
+// setters, and nil-guards existed to tolerate the ones that might not have
+// been called.
+type RouteVersionServiceDeps struct {
+	VersionRepo              repository.RouteVersionRepositoryInterface
+	RouteRepo                repository.RouteRepositoryInterface
+	SecurityPolicyRepo       repository.SecurityPolicyRepositoryInterface
+	BackendTrafficPolicyRepo repository.BackendTrafficPolicyRepositoryInterface
+	EnvoyExtensionPolicyRepo repository.EnvoyExtensionPolicyRepositoryInterface
+	WafPolicyRepo            repository.WafPolicyRepositoryInterface
+
+	// RouteUpdater resubmits a historical configuration through the normal
+	// update flow on Rollback. See RouteUpdater.
+	RouteUpdater RouteUpdater
+}
+
+// NewRouteVersionService builds a fully-wired RouteVersionService. It panics
+// if a required dependency is missing: before Phase 2E these arrived through
+// setters after construction, so a forgotten wiring line degraded silently
+// at runtime instead of failing at start-up. Master design section 6.6.
+func NewRouteVersionService(deps RouteVersionServiceDeps) *RouteVersionService {
+	var missing []string
+	if deps.VersionRepo == nil {
+		missing = append(missing, "VersionRepo")
 	}
-}
+	if deps.RouteRepo == nil {
+		missing = append(missing, "RouteRepo")
+	}
+	if deps.SecurityPolicyRepo == nil {
+		missing = append(missing, "SecurityPolicyRepo")
+	}
+	if deps.BackendTrafficPolicyRepo == nil {
+		missing = append(missing, "BackendTrafficPolicyRepo")
+	}
+	if deps.EnvoyExtensionPolicyRepo == nil {
+		missing = append(missing, "EnvoyExtensionPolicyRepo")
+	}
+	if deps.WafPolicyRepo == nil {
+		missing = append(missing, "WafPolicyRepo")
+	}
+	if deps.RouteUpdater == nil {
+		missing = append(missing, "RouteUpdater")
+	}
+	if len(missing) > 0 {
+		panic("services.NewRouteVersionService: missing required dependency: " + strings.Join(missing, ", "))
+	}
 
-// SetSecurityPolicyRepo sets the security policy repository
-func (s *RouteVersionService) SetSecurityPolicyRepo(repo repository.SecurityPolicyRepositoryInterface) {
-	s.securityPolicyRepo = repo
-}
-
-// SetBackendTrafficPolicyRepo sets the backend traffic policy repository
-func (s *RouteVersionService) SetBackendTrafficPolicyRepo(repo repository.BackendTrafficPolicyRepositoryInterface) {
-	s.backendTrafficPolicyRepo = repo
-}
-
-// SetEnvoyExtensionPolicyRepo sets the envoy extension policy repository
-func (s *RouteVersionService) SetEnvoyExtensionPolicyRepo(repo repository.EnvoyExtensionPolicyRepositoryInterface) {
-	s.envoyExtensionPolicyRepo = repo
-}
-
-// SetWafPolicyRepo sets the WAF policy repository
-func (s *RouteVersionService) SetWafPolicyRepo(repo repository.WafPolicyRepositoryInterface) {
-	s.wafPolicyRepo = repo
-}
-
-// SetRouteService sets the route service (for rollback)
-func (s *RouteVersionService) SetRouteService(svc *RouteService) {
-	s.routeService = svc
+	return &RouteVersionService{
+		versionRepo:              deps.VersionRepo,
+		routeRepo:                deps.RouteRepo,
+		securityPolicyRepo:       deps.SecurityPolicyRepo,
+		backendTrafficPolicyRepo: deps.BackendTrafficPolicyRepo,
+		envoyExtensionPolicyRepo: deps.EnvoyExtensionPolicyRepo,
+		wafPolicyRepo:            deps.WafPolicyRepo,
+		routeUpdater:             deps.RouteUpdater,
+	}
 }
 
 // CreateVersion snapshots the current route state as a new numbered version.
@@ -67,47 +112,39 @@ func (s *RouteVersionService) CreateVersion(route *models.Route, approval *model
 	}
 
 	// Read current security policy
-	if s.securityPolicyRepo != nil {
-		sp, err := s.securityPolicyRepo.GetByRouteID(route.ID)
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return fmt.Errorf("failed to read security policy: %w", err)
-		}
-		if sp != nil {
-			snapshot.SecurityPolicy = &sp.Config
-		}
+	sp, err := s.securityPolicyRepo.GetByRouteID(route.ID)
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return fmt.Errorf("failed to read security policy: %w", err)
+	}
+	if sp != nil {
+		snapshot.SecurityPolicy = &sp.Config
 	}
 
 	// Read current backend traffic policy
-	if s.backendTrafficPolicyRepo != nil {
-		btp, err := s.backendTrafficPolicyRepo.GetByRouteID(route.ID)
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return fmt.Errorf("failed to read backend traffic policy: %w", err)
-		}
-		if btp != nil {
-			snapshot.BackendTrafficPolicy = &btp.Config
-		}
+	btp, err := s.backendTrafficPolicyRepo.GetByRouteID(route.ID)
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return fmt.Errorf("failed to read backend traffic policy: %w", err)
+	}
+	if btp != nil {
+		snapshot.BackendTrafficPolicy = &btp.Config
 	}
 
 	// Read current envoy extension policy
-	if s.envoyExtensionPolicyRepo != nil {
-		eep, err := s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return fmt.Errorf("failed to read envoy extension policy: %w", err)
-		}
-		if eep != nil {
-			snapshot.EnvoyExtensionPolicy = &eep.Config
-		}
+	eep, err := s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return fmt.Errorf("failed to read envoy extension policy: %w", err)
+	}
+	if eep != nil {
+		snapshot.EnvoyExtensionPolicy = &eep.Config
 	}
 
 	// Read current WAF policy
-	if s.wafPolicyRepo != nil {
-		waf, err := s.wafPolicyRepo.GetByRouteID(route.ID)
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return fmt.Errorf("failed to read WAF policy: %w", err)
-		}
-		if waf != nil {
-			snapshot.WafPolicy = &waf.Config
-		}
+	waf, err := s.wafPolicyRepo.GetByRouteID(route.ID)
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return fmt.Errorf("failed to read WAF policy: %w", err)
+	}
+	if waf != nil {
+		snapshot.WafPolicy = &waf.Config
 	}
 
 	// Marshal snapshot to JSON
@@ -162,10 +199,6 @@ func (s *RouteVersionService) GetVersion(routeID uuid.UUID, version int) (*model
 
 // Rollback loads a historical version's config and submits it as a normal route update (through approval flow).
 func (s *RouteVersionService) Rollback(routeID uuid.UUID, targetVersion int, submittedBy uuid.UUID) (*models.Route, error) {
-	if s.routeService == nil {
-		return nil, fmt.Errorf("route service not configured")
-	}
-
 	// Load the target version
 	rv, err := s.versionRepo.GetByRouteIDAndVersion(routeID, targetVersion)
 	if err != nil {
@@ -210,7 +243,7 @@ func (s *RouteVersionService) Rollback(routeID uuid.UUID, targetVersion int, sub
 	}
 
 	// Submit through normal update flow (which creates an approval)
-	return s.routeService.Update(routeID, input, submittedBy)
+	return s.routeUpdater.Update(routeID, input, submittedBy)
 }
 
 // mapSecurityPolicyConfigToInput converts a stored models.SecurityPolicyConfig back to routeplan.SecurityPolicyInput

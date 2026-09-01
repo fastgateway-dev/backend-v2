@@ -19,7 +19,7 @@ func newTestProjectNamespaceService() (*services.ProjectNamespaceService, *mocks
 	mockNSRepo := new(mocks.MockProjectNamespaceRepository)
 	mockProjectRepo := new(mocks.MockProjectRepository)
 	// Pass nil for k8sService - tests that need it will be skipped or handle the nil
-	svc := services.NewProjectNamespaceService(mockNSRepo, mockProjectRepo, nil, nil)
+	svc := services.NewProjectNamespaceService(mockNSRepo, mockProjectRepo, nil, nil, nil)
 	return svc, mockNSRepo, mockProjectRepo
 }
 
@@ -259,7 +259,7 @@ func newTestProjectNamespaceServiceWithK8s() (*services.ProjectNamespaceService,
 	mockProjectRepo := new(mocks.MockProjectRepository)
 	mockDomainRepo := new(mocks.MockDomainRepository)
 	mockK8s := new(mocks.MockKubernetesService)
-	svc := services.NewProjectNamespaceService(mockNSRepo, mockProjectRepo, mockDomainRepo, mockK8s)
+	svc := services.NewProjectNamespaceService(mockNSRepo, mockProjectRepo, mockDomainRepo, mockK8s, mockK8s)
 	return svc, mockNSRepo, mockProjectRepo, mockDomainRepo, mockK8s
 }
 

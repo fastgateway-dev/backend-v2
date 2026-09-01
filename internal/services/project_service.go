@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/fastgateway-dev/backend-v2/internal/config"
 	"github.com/fastgateway-dev/backend-v2/internal/crypto"
@@ -21,30 +22,61 @@ type ProjectService struct {
 	approvalPolicyRepo repository.ApprovalPolicyRepositoryInterface
 	presetRepo         repository.PresetRepositoryInterface
 	config             *config.Config
-	k8sService         KubernetesServiceInterface
+	k8sPreflight       Preflight
 }
 
-// NewProjectService creates a new project service
-func NewProjectService(projectRepo repository.ProjectRepositoryInterface, cfg *config.Config) *ProjectService {
-	return &ProjectService{
-		projectRepo: projectRepo,
-		config:      cfg,
+// ProjectServiceDeps carries everything ProjectService needs. Every field is
+// required unless its comment says otherwise: before Phase 2E two of these
+// arrived through setters, with no nil-guard tolerating a forgotten one --
+// s.config is dereferenced directly in EncryptSecret/DecryptSecret.
+type ProjectServiceDeps struct {
+	ProjectRepo        repository.ProjectRepositoryInterface
+	ApprovalPolicyRepo repository.ApprovalPolicyRepositoryInterface
+	PresetRepo         repository.PresetRepositoryInterface
+	Config             *config.Config
+
+	// K8sPreflight validates a cluster's prerequisites when a project is
+	// created or its connection details change. ValidatePrerequisites is the
+	// only cluster-client method this service calls; before Phase 2E Task 7
+	// the field named all 58 and arrived through SetKubernetesService.
+	// Required since Task 9 deleted the `s.k8sPreflight != nil` half of the
+	// preflight condition -- whether preflight runs is a property of the
+	// connection type, not of whether someone remembered to wire the field.
+	K8sPreflight Preflight
+}
+
+// NewProjectService builds a fully-wired ProjectService. It panics if a
+// required dependency is missing: before Phase 2E these arrived through
+// setters after construction, so a forgotten wiring line degraded silently
+// at runtime instead of failing at start-up. Master design section 6.6.
+func NewProjectService(deps ProjectServiceDeps) *ProjectService {
+	var missing []string
+	if deps.ProjectRepo == nil {
+		missing = append(missing, "ProjectRepo")
 	}
-}
+	if deps.ApprovalPolicyRepo == nil {
+		missing = append(missing, "ApprovalPolicyRepo")
+	}
+	if deps.PresetRepo == nil {
+		missing = append(missing, "PresetRepo")
+	}
+	if deps.Config == nil {
+		missing = append(missing, "Config")
+	}
+	if deps.K8sPreflight == nil {
+		missing = append(missing, "K8sPreflight")
+	}
+	if len(missing) > 0 {
+		panic("services.NewProjectService: missing required dependency: " + strings.Join(missing, ", "))
+	}
 
-// SetKubernetesService sets the Kubernetes service (used to avoid circular dependency)
-func (s *ProjectService) SetKubernetesService(k8sService KubernetesServiceInterface) {
-	s.k8sService = k8sService
-}
-
-// SetApprovalPolicyRepository sets the approval policy repository (used to avoid circular dependency)
-func (s *ProjectService) SetApprovalPolicyRepository(repo repository.ApprovalPolicyRepositoryInterface) {
-	s.approvalPolicyRepo = repo
-}
-
-// SetPresetRepository sets the preset repository (used to avoid circular dependency)
-func (s *ProjectService) SetPresetRepository(repo repository.PresetRepositoryInterface) {
-	s.presetRepo = repo
+	return &ProjectService{
+		projectRepo:        deps.ProjectRepo,
+		approvalPolicyRepo: deps.ApprovalPolicyRepo,
+		presetRepo:         deps.PresetRepo,
+		config:             deps.Config,
+		k8sPreflight:       deps.K8sPreflight,
+	}
 }
 
 // ConnectionType constants
@@ -150,7 +182,7 @@ func (s *ProjectService) Create(input *CreateProjectInput, createdBy uuid.UUID) 
 	}
 
 	// Validate Kubernetes prerequisites (skip for in_cluster - will validate on first use)
-	if s.k8sService != nil && connectionType != ConnectionTypeInCluster {
+	if connectionType != ConnectionTypeInCluster {
 		ctx := context.Background()
 		token := ""
 		if project.K8sTokenEncrypted != "" {
@@ -160,7 +192,7 @@ func (s *ProjectService) Create(input *CreateProjectInput, createdBy uuid.UUID) 
 				return nil, fmt.Errorf("failed to decrypt token: %w", err)
 			}
 		}
-		prereqCheck, err := s.k8sService.ValidatePrerequisites(ctx, project.K8sAPIURL, token)
+		prereqCheck, err := s.k8sPreflight.ValidatePrerequisites(ctx, project.K8sAPIURL, token)
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate Kubernetes cluster: %w", err)
 		}
@@ -180,17 +212,13 @@ func (s *ProjectService) Create(input *CreateProjectInput, createdBy uuid.UUID) 
 	}
 
 	// Seed default approval policies
-	if s.approvalPolicyRepo != nil {
-		if err := s.approvalPolicyRepo.SeedDefaults(project.ID); err != nil {
-			log.Printf("Warning: failed to seed approval policies: %v", err)
-		}
+	if err := s.approvalPolicyRepo.SeedDefaults(project.ID); err != nil {
+		log.Printf("Warning: failed to seed approval policies: %v", err)
 	}
 
 	// Seed built-in permission presets
-	if s.presetRepo != nil {
-		if err := s.presetRepo.SeedBuiltinPresets(project.ID); err != nil {
-			log.Printf("Warning: failed to seed permission presets: %v", err)
-		}
+	if err := s.presetRepo.SeedBuiltinPresets(project.ID); err != nil {
+		log.Printf("Warning: failed to seed permission presets: %v", err)
 	}
 
 	return project, nil

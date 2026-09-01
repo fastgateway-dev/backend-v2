@@ -6,11 +6,9 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
 	"github.com/fastgateway-dev/backend-v2/internal/cluster"
-	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/google/uuid"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // AIServiceInterface defines the public methods of AIService
@@ -26,9 +24,6 @@ type AIServiceInterface interface {
 
 // ApprovalServiceInterface defines the public methods of ApprovalService
 type ApprovalServiceInterface interface {
-	SetSecurityPolicyRepository(repo repository.SecurityPolicyRepositoryInterface)
-	SetBackendTrafficPolicyRepository(repo repository.BackendTrafficPolicyRepositoryInterface)
-	SetClientAttachmentService(cas *ClientAttachmentService)
 	GetByID(id uuid.UUID) (*models.Approval, error)
 	ListByProjectID(projectID uuid.UUID, page, limit int, status string, entityType string) ([]models.Approval, int64, error)
 	CountPendingByProjectID(projectID uuid.UUID) (int64, error)
@@ -51,8 +46,6 @@ type AuditServiceInterface interface {
 
 // AuthServiceInterface defines the public methods of AuthService
 type AuthServiceInterface interface {
-	SetSSOService(sso *SSOService)
-	SetSystemSettingsService(ss *SystemSettingsService)
 	Login(username, password string) (*LoginResponse, error)
 	RefreshToken(refreshToken string) (*LoginResponse, error)
 	ValidateToken(tokenString string) (*models.User, error)
@@ -67,7 +60,6 @@ type AuthServiceInterface interface {
 
 // ClientAttachmentServiceInterface defines the public methods of ClientAttachmentService
 type ClientAttachmentServiceInterface interface {
-	SetDomainSettingsRepository(repo repository.DomainSettingsRepositoryInterface)
 	AttachFromRoute(routeID uuid.UUID, input *AttachFromRouteInput, submittedBy uuid.UUID) (*models.ClientRouteAttachment, error)
 	AttachFromClient(clientID uuid.UUID, input *AttachFromClientInput, submittedBy uuid.UUID) (*models.ClientRouteAttachment, error)
 	RequestDetach(attachmentID uuid.UUID, submittedBy uuid.UUID) (*models.ClientRouteAttachment, error)
@@ -86,11 +78,18 @@ type ClientAttachmentServiceInterface interface {
 	OnCancelled(approval *models.Approval) error
 }
 
+// ClientReader is the slice of ClientService that ClientAttachmentHandler
+// uses: it resolves a client by ID so the handler can authorize the caller
+// against that client's team before listing or attaching its routes. Named
+// for the capability and satisfied structurally, following Task 8's
+// RouteApprovalReader -- which sits in the same handler struct. The handler
+// declared the 18-method ClientServiceInterface in full to call one method.
+type ClientReader interface {
+	GetByID(id uuid.UUID) (*models.Client, error)
+}
+
 // ClientServiceInterface defines the public methods of ClientService
 type ClientServiceInterface interface {
-	SetClientAttachmentRepository(repo repository.ClientAttachmentRepositoryInterface)
-	SetRouteRepository(repo repository.RouteRepositoryInterface)
-	SetKubernetesService(k8sService KubernetesServiceInterface)
 	Create(input *CreateClientInput, createdBy uuid.UUID) (*models.Client, error)
 	GetByID(id uuid.UUID) (*models.Client, error)
 	Update(id uuid.UUID, input *UpdateClientInput) (*models.Client, error)
@@ -118,15 +117,17 @@ type CommentServiceInterface interface {
 	CountByApprovalID(approvalID uuid.UUID) (int64, error)
 }
 
+// DomainReader is the slice of DomainService that AIHandler uses: it resolves
+// a domain by ID to build the ai.DomainContext (id, name, hostname) that every
+// generation request carries. Named for the capability and satisfied
+// structurally, following Task 8's RouteApprovalReader. The handler declared
+// the 14-method DomainServiceInterface in full to call one method.
+type DomainReader interface {
+	GetByID(id uuid.UUID) (*models.Domain, error)
+}
+
 // DomainServiceInterface defines the public methods of DomainService
 type DomainServiceInterface interface {
-	SetDomainSettingsRepository(repo repository.DomainSettingsRepositoryInterface)
-	SetClientAttachmentRepository(repo repository.ClientAttachmentRepositoryInterface)
-	SetBackendTrafficPolicyRepository(repo repository.BackendTrafficPolicyRepositoryInterface)
-	SetEnvoyExtensionPolicyRepository(repo repository.EnvoyExtensionPolicyRepositoryInterface)
-	SetDomainTemplateService(dts *DomainTemplateService)
-	SetAIService(as *AIService)
-	SetProjectNamespaceRepository(repo repository.ProjectNamespaceRepositoryInterface)
 	Create(projectID uuid.UUID, input *CreateDomainInput, createdBy uuid.UUID) (*models.Domain, error)
 	GetByID(id uuid.UUID) (*models.Domain, error)
 	ListByProjectID(projectID uuid.UUID, page, limit int, search string, status string, labels map[string]string) ([]models.Domain, int64, error)
@@ -154,68 +155,6 @@ type DomainTemplateServiceInterface interface {
 	GetManifests(id uuid.UUID) (*DomainTemplateManifests, error)
 	PreviewChanges(id uuid.UUID, input *UpdateDomainTemplateInput, userID uuid.UUID, opts *PreviewChangesOptions) (*DomainTemplatePreviewResult, error)
 	PreviewCreate(projectID uuid.UUID, input *CreateDomainTemplateInput, userID uuid.UUID, opts *PreviewChangesOptions) (*DomainTemplateCreatePreviewResult, error)
-}
-
-// KubernetesServiceInterface defines the public methods of *cluster.Client
-type KubernetesServiceInterface interface {
-	EnsureNamespace(ctx context.Context, projectID uuid.UUID, namespace string) error
-	CreateGateway(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayConfig) error
-	DeleteGateway(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateHTTPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.HTTPRouteConfig) error
-	UpdateHTTPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.HTTPRouteConfig) error
-	DeleteHTTPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateGRPCRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.GRPCRouteConfig) error
-	UpdateGRPCRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.GRPCRouteConfig) error
-	DeleteGRPCRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateSecurityPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.SecurityPolicyConfig) error
-	UpdateSecurityPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.SecurityPolicyConfig) error
-	DeleteSecurityPolicy(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendTrafficPolicyConfig) error
-	UpdateBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendTrafficPolicyConfig) error
-	DeleteBackendTrafficPolicy(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateEnvoyExtensionPolicy(ctx context.Context, projectID uuid.UUID, policy *unstructured.Unstructured) error
-	UpdateEnvoyExtensionPolicy(ctx context.Context, projectID uuid.UUID, policy *unstructured.Unstructured) error
-	DeleteEnvoyExtensionPolicy(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateBackend(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendConfig) error
-	UpdateBackend(ctx context.Context, projectID uuid.UUID, config *kubernetes.BackendConfig) error
-	DeleteBackend(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	UpdateBackendUnstructured(ctx context.Context, projectID uuid.UUID, backend *unstructured.Unstructured) error
-	DeleteBackendsByRoute(ctx context.Context, projectID uuid.UUID, namespace, routeID string) error
-	DeleteStaleBackendsByRoute(ctx context.Context, projectID uuid.UUID, namespace, routeID string, expectedNames map[string]bool) error
-	TestConnection(ctx context.Context, projectID uuid.UUID) (bool, string, error)
-	ListNamespaces(ctx context.Context, projectID uuid.UUID) ([]string, error)
-	ListServices(ctx context.Context, projectID uuid.UUID, namespace string) ([]map[string]interface{}, error)
-	ListTLSSecrets(ctx context.Context, projectID uuid.UUID, namespace string) ([]cluster.TLSSecretInfo, error)
-	ListGatewayClasses(ctx context.Context, projectID uuid.UUID) ([]string, error)
-	ValidatePrerequisites(ctx context.Context, apiURL, token string) (*cluster.PrerequisiteCheck, error)
-	CreateGatewayClass(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayClassConfig) error
-	DeleteGatewayClass(ctx context.Context, projectID uuid.UUID, name string) error
-	CreateEnvoyProxy(ctx context.Context, projectID uuid.UUID, config *kubernetes.EnvoyProxyConfig) error
-	UpdateEnvoyProxy(ctx context.Context, projectID uuid.UUID, config *kubernetes.EnvoyProxyConfig) error
-	DeleteEnvoyProxy(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	ValidateEnvoyGatewayInstalled(ctx context.Context, projectID uuid.UUID) (bool, string, error)
-	CreateReferenceGrant(ctx context.Context, projectID uuid.UUID, config *cluster.ReferenceGrantConfig) error
-	DeleteReferenceGrant(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	GetReferenceGrant(ctx context.Context, projectID uuid.UUID, namespace, name string) (*unstructured.Unstructured, error)
-	ReferenceGrantExists(ctx context.Context, projectID uuid.UUID, namespace, name string) (bool, error)
-	RecreateReferenceGrant(ctx context.Context, projectID uuid.UUID, config *cluster.ReferenceGrantConfig) error
-	ApplyHTTPRouteFilter(ctx context.Context, projectID uuid.UUID, config *kubernetes.HTTPRouteFilterConfig) error
-	DeleteHTTPRouteFilter(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	ApplyDirectResponseConfigMap(ctx context.Context, projectID uuid.UUID, config *kubernetes.DirectResponseConfigMapConfig) error
-	DeleteDirectResponseConfigMap(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.ClientTrafficPolicyConfig) error
-	UpdateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.ClientTrafficPolicyConfig) error
-	DeleteClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	GetAPIKeySecretName(clientID uuid.UUID) string
-	CreateAPIKeySecret(ctx context.Context, projectID uuid.UUID, clientID uuid.UUID, apiKey string) error
-	GetAPIKeyFromSecret(ctx context.Context, projectID uuid.UUID, clientID uuid.UUID) (string, error)
-	DeleteAPIKeySecret(ctx context.Context, projectID uuid.UUID, clientID uuid.UUID) error
-	CreateOrUpdateSecret(ctx context.Context, projectID uuid.UUID, namespace, name string, data map[string][]byte) error
-	DeleteSecret(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	GetSecretData(ctx context.Context, projectID uuid.UUID, namespace, name, key string) ([]byte, error)
-	IsRateLimitAvailable(ctx context.Context, projectID uuid.UUID) (bool, error)
-	DeleteStaleAPIKeyResources(ctx context.Context, projectID uuid.UUID, namespace, routeID, baseRouteName string, expectedClientPrefixes map[string]bool) error
-	DetectVersions(ctx context.Context, projectID uuid.UUID) (*cluster.RawVersions, error)
 }
 
 // MetricsServiceInterface defines the public methods of MetricsService.
@@ -258,9 +197,6 @@ type ProjectNamespaceServiceInterface interface {
 
 // ProjectServiceInterface defines the public methods of ProjectService
 type ProjectServiceInterface interface {
-	SetKubernetesService(k8sService KubernetesServiceInterface)
-	SetApprovalPolicyRepository(repo repository.ApprovalPolicyRepositoryInterface)
-	SetPresetRepository(repo repository.PresetRepositoryInterface)
 	Create(input *CreateProjectInput, createdBy uuid.UUID) (*models.Project, error)
 	GetByID(id uuid.UUID) (*models.Project, error)
 	List(userID uuid.UUID, userRole models.UserRole, page, limit int, search string, labels map[string]string) ([]models.Project, int64, error)
@@ -275,21 +211,22 @@ type ProjectServiceInterface interface {
 	IsAdmin(projectID, userID uuid.UUID) (bool, error)
 }
 
-// RouteServiceInterface defines the public methods of RouteService
-type RouteServiceInterface interface {
-	SetKubernetesService(k8sService KubernetesServiceInterface)
-	SetApprovalPolicyRepository(repo repository.ApprovalPolicyRepositoryInterface)
-	SetProjectNamespaceRepository(repo repository.ProjectNamespaceRepositoryInterface)
-	SetSecurityPolicyRepository(repo repository.SecurityPolicyRepositoryInterface)
-	SetBackendTrafficPolicyRepository(repo repository.BackendTrafficPolicyRepositoryInterface)
-	SetEnvoyExtensionPolicyRepository(repo repository.EnvoyExtensionPolicyRepositoryInterface)
-	SetWafPolicyRepository(repo repository.WafPolicyRepositoryInterface)
-	SetClientAttachmentRepository(repo repository.ClientAttachmentRepositoryInterface)
-	SetClientIPRepository(repo repository.ClientIPRepositoryInterface)
-	SetClientRepository(repo repository.ClientRepositoryInterface)
-	SetDomainService(ds *DomainService)
-	SetRouteVersionService(rvs *RouteVersionService)
-	Create(domainID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID) (*models.Route, error)
+// RouteApprovalReader is the slice of RouteService that
+// ClientAttachmentHandler uses: it enriches an attachment response with the
+// route's domain name and the approval currently open against it. Phase 2E
+// Task 8 split it out of the 32-method RouteServiceInterface, which that
+// handler declared in full to call two methods.
+type RouteApprovalReader interface {
+	GetDomainName(domainID uuid.UUID) (string, error)
+	GetApprovalIDForEntity(entityType models.ApprovalEntityType, entityID uuid.UUID) (*uuid.UUID, error)
+}
+
+// RouteReader is the read side of RouteService: fetching a route, its four
+// attached policies, the lists, the effective IP allowlist, and the matcher
+// conflict check that runs before a write.
+type RouteReader interface {
+	RouteApprovalReader
+
 	GetByID(id uuid.UUID) (*models.Route, error)
 	GetSecurityPolicy(routeID uuid.UUID) (*models.SecurityPolicy, error)
 	GetBackendTrafficPolicy(routeID uuid.UUID) (*models.BackendTrafficPolicy, error)
@@ -297,27 +234,43 @@ type RouteServiceInterface interface {
 	GetWafPolicy(routeID uuid.UUID) (*models.WafPolicy, error)
 	ListByDomainID(domainID uuid.UUID, page, limit int, teamID *uuid.UUID, status string, search string, searchField string, labels map[string]string) ([]models.Route, int64, error)
 	ListByProjectID(projectID uuid.UUID, page, limit int, filters repository.RouteListFilters) ([]models.Route, int64, error)
+	GetEffectiveIPAllowlist(routeID uuid.UUID) ([]EffectiveIPEntry, error)
+	CheckMatcherConflicts(domainID uuid.UUID, match models.RouteMatch, excludeRouteID *uuid.UUID) ([]ConflictResult, error)
+}
+
+// RouteWriter is the write side of RouteService. Each of these four opens or
+// advances an approval; none of them touches Kubernetes directly except
+// Deploy.
+type RouteWriter interface {
+	Create(domainID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID) (*models.Route, error)
 	Update(id uuid.UUID, input *UpdateRouteInput, submittedBy uuid.UUID) (*models.Route, error)
 	Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Route, error)
 	Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route, error)
-	GetEffectiveIPAllowlist(routeID uuid.UUID) ([]EffectiveIPEntry, error)
+}
+
+// RoutePreviewer renders what a route would become without writing anything:
+// the manifests for an existing route, and the diff for a proposed create,
+// update or delete.
+type RoutePreviewer interface {
 	GenerateYAML(id uuid.UUID) (string, error)
 	GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error)
 	PreviewCreate(domainID uuid.UUID, input *CreateRouteInput) (*PreviewCreateResult, error)
 	PreviewUpdate(routeID uuid.UUID, input *UpdateRouteInput) (*PreviewUpdateResult, error)
 	PreviewDelete(routeID uuid.UUID) (*PreviewDeleteResult, error)
-	GetDomainName(domainID uuid.UUID) (string, error)
-	GetApprovalIDForEntity(entityType models.ApprovalEntityType, entityID uuid.UUID) (*uuid.UUID, error)
-	CheckMatcherConflicts(domainID uuid.UUID, match models.RouteMatch, excludeRouteID *uuid.UUID) ([]ConflictResult, error)
+}
+
+// RouteHandlerService is RouteHandler's dependency: the three roles above and
+// nothing else. It is consumer-sized rather than type-sized -- the handler
+// calls exactly these twenty methods, which is why RouteServiceInterface's
+// SetKubernetesService is gone from it rather than merely unused.
+type RouteHandlerService interface {
+	RouteReader
+	RouteWriter
+	RoutePreviewer
 }
 
 // RouteVersionServiceInterface defines the public methods of RouteVersionService
 type RouteVersionServiceInterface interface {
-	SetSecurityPolicyRepo(repo repository.SecurityPolicyRepositoryInterface)
-	SetBackendTrafficPolicyRepo(repo repository.BackendTrafficPolicyRepositoryInterface)
-	SetEnvoyExtensionPolicyRepo(repo repository.EnvoyExtensionPolicyRepositoryInterface)
-	SetWafPolicyRepo(repo repository.WafPolicyRepositoryInterface)
-	SetRouteService(svc *RouteService)
 	CreateVersion(route *models.Route, approval *models.Approval, deployedBy uuid.UUID) error
 	ListVersions(routeID uuid.UUID, page, limit int) ([]models.RouteVersion, int64, error)
 	GetVersion(routeID uuid.UUID, version int) (*models.RouteVersion, error)
@@ -326,8 +279,6 @@ type RouteVersionServiceInterface interface {
 
 // SSOServiceInterface defines the public methods of SSOService
 type SSOServiceInterface interface {
-	SetTokenGenerator(fn func(*models.User) (string, string, error))
-	SetSystemSettingsService(svc *SystemSettingsService)
 	GetPublicConfig() (*SSOPublicConfig, error)
 	GetConfig() (*models.SSOConfig, error)
 	UpdateConfig(input SSOConfigInput) (*models.SSOConfig, error)
@@ -401,17 +352,19 @@ var _ AuditServiceInterface = (*AuditService)(nil)
 var _ AuthServiceInterface = (*AuthService)(nil)
 var _ ClientAttachmentServiceInterface = (*ClientAttachmentService)(nil)
 var _ ClientServiceInterface = (*ClientService)(nil)
+var _ ClientReader = (*ClientService)(nil)
 var _ CommentServiceInterface = (*CommentService)(nil)
 var _ DomainServiceInterface = (*DomainService)(nil)
+var _ DomainReader = (*DomainService)(nil)
 var _ DomainTemplateServiceInterface = (*DomainTemplateService)(nil)
-var _ KubernetesServiceInterface = (*cluster.Client)(nil)
 var _ cluster.ProjectCredentials = (*ProjectService)(nil)
 var _ MetricsServiceInterface = (*MetricsService)(nil)
 var _ NotificationServiceInterface = (*NotificationService)(nil)
 var _ PresetServiceInterface = (*PresetService)(nil)
 var _ ProjectNamespaceServiceInterface = (*ProjectNamespaceService)(nil)
 var _ ProjectServiceInterface = (*ProjectService)(nil)
-var _ RouteServiceInterface = (*RouteService)(nil)
+var _ RouteHandlerService = (*RouteService)(nil)
+var _ RouteApprovalReader = (*RouteService)(nil)
 var _ RouteVersionServiceInterface = (*RouteVersionService)(nil)
 var _ SSOServiceInterface = (*SSOService)(nil)
 var _ SystemSettingsServiceInterface = (*SystemSettingsService)(nil)

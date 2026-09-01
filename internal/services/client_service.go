@@ -30,50 +30,89 @@ type ClientService struct {
 	teamRepo             repository.TeamRepositoryInterface
 	clientAttachmentRepo repository.ClientAttachmentRepositoryInterface
 	routeRepo            repository.RouteRepositoryInterface
-	k8sService           KubernetesServiceInterface
+
+	// k8sSecrets deletes a client's mTLS CA Secret and k8sAPIKeys deletes its
+	// API key Secret. Before Phase 2E Task 7 both were one field naming all
+	// 58 cluster-client methods, of which this service calls two.
+	k8sSecrets SecretWriter
+	k8sAPIKeys APIKeySecretDeleter
 
 	// state is the sole writer of route.Status. See route_state.go.
-	// routeRepo arrives through SetRouteRepository rather than the
-	// constructor, so state is built there.
+	// routeRepo is a constructor parameter, so state is built alongside it
+	// in NewClientService.
 	state *routeStateMachine
 }
 
-// NewClientService creates a new ClientService
-func NewClientService(
-	clientRepo repository.ClientRepositoryInterface,
-	clientIPRepo repository.ClientIPRepositoryInterface,
-	teamRepo repository.TeamRepositoryInterface,
-) *ClientService {
-	return &ClientService{
-		clientRepo:   clientRepo,
-		clientIPRepo: clientIPRepo,
-		teamRepo:     teamRepo,
+// ClientServiceDeps carries everything ClientService needs. Every field is
+// required: before Phase 2E three of these arrived through setters, and a
+// nil-guard existed to tolerate the ones that might not have been called
+// (controller ruling R13, now resolved -- see cascadeToAttachedRoutes).
+type ClientServiceDeps struct {
+	ClientRepo           repository.ClientRepositoryInterface
+	ClientIPRepo         repository.ClientIPRepositoryInterface
+	ClientHeaderRepo     repository.ClientHeaderRepositoryInterface
+	TeamRepo             repository.TeamRepositoryInterface
+	ClientAttachmentRepo repository.ClientAttachmentRepositoryInterface
+	RouteRepo            repository.RouteRepositoryInterface
+
+	// K8sSecrets deletes a client's mTLS CA Secret; K8sAPIKeys deletes its
+	// API key Secret. They replace SetKubernetesService, which handed over
+	// all 58 cluster-client methods for these two calls. Required since
+	// Task 9 deleted the two conditions that guarded them: whether a
+	// client's Kubernetes material is cleaned up must depend on the client,
+	// not on whether someone remembered to wire the field.
+	K8sSecrets SecretWriter
+	K8sAPIKeys APIKeySecretDeleter
+}
+
+// NewClientService builds a fully-wired ClientService. It panics if a
+// required dependency is missing: before Phase 2E these arrived through
+// setters after construction, so a forgotten wiring line degraded silently
+// at runtime instead of failing at start-up. Master design section 6.6.
+func NewClientService(deps ClientServiceDeps) *ClientService {
+	var missing []string
+	if deps.ClientRepo == nil {
+		missing = append(missing, "ClientRepo")
 	}
-}
+	if deps.ClientIPRepo == nil {
+		missing = append(missing, "ClientIPRepo")
+	}
+	if deps.ClientHeaderRepo == nil {
+		missing = append(missing, "ClientHeaderRepo")
+	}
+	if deps.TeamRepo == nil {
+		missing = append(missing, "TeamRepo")
+	}
+	if deps.ClientAttachmentRepo == nil {
+		missing = append(missing, "ClientAttachmentRepo")
+	}
+	if deps.RouteRepo == nil {
+		missing = append(missing, "RouteRepo")
+	}
+	if deps.K8sSecrets == nil {
+		missing = append(missing, "K8sSecrets")
+	}
+	if deps.K8sAPIKeys == nil {
+		missing = append(missing, "K8sAPIKeys")
+	}
+	if len(missing) > 0 {
+		panic("services.NewClientService: missing required dependency: " + strings.Join(missing, ", "))
+	}
 
-// SetClientAttachmentRepository sets the client attachment repository (for IP cascade)
-func (s *ClientService) SetClientAttachmentRepository(repo repository.ClientAttachmentRepositoryInterface) {
-	s.clientAttachmentRepo = repo
-}
-
-// SetRouteRepository sets the route repository (for IP cascade).
-//
-// The state machine is built here, not in NewClientService: routeRepo is not
-// a constructor parameter, so this setter is the first point at which it is
-// available.
-func (s *ClientService) SetRouteRepository(repo repository.RouteRepositoryInterface) {
-	s.routeRepo = repo
-	s.state = &routeStateMachine{repo: repo}
-}
-
-// SetKubernetesService sets the Kubernetes service (for API key secrets)
-func (s *ClientService) SetKubernetesService(k8sService KubernetesServiceInterface) {
-	s.k8sService = k8sService
-}
-
-// SetClientHeaderRepository sets the client header repository
-func (s *ClientService) SetClientHeaderRepository(repo repository.ClientHeaderRepositoryInterface) {
-	s.clientHeaderRepo = repo
+	svc := &ClientService{
+		clientRepo:           deps.ClientRepo,
+		clientIPRepo:         deps.ClientIPRepo,
+		clientHeaderRepo:     deps.ClientHeaderRepo,
+		teamRepo:             deps.TeamRepo,
+		clientAttachmentRepo: deps.ClientAttachmentRepo,
+		routeRepo:            deps.RouteRepo,
+		k8sSecrets:           deps.K8sSecrets,
+		k8sAPIKeys:           deps.K8sAPIKeys,
+	}
+	// routeRepo is already a constructor parameter, so the state machine
+	// needs no setter of its own.
+	svc.state = &routeStateMachine{repo: deps.RouteRepo}
+	return svc
 }
 
 // CreateClientInput represents the input for creating a client
@@ -202,7 +241,7 @@ func (s *ClientService) Delete(ctx context.Context, id uuid.UUID) error {
 
 	// Clean up K8s secrets (API key + mTLS CA)
 	// Derive project IDs from the client's team (not attachments, which may already be gone)
-	if s.k8sService != nil && s.teamRepo != nil && (client.APIKeyEnabled || client.MTLSEnabled) {
+	if client.APIKeyEnabled || client.MTLSEnabled {
 		projectIDs := make(map[uuid.UUID]bool)
 		teamProjects, err := s.teamRepo.ListTeamProjects(client.TeamID)
 		if err != nil {
@@ -215,12 +254,12 @@ func (s *ClientService) Delete(ctx context.Context, id uuid.UUID) error {
 		}
 		for pid := range projectIDs {
 			if client.APIKeyEnabled {
-				if err := s.k8sService.DeleteAPIKeySecret(ctx, pid, id); err != nil {
+				if err := s.k8sAPIKeys.DeleteAPIKeySecret(ctx, pid, id); err != nil {
 					log.Printf("Warning: failed to delete API key secret for client %s in project %s: %v", id, pid, err)
 				}
 			}
 			if client.MTLSEnabled && client.MTLSCASecret != "" {
-				if err := s.k8sService.DeleteSecret(ctx, pid, kubernetes.FastGatewayNamespace, client.MTLSCASecret); err != nil {
+				if err := s.k8sSecrets.DeleteSecret(ctx, pid, kubernetes.FastGatewayNamespace, client.MTLSCASecret); err != nil {
 					log.Printf("Warning: failed to delete mTLS CA secret for client %s in project %s: %v", id, pid, err)
 				}
 			}
@@ -296,12 +335,10 @@ func (s *ClientService) RemoveIP(clientID uuid.UUID, ipID uuid.UUID) error {
 
 // The five attachment queries the cascades used, one adapter each.
 //
-// They exist because cascadeToAttachedRoutes takes the query as a parameter
-// and clientAttachmentRepo is an OPTIONAL dependency: taking a method value
-// straight off a nil interface (s.clientAttachmentRepo.ListActiveBy...)
-// panics where it is written, before the callee's nil check can run. A
-// method value on the non-nil *ClientService is safe, and the body is not
-// evaluated until the cascade has checked its wiring.
+// They exist because cascadeToAttachedRoutes takes the query as a parameter,
+// so each cascade caller can bind its own repository method without
+// cascadeToAttachedRoutes needing to know which credential kind it is
+// serving.
 func (s *ClientService) attachmentsWithIPAllowlist(clientID uuid.UUID) ([]models.ClientRouteAttachment, error) {
 	return s.clientAttachmentRepo.ListActiveByClientIDWithIPAllowlist(clientID)
 }
@@ -346,36 +383,19 @@ func (s *ClientService) allAttachments(clientID uuid.UUID) ([]models.ClientRoute
 //     unfiltered ListByClientID plus a Go-side status check. The check now
 //     runs here for every query -- redundant for the filtered ones, and free.
 //
-// Missing wiring is NOT an error. clientAttachmentRepo and routeRepo arrive
-// through optional setters, and every caller's primary side effect (the IP
-// row, the new API key, the revoked JWT config) has already been persisted by
-// the time the cascade runs. Pre-2D an unwired service made the cascade a
-// silent no-op; turning that into a returned error would fail every client
-// mutation in a deployment that never wired the cascade at all. It is logged
-// instead.
+// clientAttachmentRepo and routeRepo are required constructor dependencies
+// (Phase 2E Task 3), so this always runs. Before Phase 2E, controller ruling
+// R13 documented a deliberate, time-boxed deviation from master design
+// section 6.6 here: cascadeToAttachedRoutes logged and returned nil when
+// either repository -- or the state machine derived from routeRepo -- was
+// nil, because the test tree could construct ClientService without them.
+// Now that NewClientService panics on a missing RouteRepo or
+// ClientAttachmentRepo, that path is unreachable and the guard is gone.
 func (s *ClientService) cascadeToAttachedRoutes(
 	clientID uuid.UUID,
 	list func(uuid.UUID) ([]models.ClientRouteAttachment, error),
 	reason string,
 ) error {
-	// DELIBERATE, TIME-BOXED DEVIATION from master design section 6.6
-	// (constructor wiring), recorded under controller ruling R13 -- not
-	// considered design, and not to be read as one.
-	//
-	// cmd/server/main.go wires both repositories unconditionally, so in
-	// production this branch is unreachable; the nil path exists only because
-	// the test tree constructs ClientService without them. The consistent fix
-	// is to make clientAttachmentRepo and routeRepo constructor parameters
-	// and update the call sites, which IS section 6.6 and belongs to Phase
-	// 2E. Until then this logs and returns nil rather than erroring, because
-	// returning an error here -- with 8 of the 9 call sites now propagating
-	// it -- would fail client mutations for every caller that has not wired
-	// the cascade.
-	if s.clientAttachmentRepo == nil || s.routeRepo == nil || s.state == nil {
-		log.Printf("WARNING: cannot cascade %q for client %s: route repository not wired", reason, clientID)
-		return nil
-	}
-
 	attachments, err := list(clientID)
 	if err != nil {
 		return fmt.Errorf("cascade %q for client %s: list attachments: %w", reason, clientID, err)
@@ -396,7 +416,7 @@ func (s *ClientService) cascadeToAttachedRoutes(
 		if route.Status != models.RouteStatusActive {
 			continue
 		}
-		if err := s.state.To(route, models.RouteStatusPendingDeploy, reason); err != nil {
+		if err := s.state.To(SiteClientCascade, route, models.RouteStatusPendingDeploy, reason); err != nil {
 			failures = append(failures, fmt.Errorf("route %s: %w", route.ID, err))
 		}
 	}
@@ -907,12 +927,12 @@ func (s *ClientService) UpdateClientMTLS(ctx context.Context, clientID uuid.UUID
 		// since it requires checking the attachment status
 
 		// Delete K8s Secret for client CA (created at deploy time)
-		if client.MTLSCASecret != "" && s.k8sService != nil && s.teamRepo != nil {
+		if client.MTLSCASecret != "" {
 			teamProjects, tpErr := s.teamRepo.ListTeamProjects(client.TeamID)
 			if tpErr == nil {
 				for _, tp := range teamProjects {
 					if tp.ProjectID != uuid.Nil {
-						_ = s.k8sService.DeleteSecret(ctx, tp.ProjectID, kubernetes.FastGatewayNamespace, client.MTLSCASecret)
+						_ = s.k8sSecrets.DeleteSecret(ctx, tp.ProjectID, kubernetes.FastGatewayNamespace, client.MTLSCASecret)
 					}
 				}
 			}

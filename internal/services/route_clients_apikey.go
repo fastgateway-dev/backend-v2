@@ -24,28 +24,23 @@ func (s *RouteService) deployAPIKeyClients(ctx context.Context, route *models.Ro
 	allClients := make([]routeplan.ClientAuthCategory, 0, len(apiKeyOnlyClients)+len(bothClients))
 	allClients = append(allClients, apiKeyOnlyClients...)
 	allClients = append(allClients, bothClients...)
-	if s.domainService != nil {
-		hasMTLSClients := false
-		for _, c := range allClients {
-			if c.EnableMTLS && c.MTLSCAPem != "" {
-				// Create K8s Secret for this client's CA
-				secretName := fmt.Sprintf("fastgateway-client-%s-mtls-ca", c.ClientID.String()[:8])
-				if err := s.k8sService.CreateOrUpdateSecret(ctx, domain.ProjectID, kubernetes.FastGatewayNamespace, secretName, map[string][]byte{
-					"ca.crt": []byte(c.MTLSCAPem),
-				}); err != nil {
-					log.Printf("Warning: failed to create client CA secret %s: %v", secretName, err)
-				} else {
-					hasMTLSClients = true
-				}
+	hasMTLSClients := false
+	for _, c := range allClients {
+		if c.EnableMTLS && c.MTLSCAPem != "" {
+			// Create K8s Secret for this client's CA
+			secretName := fmt.Sprintf("fastgateway-client-%s-mtls-ca", c.ClientID.String()[:8])
+			if err := s.k8sSecrets.CreateOrUpdateSecret(ctx, domain.ProjectID, kubernetes.FastGatewayNamespace, secretName, map[string][]byte{
+				"ca.crt": []byte(c.MTLSCAPem),
+			}); err != nil {
+				log.Printf("Warning: failed to create client CA secret %s: %v", secretName, err)
+			} else {
+				hasMTLSClients = true
 			}
 		}
-		if hasMTLSClients && s.domainService.settingsRepo != nil {
-			settings, err := s.domainService.settingsRepo.GetByDomainID(domain.ID)
-			if err == nil && settings != nil {
-				if err := s.domainService.applyEnvoyGatewayClientTrafficPolicy(ctx, domain, &settings.Config); err != nil {
-					log.Printf("Warning: failed to update CTP for mTLS clients: %v", err)
-				}
-			}
+	}
+	if hasMTLSClients {
+		if err := s.domains.EnsureMTLSClientTrafficPolicy(ctx, domain); err != nil {
+			log.Printf("Warning: failed to update CTP for mTLS clients: %v", err)
 		}
 	}
 
@@ -69,10 +64,6 @@ func (s *RouteService) deployAPIKeyClients(ctx context.Context, route *models.Ro
 // cleanupStaleAPIKeyRoutes deletes per-client API key HTTPRoutes, SecurityPolicies, and BackendTrafficPolicies
 // that are no longer needed (e.g., client was detached or changed from API key to IP-only).
 func (s *RouteService) cleanupStaleAPIKeyRoutes(ctx context.Context, route *models.Route, domain *models.Domain) error {
-	if s.clientAttachmentRepo == nil {
-		return nil
-	}
-
 	// Build set of expected client prefixes from current API key attachments
 	expectedClientPrefixes := make(map[string]bool)
 
@@ -98,7 +89,7 @@ func (s *RouteService) cleanupStaleAPIKeyRoutes(ctx context.Context, route *mode
 	}
 
 	// Delete stale per-client resources
-	return s.k8sService.DeleteStaleAPIKeyResources(ctx, domain.ProjectID, domain.Namespace, route.ID.String(), route.K8sRouteName, expectedClientPrefixes)
+	return s.k8sAPIKeys.DeleteStaleAPIKeyResources(ctx, domain.ProjectID, domain.Namespace, route.ID.String(), route.K8sRouteName, expectedClientPrefixes)
 }
 
 // buildAPIKeyGRPCRouteConfig builds GRPCRoute config for a client with API key/JWT auth
@@ -189,10 +180,6 @@ func (s *RouteService) buildAPIKeyHTTPRouteConfigRedacted(route *models.Route, d
 // - apiKeyOnlyClients: API key or JWT without IP (per-client route, no IP check)
 // - bothClients: API key or JWT with IP (per-client route with IP check)
 func (s *RouteService) categorizeClientAttachments(ctx context.Context, routeID uuid.UUID, domain *models.Domain) (ipOnlyClients, apiKeyOnlyClients, bothClients []routeplan.ClientAuthCategory, err error) {
-	if s.clientAttachmentRepo == nil || s.clientRepo == nil {
-		return nil, nil, nil, nil
-	}
-
 	// Get active attachments
 	activeAttachments, err := s.clientAttachmentRepo.ListActiveByRouteID(routeID)
 	if err != nil {
@@ -231,7 +218,7 @@ func (s *RouteService) categorizeClientAttachments(ctx context.Context, routeID 
 		}
 
 		// Collect IP CIDRs if IP allowlisting is enabled
-		if attachment.EnableIPAllowlist && s.clientIPRepo != nil {
+		if attachment.EnableIPAllowlist {
 			ips, err := s.clientIPRepo.ListByClientID(client.ID)
 			if err == nil {
 				for _, ip := range ips {
@@ -298,7 +285,7 @@ func (s *RouteService) categorizeClientAttachments(ctx context.Context, routeID 
 		}
 
 		// Get header auth config if enabled
-		if attachment.EnableHeaderAuth && s.clientHeaderRepo != nil {
+		if attachment.EnableHeaderAuth {
 			cat.EnableHeaderAuth = true
 			headers, err := s.clientHeaderRepo.ListByClientID(client.ID)
 			if err == nil {
@@ -351,21 +338,15 @@ func (s *RouteService) categorizeClientAttachments(ctx context.Context, routeID 
 func (s *RouteService) deployAPIKeyRoutes(ctx context.Context, route *models.Route, domain *models.Domain, clients []routeplan.ClientAuthCategory, requireIP bool) error {
 	// Get BackendTrafficPolicy for this route (if any) to apply to per-client routes
 	var policy *models.BackendTrafficPolicy
-	if s.backendTrafficPolicyRepo != nil {
-		policy, _ = s.backendTrafficPolicyRepo.GetByRouteID(route.ID)
-	}
+	policy, _ = s.backendTrafficPolicyRepo.GetByRouteID(route.ID)
 
 	// Get SecurityPolicy for this route (if any) to copy CORS config to per-client routes
 	var secPolicy *models.SecurityPolicy
-	if s.securityPolicyRepo != nil {
-		secPolicy, _ = s.securityPolicyRepo.GetByRouteID(route.ID)
-	}
+	secPolicy, _ = s.securityPolicyRepo.GetByRouteID(route.ID)
 
 	// Get EnvoyExtensionPolicy for this route (if any) to apply to per-client routes
 	var extPolicy *models.EnvoyExtensionPolicy
-	if s.envoyExtensionPolicyRepo != nil {
-		extPolicy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
-	}
+	extPolicy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
 
 	for i := range clients {
 		client := &clients[i] // Use pointer to allow modification
@@ -381,7 +362,7 @@ func (s *RouteService) deployAPIKeyRoutes(ctx context.Context, route *models.Rou
 
 		// Create/update K8s Secret for this client's API key (only if API key is enabled)
 		if hasValidAPIKey {
-			if err := s.k8sService.CreateAPIKeySecret(ctx, domain.ProjectID, client.ClientID, client.APIKey); err != nil {
+			if err := s.k8sAPIKeys.CreateAPIKeySecret(ctx, domain.ProjectID, client.ClientID, client.APIKey); err != nil {
 				return fmt.Errorf("failed to create API key secret for client %s: %w", client.ClientName, err)
 			}
 		}
@@ -405,7 +386,7 @@ func (s *RouteService) deployAPIKeyRoutes(ctx context.Context, route *models.Rou
 					Service:   backendRef,
 				}
 				extAuthBackend := kubernetes.BuildExtAuthBackend(backendConfig)
-				if err := s.k8sService.UpdateBackendUnstructured(ctx, domain.ProjectID, extAuthBackend); err != nil {
+				if err := s.k8sBackends.UpdateBackendUnstructured(ctx, domain.ProjectID, extAuthBackend); err != nil {
 					return fmt.Errorf("failed to create/update ext-auth Backend for client %s: %w", client.ClientName, err)
 				}
 				client.ExtAuthBackendName = backendName
@@ -415,16 +396,16 @@ func (s *RouteService) deployAPIKeyRoutes(ctx context.Context, route *models.Rou
 		// Build route config with header match (HTTPRoute or GRPCRoute based on protocol)
 		if route.Protocol == models.RouteProtocolGRPC {
 			grpcRouteConfig := s.buildAPIKeyGRPCRouteConfig(route, domain, *client)
-			if err := s.k8sService.CreateGRPCRoute(ctx, domain.ProjectID, grpcRouteConfig); err != nil {
-				if err := s.k8sService.UpdateGRPCRoute(ctx, domain.ProjectID, grpcRouteConfig); err != nil {
+			if err := s.k8sRoutes.CreateGRPCRoute(ctx, domain.ProjectID, grpcRouteConfig); err != nil {
+				if err := s.k8sRoutes.UpdateGRPCRoute(ctx, domain.ProjectID, grpcRouteConfig); err != nil {
 					return fmt.Errorf("failed to create/update per-client GRPCRoute for client %s: %w", client.ClientName, err)
 				}
 			}
 		} else {
 			httpRouteConfig := s.buildAPIKeyHTTPRouteConfig(route, domain, *client)
-			err := s.k8sService.CreateHTTPRoute(ctx, domain.ProjectID, httpRouteConfig)
+			err := s.k8sRoutes.CreateHTTPRoute(ctx, domain.ProjectID, httpRouteConfig)
 			if err != nil {
-				err = s.k8sService.UpdateHTTPRoute(ctx, domain.ProjectID, httpRouteConfig)
+				err = s.k8sRoutes.UpdateHTTPRoute(ctx, domain.ProjectID, httpRouteConfig)
 				if err != nil {
 					return fmt.Errorf("failed to create/update per-client HTTPRoute for client %s: %w", client.ClientName, err)
 				}
@@ -433,14 +414,14 @@ func (s *RouteService) deployAPIKeyRoutes(ctx context.Context, route *models.Rou
 
 		// Build SecurityPolicy config (handles both API key and JWT)
 		securityConfig := s.buildAPIKeySecurityPolicyConfig(route, domain, *client, requireIP, secPolicy)
-		if err := s.k8sService.UpdateSecurityPolicy(ctx, domain.ProjectID, securityConfig); err != nil {
+		if err := s.k8sPolicies.UpdateSecurityPolicy(ctx, domain.ProjectID, securityConfig); err != nil {
 			return fmt.Errorf("failed to create/update per-client SecurityPolicy for client %s: %w", client.ClientName, err)
 		}
 
 		// Build and deploy BackendTrafficPolicy if configured (base policy or attachment rate limit)
 		btpConfig := routeplan.BuildAPIKeyBackendTrafficPolicyConfig(route, domain, *client, policy)
 		if btpConfig != nil {
-			if err := s.k8sService.UpdateBackendTrafficPolicy(ctx, domain.ProjectID, btpConfig); err != nil {
+			if err := s.k8sPolicies.UpdateBackendTrafficPolicy(ctx, domain.ProjectID, btpConfig); err != nil {
 				return fmt.Errorf("failed to create/update per-client BackendTrafficPolicy for client %s: %w", client.ClientName, err)
 			}
 		}
@@ -448,7 +429,7 @@ func (s *RouteService) deployAPIKeyRoutes(ctx context.Context, route *models.Rou
 		// Build and deploy EnvoyExtensionPolicy if configured
 		extConfig := s.buildAPIKeyEnvoyExtensionPolicyConfig(route, domain, *client, extPolicy)
 		if extConfig != nil {
-			if err := s.k8sService.UpdateEnvoyExtensionPolicy(ctx, domain.ProjectID, extConfig); err != nil {
+			if err := s.k8sPolicies.UpdateEnvoyExtensionPolicy(ctx, domain.ProjectID, extConfig); err != nil {
 				return fmt.Errorf("failed to create/update per-client EnvoyExtensionPolicy for client %s: %w", client.ClientName, err)
 			}
 		}
@@ -510,12 +491,12 @@ func (s *RouteService) buildAPIKeySecurityPolicyConfig(route *models.Route, doma
 	}
 
 	// The only impure step in this site: deriving the client's API key Secret
-	// name needs s.k8sService. It stays behind the same guard it has always
+	// name needs s.k8sAPIKeys. It stays behind the same guard it has always
 	// had, so a client without an API key never touches the interface -- which
 	// is what keeps this function callable on a zero-value RouteService.
 	var apiKeySecretName string
 	if client.EnableAPIKey && client.APIKey != "" {
-		apiKeySecretName = s.k8sService.GetAPIKeySecretName(client.ClientID)
+		apiKeySecretName = s.k8sAPIKeys.GetAPIKeySecretName(client.ClientID)
 	}
 
 	return routeplan.AssembleSecurityPolicyConfig(routeplan.SecurityPolicyAssembly{
@@ -610,12 +591,6 @@ func (s *RouteService) buildAPIKeyEnvoyExtensionPolicyConfig(route *models.Route
 
 // deleteAPIKeyRoutes deletes per-client routes (HTTPRoute or GRPCRoute) for API key clients
 func (s *RouteService) deleteAPIKeyRoutes(ctx context.Context, route *models.Route, domain *models.Domain) error {
-	if s.clientAttachmentRepo == nil || s.clientRepo == nil {
-		// Fallback: use label-based cleanup to delete all per-client resources
-		// This handles cases where attachments are already deleted (e.g., client deleted before route)
-		return s.deleteAllPerClientResources(ctx, route, domain)
-	}
-
 	// Get all attachments (active + approved + pending_detach) to clean up all possible API key routes
 	activeAttachments, _ := s.clientAttachmentRepo.ListActiveByRouteID(route.ID)
 	approvedAttachments, _ := s.clientAttachmentRepo.ListApprovedByRouteID(route.ID)
@@ -637,29 +612,29 @@ func (s *RouteService) deleteAPIKeyRoutes(ctx context.Context, route *models.Rou
 
 		// Delete BackendTrafficPolicy first
 		btpName := kubernetes.BackendTrafficPolicyName(routeName)
-		if err := s.k8sService.DeleteBackendTrafficPolicy(ctx, domain.ProjectID, domain.Namespace, btpName); err != nil {
+		if err := s.k8sPolicies.DeleteBackendTrafficPolicy(ctx, domain.ProjectID, domain.Namespace, btpName); err != nil {
 			log.Printf("Failed to delete API key BackendTrafficPolicy %s: %v", btpName, err)
 		}
 
 		// Delete EnvoyExtensionPolicy
 		eepName := kubernetes.EnvoyExtensionPolicyName(routeName)
-		if err := s.k8sService.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName); err != nil {
+		if err := s.k8sPolicies.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName); err != nil {
 			log.Printf("Failed to delete API key EnvoyExtensionPolicy %s: %v", eepName, err)
 		}
 
 		// Delete SecurityPolicy
 		securityName := kubernetes.SecurityPolicyName(routeName)
-		if err := s.k8sService.DeleteSecurityPolicy(ctx, domain.ProjectID, domain.Namespace, securityName); err != nil {
+		if err := s.k8sPolicies.DeleteSecurityPolicy(ctx, domain.ProjectID, domain.Namespace, securityName); err != nil {
 			log.Printf("Failed to delete API key SecurityPolicy %s: %v", securityName, err)
 		}
 
 		// Delete route (HTTPRoute or GRPCRoute based on protocol)
 		if route.Protocol == models.RouteProtocolGRPC {
-			if err := s.k8sService.DeleteGRPCRoute(ctx, domain.ProjectID, domain.Namespace, routeName); err != nil {
+			if err := s.k8sRoutes.DeleteGRPCRoute(ctx, domain.ProjectID, domain.Namespace, routeName); err != nil {
 				log.Printf("Failed to delete API key GRPCRoute %s: %v", routeName, err)
 			}
 		} else {
-			if err := s.k8sService.DeleteHTTPRoute(ctx, domain.ProjectID, domain.Namespace, routeName); err != nil {
+			if err := s.k8sRoutes.DeleteHTTPRoute(ctx, domain.ProjectID, domain.Namespace, routeName); err != nil {
 				log.Printf("Failed to delete API key HTTPRoute %s: %v", routeName, err)
 			}
 		}
@@ -674,7 +649,7 @@ func (s *RouteService) deleteAPIKeyRoutes(ctx context.Context, route *models.Rou
 func (s *RouteService) deleteAllPerClientResources(ctx context.Context, route *models.Route, domain *models.Domain) error {
 	// Pass empty expectedClientPrefixes to delete ALL per-client resources for this route
 	emptyExpected := map[string]bool{}
-	if err := s.k8sService.DeleteStaleAPIKeyResources(ctx, domain.ProjectID, domain.Namespace, route.ID.String(), route.K8sRouteName, emptyExpected); err != nil {
+	if err := s.k8sAPIKeys.DeleteStaleAPIKeyResources(ctx, domain.ProjectID, domain.Namespace, route.ID.String(), route.K8sRouteName, emptyExpected); err != nil {
 		log.Printf("Failed to delete per-client resources by label for route %s: %v", route.K8sRouteName, err)
 		return err
 	}
