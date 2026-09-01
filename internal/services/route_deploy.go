@@ -10,6 +10,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // Deploy deploys an approved route to Kubernetes
@@ -296,8 +297,21 @@ func (s *RouteService) deploySecurityPolicy(ctx context.Context, route *models.R
 	// Get SecurityPolicy from database
 	var policy *models.SecurityPolicy
 	p, err := s.securityPolicyRepo.GetByRouteID(route.ID)
-	if err == nil {
+	switch {
+	case err == nil:
 		policy = p
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		// No SecurityPolicy configured for this route. Legitimate: policy
+		// stays nil and the caller's cleanup branch removes any stale
+		// cluster object.
+	default:
+		// Any other error is a LOOKUP FAILURE, not an absence. Returning nil
+		// policy here would send a general-mode route down
+		// deployGeneralSecurityPolicy's config == nil branch, which DELETES
+		// the live SecurityPolicy -- stripping OIDC/JWT/API-key/IP
+		// authorization from a route that is still serving -- and then
+		// report success.
+		return fmt.Errorf("load security policy for route %s: %w", route.ID, err)
 	}
 
 	// General mode: build SecurityPolicy directly from stored config
@@ -468,13 +482,38 @@ func (s *RouteService) deleteBackendTrafficPolicy(ctx context.Context, route *mo
 
 // deployEnvoyExtensionPolicy deploys EnvoyExtensionPolicy to Kubernetes
 func (s *RouteService) deployEnvoyExtensionPolicy(ctx context.Context, route *models.Route, domain *models.Domain) error {
-	// Get EnvoyExtensionPolicy from database (may be nil)
+	// Get EnvoyExtensionPolicy from database (may be genuinely absent)
 	var policy *models.EnvoyExtensionPolicy
-	policy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
+	p, err := s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
+	switch {
+	case err == nil:
+		policy = p
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		// No EnvoyExtensionPolicy configured for this route. Legitimate:
+		// policy stays nil and the cleanup branch below removes any stale
+		// cluster object.
+	default:
+		// Any other error is a LOOKUP FAILURE, not an absence. Returning a
+		// nil policy here would send the route down the extConfig == nil
+		// branch, which DELETES the live EnvoyExtensionPolicy -- stripping
+		// the route's WAF and ext-proc configuration while it is still
+		// serving -- and then report success.
+		return fmt.Errorf("load envoy extension policy for route %s: %w", route.ID, err)
+	}
 
-	// Get WafPolicy from database (may be nil)
+	// Get WafPolicy from database (may be genuinely absent)
 	var wafPolicy *models.WafPolicy
-	wafPolicy, _ = s.wafPolicyRepo.GetByRouteID(route.ID)
+	wp, err := s.wafPolicyRepo.GetByRouteID(route.ID)
+	switch {
+	case err == nil:
+		wafPolicy = wp
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		// No WAF policy configured for this route. Same reasoning as above.
+	default:
+		// Same hazard as the EnvoyExtensionPolicy lookup: a nil wafPolicy on
+		// failure deletes the live policy and reports success.
+		return fmt.Errorf("load waf policy for route %s: %w", route.ID, err)
+	}
 
 	// Handle ext-proc Backend CRD lifecycle
 	extProcBackendName := kubernetes.GenerateExtProcBackendName(route.ID.String())
@@ -507,8 +546,9 @@ func (s *RouteService) deployEnvoyExtensionPolicy(ctx context.Context, route *mo
 	if extConfig == nil {
 		// No extensions to deploy - delete any existing policy if present
 		eepName := kubernetes.EnvoyExtensionPolicyName(route.K8sRouteName)
-		s.k8sPolicies.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName)
-		return nil
+		// Return the delete error rather than discarding it, matching how the
+		// SecurityPolicy cleanup branch returns its delete.
+		return s.k8sPolicies.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName)
 	}
 
 	// Build the unstructured object
