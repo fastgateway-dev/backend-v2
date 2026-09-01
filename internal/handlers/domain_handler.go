@@ -9,7 +9,6 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -33,18 +32,16 @@ type DomainHandler struct {
 	domainService services.DomainServiceInterface
 	auditService  services.AuditServiceInterface
 	permChecker   *middleware.PermissionChecker
-	btpRepo       repository.BackendTrafficPolicyRepositoryInterface
-	extPolicyRepo repository.EnvoyExtensionPolicyRepositoryInterface
+	policyReader  services.DomainPolicyReader
 }
 
 // NewDomainHandler creates a new domain handler
-func NewDomainHandler(domainService services.DomainServiceInterface, auditService services.AuditServiceInterface, permChecker *middleware.PermissionChecker, btpRepo repository.BackendTrafficPolicyRepositoryInterface, extPolicyRepo repository.EnvoyExtensionPolicyRepositoryInterface) *DomainHandler {
+func NewDomainHandler(domainService services.DomainServiceInterface, auditService services.AuditServiceInterface, permChecker *middleware.PermissionChecker, policyReader services.DomainPolicyReader) *DomainHandler {
 	return &DomainHandler{
 		domainService: domainService,
 		auditService:  auditService,
 		permChecker:   permChecker,
-		btpRepo:       btpRepo,
-		extPolicyRepo: extPolicyRepo,
+		policyReader:  policyReader,
 	}
 }
 
@@ -284,17 +281,16 @@ func (h *DomainHandler) GetDomainSettings(c *gin.Context) {
 		response.UpdatedAt = &settings.UpdatedAt
 	}
 
-	// Fetch BTP
-	if h.btpRepo != nil {
-		btpPolicy, err := h.btpRepo.GetByDomainID(domainID)
+	// Fetch BTP and extension policy. The nil guard is not wiring tolerance:
+	// handler tests construct the handler without a policy reader when the
+	// endpoint under test does not exercise these two reads.
+	if h.policyReader != nil {
+		btpPolicy, err := h.policyReader.GetDomainBackendTrafficPolicy(domainID)
 		if err == nil && btpPolicy != nil {
 			response.BackendTrafficPolicy = &btpPolicy.Config
 		}
-	}
 
-	// Fetch extension policy
-	if h.extPolicyRepo != nil {
-		extPolicy, err := h.extPolicyRepo.GetByDomainID(domainID)
+		extPolicy, err := h.policyReader.GetDomainEnvoyExtensionPolicy(domainID)
 		if err == nil && extPolicy != nil {
 			response.ExtensionPolicy = &extPolicy.Config
 		}

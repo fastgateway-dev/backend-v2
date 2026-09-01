@@ -1,0 +1,32 @@
+CircuitBreaker: null
+Compression: null
+DomainID: 44444444-4444-4444-4444-444444444444
+FaultInjection: null
+GatewayID: 44444444-4444-4444-4444-444444444444
+HealthCheck: null
+LoadBalancer: null
+Name: eg-btp
+Namespace: gateway-ns
+RateLimit: null
+RequestBuffer: null
+ResponseOverride: null
+Retry:
+  NumRetries: 5
+  PerRetry:
+    BackOff:
+      BaseInterval: 100ms
+      MaxInterval: 1s
+    Timeout: 2s
+  RetryOn:
+    HTTPStatusCodes:
+    - 502
+    - 503
+    Triggers:
+    - 5xx
+    - reset
+RouteID: ""
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Timeout: null

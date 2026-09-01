@@ -6,7 +6,6 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -18,7 +17,7 @@ type ClientAttachmentHandler struct {
 	clientService     services.ClientReader
 	auditService      services.AuditServiceInterface
 	routeService      services.RouteApprovalReader
-	teamRepo          repository.TeamRepositoryInterface
+	perms             *middleware.PermissionChecker
 }
 
 // NewClientAttachmentHandler creates a new client attachment handler
@@ -27,14 +26,14 @@ func NewClientAttachmentHandler(
 	clientService services.ClientReader,
 	auditService services.AuditServiceInterface,
 	routeService services.RouteApprovalReader,
-	teamRepo repository.TeamRepositoryInterface,
+	perms *middleware.PermissionChecker,
 ) *ClientAttachmentHandler {
 	return &ClientAttachmentHandler{
 		attachmentService: attachmentService,
 		clientService:     clientService,
 		auditService:      auditService,
 		routeService:      routeService,
-		teamRepo:          teamRepo,
+		perms:             perms,
 	}
 }
 
@@ -80,12 +79,9 @@ func (h *ClientAttachmentHandler) AttachFromRoute(c *gin.Context) {
 	}
 
 	// Permission: owner or user with client.attach permission
-	if !middleware.IsOwner(user) {
-		hasPerm, _ := h.teamRepo.HasPermissionInProject(projectID, user.ID, models.PermClientAttach)
-		if !hasPerm {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: requires client.attach permission"})
-			return
-		}
+	if !h.perms.HasTeamPermission(projectID, user, models.PermClientAttach) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: requires client.attach permission"})
+		return
 	}
 
 	var input services.AttachFromRouteInput
@@ -152,12 +148,9 @@ func (h *ClientAttachmentHandler) RequestDetachFromRoute(c *gin.Context) {
 	}
 
 	// Permission: owner or user with client.detach permission
-	if !middleware.IsOwner(user) {
-		hasPerm, _ := h.teamRepo.HasPermissionInProject(projectID, user.ID, models.PermClientDetach)
-		if !hasPerm {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: requires client.detach permission"})
-			return
-		}
+	if !h.perms.HasTeamPermission(projectID, user, models.PermClientDetach) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: requires client.detach permission"})
+		return
 	}
 
 	attachment, err := h.attachmentService.RequestDetach(attachmentID, user.ID)
@@ -221,12 +214,9 @@ func (h *ClientAttachmentHandler) ListClientRoutes(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	attachments, err := h.attachmentService.ListByClientID(clientID)
@@ -260,12 +250,9 @@ func (h *ClientAttachmentHandler) AttachFromClient(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	var input services.AttachFromClientInput

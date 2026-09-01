@@ -1,0 +1,19 @@
+DomainID: 44444444-4444-4444-4444-444444444444
+ExtProc: null
+GatewayID: 44444444-4444-4444-4444-444444444444
+Lua:
+- Inline: ""
+  Type: ValueRef
+  ValueRef:
+    Group: ""
+    Kind: ConfigMap
+    Name: lua-scripts
+    Namespace: gateway-ns
+Name: eg-eep
+Namespace: gateway-ns
+RouteID: ""
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Wasm: null

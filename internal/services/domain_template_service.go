@@ -19,6 +19,7 @@ import (
 type DomainTemplateService struct {
 	dtRepo      repository.DomainTemplateRepositoryInterface
 	projectRepo repository.ProjectRepositoryInterface
+	domainRepo  repository.DomainRepositoryInterface
 	k8sService  GatewayClassApplier
 	aiService   *AIService
 }
@@ -27,15 +28,27 @@ type DomainTemplateService struct {
 func NewDomainTemplateService(
 	dtRepo repository.DomainTemplateRepositoryInterface,
 	projectRepo repository.ProjectRepositoryInterface,
+	domainRepo repository.DomainRepositoryInterface,
 	k8sService GatewayClassApplier,
 	aiService *AIService,
 ) *DomainTemplateService {
 	return &DomainTemplateService{
 		dtRepo:      dtRepo,
 		projectRepo: projectRepo,
+		domainRepo:  domainRepo,
 		k8sService:  k8sService,
 		aiService:   aiService,
 	}
+}
+
+// ListDomainsByTemplateID returns the domains built from a template.
+//
+// Phase 2F Task 4: DomainTemplateHandler.ListDomains read this straight off
+// repository.DomainRepositoryInterface. "Which domains use this template" is a
+// question about the template, so the template service answers it; the
+// domainRepo field exists only to serve this method.
+func (s *DomainTemplateService) ListDomainsByTemplateID(templateID uuid.UUID) ([]models.Domain, error) {
+	return s.domainRepo.ListByTemplateID(templateID)
 }
 
 // validateScalingConfig validates a scaling configuration

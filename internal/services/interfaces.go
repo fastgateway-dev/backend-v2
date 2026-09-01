@@ -126,6 +126,21 @@ type DomainReader interface {
 	GetByID(id uuid.UUID) (*models.Domain, error)
 }
 
+// DomainPolicyReader is the slice of DomainService that DomainHandler uses to
+// fill in the policy halves of a domain's settings response. Named for the
+// capability and satisfied structurally, following Phase 2E's ClientReader and
+// DomainReader.
+//
+// Phase 2F Task 4: the handler previously held
+// repository.BackendTrafficPolicyRepositoryInterface and
+// repository.EnvoyExtensionPolicyRepositoryInterface directly -- two whole
+// repository interfaces reached across the service layer to call one method
+// each.
+type DomainPolicyReader interface {
+	GetDomainBackendTrafficPolicy(domainID uuid.UUID) (*models.BackendTrafficPolicy, error)
+	GetDomainEnvoyExtensionPolicy(domainID uuid.UUID) (*models.EnvoyExtensionPolicy, error)
+}
+
 // DomainServiceInterface defines the public methods of DomainService
 type DomainServiceInterface interface {
 	Create(projectID uuid.UUID, input *CreateDomainInput, createdBy uuid.UUID) (*models.Domain, error)
@@ -142,6 +157,18 @@ type DomainServiceInterface interface {
 	RemoveDomainMTLSCA(ctx context.Context, domainID uuid.UUID, caID string) (*models.DomainSettings, error)
 	ListTLSSecrets(ctx context.Context, projectID uuid.UUID, namespace string) (*ListTLSSecretsResponse, error)
 	ListAvailableNamespaces(ctx context.Context, projectID uuid.UUID) ([]string, error)
+}
+
+// TemplateDomainLister is the slice of DomainTemplateService that
+// DomainTemplateHandler uses to answer "which domains use this template".
+// Named for the capability and satisfied structurally, following Phase 2E's
+// ClientReader and DomainReader.
+//
+// Phase 2F Task 4: the handler previously held
+// repository.DomainRepositoryInterface -- a 15-method repository interface
+// reached across the service layer to call one method.
+type TemplateDomainLister interface {
+	ListDomainsByTemplateID(templateID uuid.UUID) ([]models.Domain, error)
 }
 
 // DomainTemplateServiceInterface defines the public methods of DomainTemplateService
@@ -211,6 +238,17 @@ type ProjectServiceInterface interface {
 	IsAdmin(projectID, userID uuid.UUID) (bool, error)
 }
 
+// RouteListFilters is the service layer's name for the optional filters a
+// project-scoped route listing accepts.
+//
+// It is an alias, not a copy: RouteService.ListByProjectID hands the value
+// straight to the repository, so an alias keeps the two provably identical
+// while giving handlers a services-package name to construct. Phase 2F Task 4
+// -- route_handler.go imported internal/repository solely to spell this type,
+// which is why it was the one handler importing the package without calling a
+// repository method.
+type RouteListFilters = repository.RouteListFilters
+
 // RouteApprovalReader is the slice of RouteService that
 // ClientAttachmentHandler uses: it enriches an attachment response with the
 // route's domain name and the approval currently open against it. Phase 2E
@@ -233,7 +271,7 @@ type RouteReader interface {
 	GetEnvoyExtensionPolicy(routeID uuid.UUID) (*models.EnvoyExtensionPolicy, error)
 	GetWafPolicy(routeID uuid.UUID) (*models.WafPolicy, error)
 	ListByDomainID(domainID uuid.UUID, page, limit int, teamID *uuid.UUID, status string, search string, searchField string, labels map[string]string) ([]models.Route, int64, error)
-	ListByProjectID(projectID uuid.UUID, page, limit int, filters repository.RouteListFilters) ([]models.Route, int64, error)
+	ListByProjectID(projectID uuid.UUID, page, limit int, filters RouteListFilters) ([]models.Route, int64, error)
 	GetEffectiveIPAllowlist(routeID uuid.UUID) ([]EffectiveIPEntry, error)
 	CheckMatcherConflicts(domainID uuid.UUID, match models.RouteMatch, excludeRouteID *uuid.UUID) ([]ConflictResult, error)
 }
@@ -356,7 +394,9 @@ var _ ClientReader = (*ClientService)(nil)
 var _ CommentServiceInterface = (*CommentService)(nil)
 var _ DomainServiceInterface = (*DomainService)(nil)
 var _ DomainReader = (*DomainService)(nil)
+var _ DomainPolicyReader = (*DomainService)(nil)
 var _ DomainTemplateServiceInterface = (*DomainTemplateService)(nil)
+var _ TemplateDomainLister = (*DomainTemplateService)(nil)
 var _ cluster.ProjectCredentials = (*ProjectService)(nil)
 var _ MetricsServiceInterface = (*MetricsService)(nil)
 var _ NotificationServiceInterface = (*NotificationService)(nil)

@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
-	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -15,19 +14,19 @@ import (
 type DomainTemplateHandler struct {
 	dtService    services.DomainTemplateServiceInterface
 	auditService services.AuditServiceInterface
-	domainRepo   repository.DomainRepositoryInterface
+	domainLister services.TemplateDomainLister
 }
 
 // NewDomainTemplateHandler creates a new domain template handler
 func NewDomainTemplateHandler(
 	dtService services.DomainTemplateServiceInterface,
 	auditService services.AuditServiceInterface,
-	domainRepo repository.DomainRepositoryInterface,
+	domainLister services.TemplateDomainLister,
 ) *DomainTemplateHandler {
 	return &DomainTemplateHandler{
 		dtService:    dtService,
 		auditService: auditService,
-		domainRepo:   domainRepo,
+		domainLister: domainLister,
 	}
 }
 
@@ -143,7 +142,7 @@ func (h *DomainTemplateHandler) ListDomains(c *gin.Context) {
 		return
 	}
 
-	domains, err := h.domainRepo.ListByTemplateID(id)
+	domains, err := h.domainLister.ListDomainsByTemplateID(id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

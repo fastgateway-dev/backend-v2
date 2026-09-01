@@ -1,4 +1,4 @@
-package services
+package domainplan
 
 import (
 	"testing"
@@ -22,33 +22,26 @@ func testDomainForBTP() *models.Domain {
 	}
 }
 
-func newDomainServiceForBTP() *DomainService {
-	return &DomainService{}
-}
-
 // =========================================================================
 // TestBuildDomainBTPConfig
 // =========================================================================
 
 func TestBuildDomainBTPConfig_NilConfig(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
-	result := svc.buildDomainBTPConfig(domain, nil)
+	result := BuildBackendTrafficPolicyConfig(domain, nil)
 	assert.Nil(t, result)
 }
 
 func TestBuildDomainBTPConfig_EmptyConfig(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
 	cfg := &models.BackendTrafficPolicyConfig{}
-	result := svc.buildDomainBTPConfig(domain, cfg)
+	result := BuildBackendTrafficPolicyConfig(domain, cfg)
 	assert.Nil(t, result)
 }
 
 func TestBuildDomainBTPConfig_TargetsGateway(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
 	numRetries := int32(3)
@@ -56,7 +49,7 @@ func TestBuildDomainBTPConfig_TargetsGateway(t *testing.T) {
 		Retry: &models.RetryConfig{NumRetries: &numRetries},
 	}
 
-	result := svc.buildDomainBTPConfig(domain, cfg)
+	result := BuildBackendTrafficPolicyConfig(domain, cfg)
 	require.NotNil(t, result)
 
 	// Should target the Gateway, not HTTPRoute
@@ -78,7 +71,6 @@ func TestBuildDomainBTPConfig_TargetsGateway(t *testing.T) {
 }
 
 func TestBuildDomainBTPConfig_Compression(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
 	cfg := &models.BackendTrafficPolicyConfig{
@@ -88,7 +80,7 @@ func TestBuildDomainBTPConfig_Compression(t *testing.T) {
 		},
 	}
 
-	result := svc.buildDomainBTPConfig(domain, cfg)
+	result := BuildBackendTrafficPolicyConfig(domain, cfg)
 	require.NotNil(t, result)
 	require.Len(t, result.Compression, 2)
 
@@ -104,7 +96,6 @@ func TestBuildDomainBTPConfig_Compression(t *testing.T) {
 }
 
 func TestBuildDomainBTPConfig_Retry(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
 	numRetries := int32(5)
@@ -128,7 +119,7 @@ func TestBuildDomainBTPConfig_Retry(t *testing.T) {
 		},
 	}
 
-	result := svc.buildDomainBTPConfig(domain, cfg)
+	result := BuildBackendTrafficPolicyConfig(domain, cfg)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Retry)
 
@@ -145,7 +136,6 @@ func TestBuildDomainBTPConfig_Retry(t *testing.T) {
 }
 
 func TestBuildDomainBTPConfig_LoadBalancer(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
 	cfg := &models.BackendTrafficPolicyConfig{
@@ -154,7 +144,7 @@ func TestBuildDomainBTPConfig_LoadBalancer(t *testing.T) {
 		},
 	}
 
-	result := svc.buildDomainBTPConfig(domain, cfg)
+	result := BuildBackendTrafficPolicyConfig(domain, cfg)
 	require.NotNil(t, result)
 	require.NotNil(t, result.LoadBalancer)
 	assert.Equal(t, "RoundRobin", result.LoadBalancer.Type)
@@ -162,7 +152,6 @@ func TestBuildDomainBTPConfig_LoadBalancer(t *testing.T) {
 }
 
 func TestBuildDomainBTPConfig_CircuitBreaker(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
 	maxConn := int64(100)
@@ -180,7 +169,7 @@ func TestBuildDomainBTPConfig_CircuitBreaker(t *testing.T) {
 		},
 	}
 
-	result := svc.buildDomainBTPConfig(domain, cfg)
+	result := BuildBackendTrafficPolicyConfig(domain, cfg)
 	require.NotNil(t, result)
 	require.NotNil(t, result.CircuitBreaker)
 
@@ -196,24 +185,21 @@ func TestBuildDomainBTPConfig_CircuitBreaker(t *testing.T) {
 // =========================================================================
 
 func TestBuildDomainExtensionPolicyConfig_NilConfig(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
-	result := svc.buildDomainExtensionPolicyConfig(domain, nil)
+	result := BuildEnvoyExtensionPolicyConfig(domain, nil)
 	assert.Nil(t, result)
 }
 
 func TestBuildDomainExtensionPolicyConfig_EmptyConfig(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
 	cfg := &models.EnvoyExtensionPolicyConfig{}
-	result := svc.buildDomainExtensionPolicyConfig(domain, cfg)
+	result := BuildEnvoyExtensionPolicyConfig(domain, cfg)
 	assert.Nil(t, result)
 }
 
 func TestBuildDomainExtensionPolicyConfig_TargetsGateway(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
 	cfg := &models.EnvoyExtensionPolicyConfig{
@@ -223,7 +209,7 @@ func TestBuildDomainExtensionPolicyConfig_TargetsGateway(t *testing.T) {
 		},
 	}
 
-	result := svc.buildDomainExtensionPolicyConfig(domain, cfg)
+	result := BuildEnvoyExtensionPolicyConfig(domain, cfg)
 	require.NotNil(t, result)
 
 	// Should target the Gateway
@@ -245,7 +231,6 @@ func TestBuildDomainExtensionPolicyConfig_TargetsGateway(t *testing.T) {
 }
 
 func TestBuildDomainExtensionPolicyConfig_LuaInline(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
 	luaScript := "function envoy_on_request(handle) handle:logInfo('hello') end"
@@ -256,7 +241,7 @@ func TestBuildDomainExtensionPolicyConfig_LuaInline(t *testing.T) {
 		},
 	}
 
-	result := svc.buildDomainExtensionPolicyConfig(domain, cfg)
+	result := BuildEnvoyExtensionPolicyConfig(domain, cfg)
 	require.NotNil(t, result)
 	require.Len(t, result.Lua, 1)
 
@@ -266,7 +251,6 @@ func TestBuildDomainExtensionPolicyConfig_LuaInline(t *testing.T) {
 }
 
 func TestBuildDomainExtensionPolicyConfig_WasmHTTP(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
 	wasmConfig := `{"key":"value"}`
@@ -285,7 +269,7 @@ func TestBuildDomainExtensionPolicyConfig_WasmHTTP(t *testing.T) {
 		},
 	}
 
-	result := svc.buildDomainExtensionPolicyConfig(domain, cfg)
+	result := BuildEnvoyExtensionPolicyConfig(domain, cfg)
 	require.NotNil(t, result)
 	require.Len(t, result.Wasm, 1)
 
@@ -302,7 +286,6 @@ func TestBuildDomainExtensionPolicyConfig_WasmHTTP(t *testing.T) {
 }
 
 func TestBuildDomainExtensionPolicyConfig_ExtProc(t *testing.T) {
-	svc := newDomainServiceForBTP()
 	domain := testDomainForBTP()
 
 	cfg := &models.EnvoyExtensionPolicyConfig{
@@ -320,7 +303,7 @@ func TestBuildDomainExtensionPolicyConfig_ExtProc(t *testing.T) {
 		},
 	}
 
-	result := svc.buildDomainExtensionPolicyConfig(domain, cfg)
+	result := BuildEnvoyExtensionPolicyConfig(domain, cfg)
 	require.NotNil(t, result)
 	require.Len(t, result.ExtProc, 1)
 

@@ -1,0 +1,22 @@
+DomainID: 44444444-4444-4444-4444-444444444444
+ExtProc:
+- BackendRef:
+    Name: ext-processor
+    Namespace: processing-ns
+    Port: 9001
+  FailOpen: true
+  ProcessingMode:
+    Request:
+      Body: Buffered
+    Response:
+      Body: Streamed
+GatewayID: 44444444-4444-4444-4444-444444444444
+Lua: null
+Name: eg-eep
+Namespace: gateway-ns
+RouteID: ""
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Wasm: null

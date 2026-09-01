@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 func newTestPermissionChecker() (*PermissionChecker, *mocks.MockProjectRepository, *mocks.MockTeamRepository) {
@@ -1148,4 +1149,138 @@ func TestIsTeamMember_False(t *testing.T) {
 	result, err := checker.IsTeamMember(teamID, userID)
 	assert.NoError(t, err)
 	assert.False(t, result)
+}
+
+// --- Phase 2F Task 4: checks moved out of the handlers ---
+//
+// Each of these asserts the denial semantics the handler spelled out inline
+// before the move, so that a later change to the middleware helper cannot
+// silently widen access. See permissions.go for why HasTeamPermission is not
+// HasPermission.
+
+func TestCanAccessTeamResource_OwnerAllowedWithoutMembership(t *testing.T) {
+	checker, _, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleOwner)
+
+	// The inline form was `if !IsOwner(user) { ...IsMember... }`, so an owner
+	// never reached the repository at all.
+	assert.True(t, checker.CanAccessTeamResource(uuid.New(), user))
+	teamRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
+}
+
+func TestCanAccessTeamResource_NonMemberDenied(t *testing.T) {
+	checker, _, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleUser)
+	teamID := uuid.New()
+	teamRepo.On("IsMember", teamID, user.ID).Return(false, nil)
+
+	assert.False(t, checker.CanAccessTeamResource(teamID, user))
+	teamRepo.AssertExpectations(t)
+}
+
+func TestCanAccessTeamResource_MemberAllowed(t *testing.T) {
+	checker, _, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleUser)
+	teamID := uuid.New()
+	teamRepo.On("IsMember", teamID, user.ID).Return(true, nil)
+
+	assert.True(t, checker.CanAccessTeamResource(teamID, user))
+	teamRepo.AssertExpectations(t)
+}
+
+func TestCanAccessTeamResource_LookupErrorDenies(t *testing.T) {
+	checker, _, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleUser)
+	teamID := uuid.New()
+	teamRepo.On("IsMember", teamID, user.ID).Return(false, assert.AnError)
+
+	// The inline form discarded the error and tested the zero-value false.
+	assert.False(t, checker.CanAccessTeamResource(teamID, user))
+}
+
+func TestCanAccessTeamResource_ProjectAdminNotBypassed(t *testing.T) {
+	checker, projectRepo, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleUser)
+	teamID := uuid.New()
+	teamRepo.On("IsMember", teamID, user.ID).Return(false, nil)
+
+	// Team ownership is not a project-scoped question, so there is no admin
+	// bypass here and projectRepo is never consulted.
+	assert.False(t, checker.CanAccessTeamResource(teamID, user))
+	projectRepo.AssertNotCalled(t, "IsAdmin", mock.Anything, mock.Anything)
+}
+
+func TestHasTeamPermission_OwnerAllowed(t *testing.T) {
+	checker, _, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleOwner)
+
+	assert.True(t, checker.HasTeamPermission(uuid.New(), user, models.PermClientAttach))
+	teamRepo.AssertNotCalled(t, "HasPermissionInProject", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestHasTeamPermission_WithoutPermissionDenied(t *testing.T) {
+	checker, _, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleUser)
+	projectID := uuid.New()
+	teamRepo.On("HasPermissionInProject", projectID, user.ID, models.PermClientAttach).Return(false, nil)
+
+	assert.False(t, checker.HasTeamPermission(projectID, user, models.PermClientAttach))
+	teamRepo.AssertExpectations(t)
+}
+
+func TestHasTeamPermission_WithPermissionAllowed(t *testing.T) {
+	checker, _, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleUser)
+	projectID := uuid.New()
+	teamRepo.On("HasPermissionInProject", projectID, user.ID, models.PermClientDetach).Return(true, nil)
+
+	assert.True(t, checker.HasTeamPermission(projectID, user, models.PermClientDetach))
+	teamRepo.AssertExpectations(t)
+}
+
+func TestHasTeamPermission_LookupErrorDenies(t *testing.T) {
+	checker, _, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleUser)
+	projectID := uuid.New()
+	teamRepo.On("HasPermissionInProject", projectID, user.ID, models.PermClientAttach).Return(false, assert.AnError)
+
+	assert.False(t, checker.HasTeamPermission(projectID, user, models.PermClientAttach))
+}
+
+func TestHasTeamPermission_ProjectAdminDeniedWithoutTeamPermission(t *testing.T) {
+	checker, projectRepo, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleUser)
+	projectID := uuid.New()
+	teamRepo.On("HasPermissionInProject", projectID, user.ID, models.PermClientAttach).Return(false, nil)
+
+	// This is the difference from HasPermission and it is load-bearing: the
+	// handler this replaced denied a project admin who lacked the permission
+	// through a team, and it must keep doing so.
+	assert.False(t, checker.HasTeamPermission(projectID, user, models.PermClientAttach))
+	projectRepo.AssertNotCalled(t, "IsAdmin", mock.Anything, mock.Anything)
+}
+
+func TestHasPermissionInAnyProject_PropagatesResultAndError(t *testing.T) {
+	checker, _, teamRepo := newTestPermissionChecker()
+	userID := uuid.New()
+	teamRepo.On("HasPermissionInAnyProject", userID, models.PermProjectTeams).Return(false, assert.AnError)
+
+	// TeamHandler.List answers a lookup failure with 500, so the error must
+	// survive rather than becoming a plain denial.
+	ok, err := checker.HasPermissionInAnyProject(userID, models.PermProjectTeams)
+	assert.False(t, ok)
+	assert.Error(t, err)
+}
+
+func TestHasPermissionInAnyProject_NoOwnerBypass(t *testing.T) {
+	checker, _, teamRepo := newTestPermissionChecker()
+	userID := uuid.New()
+	teamRepo.On("HasPermissionInAnyProject", userID, models.PermProjectTeams).Return(false, nil)
+
+	// The owner short-circuit stays in the handler, where it was: this helper
+	// answers only the team-permission half of the question.
+	ok, err := checker.HasPermissionInAnyProject(userID, models.PermProjectTeams)
+	assert.False(t, ok)
+	assert.NoError(t, err)
+	teamRepo.AssertExpectations(t)
 }

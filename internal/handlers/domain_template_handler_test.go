@@ -20,8 +20,8 @@ import (
 func TestDomainTemplateHandler_List_Success(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)
-	mockDomainRepo := new(mocks.MockDomainRepository)
-	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainRepo)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
 
 	projectID := uuid.New()
 	templates := []models.DomainTemplate{
@@ -48,8 +48,8 @@ func TestDomainTemplateHandler_List_Success(t *testing.T) {
 func TestDomainTemplateHandler_Get_Success(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)
-	mockDomainRepo := new(mocks.MockDomainRepository)
-	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainRepo)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
 
 	dtID := uuid.New()
 	dt := &models.DomainTemplate{ID: dtID, Name: "template1"}
@@ -69,8 +69,8 @@ func TestDomainTemplateHandler_Get_Success(t *testing.T) {
 func TestDomainTemplateHandler_Get_InvalidID(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)
-	mockDomainRepo := new(mocks.MockDomainRepository)
-	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainRepo)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -85,8 +85,8 @@ func TestDomainTemplateHandler_Get_InvalidID(t *testing.T) {
 func TestDomainTemplateHandler_Create_Success(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)
-	mockDomainRepo := new(mocks.MockDomainRepository)
-	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainRepo)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -117,8 +117,8 @@ func TestDomainTemplateHandler_Create_Success(t *testing.T) {
 func TestDomainTemplateHandler_Delete_Success(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)
-	mockDomainRepo := new(mocks.MockDomainRepository)
-	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainRepo)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -145,8 +145,8 @@ func TestDomainTemplateHandler_Delete_Success(t *testing.T) {
 func TestDomainTemplateHandler_Update_Success(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)
-	mockDomainRepo := new(mocks.MockDomainRepository)
-	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainRepo)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -175,8 +175,8 @@ func TestDomainTemplateHandler_Update_Success(t *testing.T) {
 func TestDomainTemplateHandler_GetManifests_Success(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)
-	mockDomainRepo := new(mocks.MockDomainRepository)
-	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainRepo)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
 
 	dtID := uuid.New()
 	manifests := &services.DomainTemplateManifests{
@@ -201,8 +201,8 @@ func TestDomainTemplateHandler_GetManifests_Success(t *testing.T) {
 func TestDomainTemplateHandler_GetManifests_InvalidID(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)
-	mockDomainRepo := new(mocks.MockDomainRepository)
-	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainRepo)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -217,8 +217,8 @@ func TestDomainTemplateHandler_GetManifests_InvalidID(t *testing.T) {
 func TestDomainTemplateHandler_PreviewChanges_Success(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)
-	mockDomainRepo := new(mocks.MockDomainRepository)
-	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainRepo)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
 
 	user := testUser()
 	dtID := uuid.New()

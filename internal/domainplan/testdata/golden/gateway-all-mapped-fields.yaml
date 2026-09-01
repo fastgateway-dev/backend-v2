@@ -1,0 +1,11 @@
+Annotations: null
+GatewayClassName: envoy-gateway-class
+HTTPPort: 8080
+HTTPSPort: 8443
+Hostname: example.com
+Name: eg
+Namespace: gateway-ns
+TLSMode: both
+TLSPolicy: terminate
+TLSSecretName: example-com-tls
+TLSSecretNamespace: ""

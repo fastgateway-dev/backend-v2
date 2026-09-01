@@ -1,0 +1,21 @@
+ClientIPDetection: null
+ClientValidation: null
+Connection:
+  BufferLimit: 64Ki
+  CloseDelay: null
+  MaxConnectionDuration: null
+  MaxConnections: null
+  MaxRequestsPerConnection: null
+EnableProxyProtocol: false
+GatewayID: 44444444-4444-4444-4444-444444444444
+HTTP3: null
+Headers: null
+Name: eg-ctp
+Namespace: gateway-ns
+TCPKeepalive: null
+TLS: null
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Timeout: null

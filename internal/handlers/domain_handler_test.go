@@ -26,7 +26,7 @@ func domainPermChecker() *middleware.PermissionChecker {
 func TestDomainHandler_List_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	projectID := uuid.New()
 	domains := []models.Domain{
@@ -53,7 +53,7 @@ func TestDomainHandler_List_Success(t *testing.T) {
 func TestDomainHandler_List_InvalidProjectID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -68,7 +68,7 @@ func TestDomainHandler_List_InvalidProjectID(t *testing.T) {
 func TestDomainHandler_Get_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	domainID := uuid.New()
 	domain := &models.Domain{ID: domainID, Hostname: "example.com"}
@@ -88,7 +88,7 @@ func TestDomainHandler_Get_Success(t *testing.T) {
 func TestDomainHandler_Get_InvalidID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -103,7 +103,7 @@ func TestDomainHandler_Get_InvalidID(t *testing.T) {
 func TestDomainHandler_Get_NotFound(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	domainID := uuid.New()
 	mockDomain.On("GetByID", domainID).Return(nil, errors.New("not found"))
@@ -123,7 +123,7 @@ func TestDomainHandler_Create_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -156,7 +156,7 @@ func TestDomainHandler_Update_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -186,7 +186,7 @@ func TestDomainHandler_Delete_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -213,7 +213,7 @@ func TestDomainHandler_Delete_Success(t *testing.T) {
 func TestDomainHandler_GetDomainSettings_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	domainID := uuid.New()
 	settings := &models.DomainSettings{ID: uuid.New(), DomainID: domainID}
@@ -234,7 +234,7 @@ func TestDomainHandler_UpdateDomainSettings_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -263,7 +263,7 @@ func TestDomainHandler_UpdateDomainSettings_Success(t *testing.T) {
 func TestDomainHandler_GetYAMLs_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	domainID := uuid.New()
 	yamls := &services.DomainYAMLs{GatewayYaml: "apiVersion: v1"}
@@ -283,7 +283,7 @@ func TestDomainHandler_GetYAMLs_Success(t *testing.T) {
 func TestDomainHandler_GetYAMLs_InvalidID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -298,7 +298,7 @@ func TestDomainHandler_GetYAMLs_InvalidID(t *testing.T) {
 func TestDomainHandler_List_ServiceError(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	projectID := uuid.New()
 	mockDomain.On("ListByProjectID", projectID, 1, 20, "", "", map[string]string(nil)).Return([]models.Domain{}, int64(0), errors.New("db error"))
@@ -318,7 +318,7 @@ func TestDomainHandler_Create_InvalidProjectID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 
@@ -339,7 +339,7 @@ func TestDomainHandler_Create_ServiceError(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -370,7 +370,7 @@ func TestDomainHandler_Update_InvalidProjectID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 
@@ -391,7 +391,7 @@ func TestDomainHandler_Update_InvalidDomainID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 
@@ -412,7 +412,7 @@ func TestDomainHandler_Delete_InvalidProjectID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 
@@ -433,7 +433,7 @@ func TestDomainHandler_Delete_InvalidDomainID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 
@@ -454,7 +454,7 @@ func TestDomainHandler_Delete_NotFound(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -478,7 +478,7 @@ func TestDomainHandler_Delete_NotFound(t *testing.T) {
 func TestDomainHandler_GetDomainSettings_InvalidID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -493,7 +493,7 @@ func TestDomainHandler_GetDomainSettings_InvalidID(t *testing.T) {
 func TestDomainHandler_GetYAMLs_ServiceError(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	domainID := uuid.New()
 	mockDomain.On("GenerateYAMLs", domainID).Return(nil, errors.New("domain not found"))
@@ -512,7 +512,7 @@ func TestDomainHandler_GetYAMLs_ServiceError(t *testing.T) {
 func TestDomainHandler_PreviewCreate_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -543,7 +543,7 @@ func TestDomainHandler_PreviewCreate_Success(t *testing.T) {
 func TestDomainHandler_PreviewCreate_InvalidProjectID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	user := testUser()
 
@@ -563,7 +563,7 @@ func TestDomainHandler_PreviewCreate_InvalidProjectID(t *testing.T) {
 func TestDomainHandler_PreviewSettingsChanges_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	user := testUser()
 	domainID := uuid.New()
@@ -590,7 +590,7 @@ func TestDomainHandler_PreviewSettingsChanges_Success(t *testing.T) {
 func TestDomainHandler_PreviewSettingsChanges_InvalidDomainID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	user := testUser()
 
@@ -611,7 +611,7 @@ func TestDomainHandler_Update_ServiceError(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -639,7 +639,7 @@ func TestDomainHandler_Delete_ServiceError(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -665,7 +665,7 @@ func TestDomainHandler_Delete_ServiceError(t *testing.T) {
 func TestDomainHandler_GetDomainSettings_ServiceError(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	domainID := uuid.New()
 	mockDomain.On("GetDomainSettings", domainID).Return(nil, errors.New("db error"))
@@ -685,7 +685,7 @@ func TestDomainHandler_UpdateDomainSettings_InvalidProjectID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 
@@ -706,7 +706,7 @@ func TestDomainHandler_UpdateDomainSettings_InvalidDomainID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 
@@ -727,7 +727,7 @@ func TestDomainHandler_UpdateDomainSettings_ServiceError(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -755,7 +755,7 @@ func TestDomainHandler_AddDomainMTLSCA_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -788,7 +788,7 @@ func TestDomainHandler_AddDomainMTLSCA_InvalidProjectID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 
@@ -809,7 +809,7 @@ func TestDomainHandler_AddDomainMTLSCA_InvalidDomainID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 
@@ -830,7 +830,7 @@ func TestDomainHandler_RemoveDomainMTLSCA_Success(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -857,7 +857,7 @@ func TestDomainHandler_RemoveDomainMTLSCA_InvalidProjectID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 
@@ -878,7 +878,7 @@ func TestDomainHandler_RemoveDomainMTLSCA_InvalidDomainID(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := domainPermChecker()
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
 
 	user := testUser()
 
@@ -898,7 +898,7 @@ func TestDomainHandler_RemoveDomainMTLSCA_InvalidDomainID(t *testing.T) {
 func TestDomainHandler_PreviewCreate_ServiceError(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -928,7 +928,7 @@ func TestDomainHandler_PreviewCreate_ServiceError(t *testing.T) {
 func TestDomainHandler_PreviewSettingsChanges_ServiceError(t *testing.T) {
 	mockDomain := new(mocks.MockDomainService)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil, nil)
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, nil, nil)
 
 	user := testUser()
 	domainID := uuid.New()

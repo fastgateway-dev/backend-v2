@@ -18,7 +18,7 @@ import (
 
 func TestDomainTemplateService_GetByID_Success(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	id := uuid.New()
 	expected := &models.DomainTemplate{ID: id, Name: "my-template"}
@@ -33,7 +33,7 @@ func TestDomainTemplateService_GetByID_Success(t *testing.T) {
 
 func TestDomainTemplateService_GetByID_NotFound(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	id := uuid.New()
 	dtRepo.On("GetByID", id).Return(nil, errors.New("not found"))
@@ -49,7 +49,7 @@ func TestDomainTemplateService_GetByID_NotFound(t *testing.T) {
 
 func TestDomainTemplateService_ListByProjectID_Success(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	templates := []models.DomainTemplate{
@@ -68,7 +68,7 @@ func TestDomainTemplateService_ListByProjectID_Success(t *testing.T) {
 
 func TestDomainTemplateService_ListByProjectID_Empty(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	dtRepo.On("ListByProjectID", projectID, 1, 10).Return([]models.DomainTemplate{}, int64(0), nil)
@@ -93,7 +93,7 @@ func TestDomainTemplateService_Delete_RepoGetByIDSuccess(t *testing.T) {
 
 func TestDomainTemplateService_Delete_NotFound(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	id := uuid.New()
 	dtRepo.On("GetByID", id).Return(nil, errors.New("not found"))
@@ -110,7 +110,7 @@ func TestDomainTemplateService_Delete_NotFound(t *testing.T) {
 
 func TestDomainTemplateService_GetByName_Success(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	expected := &models.DomainTemplate{ID: uuid.New(), Name: "my-template", ProjectID: projectID}
@@ -125,7 +125,7 @@ func TestDomainTemplateService_GetByName_Success(t *testing.T) {
 
 func TestDomainTemplateService_GetByName_NotFound(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	dtRepo.On("GetByName", projectID, "nonexistent").Return(nil, errors.New("not found"))
@@ -142,7 +142,7 @@ func TestDomainTemplateService_GetByName_NotFound(t *testing.T) {
 
 func TestDomainTemplateService_PreviewCreate_InvalidExposureType(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	input := &services.CreateDomainTemplateInput{
@@ -159,7 +159,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidExposureType(t *testing.T) {
 
 func TestDomainTemplateService_PreviewCreate_InvalidTLSMode(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	input := &services.CreateDomainTemplateInput{
@@ -176,7 +176,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidTLSMode(t *testing.T) {
 
 func TestDomainTemplateService_PreviewCreate_InvalidControllerName(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	input := &services.CreateDomainTemplateInput{
@@ -194,7 +194,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidControllerName(t *testing.T)
 
 func TestDomainTemplateService_PreviewCreate_InvalidName(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	input := &services.CreateDomainTemplateInput{
@@ -211,7 +211,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidName(t *testing.T) {
 
 func TestDomainTemplateService_PreviewCreate_InvalidScalingConfig(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	input := &services.CreateDomainTemplateInput{
@@ -231,7 +231,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidScalingConfig(t *testing.T) 
 
 func TestDomainTemplateService_PreviewCreate_InvalidPort(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	input := &services.CreateDomainTemplateInput{
@@ -249,7 +249,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidPort(t *testing.T) {
 
 func TestDomainTemplateService_PreviewCreate_Success(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	input := &services.CreateDomainTemplateInput{
@@ -269,7 +269,7 @@ func TestDomainTemplateService_PreviewCreate_Success(t *testing.T) {
 
 func TestDomainTemplateService_PreviewCreate_InvalidTLSPolicy(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	input := &services.CreateDomainTemplateInput{
@@ -287,7 +287,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidTLSPolicy(t *testing.T) {
 
 func TestDomainTemplateService_PreviewCreate_InvalidExternalTrafficPolicy(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	input := &services.CreateDomainTemplateInput{
@@ -309,7 +309,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidExternalTrafficPolicy(t *tes
 
 func TestDomainTemplateService_PreviewCreate_FixedScalingNoReplicas(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	input := &services.CreateDomainTemplateInput{
@@ -327,7 +327,7 @@ func TestDomainTemplateService_PreviewCreate_FixedScalingNoReplicas(t *testing.T
 
 func TestDomainTemplateService_PreviewCreate_HPAMissingMin(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	input := &services.CreateDomainTemplateInput{
@@ -345,7 +345,7 @@ func TestDomainTemplateService_PreviewCreate_HPAMissingMin(t *testing.T) {
 
 func TestDomainTemplateService_PreviewCreate_HPAMissingMax(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	min := int32(2)
@@ -365,7 +365,7 @@ func TestDomainTemplateService_PreviewCreate_HPAMissingMax(t *testing.T) {
 
 func TestDomainTemplateService_PreviewCreate_HPAMaxLessThanMin(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	min := int32(5)

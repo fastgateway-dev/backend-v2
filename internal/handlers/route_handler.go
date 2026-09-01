@@ -7,7 +7,6 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -560,7 +559,7 @@ func (h *RouteHandler) ListByProject(c *gin.Context) {
 		limit = 200
 	}
 
-	filters := repository.RouteListFilters{
+	filters := services.RouteListFilters{
 		BackendService:   c.Query("backend_service"),
 		BackendNamespace: c.Query("backend_namespace"),
 		IncludeMirrors:   c.Query("include_mirrors") == "true",

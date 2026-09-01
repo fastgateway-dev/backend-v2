@@ -284,12 +284,12 @@ func TestNoWiringNilGuardsRemain_NegatedForm(t *testing.T) {
 
 		// DomainTemplateService.aiService is genuinely optional. Its
 		// constructor is still positional (NewDomainTemplateService(dtRepo,
-		// projectRepo, k8sService, aiService)) with no nil checks, and all 20
-		// test call sites pass nil for it, so the AI review is skipped rather
-		// than the service refusing to construct. This is the last service in
-		// the package with an unchecked positional constructor; converting it
-		// would retire these two entries. Recorded as known deviation (d) in
-		// verification.md.
+		// projectRepo, domainRepo, k8sService, aiService)) with no nil checks,
+		// and all 20 test call sites pass nil for it, so the AI review is
+		// skipped rather than the service refusing to construct. This is the
+		// last service in the package with an unchecked positional
+		// constructor; converting it would retire these two entries. Recorded
+		// as known deviation (d) in verification.md.
 		"domain_template_service.go:aiService": "genuinely-optional AI review dependency; see known deviation (d)",
 	}
 

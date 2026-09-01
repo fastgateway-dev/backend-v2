@@ -1,0 +1,31 @@
+CircuitBreaker: null
+Compression:
+- Brotli: null
+  Gzip: {}
+  Type: Gzip
+  Zstd: null
+- Brotli: {}
+  Gzip: null
+  Type: Brotli
+  Zstd: null
+- Brotli: null
+  Gzip: null
+  Type: Zstd
+  Zstd: {}
+DomainID: 44444444-4444-4444-4444-444444444444
+FaultInjection: null
+GatewayID: 44444444-4444-4444-4444-444444444444
+HealthCheck: null
+LoadBalancer: null
+Name: eg-btp
+Namespace: gateway-ns
+RateLimit: null
+RequestBuffer: null
+ResponseOverride: null
+Retry: null
+RouteID: ""
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Timeout: null

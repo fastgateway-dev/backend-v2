@@ -137,7 +137,7 @@ func main() {
 	presetService := services.NewPresetService(presetRepo)
 	teamService := services.NewTeamService(teamRepo, userRepo, presetRepo)
 	aiService := services.NewAIService(cfg)
-	domainTemplateService := services.NewDomainTemplateService(domainTemplateRepo, projectRepo, k8sService, aiService)
+	domainTemplateService := services.NewDomainTemplateService(domainTemplateRepo, projectRepo, domainRepo, k8sService, aiService)
 	domainService := services.NewDomainService(services.DomainServiceDeps{
 		DomainRepo:           domainRepo,
 		ProjectRepo:          projectRepo,
@@ -284,9 +284,9 @@ func main() {
 	topologyHandler := handlers.NewTopologyHandler(topologyService)
 	openapiImportService := services.NewOpenAPIImportService()
 	openapiImportHandler := handlers.NewOpenAPIImportHandler(openapiImportService)
-	teamHandler := handlers.NewTeamHandler(teamService, teamRepo, auditService)
-	domainTemplateHandler := handlers.NewDomainTemplateHandler(domainTemplateService, auditService, domainRepo)
-	domainHandler := handlers.NewDomainHandler(domainService, auditService, permChecker, backendTrafficPolicyRepo, envoyExtensionPolicyRepo)
+	teamHandler := handlers.NewTeamHandler(teamService, permChecker, auditService)
+	domainTemplateHandler := handlers.NewDomainTemplateHandler(domainTemplateService, auditService, domainTemplateService)
+	domainHandler := handlers.NewDomainHandler(domainService, auditService, permChecker, domainService)
 	routeHandler := handlers.NewRouteHandler(routeService, auditService, permChecker)
 	routeVersionHandler := handlers.NewRouteVersionHandler(routeVersionService, auditService)
 	approvalPolicyService := services.NewApprovalPolicyService(approvalPolicyRepo)
@@ -294,8 +294,8 @@ func main() {
 	approvalPolicyHandler := handlers.NewApprovalPolicyHandler(approvalPolicyService)
 	auditHandler := handlers.NewAuditHandler(auditService)
 	k8sHandler := handlers.NewKubernetesHandler(k8sService)
-	clientHandler := handlers.NewClientHandler(clientService, auditService, teamRepo)
-	clientAttachmentHandler := handlers.NewClientAttachmentHandler(clientAttachmentService, clientService, auditService, routeService, teamRepo)
+	clientHandler := handlers.NewClientHandler(clientService, auditService, permChecker)
+	clientAttachmentHandler := handlers.NewClientAttachmentHandler(clientAttachmentService, clientService, auditService, routeService, permChecker)
 	projectNamespaceHandler := handlers.NewProjectNamespaceHandler(projectNamespaceService, auditService, permChecker)
 	projectVersionHandler := handlers.NewProjectVersionHandler(projectVersionService)
 	presetHandler := handlers.NewPresetHandler(presetService, auditService)
