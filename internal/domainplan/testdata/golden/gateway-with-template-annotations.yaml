@@ -1,0 +1,13 @@
+Annotations:
+  service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+  service.beta.kubernetes.io/aws-load-balancer-type: nlb
+GatewayClassName: ""
+HTTPPort: 0
+HTTPSPort: 0
+Hostname: example.com
+Name: eg
+Namespace: gateway-ns
+TLSMode: ""
+TLSPolicy: ""
+TLSSecretName: ""
+TLSSecretNamespace: ""

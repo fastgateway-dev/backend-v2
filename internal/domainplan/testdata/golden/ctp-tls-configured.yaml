@@ -1,0 +1,26 @@
+ClientIPDetection: null
+ClientValidation: null
+Connection: null
+EnableProxyProtocol: false
+GatewayID: 44444444-4444-4444-4444-444444444444
+HTTP3: null
+Headers: null
+Name: eg-ctp
+Namespace: gateway-ns
+TCPKeepalive: null
+TLS:
+  Ciphers:
+  - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+  - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+  ECDHCurves:
+  - X25519
+  - P-256
+  MaxVersion: TLS1.3
+  MinVersion: TLS1.2
+  SignatureAlgorithms:
+  - ecdsa_secp256r1_sha256
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Timeout: null

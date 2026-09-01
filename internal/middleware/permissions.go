@@ -58,6 +58,54 @@ func (p *PermissionChecker) IsTeamMember(teamID, userID uuid.UUID) (bool, error)
 	return p.teamRepo.IsMember(teamID, userID)
 }
 
+// CanAccessTeamResource reports whether user may act on a resource owned by
+// team teamID: system owners always may, everyone else must be a member of
+// that team.
+//
+// Phase 2F Task 4: this is the check fifteen ClientHandler call sites and two
+// ClientAttachmentHandler call sites were spelling out inline against
+// teamRepo.IsMember. A lookup error denies, exactly as the inline form did by
+// discarding the error and testing the zero-value false.
+func (p *PermissionChecker) CanAccessTeamResource(teamID uuid.UUID, user *models.User) bool {
+	if IsOwner(user) {
+		return true
+	}
+	isMember, err := p.teamRepo.IsMember(teamID, user.ID)
+	if err != nil {
+		return false
+	}
+	return isMember
+}
+
+// HasTeamPermission reports whether user is a system owner or holds perm
+// through team membership in the project.
+//
+// This is deliberately NOT HasPermission: it has no project-admin bypass. The
+// two ClientAttachmentHandler call sites it replaces tested ownership and then
+// teamRepo.HasPermissionInProject directly, so a project admin who did not
+// hold the permission through a team was denied. Granting them here would
+// widen access, which Phase 2F Task 4 is not licensed to do.
+func (p *PermissionChecker) HasTeamPermission(projectID uuid.UUID, user *models.User, perm models.Permission) bool {
+	if IsOwner(user) {
+		return true
+	}
+	has, err := p.teamRepo.HasPermissionInProject(projectID, user.ID, perm)
+	if err != nil {
+		return false
+	}
+	return has
+}
+
+// HasPermissionInAnyProject reports whether a user holds perm through team
+// membership in any project.
+//
+// Unlike the checks above it returns the lookup error rather than folding it
+// into a denial, because its one caller (TeamHandler.List) answers a failed
+// lookup with 500, not 403. Phase 2F Task 4.
+func (p *PermissionChecker) HasPermissionInAnyProject(userID uuid.UUID, perm models.Permission) (bool, error) {
+	return p.teamRepo.HasPermissionInAnyProject(userID, perm)
+}
+
 // HasPermission checks if a user has a specific permission in a project
 func (p *PermissionChecker) HasPermission(projectID uuid.UUID, user *models.User, perm models.Permission) bool {
 	if IsOwner(user) {

@@ -5,7 +5,6 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -14,7 +13,7 @@ import (
 // TeamHandler handles global team endpoints
 type TeamHandler struct {
 	teamService        services.TeamServiceInterface
-	teamRepo           repository.TeamRepositoryInterface
+	perms              *middleware.PermissionChecker
 	auditService       services.AuditServiceInterface
 	emailInviteService services.TeamEmailInviteServiceInterface
 }
@@ -25,10 +24,10 @@ func (h *TeamHandler) SetEmailInviteService(s services.TeamEmailInviteServiceInt
 }
 
 // NewTeamHandler creates a new team handler
-func NewTeamHandler(teamService services.TeamServiceInterface, teamRepo repository.TeamRepositoryInterface, auditService services.AuditServiceInterface) *TeamHandler {
+func NewTeamHandler(teamService services.TeamServiceInterface, perms *middleware.PermissionChecker, auditService services.AuditServiceInterface) *TeamHandler {
 	return &TeamHandler{
 		teamService:  teamService,
-		teamRepo:     teamRepo,
+		perms:        perms,
 		auditService: auditService,
 	}
 }
@@ -47,7 +46,7 @@ func (h *TeamHandler) List(c *gin.Context) {
 	// Owner can always list teams
 	if !middleware.IsOwner(user) {
 		// Check if user has project.teams permission in any project
-		hasPermission, err := h.teamRepo.HasPermissionInAnyProject(user.ID, models.PermProjectTeams)
+		hasPermission, err := h.perms.HasPermissionInAnyProject(user.ID, models.PermProjectTeams)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

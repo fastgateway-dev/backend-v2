@@ -2,7 +2,6 @@ package services
 
 import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/google/uuid"
 )
 
@@ -126,7 +125,7 @@ func (s *RouteService) ListByDomainID(domainID uuid.UUID, page, limit int, teamI
 // filtered by backend service+namespace. Pure pass-through to the repository
 // followed by population of computed fields; permission and visibility checks
 // are the caller's responsibility (the handler enforces them).
-func (s *RouteService) ListByProjectID(projectID uuid.UUID, page, limit int, filters repository.RouteListFilters) ([]models.Route, int64, error) {
+func (s *RouteService) ListByProjectID(projectID uuid.UUID, page, limit int, filters RouteListFilters) ([]models.Route, int64, error) {
 	routes, total, err := s.routeRepo.ListByProjectID(projectID, page, limit, filters)
 	if err != nil {
 		return nil, 0, err

@@ -1,0 +1,28 @@
+ClientIPDetection: null
+ClientValidation:
+  caCertificateRefs:
+  - group: ""
+    kind: Secret
+    name: corp-root-ca
+  optional: false
+Connection: null
+EnableProxyProtocol: false
+GatewayID: 44444444-4444-4444-4444-444444444444
+HTTP3: null
+Headers:
+  xForwardedClientCert:
+    certDetailsToAdd:
+    - Subject
+    - Cert
+    - DNS
+    - URI
+    mode: AppendForward
+Name: eg-ctp
+Namespace: gateway-ns
+TCPKeepalive: null
+TLS: null
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Timeout: null

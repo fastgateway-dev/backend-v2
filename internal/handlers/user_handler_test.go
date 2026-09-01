@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	"github.com/fastgateway-dev/backend-v2/internal/handlers"
+	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -18,6 +20,17 @@ import (
 
 func init() {
 	gin.SetMode(gin.TestMode)
+}
+
+// permsFor wraps a mock team repository in a real PermissionChecker.
+//
+// Phase 2F Task 4 moved the handlers' authorization checks into middleware, so
+// handlers now take a *middleware.PermissionChecker where they took a
+// TeamRepositoryInterface. The checker delegates straight to the repository,
+// so every existing mockTeamRepo.On("IsMember", ...) expectation still
+// describes exactly the same call.
+func permsFor(teamRepo repository.TeamRepositoryInterface) *middleware.PermissionChecker {
+	return middleware.NewPermissionChecker(new(mocks.MockProjectRepository), teamRepo)
 }
 
 func testUser() *models.User {

@@ -63,7 +63,10 @@ func newDefaultExtPolicyRepoStub() *mocks.MockEnvoyExtensionPolicyRepository {
 // behaviour of an unset dtService: the guard at domain_service.go:869
 // (`if s.dtService != nil && ...`) skipped the lookup entirely, so the
 // generated Gateway carried no template annotations. Returning a nil template
-// leaves buildGatewayConfig on exactly the same branch.
+// leaves the template-annotation resolution on exactly the same branch.
+// Phase 2F Task 1 moved the builder itself to domainplan.BuildGatewayConfig
+// (internal/domainplan/gateway.go); the lookup that feeds it now lives in
+// DomainService.templateAnnotations.
 // Phase 2E Task 9 deleted that nil half: DtService is required, so only the
 // DomainTemplateID check remains.
 type noTemplateLookup struct{}

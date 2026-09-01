@@ -1,0 +1,47 @@
+ClientIPDetection:
+  xForwardedFor:
+    numTrustedHops: 1
+ClientValidation:
+  caCertificateRefs:
+  - group: ""
+    kind: Secret
+    name: corp-root-ca
+  optional: false
+Connection:
+  BufferLimit: 1Mi
+  CloseDelay: null
+  MaxConnectionDuration: null
+  MaxConnections: 2048
+  MaxRequestsPerConnection: null
+EnableProxyProtocol: true
+GatewayID: 44444444-4444-4444-4444-444444444444
+HTTP3:
+  Enabled: true
+Headers:
+  xForwardedClientCert:
+    certDetailsToAdd:
+    - Subject
+    - Cert
+    - DNS
+    - URI
+    mode: AppendForward
+Name: eg-ctp
+Namespace: gateway-ns
+TCPKeepalive:
+  IdleTime: 75s
+  Interval: 15s
+  Probes: 9
+TLS:
+  Ciphers: null
+  ECDHCurves: null
+  MaxVersion: TLS1.3
+  MinVersion: TLS1.3
+  SignatureAlgorithms: null
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Timeout:
+  HTTP:
+    IdleTimeout: 120s
+    RequestReceivedTimeout: 10s

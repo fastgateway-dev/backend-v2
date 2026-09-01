@@ -23,7 +23,7 @@ func TestClientAttachmentHandler_ListRouteClients_Success(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	routeID := uuid.New()
 	attachments := []models.ClientRouteAttachment{
@@ -48,7 +48,7 @@ func TestClientAttachmentHandler_ListClientRoutes_Success(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser() // owner role, bypasses team member check
 	clientID := uuid.New()
@@ -82,7 +82,7 @@ func TestClientAttachmentHandler_ListRouteClients_InvalidID(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -100,7 +100,7 @@ func TestClientAttachmentHandler_ListClientApprovals_Success(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	projectID := uuid.New()
 	approvals := []models.Approval{
@@ -125,7 +125,7 @@ func TestClientAttachmentHandler_AttachFromRoute_Success(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser() // owner role
 	projectID := uuid.New()
@@ -162,7 +162,7 @@ func TestClientAttachmentHandler_AttachFromRoute_InvalidRouteID(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -186,7 +186,7 @@ func TestClientAttachmentHandler_GetClientApproval_Success(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	approvalID := uuid.New()
 	projectID := uuid.New()
@@ -212,7 +212,7 @@ func TestClientAttachmentHandler_GetClientApproval_NotFound(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	approvalID := uuid.New()
 	projectID := uuid.New()
@@ -237,7 +237,7 @@ func TestClientAttachmentHandler_ApproveStage_Success(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -268,7 +268,7 @@ func TestClientAttachmentHandler_ApproveStage_InvalidApprovalID(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -293,7 +293,7 @@ func TestClientAttachmentHandler_AttachFromClient_Success(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -334,7 +334,7 @@ func TestClientAttachmentHandler_AttachFromClient_NoUser(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	clientID := uuid.New()
 
@@ -357,7 +357,7 @@ func TestClientAttachmentHandler_AttachFromClient_InvalidClientID(t *testing.T) 
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -380,7 +380,7 @@ func TestClientAttachmentHandler_AttachFromClient_ClientNotFound(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -406,7 +406,7 @@ func TestClientAttachmentHandler_RequestDetachFromRoute_Success(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -439,7 +439,7 @@ func TestClientAttachmentHandler_RequestDetachFromRoute_NoUser(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	projectID := uuid.New()
 	attachmentID := uuid.New()
@@ -463,7 +463,7 @@ func TestClientAttachmentHandler_RequestDetachFromRoute_InvalidAttachmentID(t *t
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -487,7 +487,7 @@ func TestClientAttachmentHandler_RejectClientApproval_Success(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -521,7 +521,7 @@ func TestClientAttachmentHandler_RejectClientApproval_NoComment(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -551,7 +551,7 @@ func TestClientAttachmentHandler_RejectClientApproval_NoUser(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	projectID := uuid.New()
 	approvalID := uuid.New()
@@ -576,7 +576,7 @@ func TestClientAttachmentHandler_RejectClientApproval_InvalidStageID(t *testing.
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -601,7 +601,7 @@ func TestClientAttachmentHandler_AttachFromRoute_NoUser(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	projectID := uuid.New()
 	routeID := uuid.New()
@@ -625,7 +625,7 @@ func TestClientAttachmentHandler_AttachFromRoute_ServiceError(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -658,7 +658,7 @@ func TestClientAttachmentHandler_ListRouteClients_ServiceError(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	routeID := uuid.New()
 	mockAttachment.On("ListByRouteID", routeID).Return([]models.ClientRouteAttachment{}, errors.New("db error"))
@@ -680,7 +680,7 @@ func TestClientAttachmentHandler_ListClientRoutes_NoUser(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	clientID := uuid.New()
 
@@ -703,7 +703,7 @@ func TestClientAttachmentHandler_ListClientApprovals_InvalidProjectID(t *testing
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -721,7 +721,7 @@ func TestClientAttachmentHandler_ApproveStage_NoUser(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	projectID := uuid.New()
 	approvalID := uuid.New()
@@ -746,7 +746,7 @@ func TestClientAttachmentHandler_ApproveStage_InvalidStageID(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -771,7 +771,7 @@ func TestClientAttachmentHandler_RequestDetachFromRoute_InvalidProjectID(t *test
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -794,7 +794,7 @@ func TestClientAttachmentHandler_RequestDetachFromRoute_ServiceError(t *testing.
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -821,7 +821,7 @@ func TestClientAttachmentHandler_AttachFromClient_BadBody(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -852,7 +852,7 @@ func TestClientAttachmentHandler_AttachFromClient_ServiceError(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -888,7 +888,7 @@ func TestClientAttachmentHandler_RejectClientApproval_InvalidProjectID(t *testin
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -911,7 +911,7 @@ func TestClientAttachmentHandler_RejectClientApproval_InvalidApprovalID(t *testi
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -935,7 +935,7 @@ func TestClientAttachmentHandler_RejectClientApproval_ServiceError(t *testing.T)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -966,7 +966,7 @@ func TestClientAttachmentHandler_ApproveStage_ServiceError(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -994,7 +994,7 @@ func TestClientAttachmentHandler_ApproveStage_InvalidProjectID(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -1017,7 +1017,7 @@ func TestClientAttachmentHandler_GetClientApproval_InvalidApprovalID(t *testing.
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	router := gin.New()
 	router.GET("/projects/:projectId/client-approvals/:approvalId", func(c *gin.Context) {
@@ -1037,7 +1037,7 @@ func TestClientAttachmentHandler_ListClientApprovals_ServiceError(t *testing.T) 
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	projectID := uuid.New()
 	mockAttachment.On("ListApprovalsByProjectID", projectID, 1, 20, "pending").Return([]models.Approval{}, int64(0), errors.New("db error"))
@@ -1059,7 +1059,7 @@ func TestClientAttachmentHandler_ListClientRoutes_InvalidClientID(t *testing.T) 
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -1082,7 +1082,7 @@ func TestClientAttachmentHandler_ListClientRoutes_ClientNotFound(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1108,7 +1108,7 @@ func TestClientAttachmentHandler_ListClientRoutes_ServiceError(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1138,7 +1138,7 @@ func TestClientAttachmentHandler_AttachFromRoute_InvalidProjectID(t *testing.T) 
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -1161,7 +1161,7 @@ func TestClientAttachmentHandler_AttachFromRoute_BadBody(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockRoute := new(mocks.MockRouteService)
-	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, mockTeamRepo)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
 
 	user := testUser()
 	projectID := uuid.New()
@@ -1185,3 +1185,122 @@ func TestClientAttachmentHandler_AttachFromRoute_BadBody(t *testing.T) {
 }
 
 var _ = mock.Anything // suppress unused import if needed
+
+// --- Phase 2F Task 4: denial coverage for the four checks moved to middleware ---
+//
+// These four call sites had no handler-level denial test before the move.
+// Each asserts 403 for a non-owner who fails the check, so a later change to
+// middleware.HasTeamPermission or middleware.CanAccessTeamResource that
+// widened access would fail here as well as in the middleware's own tests.
+
+func attachmentNonOwner() *models.User {
+	return &models.User{
+		ID:       uuid.New(),
+		Username: "member",
+		Email:    "member@test.com",
+		Role:     models.UserRoleUser,
+		IsActive: true,
+	}
+}
+
+func TestClientAttachmentHandler_AttachFromRoute_NoAttachPermission_Forbidden(t *testing.T) {
+	mockAttachment := new(mocks.MockClientAttachmentService)
+	mockClient := new(mocks.MockClientService)
+	mockAudit := new(mocks.MockAuditService)
+	mockTeamRepo := new(mocks.MockTeamRepository)
+	mockRoute := new(mocks.MockRouteService)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
+
+	user := attachmentNonOwner()
+	projectID, routeID := uuid.New(), uuid.New()
+	mockTeamRepo.On("HasPermissionInProject", projectID, user.ID, models.PermClientAttach).Return(false, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/attach", bytes.NewBufferString(`{}`))
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}, {Key: "routeId", Value: routeID.String()}}
+	c.Set("user", user)
+
+	h.AttachFromRoute(c)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	mockAttachment.AssertNotCalled(t, "AttachFromRoute", mock.Anything, mock.Anything, mock.Anything)
+	mockTeamRepo.AssertExpectations(t)
+}
+
+func TestClientAttachmentHandler_RequestDetachFromRoute_NoDetachPermission_Forbidden(t *testing.T) {
+	mockAttachment := new(mocks.MockClientAttachmentService)
+	mockClient := new(mocks.MockClientService)
+	mockAudit := new(mocks.MockAuditService)
+	mockTeamRepo := new(mocks.MockTeamRepository)
+	mockRoute := new(mocks.MockRouteService)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
+
+	user := attachmentNonOwner()
+	projectID, attachmentID := uuid.New(), uuid.New()
+	mockTeamRepo.On("HasPermissionInProject", projectID, user.ID, models.PermClientDetach).Return(false, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/detach", nil)
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}, {Key: "attachmentId", Value: attachmentID.String()}}
+	c.Set("user", user)
+
+	h.RequestDetachFromRoute(c)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	mockAttachment.AssertNotCalled(t, "RequestDetach", mock.Anything, mock.Anything)
+	mockTeamRepo.AssertExpectations(t)
+}
+
+func TestClientAttachmentHandler_ListClientRoutes_NotTeamMember_Forbidden(t *testing.T) {
+	mockAttachment := new(mocks.MockClientAttachmentService)
+	mockClient := new(mocks.MockClientService)
+	mockAudit := new(mocks.MockAuditService)
+	mockTeamRepo := new(mocks.MockTeamRepository)
+	mockRoute := new(mocks.MockRouteService)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
+
+	user := attachmentNonOwner()
+	clientID, teamID := uuid.New(), uuid.New()
+	mockClient.On("GetByID", clientID).Return(&models.Client{ID: clientID, TeamID: teamID}, nil)
+	mockTeamRepo.On("IsMember", teamID, user.ID).Return(false, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/clients/"+clientID.String()+"/routes", nil)
+	c.Params = gin.Params{{Key: "clientId", Value: clientID.String()}}
+	c.Set("user", user)
+
+	h.ListClientRoutes(c)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	mockAttachment.AssertNotCalled(t, "ListByClientID", mock.Anything)
+	mockTeamRepo.AssertExpectations(t)
+}
+
+func TestClientAttachmentHandler_AttachFromClient_NotTeamMember_Forbidden(t *testing.T) {
+	mockAttachment := new(mocks.MockClientAttachmentService)
+	mockClient := new(mocks.MockClientService)
+	mockAudit := new(mocks.MockAuditService)
+	mockTeamRepo := new(mocks.MockTeamRepository)
+	mockRoute := new(mocks.MockRouteService)
+	h := handlers.NewClientAttachmentHandler(mockAttachment, mockClient, mockAudit, mockRoute, permsFor(mockTeamRepo))
+
+	user := attachmentNonOwner()
+	clientID, teamID := uuid.New(), uuid.New()
+	mockClient.On("GetByID", clientID).Return(&models.Client{ID: clientID, TeamID: teamID}, nil)
+	mockTeamRepo.On("IsMember", teamID, user.ID).Return(false, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/clients/"+clientID.String()+"/routes/attach", bytes.NewBufferString(`{}`))
+	c.Params = gin.Params{{Key: "clientId", Value: clientID.String()}}
+	c.Set("user", user)
+
+	h.AttachFromClient(c)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	mockAttachment.AssertNotCalled(t, "AttachFromClient", mock.Anything, mock.Anything, mock.Anything)
+	mockTeamRepo.AssertExpectations(t)
+}

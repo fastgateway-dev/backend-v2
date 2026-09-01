@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
-	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -16,19 +15,19 @@ import (
 type ClientHandler struct {
 	clientService services.ClientServiceInterface
 	auditService  services.AuditServiceInterface
-	teamRepo      repository.TeamRepositoryInterface
+	perms         *middleware.PermissionChecker
 }
 
 // NewClientHandler creates a new client handler
 func NewClientHandler(
 	clientService services.ClientServiceInterface,
 	auditService services.AuditServiceInterface,
-	teamRepo repository.TeamRepositoryInterface,
+	perms *middleware.PermissionChecker,
 ) *ClientHandler {
 	return &ClientHandler{
 		clientService: clientService,
 		auditService:  auditService,
-		teamRepo:      teamRepo,
+		perms:         perms,
 	}
 }
 
@@ -87,12 +86,9 @@ func (h *ClientHandler) Create(c *gin.Context) {
 	}
 
 	// Permission: owner or member of the specified team
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(input.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: you must be a member of the specified team"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(input.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: you must be a member of the specified team"})
+		return
 	}
 
 	client, err := h.clientService.Create(&input, user.ID)
@@ -155,12 +151,9 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	var input services.UpdateClientInput
@@ -212,12 +205,9 @@ func (h *ClientHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	if err := h.clientService.Delete(c.Request.Context(), id); err != nil {
@@ -262,12 +252,9 @@ func (h *ClientHandler) ListIPs(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	ips, err := h.clientService.ListIPs(clientID)
@@ -300,12 +287,9 @@ func (h *ClientHandler) AddIP(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	var input services.CreateClientIPInput
@@ -363,12 +347,9 @@ func (h *ClientHandler) RemoveIP(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	if err := h.clientService.RemoveIP(clientID, ipID); err != nil {
@@ -413,12 +394,9 @@ func (h *ClientHandler) ListHeaders(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	headers, err := h.clientService.ListHeaders(clientID)
@@ -451,12 +429,9 @@ func (h *ClientHandler) AddHeader(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	var input services.CreateClientHeaderInput
@@ -514,12 +489,9 @@ func (h *ClientHandler) RemoveHeader(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	if err := h.clientService.RemoveHeader(clientID, headerID); err != nil {
@@ -564,12 +536,9 @@ func (h *ClientHandler) SetAllowedMethods(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	var input struct {
@@ -623,12 +592,9 @@ func (h *ClientHandler) GenerateAPIKey(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	var input services.GenerateAPIKeyInput
@@ -678,12 +644,9 @@ func (h *ClientHandler) RevokeAPIKey(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	if err := h.clientService.RevokeAPIKey(c.Request.Context(), clientID); err != nil {
@@ -728,12 +691,9 @@ func (h *ClientHandler) ConfigureJWT(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	var input services.ConfigureJWTInput
@@ -789,12 +749,9 @@ func (h *ClientHandler) UpdateJWT(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	// Check if JWT is already configured
@@ -856,12 +813,9 @@ func (h *ClientHandler) RemoveJWT(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsOwner(user) {
-		isMember, _ := h.teamRepo.IsMember(client.TeamID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
+	if !h.perms.CanAccessTeamResource(client.TeamID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
 	if err := h.clientService.RemoveJWT(c.Request.Context(), clientID); err != nil {
@@ -906,7 +860,7 @@ func (h *ClientHandler) UpdateClientMTLS(c *gin.Context) {
 		return
 	}
 
-	isMember, _ := h.teamRepo.IsMember(existingClient.TeamID, user.ID)
+	isMember, _ := h.perms.IsTeamMember(existingClient.TeamID, user.ID)
 	if !isMember {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: you must be a member of the client's team"})
 		return
@@ -961,7 +915,7 @@ func (h *ClientHandler) DeleteClientMTLS(c *gin.Context) {
 		return
 	}
 
-	isMember, _ := h.teamRepo.IsMember(existingClient.TeamID, user.ID)
+	isMember, _ := h.perms.IsTeamMember(existingClient.TeamID, user.ID)
 	if !isMember {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: you must be a member of the client's team"})
 		return

@@ -1,0 +1,20 @@
+ClientIPDetection: null
+ClientValidation: null
+Connection: null
+EnableProxyProtocol: false
+GatewayID: 44444444-4444-4444-4444-444444444444
+HTTP3:
+  Enabled: true
+Headers: null
+Name: eg-ctp
+Namespace: gateway-ns
+TCPKeepalive: null
+TLS: null
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Timeout:
+  HTTP:
+    IdleTimeout: 60s
+    RequestReceivedTimeout: 30s

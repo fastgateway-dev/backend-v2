@@ -1,0 +1,19 @@
+ClientIPDetection:
+  customHeader:
+    failClosed: true
+    name: CF-Connecting-IP
+ClientValidation: null
+Connection: null
+EnableProxyProtocol: false
+GatewayID: 44444444-4444-4444-4444-444444444444
+HTTP3: null
+Headers: null
+Name: eg-ctp
+Namespace: gateway-ns
+TCPKeepalive: null
+TLS: null
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Timeout: null

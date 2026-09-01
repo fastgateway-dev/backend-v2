@@ -148,8 +148,8 @@ func TestMTLSOptionalAllowsNoCert(t *testing.T) {
 //     SANWhitelist/HashWhitelist, which -- unlike the client-attachment
 //     path above -- translates directly into this same
 //     clientValidation.subjectAltNames/certificateHashes block on the
-//     ClientTrafficPolicy (internal/services/domain_service.go's
-//     buildCTPConfig, ~line 729). But per point 1, Envoy's
+//     ClientTrafficPolicy (internal/domainplan/clienttrafficpolicy.go's
+//     BuildClientTrafficPolicyConfig). But per point 1, Envoy's
 //     ACCEPT_UNTRUSTED short-circuits SAN/hash verification failures
 //     exactly the same as chain-of-trust failures: configuring a
 //     SANWhitelist here would not change this test's outcome, because

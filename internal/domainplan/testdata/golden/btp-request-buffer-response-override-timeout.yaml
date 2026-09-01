@@ -1,0 +1,38 @@
+CircuitBreaker: null
+Compression: null
+DomainID: 44444444-4444-4444-4444-444444444444
+FaultInjection: null
+GatewayID: 44444444-4444-4444-4444-444444444444
+HealthCheck: null
+LoadBalancer: null
+Name: eg-btp
+Namespace: gateway-ns
+RateLimit: null
+RequestBuffer:
+  Limit: 4Ki
+ResponseOverride:
+- Match:
+    StatusCodes:
+    - Range: null
+      Type: Value
+      Value: 503
+  Response:
+    Body:
+      Inline: service unavailable
+      Type: Inline
+      ValueRef: null
+    ContentType: text/plain
+Retry: null
+RouteID: ""
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Timeout:
+  HTTP:
+    ConnectionIdleTimeout: 60s
+    MaxConnectionDuration: 1h
+    MaxStreamDuration: 10m
+    RequestTimeout: 30s
+  TCP:
+    ConnectTimeout: 5s

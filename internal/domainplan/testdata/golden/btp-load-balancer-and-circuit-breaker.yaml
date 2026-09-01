@@ -1,0 +1,30 @@
+CircuitBreaker:
+  MaxConnections: 100
+  MaxParallelRequests: 25
+  MaxParallelRetries: 3
+  MaxPendingRequests: 50
+  MaxRequestsPerConnection: 10
+Compression: null
+DomainID: 44444444-4444-4444-4444-444444444444
+FaultInjection: null
+GatewayID: 44444444-4444-4444-4444-444444444444
+HealthCheck: null
+LoadBalancer:
+  ConsistentHash:
+    Cookie: null
+    Header:
+      Name: x-user-id
+    Type: Header
+  Type: ConsistentHash
+Name: eg-btp
+Namespace: gateway-ns
+RateLimit: null
+RequestBuffer: null
+ResponseOverride: null
+Retry: null
+RouteID: ""
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Timeout: null

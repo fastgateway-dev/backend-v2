@@ -23,7 +23,7 @@ func TestClientHandler_List_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clients := []models.Client{
@@ -51,7 +51,7 @@ func TestClientHandler_Create_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser() // owner role
 	teamID := uuid.New()
@@ -76,7 +76,7 @@ func TestClientHandler_Get_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	clientID := uuid.New()
 	client := &models.Client{ID: clientID, Name: "client1", TeamID: uuid.New()}
@@ -97,7 +97,7 @@ func TestClientHandler_Get_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -113,7 +113,7 @@ func TestClientHandler_Get_NotFound(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	clientID := uuid.New()
 	mockClient.On("GetByID", clientID).Return(nil, errors.New("not found"))
@@ -133,7 +133,7 @@ func TestClientHandler_Delete_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser() // owner role
 	clientID := uuid.New()
@@ -161,7 +161,7 @@ func TestClientHandler_Update_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser() // owner role
 	clientID := uuid.New()
@@ -193,7 +193,7 @@ func TestClientHandler_ListIPs_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -223,7 +223,7 @@ func TestClientHandler_AddIP_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -255,7 +255,7 @@ func TestClientHandler_RemoveIP_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -284,7 +284,7 @@ func TestClientHandler_GenerateAPIKey_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -318,7 +318,7 @@ func TestClientHandler_RevokeAPIKey_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -346,7 +346,7 @@ func TestClientHandler_List_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -362,7 +362,7 @@ func TestClientHandler_List_WithTeamFilter(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	teamID := uuid.New()
@@ -386,7 +386,7 @@ func TestClientHandler_List_InvalidTeamID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -404,7 +404,7 @@ func TestClientHandler_List_ServiceError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	mockClient.On("List", 1, 20, (*uuid.UUID)(nil)).Return([]models.Client{}, int64(0), errors.New("db error"))
@@ -424,7 +424,7 @@ func TestClientHandler_Create_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -440,7 +440,7 @@ func TestClientHandler_Update_NotFound(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -466,7 +466,7 @@ func TestClientHandler_Update_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	clientID := uuid.New()
 
@@ -489,7 +489,7 @@ func TestClientHandler_Update_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -510,7 +510,7 @@ func TestClientHandler_Delete_NotFound(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -534,7 +534,7 @@ func TestClientHandler_Delete_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	clientID := uuid.New()
 
@@ -555,7 +555,7 @@ func TestClientHandler_Delete_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -576,7 +576,7 @@ func TestClientHandler_Delete_ServiceError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -603,7 +603,7 @@ func TestClientHandler_GenerateAPIKey_NotFound(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -627,7 +627,7 @@ func TestClientHandler_GenerateAPIKey_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	clientID := uuid.New()
 
@@ -648,7 +648,7 @@ func TestClientHandler_RevokeAPIKey_NotFound(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -672,7 +672,7 @@ func TestClientHandler_ConfigureJWT_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -707,7 +707,7 @@ func TestClientHandler_ConfigureJWT_NotFound(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -731,7 +731,7 @@ func TestClientHandler_RemoveJWT_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -759,7 +759,7 @@ func TestClientHandler_RemoveJWT_NotFound(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -783,7 +783,7 @@ func TestClientHandler_UpdateJWT_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -814,7 +814,7 @@ func TestClientHandler_UpdateJWT_NotEnabled(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -842,7 +842,7 @@ func TestClientHandler_UpdateJWT_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -863,7 +863,7 @@ func TestClientHandler_UpdateJWT_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -879,7 +879,7 @@ func TestClientHandler_UpdateClientMTLS_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -911,7 +911,7 @@ func TestClientHandler_UpdateClientMTLS_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -932,7 +932,7 @@ func TestClientHandler_UpdateClientMTLS_NotFound(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -955,7 +955,7 @@ func TestClientHandler_UpdateClientMTLS_NotMember(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := &models.User{ID: uuid.New(), Role: models.UserRoleUser}
 	clientID := uuid.New()
@@ -981,7 +981,7 @@ func TestClientHandler_DeleteClientMTLS_Success(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1010,7 +1010,7 @@ func TestClientHandler_DeleteClientMTLS_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -1031,7 +1031,7 @@ func TestClientHandler_DeleteClientMTLS_NotFound(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1054,7 +1054,7 @@ func TestClientHandler_ListIPs_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -1070,7 +1070,7 @@ func TestClientHandler_ListIPs_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -1089,7 +1089,7 @@ func TestClientHandler_ListIPs_ClientNotFound(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1110,7 +1110,7 @@ func TestClientHandler_ListIPs_ServiceError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1136,7 +1136,7 @@ func TestClientHandler_AddIP_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -1152,7 +1152,7 @@ func TestClientHandler_AddIP_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -1171,7 +1171,7 @@ func TestClientHandler_RemoveIP_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -1187,7 +1187,7 @@ func TestClientHandler_RemoveIP_InvalidClientID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -1206,7 +1206,7 @@ func TestClientHandler_RemoveIP_InvalidIPID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1226,7 +1226,7 @@ func TestClientHandler_ListIPs_Forbidden(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := &models.User{ID: uuid.New(), Role: models.UserRoleUser}
 	clientID := uuid.New()
@@ -1252,7 +1252,7 @@ func TestClientHandler_AddIP_Forbidden(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := &models.User{ID: uuid.New(), Role: models.UserRoleUser}
 	clientID := uuid.New()
@@ -1281,7 +1281,7 @@ func TestClientHandler_RemoveIP_Forbidden(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := &models.User{ID: uuid.New(), Role: models.UserRoleUser}
 	clientID := uuid.New()
@@ -1308,7 +1308,7 @@ func TestClientHandler_GenerateAPIKey_ServiceError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1335,7 +1335,7 @@ func TestClientHandler_GenerateAPIKey_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -1356,7 +1356,7 @@ func TestClientHandler_RevokeAPIKey_ServiceError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1383,7 +1383,7 @@ func TestClientHandler_RevokeAPIKey_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -1404,7 +1404,7 @@ func TestClientHandler_RevokeAPIKey_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	router := gin.New()
 	router.DELETE("/clients/:clientId/api-key", func(c *gin.Context) {
@@ -1422,7 +1422,7 @@ func TestClientHandler_ConfigureJWT_BadBody(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1450,7 +1450,7 @@ func TestClientHandler_ConfigureJWT_ServiceError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1483,7 +1483,7 @@ func TestClientHandler_ConfigureJWT_InternalError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1516,7 +1516,7 @@ func TestClientHandler_RemoveJWT_ServiceError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1543,7 +1543,7 @@ func TestClientHandler_RemoveJWT_InternalError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1570,7 +1570,7 @@ func TestClientHandler_RemoveJWT_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -1586,7 +1586,7 @@ func TestClientHandler_RemoveJWT_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -1607,7 +1607,7 @@ func TestClientHandler_ConfigureJWT_NoUser(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -1623,7 +1623,7 @@ func TestClientHandler_ConfigureJWT_InvalidID(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 
@@ -1644,7 +1644,7 @@ func TestClientHandler_Create_ServiceError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	teamID := uuid.New()
@@ -1671,7 +1671,7 @@ func TestClientHandler_Update_ServiceError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1701,7 +1701,7 @@ func TestClientHandler_UpdateClientMTLS_ServiceError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1732,7 +1732,7 @@ func TestClientHandler_DeleteClientMTLS_ServiceError(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := testUser()
 	clientID := uuid.New()
@@ -1760,7 +1760,7 @@ func TestClientHandler_DeleteClientMTLS_NotMember(t *testing.T) {
 	mockClient := new(mocks.MockClientService)
 	mockAudit := new(mocks.MockAuditService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
-	h := handlers.NewClientHandler(mockClient, mockAudit, mockTeamRepo)
+	h := handlers.NewClientHandler(mockClient, mockAudit, permsFor(mockTeamRepo))
 
 	user := &models.User{ID: uuid.New(), Role: models.UserRoleUser}
 	clientID := uuid.New()

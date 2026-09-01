@@ -1,0 +1,30 @@
+DomainID: 44444444-4444-4444-4444-444444444444
+ExtProc:
+- BackendRef:
+    Name: ext-processor
+    Namespace: processing-ns
+    Port: 9001
+  FailOpen: true
+  ProcessingMode: null
+GatewayID: 44444444-4444-4444-4444-444444444444
+Lua:
+- Inline: function envoy_on_response(handle) end
+  Type: Inline
+  ValueRef: null
+Name: eg-eep
+Namespace: gateway-ns
+RouteID: ""
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Wasm:
+- Code:
+    HTTP:
+      SHA256: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+      URL: https://example.com/filter.wasm
+    Image: null
+    Type: HTTP
+  Config: '{"mode":"strict"}'
+  Name: my-wasm-filter
+  RootID: my-root
