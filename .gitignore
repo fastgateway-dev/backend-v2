@@ -29,6 +29,10 @@
 *.out
 dist/
 
+# Build products of the tools module (tools/go.mod): `make mocks` compiles
+# mockery to ./bin rather than installing it into the root module.
+/bin/
+
 # OS
 .DS_Store
 

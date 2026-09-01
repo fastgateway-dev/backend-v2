@@ -14,11 +14,6 @@ import (
 
 // validateBackendNamespaces validates that all backend and mirror namespaces are managed by the project
 func (s *RouteService) validateBackendNamespaces(projectID uuid.UUID, config *models.RouteConfig) error {
-	if s.projectNamespaceRepo == nil {
-		// If repository is not set, skip validation (backwards compatibility)
-		return nil
-	}
-
 	// Validate primary backend namespaces
 	for _, backend := range config.Backends {
 		// Empty namespace or fastgateway-system namespace is always allowed

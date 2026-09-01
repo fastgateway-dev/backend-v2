@@ -44,10 +44,6 @@ func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route
 		return nil, err
 	}
 
-	if s.k8sService == nil {
-		return nil, errors.New("kubernetes service not configured")
-	}
-
 	ctx := context.Background()
 
 	// Safety net: ensure ReferenceGrants include this domain's namespace
@@ -73,13 +69,13 @@ func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route
 		// Create route in Kubernetes (HTTPRoute or GRPCRoute based on protocol)
 		if route.Protocol == models.RouteProtocolGRPC {
 			grpcRouteConfig := s.buildGRPCRouteConfig(route, domain)
-			if err := s.k8sService.CreateGRPCRoute(ctx, domain.ProjectID, grpcRouteConfig); err != nil {
+			if err := s.k8sRoutes.CreateGRPCRoute(ctx, domain.ProjectID, grpcRouteConfig); err != nil {
 				log.Printf("Failed to create GRPCRoute in Kubernetes: %v", err)
 				return nil, fmt.Errorf("failed to create GRPCRoute in Kubernetes: %w", err)
 			}
 		} else {
 			httpRouteConfig := s.buildHTTPRouteConfig(route, domain)
-			if err := s.k8sService.CreateHTTPRoute(ctx, domain.ProjectID, httpRouteConfig); err != nil {
+			if err := s.k8sRoutes.CreateHTTPRoute(ctx, domain.ProjectID, httpRouteConfig); err != nil {
 				log.Printf("Failed to create HTTPRoute in Kubernetes: %v", err)
 				return nil, fmt.Errorf("failed to create HTTPRoute in Kubernetes: %w", err)
 			}
@@ -145,13 +141,13 @@ func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route
 		// Update route in Kubernetes (HTTPRoute or GRPCRoute based on protocol)
 		if route.Protocol == models.RouteProtocolGRPC {
 			grpcRouteConfig := s.buildGRPCRouteConfig(route, domain)
-			if err := s.k8sService.UpdateGRPCRoute(ctx, domain.ProjectID, grpcRouteConfig); err != nil {
+			if err := s.k8sRoutes.UpdateGRPCRoute(ctx, domain.ProjectID, grpcRouteConfig); err != nil {
 				log.Printf("Failed to update GRPCRoute in Kubernetes: %v", err)
 				return nil, fmt.Errorf("failed to update GRPCRoute in Kubernetes: %w", err)
 			}
 		} else {
 			httpRouteConfig := s.buildHTTPRouteConfig(route, domain)
-			if err := s.k8sService.UpdateHTTPRoute(ctx, domain.ProjectID, httpRouteConfig); err != nil {
+			if err := s.k8sRoutes.UpdateHTTPRoute(ctx, domain.ProjectID, httpRouteConfig); err != nil {
 				log.Printf("Failed to update HTTPRoute in Kubernetes: %v", err)
 				return nil, fmt.Errorf("failed to update HTTPRoute in Kubernetes: %w", err)
 			}
@@ -223,12 +219,12 @@ func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route
 
 		// Delete route from Kubernetes (HTTPRoute or GRPCRoute based on protocol)
 		if route.Protocol == models.RouteProtocolGRPC {
-			if err := s.k8sService.DeleteGRPCRoute(ctx, domain.ProjectID, domain.Namespace, route.K8sRouteName); err != nil {
+			if err := s.k8sRoutes.DeleteGRPCRoute(ctx, domain.ProjectID, domain.Namespace, route.K8sRouteName); err != nil {
 				log.Printf("Failed to delete GRPCRoute from Kubernetes: %v", err)
 				return nil, fmt.Errorf("failed to delete GRPCRoute from Kubernetes: %w", err)
 			}
 		} else {
-			if err := s.k8sService.DeleteHTTPRoute(ctx, domain.ProjectID, domain.Namespace, route.K8sRouteName); err != nil {
+			if err := s.k8sRoutes.DeleteHTTPRoute(ctx, domain.ProjectID, domain.Namespace, route.K8sRouteName); err != nil {
 				log.Printf("Failed to delete HTTPRoute from Kubernetes: %v", err)
 				return nil, fmt.Errorf("failed to delete HTTPRoute from Kubernetes: %w", err)
 			}
@@ -252,15 +248,13 @@ func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route
 		}
 
 		// Delete client attachment approvals before route deletion cascade-deletes attachments
-		if s.clientAttachmentRepo != nil {
-			attachments, listErr := s.clientAttachmentRepo.ListByRouteID(route.ID)
-			if listErr != nil {
-				log.Printf("Failed to list attachments for approval cleanup on route %s: %v", route.ID, listErr)
-			}
-			for _, att := range attachments {
-				if err := s.approvalRepo.DeleteByEntityID(models.ApprovalEntityClientAttachment, att.ID); err != nil {
-					log.Printf("Failed to delete approvals for attachment %s: %v", att.ID, err)
-				}
+		attachments, listErr := s.clientAttachmentRepo.ListByRouteID(route.ID)
+		if listErr != nil {
+			log.Printf("Failed to list attachments for approval cleanup on route %s: %v", route.ID, listErr)
+		}
+		for _, att := range attachments {
+			if err := s.approvalRepo.DeleteByEntityID(models.ApprovalEntityClientAttachment, att.ID); err != nil {
+				log.Printf("Failed to delete approvals for attachment %s: %v", att.ID, err)
 			}
 		}
 
@@ -281,17 +275,15 @@ func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route
 	// would be redundant. Deploy's entry guard rejects anything that is not
 	// approved or pending_deploy, so To is never on its no-op path and no
 	// route field mutation can be dropped (Deploy mutates no other field).
-	if err := s.state.To(route, models.RouteStatusActive,
+	if err := s.state.To(SiteDeploy, route, models.RouteStatusActive,
 		fmt.Sprintf("deploy succeeded (action %s)", approval.Action)); err != nil {
 		return nil, err
 	}
 
-	// Create version snapshot after successful deploy
-	if s.routeVersionService != nil {
-		if err := s.routeVersionService.CreateVersion(route, approval, deployedBy); err != nil {
-			log.Printf("Failed to create route version: %v", err)
-			// Non-fatal: deploy succeeded, version tracking is best-effort
-		}
+	// Create version snapshot after successful deploy.
+	if err := s.routeVersions.CreateVersion(route, approval, deployedBy); err != nil {
+		log.Printf("Failed to create route version: %v", err)
+		// Non-fatal: deploy succeeded, version tracking is best-effort
 	}
 
 	return route, nil
@@ -303,11 +295,9 @@ func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route
 func (s *RouteService) deploySecurityPolicy(ctx context.Context, route *models.Route, domain *models.Domain) error {
 	// Get SecurityPolicy from database
 	var policy *models.SecurityPolicy
-	if s.securityPolicyRepo != nil {
-		p, err := s.securityPolicyRepo.GetByRouteID(route.ID)
-		if err == nil {
-			policy = p
-		}
+	p, err := s.securityPolicyRepo.GetByRouteID(route.ID)
+	if err == nil {
+		policy = p
 	}
 
 	// General mode: build SecurityPolicy directly from stored config
@@ -387,11 +377,11 @@ func (s *RouteService) deploySecurityPolicy(ctx context.Context, route *models.R
 	// Check if there's actually anything to deploy
 	if config.CORS == nil && config.Authorization == nil {
 		// No security features to deploy; delete existing SecurityPolicy if any
-		return s.k8sService.DeleteSecurityPolicy(ctx, domain.ProjectID, domain.Namespace, config.Name)
+		return s.k8sPolicies.DeleteSecurityPolicy(ctx, domain.ProjectID, domain.Namespace, config.Name)
 	}
 
 	// Create or update SecurityPolicy in Kubernetes
-	return s.k8sService.UpdateSecurityPolicy(ctx, domain.ProjectID, config)
+	return s.k8sPolicies.UpdateSecurityPolicy(ctx, domain.ProjectID, config)
 }
 
 // deployGeneralSecurityPolicy deploys SecurityPolicy for general mode routes
@@ -402,18 +392,18 @@ func (s *RouteService) deployGeneralSecurityPolicy(ctx context.Context, route *m
 		policyName := kubernetes.SecurityPolicyName(route.K8sRouteName)
 		// Also clean up ext-auth backend if it exists (legacy cleanup)
 		extAuthBackendName := kubernetes.GenerateExtAuthBackendName(route.ID.String(), "")
-		_ = s.k8sService.DeleteBackend(ctx, domain.ProjectID, domain.Namespace, extAuthBackendName)
-		return s.k8sService.DeleteSecurityPolicy(ctx, domain.ProjectID, domain.Namespace, policyName)
+		_ = s.k8sBackends.DeleteBackend(ctx, domain.ProjectID, domain.Namespace, extAuthBackendName)
+		return s.k8sPolicies.DeleteSecurityPolicy(ctx, domain.ProjectID, domain.Namespace, policyName)
 	}
 
 	// Note: ExtAuth uses direct K8s Service reference in SecurityPolicy, no Backend CRD needed
 	// Clean up any legacy ext-auth Backend CRD that might exist
 	if config.ExtAuth != nil {
 		extAuthBackendName := kubernetes.GenerateExtAuthBackendName(route.ID.String(), "")
-		_ = s.k8sService.DeleteBackend(ctx, domain.ProjectID, domain.Namespace, extAuthBackendName)
+		_ = s.k8sBackends.DeleteBackend(ctx, domain.ProjectID, domain.Namespace, extAuthBackendName)
 	}
 
-	return s.k8sService.UpdateSecurityPolicy(ctx, domain.ProjectID, config)
+	return s.k8sPolicies.UpdateSecurityPolicy(ctx, domain.ProjectID, config)
 }
 
 // deleteSecurityPolicy deletes SecurityPolicy from Kubernetes
@@ -423,16 +413,14 @@ func (s *RouteService) deleteSecurityPolicy(ctx context.Context, route *models.R
 
 	// Always delete from Kubernetes (client-mode routes create k8s SecurityPolicies
 	// without a DB security_policies record, so we can't gate on DB lookup)
-	if err := s.k8sService.DeleteSecurityPolicy(ctx, domain.ProjectID, domain.Namespace, securityPolicyName); err != nil {
+	if err := s.k8sPolicies.DeleteSecurityPolicy(ctx, domain.ProjectID, domain.Namespace, securityPolicyName); err != nil {
 		log.Printf("Failed to delete SecurityPolicy %s from Kubernetes: %v", securityPolicyName, err)
 	}
 
 	// Delete from database if a record exists
-	if s.securityPolicyRepo != nil {
-		policy, err := s.securityPolicyRepo.GetByRouteID(route.ID)
-		if err == nil {
-			return s.securityPolicyRepo.Delete(policy.ID)
-		}
+	policy, err := s.securityPolicyRepo.GetByRouteID(route.ID)
+	if err == nil {
+		return s.securityPolicyRepo.Delete(policy.ID)
 	}
 
 	return nil
@@ -440,11 +428,6 @@ func (s *RouteService) deleteSecurityPolicy(ctx context.Context, route *models.R
 
 // deployBackendTrafficPolicy deploys BackendTrafficPolicy to Kubernetes if configured
 func (s *RouteService) deployBackendTrafficPolicy(ctx context.Context, route *models.Route, domain *models.Domain) error {
-	if s.backendTrafficPolicyRepo == nil {
-		// BackendTrafficPolicy repository not configured, skip
-		return nil
-	}
-
 	// Get BackendTrafficPolicy from database
 	policy, err := s.backendTrafficPolicyRepo.GetByRouteID(route.ID)
 	if err != nil {
@@ -459,15 +442,11 @@ func (s *RouteService) deployBackendTrafficPolicy(ctx context.Context, route *mo
 	}
 
 	// Create or update BackendTrafficPolicy in Kubernetes
-	return s.k8sService.UpdateBackendTrafficPolicy(ctx, domain.ProjectID, btpConfig)
+	return s.k8sPolicies.UpdateBackendTrafficPolicy(ctx, domain.ProjectID, btpConfig)
 }
 
 // deleteBackendTrafficPolicy deletes BackendTrafficPolicy from Kubernetes
 func (s *RouteService) deleteBackendTrafficPolicy(ctx context.Context, route *models.Route, domain *models.Domain) error {
-	if s.backendTrafficPolicyRepo == nil {
-		return nil
-	}
-
 	// Check if BackendTrafficPolicy exists for this route
 	policy, err := s.backendTrafficPolicyRepo.GetByRouteID(route.ID)
 	if err != nil {
@@ -479,7 +458,7 @@ func (s *RouteService) deleteBackendTrafficPolicy(ctx context.Context, route *mo
 	btpName := kubernetes.BackendTrafficPolicyName(route.K8sRouteName)
 
 	// Delete from Kubernetes
-	if err := s.k8sService.DeleteBackendTrafficPolicy(ctx, domain.ProjectID, domain.Namespace, btpName); err != nil {
+	if err := s.k8sPolicies.DeleteBackendTrafficPolicy(ctx, domain.ProjectID, domain.Namespace, btpName); err != nil {
 		return err
 	}
 
@@ -491,15 +470,11 @@ func (s *RouteService) deleteBackendTrafficPolicy(ctx context.Context, route *mo
 func (s *RouteService) deployEnvoyExtensionPolicy(ctx context.Context, route *models.Route, domain *models.Domain) error {
 	// Get EnvoyExtensionPolicy from database (may be nil)
 	var policy *models.EnvoyExtensionPolicy
-	if s.envoyExtensionPolicyRepo != nil {
-		policy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
-	}
+	policy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
 
 	// Get WafPolicy from database (may be nil)
 	var wafPolicy *models.WafPolicy
-	if s.wafPolicyRepo != nil {
-		wafPolicy, _ = s.wafPolicyRepo.GetByRouteID(route.ID)
-	}
+	wafPolicy, _ = s.wafPolicyRepo.GetByRouteID(route.ID)
 
 	// Handle ext-proc Backend CRD lifecycle
 	extProcBackendName := kubernetes.GenerateExtProcBackendName(route.ID.String())
@@ -518,13 +493,13 @@ func (s *RouteService) deployEnvoyExtensionPolicy(ctx context.Context, route *mo
 		}
 		backend := kubernetes.BuildExtProcBackend(backendConfig)
 		if backend != nil {
-			if err := s.k8sService.UpdateBackendUnstructured(ctx, domain.ProjectID, backend); err != nil {
+			if err := s.k8sBackends.UpdateBackendUnstructured(ctx, domain.ProjectID, backend); err != nil {
 				return fmt.Errorf("failed to create/update ext-proc Backend: %w", err)
 			}
 		}
 	} else {
 		// Delete ext-proc Backend CRD if ext-proc was removed
-		_ = s.k8sService.DeleteBackend(ctx, domain.ProjectID, domain.Namespace, extProcBackendName)
+		_ = s.k8sBackends.DeleteBackend(ctx, domain.ProjectID, domain.Namespace, extProcBackendName)
 	}
 
 	// Build EnvoyExtensionPolicy config for Kubernetes (merged)
@@ -532,7 +507,7 @@ func (s *RouteService) deployEnvoyExtensionPolicy(ctx context.Context, route *mo
 	if extConfig == nil {
 		// No extensions to deploy - delete any existing policy if present
 		eepName := kubernetes.EnvoyExtensionPolicyName(route.K8sRouteName)
-		s.k8sService.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName)
+		s.k8sPolicies.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName)
 		return nil
 	}
 
@@ -543,27 +518,23 @@ func (s *RouteService) deployEnvoyExtensionPolicy(ctx context.Context, route *mo
 	}
 
 	// Create or update EnvoyExtensionPolicy in Kubernetes
-	return s.k8sService.UpdateEnvoyExtensionPolicy(ctx, domain.ProjectID, extPolicy)
+	return s.k8sPolicies.UpdateEnvoyExtensionPolicy(ctx, domain.ProjectID, extPolicy)
 }
 
 // deleteEnvoyExtensionPolicy deletes EnvoyExtensionPolicy from Kubernetes
 func (s *RouteService) deleteEnvoyExtensionPolicy(ctx context.Context, route *models.Route, domain *models.Domain) error {
 	// Check if EnvoyExtensionPolicy exists for this route
 	var policy *models.EnvoyExtensionPolicy
-	if s.envoyExtensionPolicyRepo != nil {
-		p, err := s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
-		if err == nil {
-			policy = p
-		}
+	p, err := s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
+	if err == nil {
+		policy = p
 	}
 
 	// Check if WafPolicy exists for this route
 	var wafPolicy *models.WafPolicy
-	if s.wafPolicyRepo != nil {
-		w, err := s.wafPolicyRepo.GetByRouteID(route.ID)
-		if err == nil {
-			wafPolicy = w
-		}
+	w, err := s.wafPolicyRepo.GetByRouteID(route.ID)
+	if err == nil {
+		wafPolicy = w
 	}
 
 	// If neither EnvoyExtensionPolicy nor WafPolicy exists, nothing to delete
@@ -573,18 +544,18 @@ func (s *RouteService) deleteEnvoyExtensionPolicy(ctx context.Context, route *mo
 
 	// Delete ext-proc Backend CRD if it exists
 	extProcBackendName := kubernetes.GenerateExtProcBackendName(route.ID.String())
-	_ = s.k8sService.DeleteBackend(ctx, domain.ProjectID, domain.Namespace, extProcBackendName)
+	_ = s.k8sBackends.DeleteBackend(ctx, domain.ProjectID, domain.Namespace, extProcBackendName)
 
 	// Build the envoy extension policy name
 	eepName := kubernetes.EnvoyExtensionPolicyName(route.K8sRouteName)
 
 	// Delete from Kubernetes (the CRD contains both Lua/Wasm and WAF configurations)
-	if err := s.k8sService.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName); err != nil {
+	if err := s.k8sPolicies.DeleteEnvoyExtensionPolicy(ctx, domain.ProjectID, domain.Namespace, eepName); err != nil {
 		return err
 	}
 
 	// Delete EnvoyExtensionPolicy from database (WAF is deleted by CASCADE on route deletion)
-	if policy != nil && s.envoyExtensionPolicyRepo != nil {
+	if policy != nil {
 		return s.envoyExtensionPolicyRepo.Delete(policy.ID)
 	}
 
@@ -711,7 +682,7 @@ func (s *RouteService) deployDirectResponse(ctx context.Context, route *models.R
 			RouteID:     route.ID.String(),
 			BodyContent: route.Config.DirectResponse.Body.Inline,
 		}
-		if err := s.k8sService.ApplyDirectResponseConfigMap(ctx, domain.ProjectID, cmConfig); err != nil {
+		if err := s.k8sRoutes.ApplyDirectResponseConfigMap(ctx, domain.ProjectID, cmConfig); err != nil {
 			return fmt.Errorf("failed to apply ConfigMap: %w", err)
 		}
 	}
@@ -741,7 +712,7 @@ func (s *RouteService) deployDirectResponse(ctx context.Context, route *models.R
 		}
 	}
 
-	if err := s.k8sService.ApplyHTTPRouteFilter(ctx, domain.ProjectID, hrfConfig); err != nil {
+	if err := s.k8sRoutes.ApplyHTTPRouteFilter(ctx, domain.ProjectID, hrfConfig); err != nil {
 		return fmt.Errorf("failed to apply HTTPRouteFilter: %w", err)
 	}
 
@@ -759,12 +730,12 @@ func (s *RouteService) deleteDirectResponse(ctx context.Context, route *models.R
 	cmName := route.K8sRouteName + "-dr-cm"
 
 	// Delete HTTPRouteFilter
-	if err := s.k8sService.DeleteHTTPRouteFilter(ctx, domain.ProjectID, domain.Namespace, hrfName); err != nil {
+	if err := s.k8sRoutes.DeleteHTTPRouteFilter(ctx, domain.ProjectID, domain.Namespace, hrfName); err != nil {
 		log.Printf("Warning: failed to delete HTTPRouteFilter %s: %v", hrfName, err)
 	}
 
 	// Delete ConfigMap
-	if err := s.k8sService.DeleteDirectResponseConfigMap(ctx, domain.ProjectID, domain.Namespace, cmName); err != nil {
+	if err := s.k8sRoutes.DeleteDirectResponseConfigMap(ctx, domain.ProjectID, domain.Namespace, cmName); err != nil {
 		log.Printf("Warning: failed to delete ConfigMap %s: %v", cmName, err)
 	}
 
@@ -837,7 +808,7 @@ func (s *RouteService) deployBackends(ctx context.Context, route *models.Route, 
 				}
 			}
 
-			if err := s.k8sService.UpdateBackend(ctx, domain.ProjectID, backendConfig); err != nil {
+			if err := s.k8sBackends.UpdateBackend(ctx, domain.ProjectID, backendConfig); err != nil {
 				return fmt.Errorf("failed to create/update Backend CRD for %s: %w", backendName, err)
 			}
 		}
@@ -847,7 +818,7 @@ func (s *RouteService) deployBackends(ctx context.Context, route *models.Route, 
 
 // deleteBackends deletes all Backend CRDs associated with a route
 func (s *RouteService) deleteBackends(ctx context.Context, route *models.Route, domain *models.Domain) error {
-	return s.k8sService.DeleteBackendsByRoute(ctx, domain.ProjectID, domain.Namespace, route.ID.String())
+	return s.k8sBackendReaper.DeleteBackendsByRoute(ctx, domain.ProjectID, domain.Namespace, route.ID.String())
 }
 
 // cleanupStaleBackends deletes Backend CRDs that are no longer in the route config.
@@ -867,7 +838,7 @@ func (s *RouteService) cleanupStaleBackends(ctx context.Context, route *models.R
 	}
 
 	// Delete only backends that are no longer expected
-	return s.k8sService.DeleteStaleBackendsByRoute(ctx, domain.ProjectID, domain.Namespace, route.ID.String(), expectedNames)
+	return s.k8sBackendReaper.DeleteStaleBackendsByRoute(ctx, domain.ProjectID, domain.Namespace, route.ID.String(), expectedNames)
 }
 
 // buildSecurityPolicyConfig builds kubernetes.SecurityPolicyConfig from route, domain and security policy

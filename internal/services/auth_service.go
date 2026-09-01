@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/fastgateway-dev/backend-v2/internal/config"
@@ -15,31 +16,84 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// SSOPolicy reports whether a user must authenticate through SSO.
+// It is all AuthService needs from the SSO side (auth_service.go Login).
+//
+// AuthService declares it rather than importing *SSOService: SSOService needs
+// *AuthService as its TokenIssuer, so a concrete dependency here would be a
+// construction cycle. *ForceSSOPolicy and *SSOService both satisfy it; main.go
+// passes the former, which needs only the SSO config repository and so can be
+// built before either service.
+type SSOPolicy interface {
+	ShouldForceSSO(email string, role models.UserRole) bool
+}
+
+// TokenExpirySettings is the only thing AuthService needs from
+// SystemSettingsService: the effective token lifetimes, which fall back to the
+// process configuration when no setting is stored.
+// *SystemSettingsService satisfies it structurally.
+type TokenExpirySettings interface {
+	GetJWTExpiry() time.Duration
+	GetRefreshTokenExpiry() time.Duration
+}
+
 // AuthService handles authentication logic
 type AuthService struct {
-	userRepo              repository.UserRepositoryInterface
-	apiTokenRepo          repository.APITokenRepositoryInterface
-	config                *config.Config
-	ssoService            *SSOService
-	systemSettingsService *SystemSettingsService
+	userRepo     repository.UserRepositoryInterface
+	apiTokenRepo repository.APITokenRepositoryInterface
+	config       *config.Config
+	sso          SSOPolicy
+	settings     TokenExpirySettings
 }
 
-// SetSSOService sets the SSO service reference (used for force-SSO checks in Login)
-func (s *AuthService) SetSSOService(sso *SSOService) {
-	s.ssoService = sso
+// AuthServiceDeps carries everything AuthService needs. Every field is
+// required: before Phase 2E SSO and Settings arrived through SetSSOService and
+// SetSystemSettingsService, and three nil-guards existed to tolerate the ones
+// that might not have been called.
+type AuthServiceDeps struct {
+	UserRepo     repository.UserRepositoryInterface
+	APITokenRepo repository.APITokenRepositoryInterface
+	Config       *config.Config
+
+	// SSO decides whether a user is barred from password login. See SSOPolicy.
+	SSO SSOPolicy
+
+	// Settings supplies the effective access/refresh token lifetimes.
+	// See TokenExpirySettings.
+	Settings TokenExpirySettings
 }
 
-// SetSystemSettingsService sets the system settings service reference
-func (s *AuthService) SetSystemSettingsService(ss *SystemSettingsService) {
-	s.systemSettingsService = ss
-}
+// NewAuthService builds a fully-wired AuthService. It panics if a required
+// dependency is missing: before Phase 2E these arrived through setters after
+// construction, so a forgotten wiring line degraded silently at runtime
+// instead of failing at start-up. Master design section 6.6.
+func NewAuthService(deps AuthServiceDeps) *AuthService {
+	var missing []string
+	if deps.UserRepo == nil {
+		missing = append(missing, "UserRepo")
+	}
+	if deps.APITokenRepo == nil {
+		missing = append(missing, "APITokenRepo")
+	}
+	if deps.Config == nil {
+		missing = append(missing, "Config")
+	}
+	if deps.SSO == nil {
+		missing = append(missing, "SSO")
+	}
+	if deps.Settings == nil {
+		missing = append(missing, "Settings")
+	}
+	if len(missing) > 0 {
+		panic("services.NewAuthService: missing required dependency: " + strings.Join(missing, ", "))
+	}
 
-// NewAuthService creates a new auth service
-func NewAuthService(userRepo repository.UserRepositoryInterface, apiTokenRepo repository.APITokenRepositoryInterface, cfg *config.Config) *AuthService {
 	return &AuthService{
-		userRepo:     userRepo,
-		apiTokenRepo: apiTokenRepo,
-		config:       cfg,
+		userRepo:     deps.UserRepo,
+		apiTokenRepo: deps.APITokenRepo,
+		config:       deps.Config,
+		sso:          deps.SSO,
+		settings:     deps.Settings,
 	}
 }
 
@@ -75,8 +129,8 @@ func (s *AuthService) Login(username, password string) (*LoginResponse, error) {
 		return nil, errors.New("please use SSO to log in")
 	}
 
-	// Check if force SSO applies to this user
-	if s.ssoService != nil && s.ssoService.ShouldForceSSO(user.Email, user.Role) {
+	// Check if force SSO applies to this user.
+	if s.sso.ShouldForceSSO(user.Email, user.Role) {
 		return nil, errors.New("please use SSO to log in")
 	}
 
@@ -298,11 +352,9 @@ func (s *AuthService) GenerateTokensForUser(user *models.User) (accessToken, ref
 }
 
 func (s *AuthService) generateAccessToken(user *models.User) (string, time.Time, error) {
-	jwtExpiry := s.config.JWTExpiry
-	if s.systemSettingsService != nil {
-		jwtExpiry = s.systemSettingsService.GetJWTExpiry()
-	}
-	expiresAt := time.Now().Add(jwtExpiry)
+	// SystemSettingsService.GetJWTExpiry falls back to config.JWTExpiry when
+	// nothing is stored, so there is no second fallback to make here.
+	expiresAt := time.Now().Add(s.settings.GetJWTExpiry())
 	claims := &Claims{
 		UserID:   user.ID.String(),
 		Username: user.Username,
@@ -324,11 +376,9 @@ func (s *AuthService) generateAccessToken(user *models.User) (string, time.Time,
 }
 
 func (s *AuthService) generateRefreshToken(user *models.User) (string, error) {
-	refreshExpiry := s.config.RefreshTokenExpiry
-	if s.systemSettingsService != nil {
-		refreshExpiry = s.systemSettingsService.GetRefreshTokenExpiry()
-	}
-	expiresAt := time.Now().Add(refreshExpiry)
+	// SystemSettingsService.GetRefreshTokenExpiry falls back to
+	// config.RefreshTokenExpiry when nothing is stored.
+	expiresAt := time.Now().Add(s.settings.GetRefreshTokenExpiry())
 	claims := &Claims{
 		UserID:   user.ID.String(),
 		Username: user.Username,

@@ -14,11 +14,11 @@ import (
 type ProjectHandler struct {
 	projectService services.ProjectServiceInterface
 	auditService   services.AuditServiceInterface
-	k8sService     services.KubernetesServiceInterface
+	k8sService     services.RateLimitProbe
 }
 
 // NewProjectHandler creates a new project handler
-func NewProjectHandler(projectService services.ProjectServiceInterface, auditService services.AuditServiceInterface, k8sService services.KubernetesServiceInterface) *ProjectHandler {
+func NewProjectHandler(projectService services.ProjectServiceInterface, auditService services.AuditServiceInterface, k8sService services.RateLimitProbe) *ProjectHandler {
 	return &ProjectHandler{
 		projectService: projectService,
 		auditService:   auditService,

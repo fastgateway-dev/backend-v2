@@ -293,17 +293,18 @@ func TestDifferentialSecurityPolicy(t *testing.T) {
 // coverage only.
 //
 // Its EnableAPIKey branch is NOT reachable as a pure function: it calls
-// s.k8sService.GetAPIKeySecretName(...), and k8sService is declared as the
-// KubernetesServiceInterface *interface* type (route_service.go:26), not a
-// concrete *cluster.Client. On a zero-value RouteService{} that field is a
-// nil interface, and calling a method through a nil interface panics --
-// unlike a nil concrete pointer receiver, there is no method table to
-// dispatch through. Confirmed by running it: panics at route_clients_apikey.go:518
-// with "invalid memory address or nil pointer dereference". A fixture
-// exercising EnableAPIKey would need a hand-written stub implementing the
-// full KubernetesServiceInterface, which is out of scope here.
+// s.k8sAPIKeys.GetAPIKeySecretName(...), and k8sAPIKeys is declared as the
+// APIKeySecretApplier *interface* type (route_service.go), not a concrete
+// *cluster.Client. On a zero-value RouteService{} that field is a nil
+// interface, and calling a method through a nil interface panics -- unlike a
+// nil concrete pointer receiver, there is no method table to dispatch
+// through. Confirmed by running it: panics in route_clients_apikey.go with
+// "invalid memory address or nil pointer dereference". A fixture exercising
+// EnableAPIKey would need a stub implementing APIKeySecretApplier, which is
+// out of scope here. (Before Phase 2E Task 7 the stub would have had to
+// implement all 58 methods of KubernetesServiceInterface.)
 //
-// The JWT branch below does not touch s.k8sService at all (verified by
+// The JWT branch below does not touch s.k8sAPIKeys at all (verified by
 // reading route_clients_apikey.go:520-530: no further use of the receiver once
 // past the EnableAPIKey block), so it is reachable and gives real coverage
 // of the JWT-with-required-claims + IP-combination logic in this site.

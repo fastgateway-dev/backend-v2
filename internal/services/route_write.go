@@ -27,7 +27,7 @@ func (s *RouteService) ensureReferenceGrantsForDomain(ctx context.Context, route
 			continue
 		}
 		rgName := generateReferenceGrantName(domain.ProjectID, ns)
-		exists, _ := s.k8sService.ReferenceGrantExists(ctx, domain.ProjectID, ns, rgName)
+		exists, _ := s.k8sRefGrants.ReferenceGrantExists(ctx, domain.ProjectID, ns, rgName)
 		if !exists {
 			log.Printf("Deploy safety net: ReferenceGrant missing in %s for domain %s, skipping (will be created on next namespace sync)", ns, domain.Namespace)
 		}
@@ -333,22 +333,20 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 	}
 
 	// Check if approvals are disabled for this project
-	if s.projectRepo != nil {
-		project, err := s.projectRepo.GetByID(domain.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	project, err := s.projectRepo.GetByID(domain.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	}
+	if !project.ApprovalEnabled {
+		// Skip approval — set route directly to approved.
+		// route was just persisted at pending_create (struct literal
+		// above), so this is pending_create -> approved and To always
+		// writes; nothing else has been mutated since routeRepo.Create.
+		if err := s.state.To(SiteRouteCreateFastPath, route, models.RouteStatusApproved,
+			"route created, project approvals disabled"); err != nil {
+			return nil, err
 		}
-		if !project.ApprovalEnabled {
-			// Skip approval — set route directly to approved.
-			// route was just persisted at pending_create (struct literal
-			// above), so this is pending_create -> approved and To always
-			// writes; nothing else has been mutated since routeRepo.Create.
-			if err := s.state.To(route, models.RouteStatusApproved,
-				"route created, project approvals disabled"); err != nil {
-				return nil, err
-			}
-			return route, nil
-		}
+		return route, nil
 	}
 
 	configSnapshot, _ := json.Marshal(models.RouteApprovalSnapshot{
@@ -376,7 +374,7 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 	}
 
 	// Create SecurityPolicy if provided
-	if input.SecurityPolicy != nil && s.securityPolicyRepo != nil {
+	if input.SecurityPolicy != nil {
 		spConfig := models.SecurityPolicyConfig{
 			CORS: input.SecurityPolicy.CORS,
 		}
@@ -399,7 +397,7 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 	}
 
 	// Create BackendTrafficPolicy if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.HasContent() && s.backendTrafficPolicyRepo != nil {
+	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.HasContent() {
 		backendTrafficPolicy := &models.BackendTrafficPolicy{
 			RouteID:   &route.ID,
 			ProjectID: domain.ProjectID,
@@ -422,7 +420,7 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 	}
 
 	// Create EnvoyExtensionPolicy if provided
-	if input.ExtensionPolicy != nil && input.ExtensionPolicy.HasContent() && s.envoyExtensionPolicyRepo != nil {
+	if input.ExtensionPolicy != nil && input.ExtensionPolicy.HasContent() {
 		extensionPolicy := &models.EnvoyExtensionPolicy{
 			RouteID:   &route.ID,
 			ProjectID: domain.ProjectID,
@@ -438,7 +436,7 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 	}
 
 	// Create WAF policy if provided
-	if input.WafPolicy != nil && s.wafPolicyRepo != nil {
+	if input.WafPolicy != nil {
 		wafConfig := models.WafPolicyConfig{
 			Mode:             input.WafPolicy.Mode,
 			Rulesets:         input.WafPolicy.Rulesets,
@@ -619,29 +617,23 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 
 	// Capture previous SecurityPolicy config (before update)
 	var previousSecurityPolicy *models.SecurityPolicyConfig
-	if s.securityPolicyRepo != nil {
-		if existingSP, err := s.securityPolicyRepo.GetByRouteID(route.ID); err == nil && existingSP != nil {
-			spConfig := existingSP.Config
-			previousSecurityPolicy = &spConfig
-		}
+	if existingSP, err := s.securityPolicyRepo.GetByRouteID(route.ID); err == nil && existingSP != nil {
+		spConfig := existingSP.Config
+		previousSecurityPolicy = &spConfig
 	}
 
 	// Capture previous BackendTrafficPolicy config (before update)
 	var previousBackendTrafficPolicy *models.BackendTrafficPolicyConfig
-	if s.backendTrafficPolicyRepo != nil {
-		if existingBTP, err := s.backendTrafficPolicyRepo.GetByRouteID(route.ID); err == nil && existingBTP != nil {
-			btpConfig := existingBTP.Config
-			previousBackendTrafficPolicy = &btpConfig
-		}
+	if existingBTP, err := s.backendTrafficPolicyRepo.GetByRouteID(route.ID); err == nil && existingBTP != nil {
+		btpConfig := existingBTP.Config
+		previousBackendTrafficPolicy = &btpConfig
 	}
 
 	// Capture previous EnvoyExtensionPolicy config (before update)
 	var previousEnvoyExtensionPolicy *models.EnvoyExtensionPolicyConfig
-	if s.envoyExtensionPolicyRepo != nil {
-		if existingEEP, err := s.envoyExtensionPolicyRepo.GetByRouteID(route.ID); err == nil && existingEEP != nil {
-			eepConfig := existingEEP.Config
-			previousEnvoyExtensionPolicy = &eepConfig
-		}
+	if existingEEP, err := s.envoyExtensionPolicyRepo.GetByRouteID(route.ID); err == nil && existingEEP != nil {
+		eepConfig := existingEEP.Config
+		previousEnvoyExtensionPolicy = &eepConfig
 	}
 
 	// Apply the caller's field changes BEFORE the status transition, so the
@@ -668,7 +660,7 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		if err := s.routeRepo.Update(route); err != nil {
 			return nil, err
 		}
-	} else if err := s.state.To(route, models.RouteStatusPendingUpdate,
+	} else if err := s.state.To(SiteRouteUpdate, route, models.RouteStatusPendingUpdate,
 		"route update submitted"); err != nil {
 		return nil, err
 	}
@@ -732,29 +724,25 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 
 	// Capture previous WAF policy for approval diff
 	var previousWafPolicy *models.WafPolicyConfig
-	if s.wafPolicyRepo != nil {
-		if existingWaf, err := s.wafPolicyRepo.GetByRouteID(route.ID); err == nil && existingWaf != nil {
-			prevWaf := existingWaf.Config
-			previousWafPolicy = &prevWaf
-		}
+	if existingWaf, err := s.wafPolicyRepo.GetByRouteID(route.ID); err == nil && existingWaf != nil {
+		prevWaf := existingWaf.Config
+		previousWafPolicy = &prevWaf
 	}
 
 	// Check if approvals are disabled for this project
-	if s.projectRepo != nil {
-		project, err := s.projectRepo.GetByID(domain.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	project, err := s.projectRepo.GetByID(domain.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	}
+	if !project.ApprovalEnabled {
+		// Skip approval — set route directly to pending_deploy.
+		// route sits at pending_update, persisted above, and no field
+		// other than Status has been touched since.
+		if err := s.state.To(SiteRouteUpdateFastPath, route, models.RouteStatusPendingDeploy,
+			"route update submitted, project approvals disabled"); err != nil {
+			return nil, err
 		}
-		if !project.ApprovalEnabled {
-			// Skip approval — set route directly to pending_deploy.
-			// route sits at pending_update, persisted above, and no field
-			// other than Status has been touched since.
-			if err := s.state.To(route, models.RouteStatusPendingDeploy,
-				"route update submitted, project approvals disabled"); err != nil {
-				return nil, err
-			}
-			return route, nil
-		}
+		return route, nil
 	}
 
 	configSnapshot, _ := json.Marshal(models.RouteApprovalSnapshot{
@@ -791,7 +779,7 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 	}
 
 	// Update or create SecurityPolicy if provided
-	if input.SecurityPolicy != nil && s.securityPolicyRepo != nil {
+	if input.SecurityPolicy != nil {
 		spConfig := models.SecurityPolicyConfig{
 			CORS: input.SecurityPolicy.CORS,
 		}
@@ -811,13 +799,13 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		if err := s.securityPolicyRepo.Upsert(securityPolicy); err != nil {
 			return nil, fmt.Errorf("failed to update security policy: %w", err)
 		}
-	} else if input.SecurityPolicy == nil && s.securityPolicyRepo != nil {
+	} else if input.SecurityPolicy == nil {
 		// If SecurityPolicy is explicitly nil, delete existing one
 		_ = s.securityPolicyRepo.DeleteByRouteID(route.ID)
 	}
 
 	// Update or create BackendTrafficPolicy if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.HasContent() && s.backendTrafficPolicyRepo != nil {
+	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.HasContent() {
 		backendTrafficPolicy := &models.BackendTrafficPolicy{
 			RouteID:   &route.ID,
 			ProjectID: domain.ProjectID,
@@ -837,13 +825,13 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		if err := s.backendTrafficPolicyRepo.Upsert(backendTrafficPolicy); err != nil {
 			return nil, fmt.Errorf("failed to update backend traffic policy: %w", err)
 		}
-	} else if (input.BackendTrafficPolicy == nil || !input.BackendTrafficPolicy.HasContent()) && s.backendTrafficPolicyRepo != nil {
+	} else if input.BackendTrafficPolicy == nil || !input.BackendTrafficPolicy.HasContent() {
 		// If BackendTrafficPolicy is explicitly nil or has no content, delete existing one
 		_ = s.backendTrafficPolicyRepo.DeleteByRouteID(route.ID)
 	}
 
 	// Update or create EnvoyExtensionPolicy if provided
-	if input.ExtensionPolicy != nil && input.ExtensionPolicy.HasContent() && s.envoyExtensionPolicyRepo != nil {
+	if input.ExtensionPolicy != nil && input.ExtensionPolicy.HasContent() {
 		extensionPolicy := &models.EnvoyExtensionPolicy{
 			RouteID:   &route.ID,
 			ProjectID: domain.ProjectID,
@@ -856,13 +844,13 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		if err := s.envoyExtensionPolicyRepo.Upsert(extensionPolicy); err != nil {
 			return nil, fmt.Errorf("failed to update envoy extension policy: %w", err)
 		}
-	} else if (input.ExtensionPolicy == nil || !input.ExtensionPolicy.HasContent()) && s.envoyExtensionPolicyRepo != nil {
+	} else if input.ExtensionPolicy == nil || !input.ExtensionPolicy.HasContent() {
 		// If ExtensionPolicy is explicitly nil or has no content, delete existing one
 		_ = s.envoyExtensionPolicyRepo.DeleteByRouteID(route.ID)
 	}
 
 	// Update WAF policy if provided
-	if input.WafPolicy != nil && s.wafPolicyRepo != nil {
+	if input.WafPolicy != nil {
 		wafConfig := models.WafPolicyConfig{
 			Mode:             input.WafPolicy.Mode,
 			Rulesets:         input.WafPolicy.Rulesets,
@@ -910,59 +898,49 @@ func (s *RouteService) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Rout
 
 	// Update route status. Delete mutates no other route field, so To's
 	// no-op path (an already-pending_delete orphan) drops nothing.
-	if err := s.state.To(route, models.RouteStatusPendingDelete,
+	if err := s.state.To(SiteRouteDelete, route, models.RouteStatusPendingDelete,
 		"route deletion submitted"); err != nil {
 		return nil, err
 	}
 
 	// Capture current policy configs for the previous config snapshot
 	var deletePrevSP *models.SecurityPolicyConfig
-	if s.securityPolicyRepo != nil {
-		if existingSP, err := s.securityPolicyRepo.GetByRouteID(route.ID); err == nil && existingSP != nil {
-			spConfig := existingSP.Config
-			deletePrevSP = &spConfig
-		}
+	if existingSP, err := s.securityPolicyRepo.GetByRouteID(route.ID); err == nil && existingSP != nil {
+		spConfig := existingSP.Config
+		deletePrevSP = &spConfig
 	}
 
 	var deletePrevBTP *models.BackendTrafficPolicyConfig
-	if s.backendTrafficPolicyRepo != nil {
-		if existingBTP, err := s.backendTrafficPolicyRepo.GetByRouteID(route.ID); err == nil && existingBTP != nil {
-			btpConfig := existingBTP.Config
-			deletePrevBTP = &btpConfig
-		}
+	if existingBTP, err := s.backendTrafficPolicyRepo.GetByRouteID(route.ID); err == nil && existingBTP != nil {
+		btpConfig := existingBTP.Config
+		deletePrevBTP = &btpConfig
 	}
 
 	var deletePrevEEP *models.EnvoyExtensionPolicyConfig
-	if s.envoyExtensionPolicyRepo != nil {
-		if existingEEP, err := s.envoyExtensionPolicyRepo.GetByRouteID(route.ID); err == nil && existingEEP != nil {
-			eepConfig := existingEEP.Config
-			deletePrevEEP = &eepConfig
-		}
+	if existingEEP, err := s.envoyExtensionPolicyRepo.GetByRouteID(route.ID); err == nil && existingEEP != nil {
+		eepConfig := existingEEP.Config
+		deletePrevEEP = &eepConfig
 	}
 
 	var deletePrevWaf *models.WafPolicyConfig
-	if s.wafPolicyRepo != nil {
-		if existingWaf, err := s.wafPolicyRepo.GetByRouteID(route.ID); err == nil && existingWaf != nil {
-			wafConfig := existingWaf.Config
-			deletePrevWaf = &wafConfig
-		}
+	if existingWaf, err := s.wafPolicyRepo.GetByRouteID(route.ID); err == nil && existingWaf != nil {
+		wafConfig := existingWaf.Config
+		deletePrevWaf = &wafConfig
 	}
 
 	// Check if approvals are disabled for this project
-	if s.projectRepo != nil {
-		project, err := s.projectRepo.GetByID(domain.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	project, err := s.projectRepo.GetByID(domain.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check project approval settings: %w", err)
+	}
+	if !project.ApprovalEnabled {
+		// Skip approval — set route directly to pending_deploy.
+		// route sits at pending_delete, persisted above.
+		if err := s.state.To(SiteRouteDeleteFastPath, route, models.RouteStatusPendingDeploy,
+			"route deletion submitted, project approvals disabled"); err != nil {
+			return nil, err
 		}
-		if !project.ApprovalEnabled {
-			// Skip approval — set route directly to pending_deploy.
-			// route sits at pending_delete, persisted above.
-			if err := s.state.To(route, models.RouteStatusPendingDeploy,
-				"route deletion submitted, project approvals disabled"); err != nil {
-				return nil, err
-			}
-			return route, nil
-		}
+		return route, nil
 	}
 
 	// Build config snapshot (current config being deleted)

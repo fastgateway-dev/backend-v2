@@ -40,17 +40,38 @@ type versionCacheEntry struct {
 
 // ProjectVersionService orchestrates DetectVersions + classification + in-memory cache.
 type ProjectVersionService struct {
-	k8s   KubernetesServiceInterface
+	k8s   VersionDetector
 	cache sync.Map // map[uuid.UUID]*versionCacheEntry
 	nowFn func() time.Time
 }
 
-func NewProjectVersionService(k8s KubernetesServiceInterface) *ProjectVersionService {
-	return &ProjectVersionService{k8s: k8s, nowFn: time.Now}
+// ProjectVersionServiceDeps carries everything ProjectVersionService needs.
+// Every field is required unless its comment says otherwise.
+type ProjectVersionServiceDeps struct {
+	// K8s reads the installed versions out of the project's cluster.
+	// DetectVersions is the only method this service calls on the cluster
+	// client; before Phase 2E Task 7 this field named all 58.
+	K8s VersionDetector
+
+	// Now reads the clock. Optional: nil means time.Now. This is a genuine
+	// determinism seam -- the cache TTL is computed from it -- so unlike the
+	// other Phase 2E constructor parameters it is not required. It replaces
+	// SetNowFunc.
+	Now func() time.Time
 }
 
-// SetNowFunc overrides the clock; intended for tests.
-func (s *ProjectVersionService) SetNowFunc(fn func() time.Time) { s.nowFn = fn }
+// NewProjectVersionService builds a fully-wired ProjectVersionService. It
+// panics if a required dependency is missing. Master design section 6.6.
+func NewProjectVersionService(deps ProjectVersionServiceDeps) *ProjectVersionService {
+	if deps.K8s == nil {
+		panic("services.NewProjectVersionService: missing required dependency: K8s")
+	}
+	now := deps.Now
+	if now == nil {
+		now = time.Now
+	}
+	return &ProjectVersionService{k8s: deps.K8s, nowFn: now}
+}
 
 // Get returns cached version info if fresh, otherwise detects and caches.
 func (s *ProjectVersionService) Get(ctx context.Context, projectID uuid.UUID, forceRefresh bool) (*VersionInfo, error) {

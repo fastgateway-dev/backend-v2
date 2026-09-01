@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 
 	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -13,71 +14,74 @@ import (
 
 // ApprovalService handles approval business logic using the unified approval system
 type ApprovalService struct {
-	approvalRepo             repository.UnifiedApprovalRepositoryInterface
-	policyRepo               repository.ApprovalPolicyRepositoryInterface
-	teamRepo                 repository.TeamRepositoryInterface
-	routeRepo                repository.RouteRepositoryInterface
-	projectRepo              repository.ProjectRepositoryInterface
-	domainRepo               repository.DomainRepositoryInterface
-	k8sService               KubernetesServiceInterface
-	securityPolicyRepo       repository.SecurityPolicyRepositoryInterface
-	backendTrafficPolicyRepo repository.BackendTrafficPolicyRepositoryInterface
-	clientAttachmentService  *ClientAttachmentService
-	stageReviewRepo          repository.ApprovalStageReviewRepositoryInterface
-	wafConfig                routeplan.WAFConfig
+	approvalRepo repository.UnifiedApprovalRepositoryInterface
+	policyRepo   repository.ApprovalPolicyRepositoryInterface
+	routeRepo    repository.RouteRepositoryInterface
+	domainRepo   repository.DomainRepositoryInterface
+	wafConfig    routeplan.WAFConfig
 
 	// engine owns approval planning and traversal for every entity type.
-	// Set via SetApprovalEngine at construction. See internal/approval.
+	// A required constructor dependency since Phase 2E Task 6.
+	// See internal/approval.
 	engine *approvalpkg.Engine
 }
 
-// NewApprovalService creates a new approval service
-func NewApprovalService(
-	approvalRepo repository.UnifiedApprovalRepositoryInterface,
-	policyRepo repository.ApprovalPolicyRepositoryInterface,
-	teamRepo repository.TeamRepositoryInterface,
-	routeRepo repository.RouteRepositoryInterface,
-	projectRepo repository.ProjectRepositoryInterface,
-	domainRepo repository.DomainRepositoryInterface,
-	k8sService KubernetesServiceInterface,
-	wafConfig routeplan.WAFConfig,
-) *ApprovalService {
-	return &ApprovalService{
-		approvalRepo: approvalRepo,
-		policyRepo:   policyRepo,
-		teamRepo:     teamRepo,
-		routeRepo:    routeRepo,
-		projectRepo:  projectRepo,
-		domainRepo:   domainRepo,
-		k8sService:   k8sService,
-		wafConfig:    wafConfig,
+// ApprovalServiceDeps carries everything ApprovalService needs. Every field
+// is required.
+//
+// Phase 2E Task 7 deleted six of them -- K8sService, TeamRepo, ProjectRepo,
+// SecurityPolicyRepo, BackendTrafficPolicyRepo and StageReviewRepo. Each was
+// stored in a field that nothing in this file ever read (K8sService held a
+// full 58-method Kubernetes interface and called none of it). A dead field
+// the constructor *requires* is worse than the setter it replaced: main.go
+// has to wire something nothing reads, and the RequiresEveryDependency test
+// asserts a requirement that does not exist.
+type ApprovalServiceDeps struct {
+	ApprovalRepo repository.UnifiedApprovalRepositoryInterface
+	PolicyRepo   repository.ApprovalPolicyRepositoryInterface
+	RouteRepo    repository.RouteRepositoryInterface
+	DomainRepo   repository.DomainRepositoryInterface
+	WafConfig    routeplan.WAFConfig
+
+	// Approvals owns approval planning and traversal. The engine calls back
+	// into the entity services as Completers, so main.go builds the engine
+	// first and registers the completers afterwards.
+	Approvals *approvalpkg.Engine
+}
+
+// NewApprovalService builds a fully-wired ApprovalService. It panics if a
+// required dependency is missing: before Phase 2E these arrived through
+// setters after construction, so a forgotten wiring line degraded silently
+// at runtime instead of failing at start-up. Master design section 6.6.
+func NewApprovalService(deps ApprovalServiceDeps) *ApprovalService {
+	var missing []string
+	if deps.ApprovalRepo == nil {
+		missing = append(missing, "ApprovalRepo")
 	}
-}
+	if deps.PolicyRepo == nil {
+		missing = append(missing, "PolicyRepo")
+	}
+	if deps.RouteRepo == nil {
+		missing = append(missing, "RouteRepo")
+	}
+	if deps.DomainRepo == nil {
+		missing = append(missing, "DomainRepo")
+	}
+	if deps.Approvals == nil {
+		missing = append(missing, "Approvals")
+	}
+	if len(missing) > 0 {
+		panic("services.NewApprovalService: missing required dependency: " + strings.Join(missing, ", "))
+	}
 
-// SetSecurityPolicyRepository sets the security policy repository
-func (s *ApprovalService) SetSecurityPolicyRepository(repo repository.SecurityPolicyRepositoryInterface) {
-	s.securityPolicyRepo = repo
-}
-
-// SetBackendTrafficPolicyRepository sets the backend traffic policy repository
-func (s *ApprovalService) SetBackendTrafficPolicyRepository(repo repository.BackendTrafficPolicyRepositoryInterface) {
-	s.backendTrafficPolicyRepo = repo
-}
-
-// SetClientAttachmentService sets the client attachment service for approval callbacks
-func (s *ApprovalService) SetClientAttachmentService(cas *ClientAttachmentService) {
-	s.clientAttachmentService = cas
-}
-
-// SetApprovalEngine sets the approval engine (to avoid a circular dependency:
-// the engine calls back into the entity services as Completers).
-func (s *ApprovalService) SetApprovalEngine(e *approvalpkg.Engine) {
-	s.engine = e
-}
-
-// SetStageReviewRepository sets the stage review repository for multi-approver support
-func (s *ApprovalService) SetStageReviewRepository(repo repository.ApprovalStageReviewRepositoryInterface) {
-	s.stageReviewRepo = repo
+	return &ApprovalService{
+		approvalRepo: deps.ApprovalRepo,
+		policyRepo:   deps.PolicyRepo,
+		routeRepo:    deps.RouteRepo,
+		domainRepo:   deps.DomainRepo,
+		wafConfig:    deps.WafConfig,
+		engine:       deps.Approvals,
+	}
 }
 
 // GetByID gets an approval by ID

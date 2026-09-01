@@ -426,23 +426,10 @@ func TestCascadeToAttachedRoutes_SkipsInactiveAttachment(t *testing.T) {
 	routeRepo.AssertNotCalled(t, "GetByID", mock.Anything)
 }
 
-// ===========================================================================
-// Missing wiring stays a silent no-op, deliberately.
-//
-// clientAttachmentRepo and routeRepo arrive through optional setters. Pre-2D
-// an unwired ClientService made every cascade a no-op, and each caller's
-// primary side effect is already persisted by the time the cascade runs, so
-// turning this into a returned error would fail client mutations in any
-// deployment that never wired the cascade. It is logged, not returned.
-// ===========================================================================
-
-func TestCascadeToAttachedRoutes_UnwiredRepositoriesAreNotAnError(t *testing.T) {
-	s := &ClientService{}
-
-	require.NoError(t, s.cascadeToAttachedRoutes(uuid.New(),
-		func(uuid.UUID) ([]models.ClientRouteAttachment, error) {
-			t.Fatal("query must not run when the repositories are unwired")
-			return nil, nil
-		},
-		"client api key revoked"))
-}
+// TestCascadeToAttachedRoutes_UnwiredRepositoriesAreNotAnError is gone
+// (Phase 2E Task 3). It pinned controller ruling R13's guard in
+// cascadeToAttachedRoutes, which logged and returned nil when
+// clientAttachmentRepo, routeRepo or state was nil. NewClientService now
+// panics at construction if ClientAttachmentRepo or RouteRepo is missing, so
+// that path can no longer occur; the guard was deleted along with the test
+// that pinned it.

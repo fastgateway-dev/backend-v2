@@ -1,9 +1,11 @@
 package services_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	"github.com/fastgateway-dev/backend-v2/internal/ai"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -16,6 +18,75 @@ import (
 
 // helpers -----------------------------------------------------------------
 
+// newDefaultClientAttachmentRepoStub stands in for the ClientAttachmentRepo
+// dependency, which is now required (Phase 2E Task 3). Before Task 3, a nil
+// clientAttachmentRepo made collectCASecretRefs (domain_service.go:812) skip
+// adding client mTLS CA refs entirely. This stub reproduces the same "no
+// client CA refs" outcome through a real, empty result instead of the
+// skipped branch, so tests that never cared about client mTLS attachments
+// keep seeing the same effective behaviour.
+func newDefaultClientAttachmentRepoStub() *mocks.MockClientAttachmentRepository {
+	repo := new(mocks.MockClientAttachmentRepository)
+	repo.On("GetMTLSClientsForDomain", mock.Anything).Return([]models.Client{}, nil).Maybe()
+	return repo
+}
+
+// newDefaultBtpRepoStub stands in for the BtpRepo dependency, which is now
+// required (Phase 2E Task 3). Before Task 3, a nil btpRepo made every
+// `s.btpRepo != nil` guard in domain_service.go (Delete:355,
+// applyDomainBackendTrafficPolicy:1342/1350, GenerateYAMLs:915,
+// PreviewSettingsChanges:1098) skip the DB read/write entirely. This stub
+// reproduces the same "no domain-level BTP in the database" outcome through
+// real, empty/no-op returns instead of the skipped branch.
+func newDefaultBtpRepoStub() *mocks.MockBackendTrafficPolicyRepository {
+	repo := new(mocks.MockBackendTrafficPolicyRepository)
+	repo.On("GetByDomainID", mock.Anything).Return((*models.BackendTrafficPolicy)(nil), nil).Maybe()
+	repo.On("DeleteByDomainID", mock.Anything).Return(nil).Maybe()
+	repo.On("Upsert", mock.Anything).Return(nil).Maybe()
+	return repo
+}
+
+// newDefaultExtPolicyRepoStub is the ExtPolicyRepo counterpart of
+// newDefaultBtpRepoStub. Before Task 3, a nil extPolicyRepo made every
+// `s.extPolicyRepo != nil` guard in domain_service.go (Delete:366,
+// applyDomainEnvoyExtensionPolicy:1379/1388, GenerateYAMLs:933,
+// PreviewSettingsChanges:1125) skip the DB read/write entirely.
+func newDefaultExtPolicyRepoStub() *mocks.MockEnvoyExtensionPolicyRepository {
+	repo := new(mocks.MockEnvoyExtensionPolicyRepository)
+	repo.On("GetByDomainID", mock.Anything).Return((*models.EnvoyExtensionPolicy)(nil), nil).Maybe()
+	repo.On("DeleteByDomainID", mock.Anything).Return(nil).Maybe()
+	repo.On("Upsert", mock.Anything).Return(nil).Maybe()
+	return repo
+}
+
+// noTemplateLookup answers "no template resolved", reproducing the pre-2E
+// behaviour of an unset dtService: the guard at domain_service.go:869
+// (`if s.dtService != nil && ...`) skipped the lookup entirely, so the
+// generated Gateway carried no template annotations. Returning a nil template
+// leaves buildGatewayConfig on exactly the same branch.
+// Phase 2E Task 9 deleted that nil half: DtService is required, so only the
+// DomainTemplateID check remains.
+type noTemplateLookup struct{}
+
+func (noTemplateLookup) GetByID(uuid.UUID) (*models.DomainTemplate, error) { return nil, nil }
+
+// disabledAIReviewer answers "AI is not configured", reproducing the pre-2E
+// behaviour of an unset aiService: the guards at domain_service.go:1005 and
+// :1152 (`s.aiService != nil && s.aiService.IsEnabled()`) skipped the review.
+// IsEnabled returning false is the production way to say the same thing --
+// NewAIService always returns a usable service, so nil-ness was only ever a
+// wiring accident. Review therefore must never be called; it is left
+// unimplemented so a regression panics loudly.
+// Phase 2E Task 9 deleted the nil halves of both conditions: AiService is
+// required, so IsEnabled is the only test left.
+type disabledAIReviewer struct{}
+
+func (disabledAIReviewer) IsEnabled() bool { return false }
+
+func (disabledAIReviewer) Review(context.Context, uuid.UUID, ai.ReviewRequest) (*ai.ReviewResult, error) {
+	panic("disabledAIReviewer.Review: IsEnabled() is false, Review must not be called")
+}
+
 func newTestDomainService() (
 	*services.DomainService,
 	*mocks.MockDomainRepository,
@@ -25,7 +96,23 @@ func newTestDomainService() (
 	domainRepo := new(mocks.MockDomainRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainService(domainRepo, projectRepo, dtRepo, nil)
+	svc := services.NewDomainService(services.DomainServiceDeps{
+		DomainRepo:           domainRepo,
+		ProjectRepo:          projectRepo,
+		DomainTemplateRepo:   dtRepo,
+		K8sGateways:          new(mocks.MockKubernetesService),
+		K8sSecrets:           new(mocks.MockKubernetesService),
+		K8sBackends:          new(mocks.MockKubernetesService),
+		K8sPolicies:          new(mocks.MockKubernetesService),
+		K8sRefGrants:         new(mocks.MockKubernetesService),
+		SettingsRepo:         new(mocks.MockDomainSettingsRepository),
+		ClientAttachmentRepo: newDefaultClientAttachmentRepoStub(),
+		BtpRepo:              newDefaultBtpRepoStub(),
+		ExtPolicyRepo:        newDefaultExtPolicyRepoStub(),
+		ProjectNamespaceRepo: new(mocks.MockProjectNamespaceRepository),
+		DtService:            noTemplateLookup{},
+		AiService:            disabledAIReviewer{},
+	})
 	return svc, domainRepo, projectRepo, dtRepo
 }
 
@@ -287,21 +374,17 @@ func TestDomainService_Update_TLSSecretName(t *testing.T) {
 // GetDomainSettings
 // =========================================================================
 
-func TestDomainService_GetDomainSettings_RepoNotConfigured(t *testing.T) {
-	svc, _, _, _ := newTestDomainService()
-	// settingsRepo is nil by default
-
-	result, err := svc.GetDomainSettings(uuid.New())
-
-	assert.Nil(t, result)
-	assert.EqualError(t, err, "domain settings repository not configured")
-}
+// TestDomainService_GetDomainSettings_RepoNotConfigured is gone (Phase 2E
+// Task 3). It pinned the nil-guard at domain_service.go:508-513
+// ("domain settings repository not configured"), which fires only when
+// SettingsRepo is unset. SettingsRepo is now a required
+// DomainServiceDeps field checked by NewDomainService, so a DomainService
+// can no longer be constructed with it unset through the public API this
+// test file uses. Phase 2E Task 9 then deleted the guard itself, so
+// GetDomainSettings now goes straight to the repository.
 
 func TestDomainService_GetDomainSettings_Success(t *testing.T) {
-	svc, _, _, _ := newTestDomainService()
-
-	settingsRepo := new(mocks.MockDomainSettingsRepository)
-	svc.SetDomainSettingsRepository(settingsRepo)
+	svc, _, settingsRepo, _ := newTestDomainServiceWithK8s()
 
 	domainID := uuid.New()
 	expected := &models.DomainSettings{
@@ -318,10 +401,7 @@ func TestDomainService_GetDomainSettings_Success(t *testing.T) {
 }
 
 func TestDomainService_GetDomainSettings_NotFound(t *testing.T) {
-	svc, _, _, _ := newTestDomainService()
-
-	settingsRepo := new(mocks.MockDomainSettingsRepository)
-	svc.SetDomainSettingsRepository(settingsRepo)
+	svc, _, settingsRepo, _ := newTestDomainServiceWithK8s()
 
 	domainID := uuid.New()
 	settingsRepo.On("GetByDomainID", domainID).Return(nil, errors.New("not found"))
@@ -415,8 +495,23 @@ func newTestDomainServiceWithK8s() (
 	domainRepo := new(mocks.MockDomainRepository)
 	settingsRepo := new(mocks.MockDomainSettingsRepository)
 	k8sMock := new(mocks.MockKubernetesService)
-	svc := services.NewDomainService(domainRepo, nil, nil, k8sMock)
-	svc.SetDomainSettingsRepository(settingsRepo)
+	svc := services.NewDomainService(services.DomainServiceDeps{
+		DomainRepo:           domainRepo,
+		ProjectRepo:          new(mocks.MockProjectRepository),
+		DomainTemplateRepo:   new(mocks.MockDomainTemplateRepository),
+		K8sGateways:          k8sMock,
+		K8sSecrets:           k8sMock,
+		K8sBackends:          k8sMock,
+		K8sPolicies:          k8sMock,
+		K8sRefGrants:         k8sMock,
+		SettingsRepo:         settingsRepo,
+		ClientAttachmentRepo: newDefaultClientAttachmentRepoStub(),
+		BtpRepo:              newDefaultBtpRepoStub(),
+		ExtPolicyRepo:        newDefaultExtPolicyRepoStub(),
+		ProjectNamespaceRepo: new(mocks.MockProjectNamespaceRepository),
+		DtService:            noTemplateLookup{},
+		AiService:            disabledAIReviewer{},
+	})
 	return svc, domainRepo, settingsRepo, k8sMock
 }
 
@@ -548,14 +643,12 @@ func TestDomainService_UpdateDomainSettings_NoMTLS_SkipsRegenerate(t *testing.T)
 	k8sMock.AssertNotCalled(t, "GetSecretData", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestDomainService_UpdateDomainSettings_RepoNotConfigured(t *testing.T) {
-	svc, _, _, _ := newTestDomainService()
-	// settingsRepo is nil by default
-
-	_, err := svc.UpdateDomainSettings(uuid.New(), &services.UpdateDomainSettingsInput{})
-
-	assert.EqualError(t, err, "domain settings repository not configured")
-}
+// TestDomainService_UpdateDomainSettings_RepoNotConfigured is gone (Phase 2E
+// Task 3), for the same reason as TestDomainService_GetDomainSettings_
+// RepoNotConfigured above: it pinned the nil-guard at
+// domain_service.go ("domain settings repository not configured"), which
+// became unreachable once SettingsRepo was a required DomainServiceDeps
+// field. Phase 2E Task 9 deleted that guard.
 
 func TestDomainService_UpdateDomainSettings_DomainNotFound(t *testing.T) {
 	svc, domainRepo, settingsRepo, _ := newTestDomainServiceWithK8s()
@@ -602,4 +695,59 @@ func TestDomainService_UpdateDomainSettings_EmptyConfig_DeletesSettings(t *testi
 // strPtr is a helper for string pointer
 func strPtr(s string) *string {
 	return &s
+}
+
+// ---------------------------------------------------------------------------
+// NewDomainService
+// ---------------------------------------------------------------------------
+
+func fullDomainServiceDeps() services.DomainServiceDeps {
+	return services.DomainServiceDeps{
+		DomainRepo:           new(mocks.MockDomainRepository),
+		ProjectRepo:          new(mocks.MockProjectRepository),
+		DomainTemplateRepo:   new(mocks.MockDomainTemplateRepository),
+		K8sGateways:          new(mocks.MockKubernetesService),
+		K8sSecrets:           new(mocks.MockKubernetesService),
+		K8sBackends:          new(mocks.MockKubernetesService),
+		K8sPolicies:          new(mocks.MockKubernetesService),
+		K8sRefGrants:         new(mocks.MockKubernetesService),
+		SettingsRepo:         new(mocks.MockDomainSettingsRepository),
+		ClientAttachmentRepo: newDefaultClientAttachmentRepoStub(),
+		BtpRepo:              newDefaultBtpRepoStub(),
+		ExtPolicyRepo:        newDefaultExtPolicyRepoStub(),
+		ProjectNamespaceRepo: new(mocks.MockProjectNamespaceRepository),
+		DtService:            noTemplateLookup{},
+		AiService:            disabledAIReviewer{},
+	}
+}
+
+func TestNewDomainService_RequiresEveryDependency(t *testing.T) {
+	require.NotPanics(t, func() { services.NewDomainService(fullDomainServiceDeps()) })
+
+	cases := map[string]func(*services.DomainServiceDeps){
+		"DomainRepo":           func(d *services.DomainServiceDeps) { d.DomainRepo = nil },
+		"ProjectRepo":          func(d *services.DomainServiceDeps) { d.ProjectRepo = nil },
+		"DomainTemplateRepo":   func(d *services.DomainServiceDeps) { d.DomainTemplateRepo = nil },
+		"K8sGateways":          func(d *services.DomainServiceDeps) { d.K8sGateways = nil },
+		"K8sSecrets":           func(d *services.DomainServiceDeps) { d.K8sSecrets = nil },
+		"K8sBackends":          func(d *services.DomainServiceDeps) { d.K8sBackends = nil },
+		"K8sPolicies":          func(d *services.DomainServiceDeps) { d.K8sPolicies = nil },
+		"K8sRefGrants":         func(d *services.DomainServiceDeps) { d.K8sRefGrants = nil },
+		"SettingsRepo":         func(d *services.DomainServiceDeps) { d.SettingsRepo = nil },
+		"ClientAttachmentRepo": func(d *services.DomainServiceDeps) { d.ClientAttachmentRepo = nil },
+		"BtpRepo":              func(d *services.DomainServiceDeps) { d.BtpRepo = nil },
+		"ExtPolicyRepo":        func(d *services.DomainServiceDeps) { d.ExtPolicyRepo = nil },
+		"ProjectNamespaceRepo": func(d *services.DomainServiceDeps) { d.ProjectNamespaceRepo = nil },
+		"DtService":            func(d *services.DomainServiceDeps) { d.DtService = nil },
+		"AiService":            func(d *services.DomainServiceDeps) { d.AiService = nil },
+	}
+	for name, breakIt := range cases {
+		t.Run("nil "+name, func(t *testing.T) {
+			d := fullDomainServiceDeps()
+			breakIt(&d)
+			assert.PanicsWithValue(t,
+				"services.NewDomainService: missing required dependency: "+name,
+				func() { services.NewDomainService(d) })
+		})
+	}
 }

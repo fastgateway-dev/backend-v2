@@ -33,9 +33,6 @@ func (s *RouteService) populateRouteComputedFields(route *models.Route) {
 func (s *RouteService) computeSecurityStatus(route *models.Route) models.SecurityStatus {
 	// General mode: check if any security feature is configured in the security policy
 	if route.SecurityMode == models.SecurityModeGeneral {
-		if s.securityPolicyRepo == nil {
-			return models.SecurityStatusNone
-		}
 		policy, err := s.securityPolicyRepo.GetByRouteID(route.ID)
 		if err != nil || policy == nil {
 			return models.SecurityStatusNone
@@ -77,9 +74,6 @@ func (s *RouteService) computeSecurityStatus(route *models.Route) models.Securit
 
 // GetSecurityPolicy gets the security policy for a route
 func (s *RouteService) GetSecurityPolicy(routeID uuid.UUID) (*models.SecurityPolicy, error) {
-	if s.securityPolicyRepo == nil {
-		return nil, nil
-	}
 	policy, err := s.securityPolicyRepo.GetByRouteID(routeID)
 	if err != nil {
 		// Not found is not an error, just return nil
@@ -90,9 +84,6 @@ func (s *RouteService) GetSecurityPolicy(routeID uuid.UUID) (*models.SecurityPol
 
 // GetBackendTrafficPolicy gets the backend traffic policy for a route
 func (s *RouteService) GetBackendTrafficPolicy(routeID uuid.UUID) (*models.BackendTrafficPolicy, error) {
-	if s.backendTrafficPolicyRepo == nil {
-		return nil, nil
-	}
 	policy, err := s.backendTrafficPolicyRepo.GetByRouteID(routeID)
 	if err != nil {
 		// Not found is not an error, just return nil
@@ -103,9 +94,6 @@ func (s *RouteService) GetBackendTrafficPolicy(routeID uuid.UUID) (*models.Backe
 
 // GetEnvoyExtensionPolicy gets the envoy extension policy for a route
 func (s *RouteService) GetEnvoyExtensionPolicy(routeID uuid.UUID) (*models.EnvoyExtensionPolicy, error) {
-	if s.envoyExtensionPolicyRepo == nil {
-		return nil, nil
-	}
 	policy, err := s.envoyExtensionPolicyRepo.GetByRouteID(routeID)
 	if err != nil {
 		// Not found is not an error, just return nil
@@ -116,9 +104,6 @@ func (s *RouteService) GetEnvoyExtensionPolicy(routeID uuid.UUID) (*models.Envoy
 
 // GetWafPolicy gets the WAF policy for a route
 func (s *RouteService) GetWafPolicy(routeID uuid.UUID) (*models.WafPolicy, error) {
-	if s.wafPolicyRepo == nil {
-		return nil, nil
-	}
 	return s.wafPolicyRepo.GetByRouteID(routeID)
 }
 

@@ -69,76 +69,68 @@ func (s *RouteService) GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error) {
 	// Generate SecurityPolicy YAML if exists
 	// This includes CORS, OIDC, JWT, APIKeyAuth, Authorization from DB
 	// plus client IP authorization from attachments
-	if s.securityPolicyRepo != nil {
-		policy, _ := s.securityPolicyRepo.GetByRouteID(id)
+	policy, _ := s.securityPolicyRepo.GetByRouteID(id)
 
-		// Compute authorization from IP-only client attachments
-		clientAuthConfig := s.buildClientIPAuthorizationConfig(id)
+	// Compute authorization from IP-only client attachments
+	clientAuthConfig := s.buildClientIPAuthorizationConfig(id)
 
-		// Check if there are per-client auth clients that require deny-all on base route
-		// This matches the deploy logic in deploySecurityPolicy
-		hasPerClientClients := s.hasAPIKeyClientAttachments(id) || s.hasJWTClientAttachments(id) || s.hasMTLSClientAttachments(id)
-		if hasPerClientClients && clientAuthConfig == nil {
-			// Create a deny-all authorization (empty CIDR list with default deny)
-			// This prevents unauthenticated access through the base HTTPRoute
-			clientAuthConfig = &kubernetes.AuthorizationPolicyConfig{
-				DefaultAction: "Deny",
-				Rules:         []kubernetes.AuthorizationRulePolicyConfig{},
-			}
+	// Check if there are per-client auth clients that require deny-all on base route
+	// This matches the deploy logic in deploySecurityPolicy
+	hasPerClientClients := s.hasAPIKeyClientAttachments(id) || s.hasJWTClientAttachments(id) || s.hasMTLSClientAttachments(id)
+	if hasPerClientClients && clientAuthConfig == nil {
+		// Create a deny-all authorization (empty CIDR list with default deny)
+		// This prevents unauthenticated access through the base HTTPRoute
+		clientAuthConfig = &kubernetes.AuthorizationPolicyConfig{
+			DefaultAction: "Deny",
+			Rules:         []kubernetes.AuthorizationRulePolicyConfig{},
+		}
+	}
+
+	if policy != nil || clientAuthConfig != nil {
+		// Use routeplan.SecurityPolicyConfigFromDB to get full config (CORS, OIDC, JWT, APIKeyAuth, Authorization)
+		var mergedConfig *kubernetes.SecurityPolicyConfig
+		if policy != nil {
+			mergedConfig = routeplan.SecurityPolicyConfigFromDB(route, domain, policy)
 		}
 
-		if policy != nil || clientAuthConfig != nil {
-			// Use routeplan.SecurityPolicyConfigFromDB to get full config (CORS, OIDC, JWT, APIKeyAuth, Authorization)
-			var mergedConfig *kubernetes.SecurityPolicyConfig
-			if policy != nil {
-				mergedConfig = routeplan.SecurityPolicyConfigFromDB(route, domain, policy)
-			}
+		// If no DB policy but we have client auth, create a minimal config.
+		// This is identity-only (name + targetRef); it goes through the same
+		// assembler so those fields cannot drift away from the deploy path.
+		if mergedConfig == nil && clientAuthConfig != nil {
+			mergedConfig = routeplan.AssembleSecurityPolicyConfig(routeplan.SecurityPolicyAssembly{
+				Route:  route,
+				Domain: domain,
+			})
+		}
 
-			// If no DB policy but we have client auth, create a minimal config.
-			// This is identity-only (name + targetRef); it goes through the same
-			// assembler so those fields cannot drift away from the deploy path.
-			if mergedConfig == nil && clientAuthConfig != nil {
-				mergedConfig = routeplan.AssembleSecurityPolicyConfig(routeplan.SecurityPolicyAssembly{
-					Route:  route,
-					Domain: domain,
-				})
-			}
+		// Merge client IP authorization if present and no DB authorization exists
+		// (client mode uses client IPs, general mode uses DB authorization)
+		if mergedConfig != nil && clientAuthConfig != nil && mergedConfig.Authorization == nil {
+			mergedConfig.Authorization = clientAuthConfig
+		}
 
-			// Merge client IP authorization if present and no DB authorization exists
-			// (client mode uses client IPs, general mode uses DB authorization)
-			if mergedConfig != nil && clientAuthConfig != nil && mergedConfig.Authorization == nil {
-				mergedConfig.Authorization = clientAuthConfig
-			}
-
-			if mergedConfig != nil {
-				securityPolicy := kubernetes.BuildSecurityPolicy(mergedConfig)
-				if securityPolicy != nil {
-					yamlBytes, err := yaml.Marshal(securityPolicy.Object)
-					if err == nil {
-						result.SecurityPolicyYAML = string(yamlBytes)
-					}
+		if mergedConfig != nil {
+			securityPolicy := kubernetes.BuildSecurityPolicy(mergedConfig)
+			if securityPolicy != nil {
+				yamlBytes, err := yaml.Marshal(securityPolicy.Object)
+				if err == nil {
+					result.SecurityPolicyYAML = string(yamlBytes)
 				}
 			}
 		}
 	}
 
 	// Generate BackendTrafficPolicy YAML if exists
-	if s.backendTrafficPolicyRepo != nil {
-		btpPolicy, _ := s.backendTrafficPolicyRepo.GetByRouteID(id)
-		if btpPolicy != nil {
-			result.BackendTrafficPolicyYAML = routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, btpPolicy)
-		}
+	btpPolicy, _ := s.backendTrafficPolicyRepo.GetByRouteID(id)
+	if btpPolicy != nil {
+		result.BackendTrafficPolicyYAML = routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, btpPolicy)
 	}
 
 	// Generate EnvoyExtensionPolicy YAML if exists (with WAF support)
 	var extPolicy *models.EnvoyExtensionPolicy
 	var wafPolicy *models.WafPolicy
-	if s.envoyExtensionPolicyRepo != nil {
-		extPolicy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(id)
-	}
-	if s.wafPolicyRepo != nil {
-		wafPolicy, _ = s.wafPolicyRepo.GetByRouteID(id)
-	}
+	extPolicy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(id)
+	wafPolicy, _ = s.wafPolicyRepo.GetByRouteID(id)
 	if extPolicy != nil || wafPolicy != nil {
 		result.EnvoyExtensionPolicyYAML = s.generateEnvoyExtensionPolicyYAMLFromDBWithWaf(route, domain, extPolicy, wafPolicy)
 	}
@@ -163,10 +155,6 @@ func (s *RouteService) GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error) {
 // generateAPIKeyClientResourceYAMLs generates YAML for per-client API key resources
 // with secrets redacted for display purposes
 func (s *RouteService) generateAPIKeyClientResourceYAMLs(route *models.Route, domain *models.Domain) []APIKeyClientResourceYAMLs {
-	if s.clientAttachmentRepo == nil || s.clientRepo == nil {
-		return nil
-	}
-
 	ctx := context.Background()
 
 	// Categorize client attachments
@@ -183,9 +171,7 @@ func (s *RouteService) generateAPIKeyClientResourceYAMLs(route *models.Route, do
 
 	// Get SecurityPolicy for this route (if any) to copy CORS config to per-client routes
 	var secPolicy *models.SecurityPolicy
-	if s.securityPolicyRepo != nil {
-		secPolicy, _ = s.securityPolicyRepo.GetByRouteID(route.ID)
-	}
+	secPolicy, _ = s.securityPolicyRepo.GetByRouteID(route.ID)
 
 	var results []APIKeyClientResourceYAMLs
 	for _, client := range allAPIKeyClients {
@@ -229,9 +215,7 @@ func (s *RouteService) generateAPIKeyClientResourceYAMLs(route *models.Route, do
 		// Build BackendTrafficPolicy if base BTP exists or client has rate limit
 		{
 			var btpPolicy *models.BackendTrafficPolicy
-			if s.backendTrafficPolicyRepo != nil {
-				btpPolicy, _ = s.backendTrafficPolicyRepo.GetByRouteID(route.ID)
-			}
+			btpPolicy, _ = s.backendTrafficPolicyRepo.GetByRouteID(route.ID)
 			if btpPolicy != nil || client.RateLimitConfig != nil {
 				routeName := route.K8sRouteName + "-ak-" + client.ClientID.String()[:8]
 				clientResource.BackendTrafficPolicyYAML = routeplan.GenerateAPIKeyBackendTrafficPolicyYAML(route, domain, btpPolicy, routeName, client.RateLimitConfig)
@@ -241,9 +225,7 @@ func (s *RouteService) generateAPIKeyClientResourceYAMLs(route *models.Route, do
 		// Build EnvoyExtensionPolicy if base extension policy exists
 		{
 			var extPolicy *models.EnvoyExtensionPolicy
-			if s.envoyExtensionPolicyRepo != nil {
-				extPolicy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
-			}
+			extPolicy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(route.ID)
 			if extPolicy != nil {
 				routeName := route.K8sRouteName + "-ak-" + client.ClientID.String()[:8]
 				clientResource.EnvoyExtensionPolicyYAML = routeplan.GenerateAPIKeyEnvoyExtensionPolicyYAML(route, domain, extPolicy, routeName)
@@ -384,32 +366,24 @@ func (s *RouteService) PreviewUpdate(routeID uuid.UUID, input *UpdateRouteInput)
 
 	// Get current SecurityPolicy from database (if any)
 	var currentSecurityPolicyYAML string
-	if s.securityPolicyRepo != nil {
-		currentPolicy, _ := s.securityPolicyRepo.GetByRouteID(routeID)
-		if currentPolicy != nil {
-			currentSecurityPolicyYAML = routeplan.GenerateSecurityPolicyYAMLFromDB(route, domain, currentPolicy)
-		}
+	currentPolicy, _ := s.securityPolicyRepo.GetByRouteID(routeID)
+	if currentPolicy != nil {
+		currentSecurityPolicyYAML = routeplan.GenerateSecurityPolicyYAMLFromDB(route, domain, currentPolicy)
 	}
 
 	// Get current BackendTrafficPolicy from database (if any)
 	var currentBackendTrafficPolicyYAML string
-	if s.backendTrafficPolicyRepo != nil {
-		currentBtpPolicy, _ := s.backendTrafficPolicyRepo.GetByRouteID(routeID)
-		if currentBtpPolicy != nil {
-			currentBackendTrafficPolicyYAML = routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, currentBtpPolicy)
-		}
+	currentBtpPolicy, _ := s.backendTrafficPolicyRepo.GetByRouteID(routeID)
+	if currentBtpPolicy != nil {
+		currentBackendTrafficPolicyYAML = routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, currentBtpPolicy)
 	}
 
 	// Get current EnvoyExtensionPolicy and WafPolicy from database (if any)
 	var currentEnvoyExtensionPolicyYAML string
 	var currentExtPolicy *models.EnvoyExtensionPolicy
 	var currentWafPolicy *models.WafPolicy
-	if s.envoyExtensionPolicyRepo != nil {
-		currentExtPolicy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(routeID)
-	}
-	if s.wafPolicyRepo != nil {
-		currentWafPolicy, _ = s.wafPolicyRepo.GetByRouteID(routeID)
-	}
+	currentExtPolicy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(routeID)
+	currentWafPolicy, _ = s.wafPolicyRepo.GetByRouteID(routeID)
 	if currentExtPolicy != nil || currentWafPolicy != nil {
 		currentEnvoyExtensionPolicyYAML = s.generateEnvoyExtensionPolicyYAMLFromDBWithWaf(route, domain, currentExtPolicy, currentWafPolicy)
 	}
@@ -495,32 +469,24 @@ func (s *RouteService) PreviewDelete(routeID uuid.UUID) (*PreviewDeleteResult, e
 
 	// Get current SecurityPolicy from database (if any)
 	var currentSecurityPolicyYAML string
-	if s.securityPolicyRepo != nil {
-		currentPolicy, _ := s.securityPolicyRepo.GetByRouteID(routeID)
-		if currentPolicy != nil {
-			currentSecurityPolicyYAML = routeplan.GenerateSecurityPolicyYAMLFromDB(route, domain, currentPolicy)
-		}
+	currentPolicy, _ := s.securityPolicyRepo.GetByRouteID(routeID)
+	if currentPolicy != nil {
+		currentSecurityPolicyYAML = routeplan.GenerateSecurityPolicyYAMLFromDB(route, domain, currentPolicy)
 	}
 
 	// Get current BackendTrafficPolicy from database (if any)
 	var currentBackendTrafficPolicyYAML string
-	if s.backendTrafficPolicyRepo != nil {
-		currentBtpPolicy, _ := s.backendTrafficPolicyRepo.GetByRouteID(routeID)
-		if currentBtpPolicy != nil {
-			currentBackendTrafficPolicyYAML = routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, currentBtpPolicy)
-		}
+	currentBtpPolicy, _ := s.backendTrafficPolicyRepo.GetByRouteID(routeID)
+	if currentBtpPolicy != nil {
+		currentBackendTrafficPolicyYAML = routeplan.GenerateBackendTrafficPolicyYAMLFromDB(route, domain, currentBtpPolicy)
 	}
 
 	// Get current EnvoyExtensionPolicy and WafPolicy from database (if any)
 	var currentEnvoyExtensionPolicyYAML string
 	var currentExtPolicy *models.EnvoyExtensionPolicy
 	var currentWafPolicy *models.WafPolicy
-	if s.envoyExtensionPolicyRepo != nil {
-		currentExtPolicy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(routeID)
-	}
-	if s.wafPolicyRepo != nil {
-		currentWafPolicy, _ = s.wafPolicyRepo.GetByRouteID(routeID)
-	}
+	currentExtPolicy, _ = s.envoyExtensionPolicyRepo.GetByRouteID(routeID)
+	currentWafPolicy, _ = s.wafPolicyRepo.GetByRouteID(routeID)
 	if currentExtPolicy != nil || currentWafPolicy != nil {
 		currentEnvoyExtensionPolicyYAML = s.generateEnvoyExtensionPolicyYAMLFromDBWithWaf(route, domain, currentExtPolicy, currentWafPolicy)
 	}

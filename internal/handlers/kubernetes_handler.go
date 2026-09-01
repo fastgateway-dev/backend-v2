@@ -9,13 +9,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// KubernetesHandler handles Kubernetes discovery endpoints
+// KubernetesHandler handles Kubernetes discovery endpoints. It needs only
+// services.Discovery: namespaces, services and gateway classes. Before
+// Phase 2E Task 7 it declared all 58 cluster-client methods for those three.
 type KubernetesHandler struct {
-	k8sService services.KubernetesServiceInterface
+	k8sService services.Discovery
 }
 
 // NewKubernetesHandler creates a new Kubernetes handler
-func NewKubernetesHandler(k8sService services.KubernetesServiceInterface) *KubernetesHandler {
+func NewKubernetesHandler(k8sService services.Discovery) *KubernetesHandler {
 	return &KubernetesHandler{
 		k8sService: k8sService,
 	}

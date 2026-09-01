@@ -55,6 +55,9 @@ func NewSystemSettingsService(repo repository.SystemSettingsRepositoryInterface,
 // Get returns the raw DB settings
 func (s *SystemSettingsService) Get() (*models.SystemSettings, error) {
 	s.mu.RLock()
+	// s.cached is a memoised value this service fills in, not an injected
+	// dependency. The nil check is a cache-miss test. Kept by Phase 2E
+	// Task 9.
 	if s.cached != nil {
 		defer s.mu.RUnlock()
 		return s.cached, nil

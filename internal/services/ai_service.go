@@ -116,6 +116,9 @@ func hashAPIKey(key string) string {
 func (s *AIService) getOrCreateProvider(cfg *aiRuntimeConfig) (ai.Provider, error) {
 	configKey := cfg.Provider + ":" + cfg.Model + ":" + hashAPIKey(cfg.APIKey) + ":" + cfg.BaseURL
 	s.mu.RLock()
+	// s.provider is a lazily-built cache of the last resolved provider, not
+	// an injected dependency -- nothing wires it, this method builds it. The
+	// nil check is a cache-miss test. Kept by Phase 2E Task 9.
 	if s.provider != nil && s.cachedConfig == configKey {
 		p := s.provider
 		s.mu.RUnlock()

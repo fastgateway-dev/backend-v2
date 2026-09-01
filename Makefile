@@ -1,5 +1,5 @@
 .PHONY: help dev-backend build db-migrate db-migrate-down db-seed \
-        test test-backend lint clean \
+        test test-backend lint clean mocks mocks-check tools-mockery \
         openapi protos build-multiarch build-multiarch-e2e build-multiarch-all
 
 # Default target
@@ -17,6 +17,8 @@ help:
 	@echo "Testing Commands:"
 	@echo "  make test            - Run all tests"
 	@echo "  make test-backend    - Run backend tests"
+	@echo "  make mocks           - Regenerate internal/mocks from .mockery.yml"
+	@echo "  make mocks-check     - Fail if the checked-in mocks are stale"
 	@echo ""
 	@echo "OpenAPI Commands:"
 	@echo "  make openapi         - Bundle docs/openapi/ into cmd/server/openapi.yaml"
@@ -63,6 +65,57 @@ test: test-backend
 
 test-backend:
 	go test -v -cover ./...
+
+# Mocks
+#
+# Every mock in internal/mocks is generated from the interface it implements;
+# see .mockery.yml. Run this after changing any repository or service
+# interface, or any of the Kubernetes roles in internal/services/k8s_roles.go.
+#
+# mockery lives in tools/go.mod, a SEPARATE module, and is built into ./bin
+# rather than installed with `go get -tool` into the root module. Controller
+# ruling R11: pulling the generator into the product's module made its
+# dependency graph participate in the product's version resolution, which
+# silently bumped golang.org/x/crypto and the root `go` directive. Building it
+# out-of-module keeps the root go.mod untouched.
+MOCKERY := $(CURDIR)/bin/mockery
+
+$(MOCKERY): tools/go.mod tools/go.sum
+	@mkdir -p $(CURDIR)/bin
+	cd tools && GOWORK=off go build -o $(MOCKERY) github.com/vektra/mockery/v3
+
+.PHONY: tools-mockery
+tools-mockery: $(MOCKERY)
+
+mocks: $(MOCKERY)
+	$(MOCKERY)
+
+# mocks-check is what CI runs: regenerate, then fail if anything moved.
+# Hand-maintained mocks are how the SetClientHeaderRepository /
+# SetProjectRepository interface drift went unnoticed; this makes that class
+# of defect impossible.
+#
+# It uses `git status --porcelain`, NOT `git diff`. `git diff` compares the
+# index against the working tree and is therefore BLIND TO UNTRACKED FILES:
+# a .mockery.yml edit that makes the generator emit a NEW file which is never
+# committed produced no diff at all, and CI went green on a mock that does not
+# exist in the repository -- defeating the entire point of the check.
+#
+# That was not hypothetical. `make mocks` generates
+# internal/mocks/mock_kubernetes.go and internal/mocks/roles/, and neither
+# appeared in `git diff --name-only -- internal/mocks/`.
+#
+# --porcelain reports modified, deleted AND untracked paths, so all three
+# failure modes are caught. It also reads the index rather than writing to it,
+# which `git add -N` would not.
+mocks-check: mocks
+	@drift="$$(git status --porcelain -- internal/mocks/)"; \
+	if [ -n "$$drift" ]; then \
+		echo "Generated mocks are stale, uncommitted or newly generated:"; \
+		echo "$$drift"; \
+		echo "Run 'make mocks' and commit the result."; \
+		exit 1; \
+	fi
 
 # Linting
 lint:

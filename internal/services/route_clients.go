@@ -12,10 +12,6 @@ import (
 
 // hasAPIKeyClientAttachments checks if there are any API key client attachments for a route
 func (s *RouteService) hasAPIKeyClientAttachments(routeID uuid.UUID) bool {
-	if s.clientAttachmentRepo == nil {
-		return false
-	}
-
 	// Get active attachments
 	activeAttachments, err := s.clientAttachmentRepo.ListActiveByRouteID(routeID)
 	if err != nil {
@@ -40,10 +36,6 @@ func (s *RouteService) hasAPIKeyClientAttachments(routeID uuid.UUID) bool {
 
 // hasJWTClientAttachments checks if there are any JWT client attachments for a route
 func (s *RouteService) hasJWTClientAttachments(routeID uuid.UUID) bool {
-	if s.clientAttachmentRepo == nil {
-		return false
-	}
-
 	// Get active attachments
 	activeAttachments, err := s.clientAttachmentRepo.ListActiveByRouteID(routeID)
 	if err != nil {
@@ -67,10 +59,6 @@ func (s *RouteService) hasJWTClientAttachments(routeID uuid.UUID) bool {
 }
 
 func (s *RouteService) hasMTLSClientAttachments(routeID uuid.UUID) bool {
-	if s.clientAttachmentRepo == nil {
-		return false
-	}
-
 	activeAttachments, err := s.clientAttachmentRepo.ListActiveByRouteID(routeID)
 	if err != nil {
 		return false
@@ -92,10 +80,6 @@ func (s *RouteService) hasMTLSClientAttachments(routeID uuid.UUID) bool {
 
 // countClientAttachments counts active and approved client attachments for a route
 func (s *RouteService) countClientAttachments(routeID uuid.UUID) int {
-	if s.clientAttachmentRepo == nil {
-		return 0
-	}
-
 	count := 0
 
 	// Get active attachments
@@ -165,10 +149,6 @@ func (s *RouteService) buildClientIPAuthorizationConfig(routeID uuid.UUID) *kube
 // collectClientHeaders collects header matches from base-route-only clients
 // (header auth enabled, but NOT API key/JWT/mTLS enabled)
 func (s *RouteService) collectClientHeaders(routeID uuid.UUID) []models.AuthorizationHeaderMatch {
-	if s.clientAttachmentRepo == nil || s.clientHeaderRepo == nil {
-		return nil
-	}
-
 	activeAttachments, err := s.clientAttachmentRepo.ListActiveByRouteID(routeID)
 	if err != nil {
 		return nil
@@ -203,10 +183,6 @@ func (s *RouteService) collectClientHeaders(routeID uuid.UUID) []models.Authoriz
 // Methods are now stored on the client entity, not the attachment.
 // Only includes clients that are NOT per-client route clients (API key/JWT/mTLS).
 func (s *RouteService) collectClientMethods(routeID uuid.UUID) []string {
-	if s.clientAttachmentRepo == nil || s.clientRepo == nil {
-		return nil
-	}
-
 	activeAttachments, err := s.clientAttachmentRepo.ListActiveByRouteID(routeID)
 	if err != nil {
 		return nil
@@ -244,10 +220,6 @@ func (s *RouteService) collectClientMethods(routeID uuid.UUID) []string {
 // Clients with both IP and API key/JWT go to per-client routes only (AND logic).
 // Used by buildClientIPAuthorizationConfig.
 func (s *RouteService) collectClientIPCIDRs(routeID uuid.UUID) []string {
-	if s.clientAttachmentRepo == nil || s.clientIPRepo == nil {
-		return nil
-	}
-
 	// Get active attachments with IP allowlist enabled
 	activeAttachments, err := s.clientAttachmentRepo.ListActiveByRouteID(routeID)
 	if err != nil {
@@ -297,10 +269,6 @@ func (s *RouteService) collectClientIPCIDRs(routeID uuid.UUID) []string {
 // IP CIDRs from all active/approved client attachments with IP allowlisting enabled
 // DEPRECATED: Use buildMergedAuthorizationConfig instead which includes direct IPs
 func (s *RouteService) buildAuthorizationFromClientAttachments(routeID uuid.UUID) *kubernetes.AuthorizationPolicyConfig {
-	if s.clientAttachmentRepo == nil || s.clientIPRepo == nil {
-		return nil
-	}
-
 	// Get active attachments with IP allowlist enabled
 	activeAttachments, err := s.clientAttachmentRepo.ListActiveByRouteID(routeID)
 	if err != nil {
@@ -354,10 +322,6 @@ func (s *RouteService) buildAuthorizationFromClientAttachments(routeID uuid.UUID
 // approved → active (for new/updated attachments)
 // pending_detach approved attachments → removed (handled separately via approved status first)
 func (s *RouteService) updateClientAttachmentStatuses(routeID uuid.UUID) {
-	if s.clientAttachmentRepo == nil {
-		return
-	}
-
 	// Move approved attachments to active
 	if err := s.clientAttachmentRepo.UpdateStatusByRouteID(routeID, models.AttachmentStatusApproved, models.AttachmentStatusActive); err != nil {
 		log.Printf("Failed to update client attachment statuses (approved→active) for route %s: %v", routeID, err)
@@ -377,10 +341,6 @@ type EffectiveIPEntry struct {
 
 // GetEffectiveIPAllowlist returns the merged IP allowlist for a route from active client attachments
 func (s *RouteService) GetEffectiveIPAllowlist(routeID uuid.UUID) ([]EffectiveIPEntry, error) {
-	if s.clientAttachmentRepo == nil || s.clientIPRepo == nil {
-		return []EffectiveIPEntry{}, nil
-	}
-
 	// Get active attachments with IP allowlist enabled
 	activeAttachments, err := s.clientAttachmentRepo.ListActiveByRouteID(routeID)
 	if err != nil {

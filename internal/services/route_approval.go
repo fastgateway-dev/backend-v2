@@ -72,7 +72,7 @@ func (s *RouteService) OnApproved(a *models.Approval) error {
 		return s.routeRepo.Update(route)
 	}
 
-	return s.state.To(route, next, fmt.Sprintf("approval %s approved (action %s)", a.ID, a.Action))
+	return s.state.To(SiteApprovalApproved, route, next, fmt.Sprintf("approval %s approved (action %s)", a.ID, a.Action))
 }
 
 // OnRejected reverts the route when its approval is rejected. Reproduces
@@ -94,7 +94,7 @@ func (s *RouteService) OnRejected(a *models.Approval) error {
 		return fmt.Errorf("route approval: unsupported action %q", a.Action)
 	}
 
-	return s.state.To(route, next, fmt.Sprintf("approval %s rejected (action %s)", a.ID, a.Action))
+	return s.state.To(SiteApprovalRejected, route, next, fmt.Sprintf("approval %s rejected (action %s)", a.ID, a.Action))
 }
 
 // OnCancelled reverts the route when its approval is withdrawn. Reproduces
@@ -114,7 +114,7 @@ func (s *RouteService) OnCancelled(a *models.Approval) error {
 			return err
 		}
 		next := models.RouteStatusActive
-		return s.state.To(route, next, fmt.Sprintf("approval %s cancelled (action %s)", a.ID, a.Action))
+		return s.state.To(SiteApprovalCancelled, route, next, fmt.Sprintf("approval %s cancelled (action %s)", a.ID, a.Action))
 
 	default:
 		return fmt.Errorf("route approval: unsupported action %q", a.Action)

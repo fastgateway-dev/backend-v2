@@ -15,9 +15,21 @@ import (
 )
 
 func newPVS(k8s *mocks.MockKubernetesService, now func() time.Time) *services.ProjectVersionService {
-	svc := services.NewProjectVersionService(k8s)
-	svc.SetNowFunc(now)
-	return svc
+	// Phase 2E Task 6: Now replaced SetNowFunc. It stays optional -- it is a
+	// genuine determinism seam, not a wiring dependency.
+	return services.NewProjectVersionService(services.ProjectVersionServiceDeps{K8s: k8s, Now: now})
+}
+
+func TestNewProjectVersionService_RequiresK8sAndNowIsOptional(t *testing.T) {
+	assert.PanicsWithValue(t,
+		"services.NewProjectVersionService: missing required dependency: K8s",
+		func() { services.NewProjectVersionService(services.ProjectVersionServiceDeps{}) })
+
+	assert.NotPanics(t, func() {
+		services.NewProjectVersionService(services.ProjectVersionServiceDeps{
+			K8s: new(mocks.MockKubernetesService),
+		})
+	}, "Now is an optional determinism seam; nil means time.Now")
 }
 
 func TestProjectVersionService_CacheMiss(t *testing.T) {
