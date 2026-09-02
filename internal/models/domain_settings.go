@@ -2,6 +2,7 @@ package models
 
 import (
 	"database/sql/driver"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -443,15 +444,20 @@ type DomainMTLSConfig struct {
 	HashWhitelist []string       `json:"hashWhitelist,omitempty"` // General mode hash whitelist
 }
 
-// Validate validates the domain mTLS configuration
-func (m *DomainMTLSConfig) Validate() error {
+// ValidateShape validates the structural correctness of a mTLS config's SAN
+// whitelist and hash whitelist entries -- the two Validate() rules that hold
+// unconditionally, independent of whether any CA certificate is present.
+//
+// Split out of Validate() (mtls-warning-brief.md, Change 2) so it can be
+// wired into the domain settings write path (DomainService.
+// UpdateDomainSettings) without also enforcing Validate()'s "at least one CA
+// certificate is required" rule, which does NOT hold there: a client
+// attachment can supply the CA instead of the domain itself, so
+// mtls.enabled=true with zero domain-level CACerts is a normal, expected
+// configuration (see DomainService.collectCASecretRefs).
+func (m *DomainMTLSConfig) ValidateShape() error {
 	if m == nil || !m.Enabled {
 		return nil
-	}
-
-	// At least one CA required when enabled
-	if len(m.CACerts) == 0 {
-		return fmt.Errorf("at least one CA certificate is required when mTLS is enabled")
 	}
 
 	// Validate SAN entries
@@ -464,11 +470,44 @@ func (m *DomainMTLSConfig) Validate() error {
 		}
 	}
 
-	// Validate hash format (hex-encoded SHA256 = 64 chars)
+	// Validate hash format (hex-encoded SHA256 = 64 hex characters). Checked
+	// for length AND hex-ness: a 64-character string of non-hex characters
+	// would previously pass, be written to the database, and render into the
+	// ClientTrafficPolicy hash whitelist where it can never match any real
+	// certificate fingerprint.
 	for i, hash := range m.HashWhitelist {
 		if len(hash) != 64 {
 			return fmt.Errorf("hashWhitelist[%d]: must be 64 hex characters (SHA256), got %d", i, len(hash))
 		}
+		if _, err := hex.DecodeString(hash); err != nil {
+			return fmt.Errorf("hashWhitelist[%d]: must be 64 hex characters (SHA256), contains non-hex characters", i)
+		}
+	}
+
+	return nil
+}
+
+// Validate validates the domain mTLS configuration in full, including the
+// "at least one CA certificate is required when mTLS is enabled" rule.
+//
+// NOT used on the domain settings write path (DomainService.
+// UpdateDomainSettings uses ValidateShape instead, mtls-warning-brief.md
+// Change 2): the CA-required rule this method enforces was explicitly
+// withdrawn from that path, because a client attachment can supply the CA
+// for a domain instead of the domain configuring one directly. Calling this
+// method on the write path would reject a normal, expected configuration.
+func (m *DomainMTLSConfig) Validate() error {
+	if m == nil || !m.Enabled {
+		return nil
+	}
+
+	if err := m.ValidateShape(); err != nil {
+		return err
+	}
+
+	// At least one CA required when enabled
+	if len(m.CACerts) == 0 {
+		return fmt.Errorf("at least one CA certificate is required when mTLS is enabled")
 	}
 
 	return nil

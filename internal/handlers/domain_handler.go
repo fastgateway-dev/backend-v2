@@ -326,7 +326,7 @@ func (h *DomainHandler) UpdateDomainSettings(c *gin.Context) {
 		return
 	}
 
-	settings, err := h.domainService.UpdateDomainSettings(domainID, &input)
+	settings, warnings, err := h.domainService.UpdateDomainSettings(domainID, &input)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -345,7 +345,30 @@ func (h *DomainHandler) UpdateDomainSettings(c *gin.Context) {
 		c.Request.UserAgent(),
 	)
 
-	c.JSON(http.StatusOK, settings)
+	// settings is nil when the write emptied every CTP/BTP/extension config
+	// for this domain (see UpdateDomainSettings) -- preserve the pre-existing
+	// "null" response for that case rather than wrapping it, since there are
+	// never any warnings to attach to a deleted settings record.
+	if settings == nil {
+		c.JSON(http.StatusOK, nil)
+		return
+	}
+	c.JSON(http.StatusOK, UpdateDomainSettingsResponse{DomainSettings: settings, Warnings: warnings})
+}
+
+// UpdateDomainSettingsResponse wraps the domain settings written by
+// UpdateDomainSettings with optional operator-facing warnings, following the
+// RouteResponse pattern in route_handler.go. Embedding flattens
+// *models.DomainSettings in the JSON output, so this is purely additive: the
+// response gains a "warnings" key and loses nothing.
+//
+// Named UpdateDomainSettingsResponse rather than DomainSettingsResponse
+// (mtls-warning-brief.md's suggested name) because DomainSettingsResponse
+// already exists above for GetDomainSettings, with an unrelated shape
+// (explicit optional fields, not an embedded model).
+type UpdateDomainSettingsResponse struct {
+	*models.DomainSettings
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // GetYAMLs returns generated K8s YAML manifests for a domain

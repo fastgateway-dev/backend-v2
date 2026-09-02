@@ -315,6 +315,103 @@ func TestDomainMTLSConfig_Validate(t *testing.T) {
 	}
 }
 
+// TestDomainMTLSConfig_ValidateShape pins the two rules split out of
+// Validate() (mtls-warning-brief.md, Change 2): SAN entry shape and hash
+// whitelist shape. Unlike Validate(), ValidateShape() must NOT require a CA
+// certificate to be present -- a domain can legitimately have
+// mtls.enabled=true and zero domain-level CACerts because a client
+// attachment can supply the CA instead (DomainService.collectCASecretRefs).
+// This is the method wired into UpdateDomainSettings; Validate() (with its
+// CA requirement) is not.
+func TestDomainMTLSConfig_ValidateShape(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *DomainMTLSConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{name: "nil", cfg: nil, wantErr: false},
+		{name: "disabled", cfg: &DomainMTLSConfig{Enabled: false}, wantErr: false},
+		{
+			name:    "enabled with no CAs and no SAN/hash entries -- shape checks do not require a CA",
+			cfg:     &DomainMTLSConfig{Enabled: true},
+			wantErr: false,
+		},
+		{
+			name: "SAN type EMAIL rejected",
+			cfg: &DomainMTLSConfig{
+				Enabled:      true,
+				SANWhitelist: []MTLSSANEntry{{Type: "EMAIL", Value: "test@example.com"}},
+			},
+			wantErr: true,
+			errMsg:  "type must be 'DNS' or 'URI'",
+		},
+		{
+			name: "SAN type DNS accepted",
+			cfg: &DomainMTLSConfig{
+				Enabled:      true,
+				SANWhitelist: []MTLSSANEntry{{Type: "DNS", Value: "example.com"}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "SAN type URI accepted",
+			cfg: &DomainMTLSConfig{
+				Enabled:      true,
+				SANWhitelist: []MTLSSANEntry{{Type: "URI", Value: "spiffe://example.com/service"}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "empty SAN value rejected",
+			cfg: &DomainMTLSConfig{
+				Enabled:      true,
+				SANWhitelist: []MTLSSANEntry{{Type: "DNS", Value: ""}},
+			},
+			wantErr: true,
+			errMsg:  "value cannot be empty",
+		},
+		{
+			name: "hash of 63 chars rejected",
+			cfg: &DomainMTLSConfig{
+				Enabled:       true,
+				HashWhitelist: []string{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b"},
+			},
+			wantErr: true,
+			errMsg:  "must be 64 hex characters",
+		},
+		{
+			name: "hash of 64 hex chars accepted",
+			cfg: &DomainMTLSConfig{
+				Enabled:       true,
+				HashWhitelist: []string{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "hash of 64 chars but non-hex characters rejected",
+			cfg: &DomainMTLSConfig{
+				Enabled:       true,
+				HashWhitelist: []string{"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"},
+			},
+			wantErr: true,
+			errMsg:  "hex",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.ValidateShape()
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestConnectionLimitConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string

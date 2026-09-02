@@ -6292,7 +6292,7 @@ func (_c *MockDomainService_Update_Call) RunAndReturn(run func(id uuid.UUID, inp
 }
 
 // UpdateDomainSettings provides a mock function for the type MockDomainService
-func (_mock *MockDomainService) UpdateDomainSettings(domainID uuid.UUID, input *services.UpdateDomainSettingsInput) (*models.DomainSettings, error) {
+func (_mock *MockDomainService) UpdateDomainSettings(domainID uuid.UUID, input *services.UpdateDomainSettingsInput) (*models.DomainSettings, []string, error) {
 	ret := _mock.Called(domainID, input)
 
 	if len(ret) == 0 {
@@ -6300,8 +6300,9 @@ func (_mock *MockDomainService) UpdateDomainSettings(domainID uuid.UUID, input *
 	}
 
 	var r0 *models.DomainSettings
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, *services.UpdateDomainSettingsInput) (*models.DomainSettings, error)); ok {
+	var r1 []string
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, *services.UpdateDomainSettingsInput) (*models.DomainSettings, []string, error)); ok {
 		return returnFunc(domainID, input)
 	}
 	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, *services.UpdateDomainSettingsInput) *models.DomainSettings); ok {
@@ -6311,12 +6312,19 @@ func (_mock *MockDomainService) UpdateDomainSettings(domainID uuid.UUID, input *
 			r0 = ret.Get(0).(*models.DomainSettings)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, *services.UpdateDomainSettingsInput) error); ok {
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, *services.UpdateDomainSettingsInput) []string); ok {
 		r1 = returnFunc(domainID, input)
 	} else {
-		r1 = ret.Error(1)
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).([]string)
+		}
 	}
-	return r0, r1
+	if returnFunc, ok := ret.Get(2).(func(uuid.UUID, *services.UpdateDomainSettingsInput) error); ok {
+		r2 = returnFunc(domainID, input)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
 }
 
 // MockDomainService_UpdateDomainSettings_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateDomainSettings'
@@ -6349,12 +6357,12 @@ func (_c *MockDomainService_UpdateDomainSettings_Call) Run(run func(domainID uui
 	return _c
 }
 
-func (_c *MockDomainService_UpdateDomainSettings_Call) Return(domainSettings *models.DomainSettings, err error) *MockDomainService_UpdateDomainSettings_Call {
-	_c.Call.Return(domainSettings, err)
+func (_c *MockDomainService_UpdateDomainSettings_Call) Return(domainSettings *models.DomainSettings, strings []string, err error) *MockDomainService_UpdateDomainSettings_Call {
+	_c.Call.Return(domainSettings, strings, err)
 	return _c
 }
 
-func (_c *MockDomainService_UpdateDomainSettings_Call) RunAndReturn(run func(domainID uuid.UUID, input *services.UpdateDomainSettingsInput) (*models.DomainSettings, error)) *MockDomainService_UpdateDomainSettings_Call {
+func (_c *MockDomainService_UpdateDomainSettings_Call) RunAndReturn(run func(domainID uuid.UUID, input *services.UpdateDomainSettingsInput) (*models.DomainSettings, []string, error)) *MockDomainService_UpdateDomainSettings_Call {
 	_c.Call.Return(run)
 	return _c
 }

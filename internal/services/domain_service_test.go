@@ -560,10 +560,13 @@ func TestDomainService_UpdateDomainSettings_MTLSEnabledWithCAs_UpdatesCTPWithCAR
 		},
 	}
 
-	result, err := svc.UpdateDomainSettings(domainID, input)
+	result, warnings, err := svc.UpdateDomainSettings(domainID, input)
 
 	require.NoError(t, err)
 	assert.NotNil(t, result)
+	// Domain CAs are present -> no "no CA available" warning (test case 3,
+	// mtls-warning-brief.md).
+	assert.Empty(t, warnings)
 	// Should NOT call GetSecretData or CreateOrUpdateSecret (no merging)
 	k8sMock.AssertNotCalled(t, "GetSecretData", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	k8sMock.AssertNotCalled(t, "CreateOrUpdateSecret", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -599,7 +602,14 @@ func TestDomainService_UpdateDomainSettings_MTLSEnabledNoCAs_SkipsRegenerate(t *
 		},
 	}
 
-	result, err := svc.UpdateDomainSettings(domainID, input)
+	// SINCE this change: UpdateDomainSettings still ACCEPTS mtls.enabled=true
+	// with zero domain-level CA certs (the withdrawn "at least one CA
+	// required" rule stays withdrawn from the write path -- see
+	// mtls-warning-brief.md test case 8). It now additionally surfaces a
+	// warning for exactly this case; this test does not assert on the
+	// warning (see TestDomainService_UpdateDomainSettings_MTLSNoCAAnywhere_
+	// ReturnsWarning for that), only that acceptance is unchanged.
+	result, _, err := svc.UpdateDomainSettings(domainID, input)
 
 	require.NoError(t, err)
 	assert.NotNil(t, result)
@@ -637,11 +647,13 @@ func TestDomainService_UpdateDomainSettings_NoMTLS_SkipsRegenerate(t *testing.T)
 		Timeout: timeout,
 	}
 
-	result, err := svc.UpdateDomainSettings(domainID, input)
+	result, warnings, err := svc.UpdateDomainSettings(domainID, input)
 
 	require.NoError(t, err)
 	assert.NotNil(t, result)
-	// No mTLS → no regeneration
+	// No mTLS → no regeneration, and no "no CA available" warning (test case
+	// 4, mtls-warning-brief.md).
+	assert.Empty(t, warnings)
 	k8sMock.AssertNotCalled(t, "CreateOrUpdateSecret", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	k8sMock.AssertNotCalled(t, "GetSecretData", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
@@ -660,7 +672,7 @@ func TestDomainService_UpdateDomainSettings_DomainNotFound(t *testing.T) {
 	domainRepo.On("GetByID", domainID).Return(nil, errors.New("not found"))
 	_ = settingsRepo // unused but part of helper
 
-	_, err := svc.UpdateDomainSettings(domainID, &services.UpdateDomainSettingsInput{})
+	_, _, err := svc.UpdateDomainSettings(domainID, &services.UpdateDomainSettingsInput{})
 
 	assert.Contains(t, err.Error(), "domain not found")
 }
@@ -687,12 +699,156 @@ func TestDomainService_UpdateDomainSettings_EmptyConfig_DeletesSettings(t *testi
 	// Empty input → all nil fields → config.IsEmpty() == true
 	input := &services.UpdateDomainSettingsInput{}
 
-	result, err := svc.UpdateDomainSettings(domainID, input)
+	result, warnings, err := svc.UpdateDomainSettings(domainID, input)
 
 	require.NoError(t, err)
 	assert.Nil(t, result)
+	assert.Empty(t, warnings)
 	k8sMock.AssertCalled(t, "DeleteClientTrafficPolicy", mock.Anything, projectID, "fastgateway-system", "test-gw-ctp")
 	settingsRepo.AssertCalled(t, "DeleteByDomainID", domainID)
+}
+
+// ---------------------------------------------------------------------------
+// UpdateDomainSettings -- mTLS no-CA-available warning
+// (mtls-warning-brief.md, Change 1)
+// ---------------------------------------------------------------------------
+
+// newTestDomainServiceWithClientAttachments is the newTestDomainServiceWithK8s
+// variant needed for test case 2 of the brief: "one active mTLS client
+// attachment supplying a CA -> no warning". newDefaultClientAttachmentRepoStub
+// always answers GetMTLSClientsForDomain with an empty slice, so this swaps
+// in a stub that returns the given clients instead.
+func newTestDomainServiceWithClientAttachments(clients []models.Client) (
+	*services.DomainService,
+	*mocks.MockDomainRepository,
+	*mocks.MockDomainSettingsRepository,
+	*mocks.MockKubernetesService,
+) {
+	domainRepo := new(mocks.MockDomainRepository)
+	settingsRepo := new(mocks.MockDomainSettingsRepository)
+	k8sMock := new(mocks.MockKubernetesService)
+	attachmentRepo := new(mocks.MockClientAttachmentRepository)
+	attachmentRepo.On("GetMTLSClientsForDomain", mock.Anything).Return(clients, nil).Maybe()
+	svc := services.NewDomainService(services.DomainServiceDeps{
+		DomainRepo:           domainRepo,
+		ProjectRepo:          new(mocks.MockProjectRepository),
+		DomainTemplateRepo:   new(mocks.MockDomainTemplateRepository),
+		K8sGateways:          k8sMock,
+		K8sSecrets:           k8sMock,
+		K8sBackends:          k8sMock,
+		K8sPolicies:          k8sMock,
+		K8sRefGrants:         k8sMock,
+		SettingsRepo:         settingsRepo,
+		ClientAttachmentRepo: attachmentRepo,
+		BtpRepo:              newDefaultBtpRepoStub(),
+		ExtPolicyRepo:        newDefaultExtPolicyRepoStub(),
+		ProjectNamespaceRepo: new(mocks.MockProjectNamespaceRepository),
+		DtService:            noTemplateLookup{},
+		AiService:            disabledAIReviewer{},
+	})
+	return svc, domainRepo, settingsRepo, k8sMock
+}
+
+// mtlsWarningTestDomain returns a domain fixture for the warning tests below,
+// shaped like the one used throughout the existing UpdateDomainSettings
+// tests in this file.
+func mtlsWarningTestDomain() *models.Domain {
+	return &models.Domain{
+		ID:             uuid.New(),
+		ProjectID:      uuid.New(),
+		K8sGatewayName: "test-gw",
+		Namespace:      "fastgateway-system",
+	}
+}
+
+// setupMTLSWarningTestMocks wires the mocks every warning test below needs:
+// domain lookup, settings upsert/reload, CTP apply, and the BTP/extension-
+// policy delete path (both are nil in every warning test's input, so
+// UpdateDomainSettings takes the "delete" branch for each).
+func setupMTLSWarningTestMocks(
+	domainRepo *mocks.MockDomainRepository,
+	settingsRepo *mocks.MockDomainSettingsRepository,
+	k8sMock *mocks.MockKubernetesService,
+	domain *models.Domain,
+) {
+	domainRepo.On("GetByID", domain.ID).Return(domain, nil)
+	settingsRepo.On("Upsert", mock.AnythingOfType("*models.DomainSettings")).Return(nil)
+	k8sMock.On("CreateClientTrafficPolicy", mock.Anything, domain.ProjectID, mock.AnythingOfType("*kubernetes.ClientTrafficPolicyConfig")).Return(nil)
+	k8sMock.On("DeleteBackendTrafficPolicy", mock.Anything, domain.ProjectID, domain.Namespace, domain.K8sGatewayName+"-btp").Return(nil)
+	k8sMock.On("DeleteBackend", mock.Anything, domain.ProjectID, domain.Namespace, domain.K8sGatewayName+"-eep-extproc").Return(nil)
+	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, domain.ProjectID, domain.Namespace, domain.K8sGatewayName+"-eep").Return(nil)
+	settingsRepo.On("GetByDomainID", domain.ID).Return(&models.DomainSettings{DomainID: domain.ID}, nil)
+}
+
+const mtlsNoCAWarningText = "mTLS is enabled but no CA certificates are available for this domain (none configured directly, and no active mTLS clients attached). The domain will reject client connections until a CA is added or an mTLS client is attached."
+
+// Test case 1 (mtls-warning-brief.md): mTLS enabled, no domain CAs, no mTLS
+// client attachments -> warning returned.
+func TestDomainService_UpdateDomainSettings_MTLSNoCAAnywhere_ReturnsWarning(t *testing.T) {
+	svc, domainRepo, settingsRepo, k8sMock := newTestDomainServiceWithK8s()
+	domain := mtlsWarningTestDomain()
+	setupMTLSWarningTestMocks(domainRepo, settingsRepo, k8sMock, domain)
+
+	input := &services.UpdateDomainSettingsInput{
+		MTLS: &models.DomainMTLSConfig{Enabled: true},
+	}
+
+	result, warnings, err := svc.UpdateDomainSettings(domain.ID, input)
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	require.Len(t, warnings, 1)
+	assert.Equal(t, mtlsNoCAWarningText, warnings[0])
+}
+
+// Test case 2 (mtls-warning-brief.md): mTLS enabled, no domain CAs, one
+// active mTLS client attachment supplying a CA -> NO warning. This is the
+// case that must not produce noise, and the whole reason the warning is
+// computed from the RESOLVED ref list (collectCASecretRefs' merged output)
+// rather than from input.MTLS.CACerts alone.
+func TestDomainService_UpdateDomainSettings_MTLSNoCAButClientAttachmentSuppliesOne_NoWarning(t *testing.T) {
+	client := models.Client{ID: uuid.New(), MTLSCASecret: "client-supplied-ca-secret"}
+	svc, domainRepo, settingsRepo, k8sMock := newTestDomainServiceWithClientAttachments([]models.Client{client})
+	domain := mtlsWarningTestDomain()
+	setupMTLSWarningTestMocks(domainRepo, settingsRepo, k8sMock, domain)
+
+	input := &services.UpdateDomainSettingsInput{
+		MTLS: &models.DomainMTLSConfig{Enabled: true},
+	}
+
+	result, warnings, err := svc.UpdateDomainSettings(domain.ID, input)
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Empty(t, warnings)
+}
+
+// Test case 5-7 wiring (mtls-warning-brief.md, Change 2): an invalid mTLS
+// shape (bad SAN type here) is rejected by UpdateDomainSettings before any
+// repository or Kubernetes call, via the newly-wired ValidateShape(). The
+// per-rule shape checks themselves are pinned directly against
+// DomainMTLSConfig.ValidateShape in internal/models/domain_settings_test.go;
+// this test only pins the wiring.
+func TestDomainService_UpdateDomainSettings_InvalidMTLSShape_RejectedBeforeAnyWrite(t *testing.T) {
+	svc, domainRepo, settingsRepo, k8sMock := newTestDomainServiceWithK8s()
+	domain := mtlsWarningTestDomain()
+	domainRepo.On("GetByID", domain.ID).Return(domain, nil)
+
+	input := &services.UpdateDomainSettingsInput{
+		MTLS: &models.DomainMTLSConfig{
+			Enabled:      true,
+			SANWhitelist: []models.MTLSSANEntry{{Type: "EMAIL", Value: "test@example.com"}},
+		},
+	}
+
+	result, warnings, err := svc.UpdateDomainSettings(domain.ID, input)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid mTLS config")
+	assert.Nil(t, result)
+	assert.Nil(t, warnings)
+	settingsRepo.AssertNotCalled(t, "Upsert", mock.Anything)
+	k8sMock.AssertNotCalled(t, "CreateClientTrafficPolicy", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // strPtr is a helper for string pointer

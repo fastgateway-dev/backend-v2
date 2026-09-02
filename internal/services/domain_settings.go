@@ -37,32 +37,49 @@ func (s *DomainService) GetDomainSettings(domainID uuid.UUID) (*models.DomainSet
 
 // UpdateDomainSettings updates the settings for a domain
 // This is the gateway-agnostic API - internally translates to gateway-specific resources
-func (s *DomainService) UpdateDomainSettings(domainID uuid.UUID, input *UpdateDomainSettingsInput) (*models.DomainSettings, error) {
+//
+// The second return value carries operator-facing warnings about the
+// settings just written -- currently just the mTLS no-CA-available warning
+// (mtls-warning-brief.md, Change 1). It is nil whenever there is nothing to
+// warn about, following the house pattern in route_validation.go
+// (BackendTLSWarnings, DirectResponsePercentWarnings).
+func (s *DomainService) UpdateDomainSettings(domainID uuid.UUID, input *UpdateDomainSettingsInput) (*models.DomainSettings, []string, error) {
 	// Get domain
 	domain, err := s.domainRepo.GetByID(domainID)
 	if err != nil {
-		return nil, fmt.Errorf("domain not found: %w", err)
+		return nil, nil, fmt.Errorf("domain not found: %w", err)
 	}
 
 	// Validate CTP input
 	if input.ClientConnection != nil {
 		if err := input.ClientConnection.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid client connection config: %w", err)
+			return nil, nil, fmt.Errorf("invalid client connection config: %w", err)
 		}
 	}
 	if input.Timeout != nil {
 		if err := input.Timeout.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid timeout config: %w", err)
+			return nil, nil, fmt.Errorf("invalid timeout config: %w", err)
 		}
 	}
 	if input.TLS != nil {
 		if err := input.TLS.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid TLS config: %w", err)
+			return nil, nil, fmt.Errorf("invalid TLS config: %w", err)
 		}
 	}
 	if input.ClientIPDetection != nil {
 		if err := input.ClientIPDetection.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid clientIPDetection: %w", err)
+			return nil, nil, fmt.Errorf("invalid clientIPDetection: %w", err)
+		}
+	}
+	// ValidateShape, not Validate: Validate's "at least one CA certificate is
+	// required when mTLS is enabled" rule was explicitly withdrawn for this
+	// write path (mtls-warning-brief.md, Change 2) -- a client attachment can
+	// supply the CA instead, via DomainService.collectCASecretRefs. Only the
+	// two unconditionally-correct shape checks (SAN entries, hash whitelist)
+	// run here.
+	if input.MTLS != nil {
+		if err := input.MTLS.ValidateShape(); err != nil {
+			return nil, nil, fmt.Errorf("invalid mTLS config: %w", err)
 		}
 	}
 
@@ -70,45 +87,45 @@ func (s *DomainService) UpdateDomainSettings(domainID uuid.UUID, input *UpdateDo
 	if input.BackendTrafficPolicy != nil {
 		// Reject features not applicable at domain level
 		if input.BackendTrafficPolicy.HealthCheck != nil {
-			return nil, errors.New("healthCheck is not supported at domain level")
+			return nil, nil, errors.New("healthCheck is not supported at domain level")
 		}
 		if input.BackendTrafficPolicy.RateLimit != nil {
-			return nil, errors.New("rateLimit is not supported at domain level")
+			return nil, nil, errors.New("rateLimit is not supported at domain level")
 		}
 		if input.BackendTrafficPolicy.FaultInjection != nil {
-			return nil, errors.New("faultInjection is not supported at domain level")
+			return nil, nil, errors.New("faultInjection is not supported at domain level")
 		}
 		// Validate individual sub-configs
 		if input.BackendTrafficPolicy.Retry != nil {
 			if err := input.BackendTrafficPolicy.Retry.Validate(); err != nil {
-				return nil, fmt.Errorf("invalid retry config: %w", err)
+				return nil, nil, fmt.Errorf("invalid retry config: %w", err)
 			}
 		}
 		if input.BackendTrafficPolicy.LoadBalancer != nil {
 			if err := input.BackendTrafficPolicy.LoadBalancer.Validate(); err != nil {
-				return nil, fmt.Errorf("invalid loadBalancer config: %w", err)
+				return nil, nil, fmt.Errorf("invalid loadBalancer config: %w", err)
 			}
 		}
 		if input.BackendTrafficPolicy.CircuitBreaker != nil {
 			if err := input.BackendTrafficPolicy.CircuitBreaker.Validate(); err != nil {
-				return nil, fmt.Errorf("invalid circuitBreaker config: %w", err)
+				return nil, nil, fmt.Errorf("invalid circuitBreaker config: %w", err)
 			}
 		}
 		if input.BackendTrafficPolicy.RequestBuffer != nil {
 			if err := input.BackendTrafficPolicy.RequestBuffer.Validate(); err != nil {
-				return nil, fmt.Errorf("invalid requestBuffer config: %w", err)
+				return nil, nil, fmt.Errorf("invalid requestBuffer config: %w", err)
 			}
 		}
 		if len(input.BackendTrafficPolicy.ResponseOverride) > 0 {
 			for i, rule := range input.BackendTrafficPolicy.ResponseOverride {
 				if err := rule.Validate(); err != nil {
-					return nil, fmt.Errorf("invalid responseOverride[%d]: %w", i, err)
+					return nil, nil, fmt.Errorf("invalid responseOverride[%d]: %w", i, err)
 				}
 			}
 		}
 		if input.BackendTrafficPolicy.Timeout != nil {
 			if err := input.BackendTrafficPolicy.Timeout.Validate(); err != nil {
-				return nil, fmt.Errorf("invalid BTP timeout config: %w", err)
+				return nil, nil, fmt.Errorf("invalid BTP timeout config: %w", err)
 			}
 		}
 	}
@@ -116,7 +133,7 @@ func (s *DomainService) UpdateDomainSettings(domainID uuid.UUID, input *UpdateDo
 	// Validate extension policy input
 	if input.ExtensionPolicy != nil {
 		if err := input.ExtensionPolicy.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid extension policy config: %w", err)
+			return nil, nil, fmt.Errorf("invalid extension policy config: %w", err)
 		}
 	}
 
@@ -154,8 +171,10 @@ func (s *DomainService) UpdateDomainSettings(domainID uuid.UUID, input *UpdateDo
 		if err := s.applyDomainEnvoyExtensionPolicy(ctx, domain, nil); err != nil {
 			log.Printf("Failed to delete domain extension policy: %v", err)
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
+
+	var warnings []string
 
 	// Handle CTP independently
 	if ctpEmpty {
@@ -173,44 +192,65 @@ func (s *DomainService) UpdateDomainSettings(domainID uuid.UUID, input *UpdateDo
 			Config:    ctpConfig,
 		}
 		if err := s.settingsRepo.Upsert(settings); err != nil {
-			return nil, fmt.Errorf("failed to save domain settings: %w", err)
+			return nil, nil, fmt.Errorf("failed to save domain settings: %w", err)
 		}
-		if err := s.applyEnvoyGatewayClientTrafficPolicy(ctx, domain, &ctpConfig); err != nil {
-			return nil, err
+		w, err := s.applyEnvoyGatewayClientTrafficPolicy(ctx, domain, &ctpConfig)
+		if err != nil {
+			return nil, nil, err
 		}
+		warnings = w
 	}
 
 	// Handle BTP independently
 	if err := s.applyDomainBackendTrafficPolicy(ctx, domain, input.BackendTrafficPolicy); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Handle extension policy independently
 	if err := s.applyDomainEnvoyExtensionPolicy(ctx, domain, input.ExtensionPolicy); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Reload and return the settings (may be nil if CTP was empty but BTP/ext were set)
 	settings, err := s.settingsRepo.GetByDomainID(domainID)
 	if err != nil {
 		// CTP was deleted but BTP/extension saved successfully — not an error
-		return nil, nil
+		return nil, nil, nil
 	}
-	return settings, nil
+	return settings, warnings, nil
 }
 
-// applyEnvoyGatewayClientTrafficPolicy translates domain settings to Envoy Gateway ClientTrafficPolicy CRD
-func (s *DomainService) applyEnvoyGatewayClientTrafficPolicy(ctx context.Context, domain *models.Domain, config *models.DomainSettingsConfig) error {
+// mtlsNoCAWarning is Change 1's operator-facing warning (mtls-warning-brief.md):
+// mTLS is enabled but the RESOLVED CA secret ref list (domain-level CACerts
+// merged with active mTLS client attachments, via collectCASecretRefs) is
+// empty. Computed from the resolved list rather than input.MTLS.CACerts
+// alone, because a client attachment supplying the CA is a normal
+// configuration that must not produce this warning -- see
+// collectCASecretRefs and DomainMTLSConfig.Validate's doc comment.
+const mtlsNoCAWarning = "mTLS is enabled but no CA certificates are available for this domain (none configured directly, and no active mTLS clients attached). The domain will reject client connections until a CA is added or an mTLS client is attached."
+
+// applyEnvoyGatewayClientTrafficPolicy translates domain settings to Envoy
+// Gateway ClientTrafficPolicy CRD.
+//
+// The returned []string carries operator-facing warnings about the policy
+// just applied (currently just mtlsNoCAWarning); it is nil on any error path
+// and whenever there is nothing to warn about.
+func (s *DomainService) applyEnvoyGatewayClientTrafficPolicy(ctx context.Context, domain *models.Domain, config *models.DomainSettingsConfig) ([]string, error) {
 	caSecretRefs, err := s.collectCASecretRefs(domain, config)
 	if err != nil {
-		return fmt.Errorf("collect CA secret refs for domain %s: %w", domain.ID, err)
+		return nil, fmt.Errorf("collect CA secret refs for domain %s: %w", domain.ID, err)
 	}
 	ctpConfig := domainplan.BuildClientTrafficPolicyConfig(domain, config, caSecretRefs)
 
 	if err := s.k8sGateways.CreateClientTrafficPolicy(ctx, domain.ProjectID, ctpConfig); err != nil {
-		return fmt.Errorf("failed to apply ClientTrafficPolicy to Kubernetes: %w", err)
+		return nil, fmt.Errorf("failed to apply ClientTrafficPolicy to Kubernetes: %w", err)
 	}
-	return nil
+
+	var warnings []string
+	if config.MTLS != nil && config.MTLS.Enabled && len(caSecretRefs) == 0 {
+		warnings = append(warnings, mtlsNoCAWarning)
+	}
+	return warnings, nil
 }
 
 // GetDomainBackendTrafficPolicy returns the domain-level BackendTrafficPolicy
