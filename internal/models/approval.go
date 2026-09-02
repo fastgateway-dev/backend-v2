@@ -2,10 +2,17 @@ package models
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// ErrPolicyNotFound reports that no approval policy exists for a
+// project/entity/action combination. It distinguishes genuine absence, where
+// falling back to a default gate is correct, from a lookup FAILURE, where
+// falling back silently replaces the project's real policy with a weaker one.
+var ErrPolicyNotFound = errors.New("approval policy not found")
 
 // ApprovalStatus represents the status of an approval
 type ApprovalStatus string

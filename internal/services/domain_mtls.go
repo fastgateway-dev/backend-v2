@@ -18,6 +18,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // EnsureMTLSClientTrafficPolicy re-applies the Envoy Gateway
@@ -43,9 +44,18 @@ func (s *DomainService) EnsureMTLSClientTrafficPolicy(ctx context.Context, domai
 
 // collectCASecretRefs builds the list of CA secret refs from domain config and active client mTLS attachments.
 // Used by applyEnvoyGatewayClientTrafficPolicy, GenerateYAMLs, and PreviewSettingsChanges.
-func (s *DomainService) collectCASecretRefs(domain *models.Domain, config *models.DomainSettingsConfig) []kubernetes.SecretRefPolicyConfig {
+//
+// SINCE Phase 2G (S1): GetMTLSClientsForDomain ends in gorm's Find, which
+// returns an empty slice with a nil error when there are no rows -- so any
+// non-nil error here is a genuine repository failure, never absence, and is
+// now propagated instead of logged-and-swallowed. BEFORE Phase 2G: the error
+// was logged and the ref list silently lost every client-attachment CA,
+// leaving only the domain-level CAs -- which could push the list to zero and
+// feed BuildClientTrafficPolicyConfig's (now-fixed, Task 3) guard into
+// rendering a domain with mTLS enabled but no CA validation at all.
+func (s *DomainService) collectCASecretRefs(domain *models.Domain, config *models.DomainSettingsConfig) ([]kubernetes.SecretRefPolicyConfig, error) {
 	if config.MTLS == nil || !config.MTLS.Enabled {
-		return nil
+		return nil, nil
 	}
 
 	var refs []kubernetes.SecretRefPolicyConfig
@@ -62,20 +72,19 @@ func (s *DomainService) collectCASecretRefs(domain *models.Domain, config *model
 	// Client CAs from active mTLS attachments
 	mtlsClients, err := s.clientAttachmentRepo.GetMTLSClientsForDomain(domain.ID)
 	if err != nil {
-		log.Printf("Warning: failed to get mTLS clients for domain %s: %v", domain.ID, err)
-	} else {
-		for _, client := range mtlsClients {
-			if client.MTLSCASecret != "" {
-				refs = append(refs, kubernetes.SecretRefPolicyConfig{
-					Group: "",
-					Kind:  "Secret",
-					Name:  client.MTLSCASecret,
-				})
-			}
+		return nil, fmt.Errorf("list mTLS clients for domain %s: %w", domain.ID, err)
+	}
+	for _, client := range mtlsClients {
+		if client.MTLSCASecret != "" {
+			refs = append(refs, kubernetes.SecretRefPolicyConfig{
+				Group: "",
+				Kind:  "Secret",
+				Name:  client.MTLSCASecret,
+			})
 		}
 	}
 
-	return refs
+	return refs, nil
 }
 
 // AddDomainMTLSCAInput represents input for adding a domain CA certificate
@@ -112,14 +121,28 @@ func (s *DomainService) AddDomainMTLSCA(ctx context.Context, domainID uuid.UUID,
 		return nil, fmt.Errorf("domain not found: %w", err)
 	}
 
-	// Get or create settings
+	// Get or create settings.
+	//
+	// SINCE Phase 2G (S2, controller Ruling P2): blank settings are fabricated
+	// ONLY for genuine absence (gorm.ErrRecordNotFound). BEFORE Phase 2G: ANY
+	// error here -- including a transient database failure -- fabricated
+	// blank settings that were later Upsert'd, silently overwriting the
+	// stored row. Adding a CA is a security-INCREASING admin action; doing it
+	// during a DB blip used to reset MTLS.Enabled to false and wipe
+	// SANWhitelist, HashWhitelist, TLS and ClientIPDetection.
 	settings, err := s.settingsRepo.GetByDomainID(domainID)
-	if err != nil {
+	switch {
+	case err == nil:
+		// Existing settings loaded; carried forward below.
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		// Genuine absence: this domain has no settings row yet.
 		settings = &models.DomainSettings{
 			DomainID:  domainID,
 			ProjectID: domain.ProjectID,
 			Config:    models.DomainSettingsConfig{},
 		}
+	default:
+		return nil, fmt.Errorf("load domain settings for domain %s: %w", domainID, err)
 	}
 
 	if settings.Config.MTLS == nil {

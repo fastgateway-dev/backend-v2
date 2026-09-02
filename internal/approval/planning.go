@@ -34,10 +34,33 @@ func (e *Engine) PlanStages(
 	// unguarded forms behave identically for every non-nil store.
 	var templates []models.PolicyStageTemplate
 
+	// Policy lookup: action-specific first, falling back to the project
+	// default. Since Phase 2G this distinguishes a genuine miss
+	// (models.ErrPolicyNotFound) from a lookup FAILURE.
+	//
+	// Before Phase 2G both discarded their error outright ("err != nil ||
+	// policy == nil" on the first call, "_" on the second), so a database
+	// blip on either lookup was indistinguishable from the project simply
+	// having no policy configured: both silently produced the same
+	// single-stage route.approve fallback (or, for client_attachment, the
+	// same "no policy found" error a genuine miss also produces) instead of
+	// surfacing the failure. See
+	// TestPlanStages_LookupErrorIsReturnedNotSwallowed (formerly
+	// TestPlanStages_LookupErrorSilentlyYieldsDefaultGate) for the before/after.
+	//
+	// The action-specific -> project-default fallback CHAIN itself is
+	// unchanged; only the error handling around it is.
 	actionStr := string(action)
 	policy, err := e.policies.GetByProjectAndEntity(projectID, string(entity), &actionStr)
-	if err != nil || policy == nil {
-		policy, _ = e.policies.GetByProjectAndEntity(projectID, string(entity), nil)
+	if errors.Is(err, models.ErrPolicyNotFound) {
+		policy, err = e.policies.GetByProjectAndEntity(projectID, string(entity), nil)
+		if errors.Is(err, models.ErrPolicyNotFound) {
+			policy, err = nil, nil
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("look up approval policy for project %s (%s): %w",
+			projectID, entity, err)
 	}
 
 	if policy != nil {

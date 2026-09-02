@@ -58,7 +58,13 @@ func (s stubPolicies) GetByProjectAndEntity(_ uuid.UUID, _ string, action *strin
 	}
 	p, ok := s.byAction[key]
 	if !ok {
-		return nil, errors.New("not found")
+		// PolicyStore's contract (internal/approval/ports.go) requires
+		// models.ErrPolicyNotFound for a genuine absence -- a plain
+		// errors.New("not found") would be misclassified as a FAILURE by
+		// PlanStages since Phase 2G. Not gorm.ErrRecordNotFound: this stub
+		// implements the port, not the repository, and internal/approval
+		// must never import gorm.
+		return nil, models.ErrPolicyNotFound
 	}
 	return p, nil
 }

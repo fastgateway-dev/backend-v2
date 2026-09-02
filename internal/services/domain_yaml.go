@@ -17,6 +17,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 	"sigs.k8s.io/yaml"
 )
 
@@ -44,15 +45,35 @@ type DomainCreatePreviewResult struct {
 // templateAnnotations resolves a domain's template annotations for the Gateway
 // manifest. Returns nil when the domain has no template.
 //
-// NOTE: a failed template lookup is deliberately swallowed here -- the Gateway
-// is then built with no annotations, exactly as it was before Phase 2F moved
-// the builder into internal/domainplan. Preserved verbatim; see the Phase 2F
-// report for the finding.
+// FAIL-SOFT since Phase 2G (F1): a failed template lookup still builds the
+// Gateway with no annotations -- annotations are not a security control, and
+// the two callers of this method (GenerateYAMLs, PreviewSettingsChanges)
+// cannot return an error here without a signature change, which is a real
+// cost this fix chose not to pay. What changed is that the failure is no
+// longer silent: it is now logged, with absence (the template was deleted,
+// gorm.ErrRecordNotFound) distinguished from a genuine lookup failure so a
+// domain whose template was legitimately removed does not log a scary error
+// on every deploy.
+//
+// BEFORE Phase 2G: the error was swallowed with nothing logged at all,
+// exactly as it was before Phase 2F moved this builder into
+// internal/domainplan.
 func (s *DomainService) templateAnnotations(domain *models.Domain) map[string]string {
 	if domain.DomainTemplateID != nil {
 		dt, err := s.dtService.GetByID(*domain.DomainTemplateID)
 		if err == nil && dt != nil {
 			return map[string]string(dt.Annotations)
+		}
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				log.Printf("domain %s references domain template %s which no longer exists; "+
+					"deploying Gateway with no template annotations",
+					domain.ID, *domain.DomainTemplateID)
+			} else {
+				log.Printf("failed to look up domain template %s for domain %s: %v; "+
+					"deploying Gateway with no template annotations",
+					*domain.DomainTemplateID, domain.ID, err)
+			}
 		}
 	}
 	return nil
@@ -80,7 +101,10 @@ func (s *DomainService) GenerateYAMLs(domainID uuid.UUID) (*DomainYAMLs, error) 
 	// Build ClientTrafficPolicy YAML (if settings exist)
 	settings, err := s.settingsRepo.GetByDomainID(domainID)
 	if err == nil && settings != nil && !settings.Config.IsEmpty() {
-		caRefs := s.collectCASecretRefs(domain, &settings.Config)
+		caRefs, err := s.collectCASecretRefs(domain, &settings.Config)
+		if err != nil {
+			return nil, fmt.Errorf("collect CA secret refs for domain %s: %w", domain.ID, err)
+		}
 		ctpConfig := domainplan.BuildClientTrafficPolicyConfig(domain, &settings.Config, caRefs)
 		ctpObj := kubernetes.BuildClientTrafficPolicy(ctpConfig)
 		if ctpObj != nil {
@@ -241,7 +265,10 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 	// Build current CTP YAML
 	settings, err := s.settingsRepo.GetByDomainID(domainID)
 	if err == nil && settings != nil && !settings.Config.IsEmpty() {
-		caRefs := s.collectCASecretRefs(domain, &settings.Config)
+		caRefs, err := s.collectCASecretRefs(domain, &settings.Config)
+		if err != nil {
+			return nil, fmt.Errorf("collect CA secret refs for domain %s: %w", domain.ID, err)
+		}
 		ctpConfig := domainplan.BuildClientTrafficPolicyConfig(domain, &settings.Config, caRefs)
 		ctpObj := kubernetes.BuildClientTrafficPolicy(ctpConfig)
 		if ctpObj != nil {
@@ -260,7 +287,10 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 		MTLS:              input.MTLS,
 	}
 	if !proposedConfig.IsEmpty() {
-		caRefs := s.collectCASecretRefs(domain, &proposedConfig)
+		caRefs, err := s.collectCASecretRefs(domain, &proposedConfig)
+		if err != nil {
+			return nil, fmt.Errorf("collect CA secret refs for domain %s: %w", domain.ID, err)
+		}
 		ctpConfig := domainplan.BuildClientTrafficPolicyConfig(domain, &proposedConfig, caRefs)
 		ctpObj := kubernetes.BuildClientTrafficPolicy(ctpConfig)
 		if ctpObj != nil {

@@ -217,13 +217,21 @@ func (s *RouteService) categorizeClientAttachments(ctx context.Context, routeID 
 			EnableMTLS:   attachment.EnableMTLS,
 		}
 
-		// Collect IP CIDRs if IP allowlisting is enabled
+		// Collect IP CIDRs if IP allowlisting is enabled.
+		//
+		// SINCE Phase 2G (S5, route_clients_apikey.go:~222): clientIPRepo.ListByClientID
+		// ends in gorm's Find, so any non-nil error is a genuine repository
+		// failure, never absence -- it is now propagated instead of logged and
+		// swallowed. BEFORE Phase 2G: a swallowed error here left cat.IPCIDRs
+		// empty, silently turning an "API key AND source-IP allowlist" client
+		// into "API key only".
 		if attachment.EnableIPAllowlist {
 			ips, err := s.clientIPRepo.ListByClientID(client.ID)
-			if err == nil {
-				for _, ip := range ips {
-					cat.IPCIDRs = append(cat.IPCIDRs, routeplan.NormalizeCIDR(ip.CIDR))
-				}
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("list IP allowlist for client %s: %w", client.ID, err)
+			}
+			for _, ip := range ips {
+				cat.IPCIDRs = append(cat.IPCIDRs, routeplan.NormalizeCIDR(ip.CIDR))
 			}
 		}
 
@@ -232,15 +240,27 @@ func (s *RouteService) categorizeClientAttachments(ctx context.Context, routeID 
 		if attachment.EnableAPIKey && client.APIKeyEnabled {
 			if client.APIKeyEncrypted == "" {
 				log.Printf("Client %s has API key enabled but no encrypted key data", client.ID)
-				// Don't skip - might have JWT enabled as well
+				// Don't skip - might have JWT enabled as well. This branch is a
+				// legitimate "not configured" case (no encrypted key stored at
+				// all), not a failure -- left as log-and-continue.
 			} else {
-				// Decode the API key from base64
+				// Decode the API key from base64.
+				//
+				// SINCE Phase 2G (S5, controller Ruling R13(a)): a decode
+				// failure is a corrupt/failed operation on data that IS
+				// present, not a legitimately-absent config (unlike the empty
+				// branch above) -- it is now propagated. BEFORE Phase 2G: the
+				// error was logged and swallowed, leaving cat.APIKey empty
+				// while the client could still reach a returned bucket via
+				// another independently-valid auth method (e.g. JWT), so a
+				// per-client route published matching only on the non-secret
+				// X-Client-ID header with no API-key credential enforced at
+				// all.
 				decoded, err := base64.StdEncoding.DecodeString(client.APIKeyEncrypted)
 				if err != nil {
-					log.Printf("Failed to decode API key for client %s: %v", client.ID, err)
-				} else {
-					cat.APIKey = string(decoded)
+					return nil, nil, nil, fmt.Errorf("decode API key for client %s: %w", client.ID, err)
 				}
+				cat.APIKey = string(decoded)
 			}
 
 			// Set API key header name
@@ -284,17 +304,24 @@ func (s *RouteService) categorizeClientAttachments(ctx context.Context, routeID 
 			}
 		}
 
-		// Get header auth config if enabled
+		// Get header auth config if enabled.
+		//
+		// SINCE Phase 2G (S5, route_clients_apikey.go:~290): clientHeaderRepo.ListByClientID
+		// ends in gorm's Find, so any non-nil error is a genuine repository
+		// failure, never absence -- it is now propagated. BEFORE Phase 2G: a
+		// swallowed error here left cat.HeaderMatches empty, dropping the
+		// header Authorization requirement for this client's per-client route.
 		if attachment.EnableHeaderAuth {
 			cat.EnableHeaderAuth = true
 			headers, err := s.clientHeaderRepo.ListByClientID(client.ID)
-			if err == nil {
-				for _, h := range headers {
-					cat.HeaderMatches = append(cat.HeaderMatches, models.AuthorizationHeaderMatch{
-						Name:   h.Name,
-						Values: []string(h.Values),
-					})
-				}
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("list headers for client %s: %w", client.ID, err)
+			}
+			for _, h := range headers {
+				cat.HeaderMatches = append(cat.HeaderMatches, models.AuthorizationHeaderMatch{
+					Name:   h.Name,
+					Values: []string(h.Values),
+				})
 			}
 		}
 

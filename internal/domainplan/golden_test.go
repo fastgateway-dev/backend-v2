@@ -13,14 +13,18 @@ import (
 // internal/services/testdata/golden/ cover the route path only. These are its
 // first snapshots.
 //
-// Two of them deliberately pin KNOWN DEFECTS rather than correct behaviour:
+// One of them deliberately pins a KNOWN DEFECT rather than correct behaviour:
 //
 //	gateway-tls-secret-namespace-dropped-f2  -- F2, dead cross-namespace certRef
-//	ctp-mtls-enabled-no-ca-refs-f3           -- F3, mTLS fail-open
 //
-// See the comments on those fixtures in fixtures_test.go. Neither is fixed
-// here; pinning them stops them drifting further, and when either is fixed the
-// golden MUST change.
+// See the comment on that fixture in fixtures_test.go. It is not fixed here;
+// pinning it stops it drifting further, and when it is fixed the golden MUST
+// change.
+//
+// ctp-mtls-enabled-no-ca-refs (formerly ctp-mtls-enabled-no-ca-refs-f3) used
+// to pin F3, the mTLS rendering fail-open, the same way. Phase 2G fixed F3 in
+// clienttrafficpolicy.go, so this golden was regenerated and renamed to drop
+// the "-f3" defect marker; it now pins the FIXED (fail-closed) behaviour.
 //
 // Regenerate with:
 //

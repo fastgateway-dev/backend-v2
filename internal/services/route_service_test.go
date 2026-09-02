@@ -200,9 +200,20 @@ func newEmptyClientHeaderRepo() *mocks.MockClientHeaderRepository {
 
 func newNoClientsClientRepo() *mocks.MockClientRepository {
 	repo := new(mocks.MockClientRepository)
-	// An error makes every caller log-and-continue, which is exactly what the
-	// nil clientRepo used to produce: no client contributes to the plan.
-	repo.On("GetByID", mock.Anything).Return(nil, errors.New("no client repository wired in this test")).Maybe()
+	// gorm.ErrRecordNotFound makes every caller treat this as genuine
+	// absence (client no longer exists) and skip-and-continue, which is
+	// what the nil clientRepo used to produce: no client contributes to the
+	// plan.
+	//
+	// Phase 2G Task 4 note: this stub used to return a plain errors.New(...)
+	// sentinel. Since collectClientMethods (route_clients.go) now
+	// distinguishes genuine absence (gorm.ErrRecordNotFound, via clientRepo's
+	// First-backed GetByID) from a real repository failure -- propagating
+	// only the latter -- a generic error here would incorrectly fail every
+	// test using this default instead of reproducing "this client
+	// contributes nothing." gorm.ErrRecordNotFound is the correct value for
+	// what this stub has always meant.
+	repo.On("GetByID", mock.Anything).Return(nil, gorm.ErrRecordNotFound).Maybe()
 	return repo
 }
 
@@ -476,7 +487,11 @@ func TestRouteService_Create_Success(t *testing.T) {
 	// Create route in DB
 	routeRepo.On("Create", mock.AnythingOfType("*models.Route")).Return(nil)
 	// Approval policy lookup (returns nil = use default)
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	// Create approval
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 
@@ -607,7 +622,11 @@ func TestRouteService_Delete_Success(t *testing.T) {
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 
 	result, err := svc.Delete(routeID, uuid.New())
@@ -729,7 +748,11 @@ func TestRouteService_Update_Success(t *testing.T) {
 	// Update route
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
 	// Build approval stages
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	// Create approval
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 
@@ -944,7 +967,11 @@ func TestRouteService_Update_WithSecurityPolicy(t *testing.T) {
 		Return([]models.Route{}, int64(0), nil)
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 
 	// Previous config capture mocks
@@ -1257,6 +1284,87 @@ func TestRouteService_GenerateYAMLs_RouteNotFound(t *testing.T) {
 
 	assert.Nil(t, result)
 	assert.Error(t, err)
+}
+
+// =========================================================================
+// GenerateYAMLs - per-client API key resource generation propagates errors
+// (Phase 2G Task 4 fix round 1, review finding F-1)
+//
+// generateAPIKeyClientResourceYAMLs (route_yaml.go) used to swallow
+// categorizeClientAttachments's error into a nil (empty) result, so a route
+// with a client whose encrypted API key fails to base64-decode used to
+// render a preview with NO per-client API-key resources at all, while
+// Deploy of the identical route hard-fails on the same decode error --
+// preview and deploy silently disagreeing, this project's #1 known defect
+// class. Fix round 1 propagates the error out of
+// generateAPIKeyClientResourceYAMLs and its only caller, GenerateYAMLs (which
+// already returned (*RouteYAMLs, error)), so the whole preview now fails
+// instead.
+// =========================================================================
+
+func TestRouteService_GenerateYAMLs_APIKeyDecodeFailurePropagatesError(t *testing.T) {
+	var clientRepo *mocks.MockClientRepository
+	svc, routeRepo, _, _, domainRepo, _, secRepo, btpRepo, eepRepo, wafRepo, caRepo, _ := newTestRouteServiceFullWith(func(d *services.RouteServiceDeps) {
+		clientRepo = new(mocks.MockClientRepository)
+		d.ClientRepo = clientRepo
+	})
+
+	routeID := uuid.New()
+	domainID := uuid.New()
+	clientID := uuid.New()
+
+	route := &models.Route{
+		ID:           routeID,
+		DomainID:     domainID,
+		Name:         "user-api",
+		K8sRouteName: "user-api-12345678",
+		Config:       makeBasicHTTPRouteConfig(),
+	}
+	domain := &models.Domain{
+		ID:       domainID,
+		Hostname: "example.com",
+	}
+
+	routeRepo.On("GetByID", routeID).Return(route, nil)
+	domainRepo.On("GetByID", domainID).Return(domain, nil)
+	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	btpRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
+
+	// One active attachment with API-key auth enabled, whose client's
+	// encrypted key is corrupt (not valid base64) -- categorizeClientAttachments
+	// (route_clients_apikey.go, fixed by S5) now propagates that decode
+	// failure instead of silently continuing with an empty credential.
+	attachments := []models.ClientRouteAttachment{
+		{
+			ID:           uuid.New(),
+			ClientID:     clientID,
+			RouteID:      routeID,
+			Status:       models.AttachmentStatusActive,
+			EnableAPIKey: true,
+		},
+	}
+	caRepo.On("ListActiveByRouteID", routeID).Return(attachments, nil)
+	caRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
+
+	client := &models.Client{
+		ID:              clientID,
+		APIKeyEnabled:   true,
+		APIKeyEncrypted: "%%% not valid base64 %%%",
+	}
+	clientRepo.On("GetByID", clientID).Return(client, nil)
+
+	result, err := svc.GenerateYAMLs(routeID)
+
+	require.Error(t, err,
+		"FIX ROUND 1 (route_yaml.go:150-167, F-1): a base64 decode failure "+
+			"inside categorizeClientAttachments must now fail the WHOLE preview "+
+			"instead of silently rendering zero per-client API-key resources, "+
+			"which used to make GenerateYAMLs disagree with Deploy (which "+
+			"hard-fails on the identical error)")
+	assert.Contains(t, err.Error(), "illegal base64")
+	assert.Nil(t, result)
 }
 
 // =========================================================================
@@ -2036,7 +2144,11 @@ func TestRouteService_Update_WithBackendTrafficPolicy(t *testing.T) {
 		Return([]models.Route{}, int64(0), nil)
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 	secRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
 	secRepo.On("DeleteByRouteID", routeID).Return(nil)
@@ -2158,7 +2270,11 @@ func TestRouteService_Delete_WithPolicies(t *testing.T) {
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 
 	secRepo.On("GetByRouteID", routeID).Return(&models.SecurityPolicy{
@@ -2276,7 +2392,11 @@ func TestRouteService_Update_DescriptionUpdated(t *testing.T) {
 		Return([]models.Route{}, int64(0), nil)
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 
 	input := &services.UpdateRouteInput{
@@ -2317,7 +2437,11 @@ func TestRouteService_Update_ApprovalHasConfigSnapshot(t *testing.T) {
 		Return([]models.Route{}, int64(0), nil)
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 
 	var capturedApproval *models.Approval
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Run(func(args mock.Arguments) {
@@ -2429,7 +2553,11 @@ func TestRouteService_Update_WithLabels(t *testing.T) {
 		Return([]models.Route{}, int64(0), nil)
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 
 	input := &services.UpdateRouteInput{
@@ -3900,7 +4028,11 @@ func TestRouteService_Delete_PendingCreateRoute(t *testing.T) {
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
 	domainRepo.On("GetByID", domainID).Return(domain, nil)
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 
 	result, err := svc.Delete(routeID, uuid.New())
@@ -4095,7 +4227,11 @@ func TestRouteService_Create_K8sBackendWithValidTLS(t *testing.T) {
 	routeRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
 		Return([]models.Route{}, int64(0), nil)
 	routeRepo.On("Create", mock.AnythingOfType("*models.Route")).Return(nil)
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 
 	input := &services.CreateRouteInput{
@@ -5290,7 +5426,11 @@ func TestRouteService_Create_BackendNamespaceManaged(t *testing.T) {
 	routeRepo.On("Create", mock.AnythingOfType("*models.Route")).Return(nil)
 
 	// Approval stages - default
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 	// GetPendingByEntityID for enrichment
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, mock.AnythingOfType("uuid.UUID")).Return(&models.Approval{
@@ -6212,7 +6352,11 @@ func TestRouteService_Delete_WithK8s_Success(t *testing.T) {
 	eepRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
 	wafRepo.On("GetByRouteID", routeID).Return(nil, errors.New("not found"))
 
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 
 	approvalRepo.On("Create", mock.Anything).Return(nil)
 
@@ -6291,7 +6435,11 @@ func TestRouteService_Delete_WithExistingPolicies(t *testing.T) {
 		Config: models.WafPolicyConfig{Mode: "DetectionOnly"},
 	}, nil)
 
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.MatchedBy(func(a *models.Approval) bool {
 		// Verify the config snapshot contains policy data
 		return a.Action == models.ApprovalActionDelete && len(a.ConfigSnapshot) > 0
@@ -8015,7 +8163,11 @@ func TestRouteService_Update_OrphanedPendingUpdate_StillPersistsFieldEdits(t *te
 	routeRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
 		Return([]models.Route{}, int64(0), nil)
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 
 	// To is on its no-op path here (pending_update -> pending_update), so it
@@ -8089,7 +8241,11 @@ func TestRouteService_Delete_OrphanedPendingUpdateRoute(t *testing.T) {
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 
 	result, err := svc.Delete(routeID, uuid.New())
@@ -8115,7 +8271,11 @@ func TestRouteService_Update_OrphanedPendingDeleteRoute(t *testing.T) {
 	routeRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
 		Return([]models.Route{}, int64(0), nil)
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
-	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, errors.New("not found")).Maybe()
+	// models.ErrPolicyNotFound (not a plain error): since Phase 2G,
+	// PlanStages classifies any non-sentinel error as a lookup FAILURE, not
+	// genuine absence, and returns it instead of falling back to the
+	// single-stage default gate these tests expect.
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
 	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Return(nil)
 	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
 

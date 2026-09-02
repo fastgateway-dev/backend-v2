@@ -27,6 +27,11 @@ type Completer interface {
 }
 
 // PolicyStore reads approval policies. action is nil for the default policy.
+//
+// Implementations MUST return models.ErrPolicyNotFound (or an error wrapping
+// it) for a genuine absence, and any other error for a failure. PlanStages
+// relies on that distinction: absence falls back to a default gate, failure
+// must not.
 type PolicyStore interface {
 	GetByProjectAndEntity(projectID uuid.UUID, entityType string, action *string) (*models.ApprovalPolicy, error)
 }

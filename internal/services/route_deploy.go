@@ -322,10 +322,16 @@ func (s *RouteService) deploySecurityPolicy(ctx context.Context, route *models.R
 	// Client mode: existing logic below
 	// Build authorization config from IP-only client attachments
 	// (clients with IP allowlisting but NOT API key/JWT - those go to per-client routes)
-	authConfig := s.buildClientIPAuthorizationConfig(route.ID)
+	authConfig, err := s.buildClientIPAuthorizationConfig(route.ID)
+	if err != nil {
+		return fmt.Errorf("build client IP authorization config for route %s: %w", route.ID, err)
+	}
 
 	// Check if there are any client attachments
-	clientCount := s.countClientAttachments(route.ID)
+	clientCount, err := s.countClientAttachments(route.ID)
+	if err != nil {
+		return fmt.Errorf("count client attachments for route %s: %w", route.ID, err)
+	}
 
 	// When clients are attached, apply DefaultTrafficPolicy to control non-client traffic
 	if clientCount > 0 {
