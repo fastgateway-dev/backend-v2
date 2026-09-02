@@ -72,7 +72,10 @@ func (s *RouteService) GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error) {
 	policy, _ := s.securityPolicyRepo.GetByRouteID(id)
 
 	// Compute authorization from IP-only client attachments
-	clientAuthConfig := s.buildClientIPAuthorizationConfig(id)
+	clientAuthConfig, err := s.buildClientIPAuthorizationConfig(id)
+	if err != nil {
+		return nil, fmt.Errorf("build client IP authorization config for route %s: %w", id, err)
+	}
 
 	// Check if there are per-client auth clients that require deny-all on base route
 	// This matches the deploy logic in deploySecurityPolicy
@@ -143,8 +146,18 @@ func (s *RouteService) GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error) {
 		result.HTTPRouteFilterYAML, result.ConfigMapYAML = routeplan.GenerateDirectResponseYAMLs(route, domain)
 	}
 
-	// Generate per-client API key resources (with secrets redacted)
-	apiKeyClientResources := s.generateAPIKeyClientResourceYAMLs(route, domain)
+	// Generate per-client API key resources (with secrets redacted).
+	//
+	// SINCE Phase 2G Task 4 fix round 1 (F-1): propagates instead of
+	// swallowing categorizeClientAttachments' error. BEFORE: a base64 decode
+	// failure (now a deterministic error out of S5's categorizeClientAttachments
+	// fix) silently rendered NO per-client API-key resources in the preview,
+	// while Deploy of the same route hard-fails on the identical error --
+	// preview and deploy disagreeing is this project's #1 known defect class.
+	apiKeyClientResources, err := s.generateAPIKeyClientResourceYAMLs(route, domain)
+	if err != nil {
+		return nil, fmt.Errorf("generate per-client API key resources for route %s: %w", id, err)
+	}
 	if len(apiKeyClientResources) > 0 {
 		result.APIKeyClientResources = apiKeyClientResources
 	}
@@ -154,19 +167,23 @@ func (s *RouteService) GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error) {
 
 // generateAPIKeyClientResourceYAMLs generates YAML for per-client API key resources
 // with secrets redacted for display purposes
-func (s *RouteService) generateAPIKeyClientResourceYAMLs(route *models.Route, domain *models.Domain) []APIKeyClientResourceYAMLs {
+//
+// SINCE Phase 2G Task 4 fix round 1 (F-1): categorizeClientAttachments' error
+// is now propagated instead of swallowed into a nil (empty) result. Its only
+// caller, GenerateYAMLs, already returns (*RouteYAMLs, error).
+func (s *RouteService) generateAPIKeyClientResourceYAMLs(route *models.Route, domain *models.Domain) ([]APIKeyClientResourceYAMLs, error) {
 	ctx := context.Background()
 
 	// Categorize client attachments
 	_, apiKeyOnlyClients, bothClients, err := s.categorizeClientAttachments(ctx, route.ID, domain)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	// Combine API key clients
 	allAPIKeyClients := append(apiKeyOnlyClients, bothClients...)
 	if len(allAPIKeyClients) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Get SecurityPolicy for this route (if any) to copy CORS config to per-client routes
@@ -235,7 +252,7 @@ func (s *RouteService) generateAPIKeyClientResourceYAMLs(route *models.Route, do
 		results = append(results, clientResource)
 	}
 
-	return results
+	return results, nil
 }
 
 // PreviewCreateResult represents the result of a create preview
@@ -406,7 +423,10 @@ func (s *RouteService) PreviewUpdate(routeID uuid.UUID, input *UpdateRouteInput)
 	proposedYAML := routeplan.GenerateHTTPRouteYAML(proposedRoute, domain)
 
 	// Collect client CIDRs from existing attachments for preview
-	clientCIDRs := s.collectClientIPCIDRs(routeID)
+	clientCIDRs, err := s.collectClientIPCIDRs(routeID)
+	if err != nil {
+		return nil, fmt.Errorf("collect client IP CIDRs for route %s: %w", routeID, err)
+	}
 
 	// Generate proposed SecurityPolicy YAML if security features are configured
 	// Include client CIDRs to show the full merged result

@@ -82,8 +82,14 @@ func BuildClientTrafficPolicyConfig(domain *models.Domain, config *models.Domain
 		}
 	}
 
-	// mTLS client validation
-	if config.MTLS != nil && config.MTLS.Enabled && len(caSecretRefs) > 0 {
+	// mTLS client validation.
+	//
+	// Deliberately NOT gated on len(caSecretRefs) > 0. Before Phase 2G it
+	// was, which meant an mTLS-enabled domain whose CA refs came back empty
+	// rendered byte-identically to a domain with no security settings at
+	// all -- silently unauthenticated, Gateway-wide. Emitting the block with
+	// an empty ref list makes Envoy reject instead.
+	if config.MTLS != nil && config.MTLS.Enabled {
 		ctpConfig.ClientValidation = &kubernetes.ClientValidationPolicyConfig{
 			Optional:          config.MTLS.Optional,
 			CACertificateRefs: caSecretRefs,

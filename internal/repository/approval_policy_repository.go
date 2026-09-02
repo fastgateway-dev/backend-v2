@@ -2,6 +2,7 @@ package repository
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -19,7 +20,14 @@ func NewApprovalPolicyRepository(db *gorm.DB) *ApprovalPolicyRepository {
 	return &ApprovalPolicyRepository{db: db}
 }
 
-// GetByProjectAndEntity returns the policy for a project, entity type, and optional action
+// GetByProjectAndEntity returns the policy for a project, entity type, and
+// optional action.
+//
+// It translates gorm.ErrRecordNotFound to models.ErrPolicyNotFound so callers
+// through the approval.PolicyStore port -- which must not import gorm --
+// can distinguish genuine absence from a lookup failure. See
+// internal/approval/ports.go's PolicyStore doc comment for the contract this
+// satisfies.
 func (r *ApprovalPolicyRepository) GetByProjectAndEntity(projectID uuid.UUID, entityType string, action *string) (*models.ApprovalPolicy, error) {
 	var policy models.ApprovalPolicy
 	query := r.db.Where("project_id = ? AND entity_type = ?", projectID, entityType)
@@ -29,6 +37,9 @@ func (r *ApprovalPolicyRepository) GetByProjectAndEntity(projectID uuid.UUID, en
 		query = query.Where("action IS NULL")
 	}
 	err := query.First(&policy).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, models.ErrPolicyNotFound
+	}
 	if err != nil {
 		return nil, err
 	}

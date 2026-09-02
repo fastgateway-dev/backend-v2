@@ -1,6 +1,8 @@
 package services
 
 import (
+	"log"
+
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/google/uuid"
 )
@@ -16,13 +18,28 @@ func (s *RouteService) GetByID(id uuid.UUID) (*models.Route, error) {
 }
 
 // populateRouteComputedFields populates computed fields (ClientCount, SecurityStatus) for a route
+//
+// NOT one of Task 4's six ripple call sites: countClientAttachments now
+// returns (int, error), but this helper is void-returning and shared by
+// GetByID and both route-list populators, so propagating the error here would
+// require a signature change to all of those, which is out of this task's
+// declared scope. That is an acceptable place to stop: ClientCount is a
+// display-only computed field on the route DTO, not a security gate (unlike
+// route_deploy.go's use of the same repository call, which does gate
+// authorization and DOES propagate -- see deploySecurityPolicy). On error the
+// count is logged and left at zero, same observable value as before Phase
+// 2G, just no longer silent.
 func (s *RouteService) populateRouteComputedFields(route *models.Route) {
 	if route == nil {
 		return
 	}
 
 	// Count client attachments
-	route.ClientCount = s.countClientAttachments(route.ID)
+	count, err := s.countClientAttachments(route.ID)
+	if err != nil {
+		log.Printf("Failed to count client attachments for route %s: %v", route.ID, err)
+	}
+	route.ClientCount = count
 
 	// Compute security status
 	route.SecurityStatus = s.computeSecurityStatus(route)

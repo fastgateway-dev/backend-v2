@@ -201,7 +201,10 @@ func (s *DomainService) UpdateDomainSettings(domainID uuid.UUID, input *UpdateDo
 
 // applyEnvoyGatewayClientTrafficPolicy translates domain settings to Envoy Gateway ClientTrafficPolicy CRD
 func (s *DomainService) applyEnvoyGatewayClientTrafficPolicy(ctx context.Context, domain *models.Domain, config *models.DomainSettingsConfig) error {
-	caSecretRefs := s.collectCASecretRefs(domain, config)
+	caSecretRefs, err := s.collectCASecretRefs(domain, config)
+	if err != nil {
+		return fmt.Errorf("collect CA secret refs for domain %s: %w", domain.ID, err)
+	}
 	ctpConfig := domainplan.BuildClientTrafficPolicyConfig(domain, config, caSecretRefs)
 
 	if err := s.k8sGateways.CreateClientTrafficPolicy(ctx, domain.ProjectID, ctpConfig); err != nil {

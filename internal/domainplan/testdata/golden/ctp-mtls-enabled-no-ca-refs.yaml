@@ -1,0 +1,29 @@
+ClientIPDetection: null
+ClientValidation:
+  certificateHashes:
+  - a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+  optional: false
+  sanMatchers:
+  - match: client.example.com
+    type: DNS
+Connection: null
+EnableProxyProtocol: false
+GatewayID: 44444444-4444-4444-4444-444444444444
+HTTP3: null
+Headers:
+  xForwardedClientCert:
+    certDetailsToAdd:
+    - Subject
+    - Cert
+    - DNS
+    - URI
+    mode: AppendForward
+Name: eg-ctp
+Namespace: gateway-ns
+TCPKeepalive: null
+TLS: null
+TargetRef:
+  Group: gateway.networking.k8s.io
+  Kind: Gateway
+  Name: eg
+Timeout: null

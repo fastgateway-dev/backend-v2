@@ -295,35 +295,41 @@ func clientTrafficPolicyFixtures() []domainManifestFixture {
 				})
 			},
 		},
-		// F3 -- KNOWN FAIL-OPEN ON A SECURITY CONTROL, PINNED NOT FIXED.
+		// F3 -- FAIL-OPEN ON A SECURITY CONTROL, FIXED in Phase 2G.
 		//
-		// clienttrafficpolicy.go:86 guards on
+		// clienttrafficpolicy.go:86 used to guard on
 		//   config.MTLS != nil && config.MTLS.Enabled && len(caSecretRefs) > 0
-		// so when mTLS is ENABLED but caSecretRefs comes back empty, the entire
+		// so when mTLS was ENABLED but caSecretRefs came back empty, the entire
 		// ClientValidation block -- CACertificateRefs, SANMatchers,
-		// CertificateHashes -- AND the XFCC Headers block are silently omitted.
-		// The ClientTrafficPolicy then applies successfully with NO client
-		// certificate verification at all, and nothing is logged at the point
+		// CertificateHashes -- AND the XFCC Headers block were silently omitted.
+		// The ClientTrafficPolicy then applied successfully with NO client
+		// certificate verification at all, and nothing was logged at the point
 		// of the drop.
 		//
-		// This is reachable in production: the producer,
-		// DomainService.collectCASecretRefs (internal/services/domain_service.go
-		// :756-773), LOGS AND CONTINUES on a repository error, so a domain whose
-		// CAs come only from client attachments yields an empty slice on a
-		// transient DB error. ClientTrafficPolicy is GATEWAY-scoped, so the
-		// fail-open covers every route behind the domain, not one route. This
-		// fixture sets Optional:false -- the intent is ENFORCED client-cert
-		// auth -- and SAN + hash whitelists, so the golden shows all of it
-		// vanishing.
+		// This was reachable in production via the producer,
+		// DomainService.collectCASecretRefs (internal/services/domain_mtls.go):
+		// at the time, it LOGGED AND CONTINUED on a repository error, so a domain
+		// whose CAs came only from client attachments could yield an empty slice
+		// on a transient DB error. Phase 2G Task 4 closed that path: it now
+		// RETURNS the error instead, so a repository failure no longer reaches
+		// this guard disguised as an empty ref list. The guard fixed here still
+		// matters on its own, though: a domain configuration that legitimately
+		// resolves to zero CA refs (no domain-level CACerts, no active client
+		// mTLS attachments) reaches this same empty-refs input with no error at
+		// all. ClientTrafficPolicy is GATEWAY-scoped, so the fail-open covered
+		// every route behind the domain, not one route. This fixture sets
+		// Optional:false -- the intent is ENFORCED client-cert auth -- and SAN +
+		// hash whitelists, so the golden shows the ClientValidation and Headers
+		// blocks now surviving instead of vanishing.
 		//
-		// This golden records the CURRENT (fail-open) output. It is a bug
-		// snapshot, not an endorsement -- F3 is a known fail-open pending its
-		// own security triage, deliberately not fixed in Phase 2F because this
-		// phase's safety argument is byte-identity with the pre-move behaviour.
-		// Pinning it stops it drifting further. When F3 is fixed, this golden
-		// MUST change, and that diff is the proof.
+		// Since Phase 2G, the guard no longer checks len(caSecretRefs) > 0: the
+		// block is emitted with whatever refs materialised (here, none), which
+		// makes Envoy reject the policy instead of silently applying with no
+		// client-certificate validation. This golden now records that FIXED
+		// output; it used to be byte-identical to ctp-empty-settings.yaml
+		// (pinning the fail-open) and no longer is.
 		{
-			Name: "ctp-mtls-enabled-no-ca-refs-f3",
+			Name: "ctp-mtls-enabled-no-ca-refs",
 			Build: func() any {
 				cfg := &models.DomainSettingsConfig{
 					MTLS: &models.DomainMTLSConfig{
