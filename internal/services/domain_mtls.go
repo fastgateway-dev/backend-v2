@@ -39,7 +39,13 @@ func (s *DomainService) EnsureMTLSClientTrafficPolicy(ctx context.Context, domai
 		// No stored settings for this domain: nothing to re-apply.
 		return nil
 	}
-	return s.applyEnvoyGatewayClientTrafficPolicy(ctx, domain, &settings.Config)
+	// Warnings discarded: this method's interface (ClientTrafficPolicyEnsurer,
+	// route_service.go) is called from route_clients_apikey.go after a client
+	// mTLS secret changes, far from any request/response an operator is
+	// looking at. Surfacing mtls-warning-brief.md's warning here has no
+	// audience to reach; UpdateDomainSettings is the path that does.
+	_, err = s.applyEnvoyGatewayClientTrafficPolicy(ctx, domain, &settings.Config)
+	return err
 }
 
 // collectCASecretRefs builds the list of CA secret refs from domain config and active client mTLS attachments.
@@ -176,7 +182,10 @@ func (s *DomainService) AddDomainMTLSCA(ctx context.Context, domainID uuid.UUID,
 
 	// Update CTP if mTLS is enabled (new CA secret ref will be included)
 	if settings.Config.MTLS.Enabled {
-		if err := s.applyEnvoyGatewayClientTrafficPolicy(ctx, domain, &settings.Config); err != nil {
+		// Warnings discarded: this call always just added a CA to the
+		// resolved ref list, so mtlsNoCAWarning (empty resolved list) can
+		// never fire here -- there is nothing to surface.
+		if _, err := s.applyEnvoyGatewayClientTrafficPolicy(ctx, domain, &settings.Config); err != nil {
 			return nil, err
 		}
 	}
@@ -234,8 +243,12 @@ func (s *DomainService) RemoveDomainMTLSCA(ctx context.Context, domainID uuid.UU
 		return nil, fmt.Errorf("failed to save settings: %w", err)
 	}
 
-	// Update CTP (re-apply to reflect removed CA or disabled mTLS)
-	if err := s.applyEnvoyGatewayClientTrafficPolicy(ctx, domain, &settings.Config); err != nil {
+	// Update CTP (re-apply to reflect removed CA or disabled mTLS). Warnings
+	// discarded: mtlsNoCAWarning needs config.MTLS.Enabled true with an empty
+	// resolved ref list, but the auto-disable three lines above already
+	// forces Enabled false whenever removing this CA empties the
+	// domain-level CACerts list, so that combination cannot occur here.
+	if _, err := s.applyEnvoyGatewayClientTrafficPolicy(ctx, domain, &settings.Config); err != nil {
 		return nil, err
 	}
 

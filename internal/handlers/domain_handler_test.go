@@ -240,7 +240,7 @@ func TestDomainHandler_UpdateDomainSettings_Success(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 	settings := &models.DomainSettings{ID: uuid.New(), DomainID: domainID}
-	mockDomain.On("UpdateDomainSettings", domainID, mock.AnythingOfType("*services.UpdateDomainSettingsInput")).Return(settings, nil)
+	mockDomain.On("UpdateDomainSettings", domainID, mock.AnythingOfType("*services.UpdateDomainSettingsInput")).Return(settings, []string(nil), nil)
 	mockAudit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	body, _ := json.Marshal(services.UpdateDomainSettingsInput{})
@@ -732,7 +732,7 @@ func TestDomainHandler_UpdateDomainSettings_ServiceError(t *testing.T) {
 	user := testUser()
 	projectID := uuid.New()
 	domainID := uuid.New()
-	mockDomain.On("UpdateDomainSettings", domainID, mock.AnythingOfType("*services.UpdateDomainSettingsInput")).Return(nil, errors.New("invalid settings"))
+	mockDomain.On("UpdateDomainSettings", domainID, mock.AnythingOfType("*services.UpdateDomainSettingsInput")).Return(nil, []string(nil), errors.New("invalid settings"))
 
 	body, _ := json.Marshal(services.UpdateDomainSettingsInput{})
 

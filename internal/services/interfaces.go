@@ -149,7 +149,7 @@ type DomainServiceInterface interface {
 	Update(id uuid.UUID, input *UpdateDomainInput) (*models.Domain, error)
 	Delete(id uuid.UUID) error
 	GetDomainSettings(domainID uuid.UUID) (*models.DomainSettings, error)
-	UpdateDomainSettings(domainID uuid.UUID, input *UpdateDomainSettingsInput) (*models.DomainSettings, error)
+	UpdateDomainSettings(domainID uuid.UUID, input *UpdateDomainSettingsInput) (*models.DomainSettings, []string, error)
 	GenerateYAMLs(domainID uuid.UUID) (*DomainYAMLs, error)
 	PreviewCreate(projectID uuid.UUID, input *DomainCreatePreviewInput, userID uuid.UUID) (*DomainCreatePreviewResult, error)
 	PreviewSettingsChanges(domainID uuid.UUID, input *DomainSettingsPreviewInput, userID uuid.UUID) (*DomainSettingsPreviewResult, error)
