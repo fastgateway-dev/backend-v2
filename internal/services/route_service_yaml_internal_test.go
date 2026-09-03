@@ -676,57 +676,6 @@ func TestInternalGenerateBTPYAMLFromDB_WithRetry(t *testing.T) {
 	assert.Contains(t, result, "retry")
 }
 
-// ─── generateEnvoyExtensionPolicyYAML ──────────────────────────────────────
-
-func TestInternalGenerateEEPYAML_Nil(t *testing.T) {
-	route := testRoute()
-	domain := testDomain()
-	result := routeplan.GenerateEnvoyExtensionPolicyYAML(route, domain, nil)
-	assert.Empty(t, result)
-}
-
-func TestInternalGenerateEEPYAML_EmptyInput(t *testing.T) {
-	route := testRoute()
-	domain := testDomain()
-	result := routeplan.GenerateEnvoyExtensionPolicyYAML(route, domain, &routeplan.EnvoyExtensionPolicyInput{})
-	assert.Empty(t, result)
-}
-
-func TestInternalGenerateEEPYAML_Lua(t *testing.T) {
-	route := testRoute()
-	domain := testDomain()
-	input := &routeplan.EnvoyExtensionPolicyInput{
-		Lua: &models.LuaExtensionConfig{
-			Type:   "Inline",
-			Inline: `function envoy_on_request(handle) end`,
-		},
-	}
-	result := routeplan.GenerateEnvoyExtensionPolicyYAML(route, domain, input)
-
-	require.NotEmpty(t, result)
-	assert.Contains(t, result, "EnvoyExtensionPolicy")
-	assert.Contains(t, result, "envoy_on_request")
-}
-
-func TestInternalGenerateEEPYAML_Wasm(t *testing.T) {
-	route := testRoute()
-	domain := testDomain()
-	input := &routeplan.EnvoyExtensionPolicyInput{
-		Wasm: &models.WasmExtensionConfig{
-			Name: "my-wasm",
-			Code: models.WasmCodeSource{
-				Type:  "Image",
-				Image: &models.WasmImageSource{URL: "ghcr.io/example/wasm:v1"},
-			},
-		},
-	}
-	result := routeplan.GenerateEnvoyExtensionPolicyYAML(route, domain, input)
-
-	require.NotEmpty(t, result)
-	assert.Contains(t, result, "EnvoyExtensionPolicy")
-	assert.Contains(t, result, "my-wasm")
-}
-
 // ─── generateEnvoyExtensionPolicyYAMLWithWaf ───────────────────────────────
 
 func TestInternalGenerateEEPYAMLWithWaf_NilInputs(t *testing.T) {
@@ -1250,62 +1199,6 @@ func TestInternalSecurityPolicyConfigFromDB_APIKeyAuth(t *testing.T) {
 	require.NotNil(t, config.APIKeyAuth)
 	require.Len(t, config.APIKeyAuth.CredentialRefs, 1)
 	assert.Equal(t, "api-keys", config.APIKeyAuth.CredentialRefs[0].Name)
-}
-
-// ─── generateEnvoyExtensionPolicyYAMLFromDB ────────────────────────────────
-
-func TestInternalGenerateEEPYAMLFromDB_Nil(t *testing.T) {
-	route := testRoute()
-	domain := testDomain()
-	result := routeplan.GenerateEnvoyExtensionPolicyYAMLFromDB(route, domain, nil)
-	assert.Empty(t, result)
-}
-
-func TestInternalGenerateEEPYAMLFromDB_EmptyConfig(t *testing.T) {
-	route := testRoute()
-	domain := testDomain()
-	policy := &models.EnvoyExtensionPolicy{Config: models.EnvoyExtensionPolicyConfig{}}
-	result := routeplan.GenerateEnvoyExtensionPolicyYAMLFromDB(route, domain, policy)
-	assert.Empty(t, result)
-}
-
-func TestInternalGenerateEEPYAMLFromDB_WithLua(t *testing.T) {
-	route := testRoute()
-	domain := testDomain()
-	policy := &models.EnvoyExtensionPolicy{
-		Config: models.EnvoyExtensionPolicyConfig{
-			Lua: &models.LuaExtensionConfig{
-				Type:   "Inline",
-				Inline: `function envoy_on_response(handle) end`,
-			},
-		},
-	}
-	result := routeplan.GenerateEnvoyExtensionPolicyYAMLFromDB(route, domain, policy)
-
-	require.NotEmpty(t, result)
-	assert.Contains(t, result, "EnvoyExtensionPolicy")
-	assert.Contains(t, result, "envoy_on_response")
-}
-
-func TestInternalGenerateEEPYAMLFromDB_WithWasm(t *testing.T) {
-	route := testRoute()
-	domain := testDomain()
-	policy := &models.EnvoyExtensionPolicy{
-		Config: models.EnvoyExtensionPolicyConfig{
-			Wasm: &models.WasmExtensionConfig{
-				Name: "my-filter",
-				Code: models.WasmCodeSource{
-					Type:  "Image",
-					Image: &models.WasmImageSource{URL: "ghcr.io/example/wasm:v1"},
-				},
-			},
-		},
-	}
-	result := routeplan.GenerateEnvoyExtensionPolicyYAMLFromDB(route, domain, policy)
-
-	require.NotEmpty(t, result)
-	assert.Contains(t, result, "EnvoyExtensionPolicy")
-	assert.Contains(t, result, "my-filter")
 }
 
 // ─── generateEnvoyExtensionPolicyYAMLFromSnapshot ──────────────────────────

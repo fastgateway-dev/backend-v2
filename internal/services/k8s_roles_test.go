@@ -290,7 +290,7 @@ func TestNoWiringNilGuardsRemain_NegatedForm(t *testing.T) {
 		// last service in the package with an unchecked positional
 		// constructor; converting it would retire these two entries. Recorded
 		// as known deviation (d) in verification.md.
-		"domain_template_service.go:aiService": "genuinely-optional AI review dependency; see known deviation (d)",
+		"domain_template_manifests.go:aiService": "genuinely-optional AI review dependency; see known deviation (d)",
 	}
 
 	entries, err := os.ReadDir(".")
@@ -335,9 +335,9 @@ func TestNoWiringNilGuardsRemain_NegatedForm(t *testing.T) {
 // return at that file:field the moment someone reintroduces it.
 func TestNoWiringNilGuardsRemain_NegatedForm_AllowlistIsExact(t *testing.T) {
 	expected := map[string]int{
-		"ai_service.go:provider":               1,
-		"system_settings_service.go:cached":    1,
-		"domain_template_service.go:aiService": 2,
+		"ai_service.go:provider":                 1,
+		"system_settings_service.go:cached":      1,
+		"domain_template_manifests.go:aiService": 2,
 	}
 
 	entries, err := os.ReadDir(".")
