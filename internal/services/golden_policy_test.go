@@ -698,8 +698,25 @@ func TestGoldenEnvoyExtensionPolicyDeploy(t *testing.T) {
 }
 
 // TestDifferentialEnvoyExtensionPolicy compares the deploy assembler against
-// generateEnvoyExtensionPolicyYAMLFromSnapshot, an independently maintained
-// duplicate of the same logic used on the approval/preview path.
+// generateEnvoyExtensionPolicyYAMLFromSnapshot.
+//
+// Phase 2I made the old "independently maintained duplicate" framing false:
+// buildEnvoyExtensionPolicyConfig (route_deploy_policies.go) and
+// GenerateEnvoyExtensionPolicyYAMLFromSnapshot (routeplan/envoyextensionpolicy.go)
+// both now delegate to the same routeplan.BuildEnvoyExtensionPolicyK8sConfig,
+// with the same route.K8sRouteName and a zero WAFConfig on both sides. This
+// test therefore compares f(x) against f(x): it proves the two call sites are
+// wired to one shared assembler, not that two independent implementations
+// agree on rendering.
+//
+// As a result it contributes no independent rendering coverage today -- the
+// deploy goldens (envoyextensionpolicy-deploy/*, in TestGoldenEnvoyExtensionPolicyDeploy
+// above) are what actually catch a rendering regression in the shared builder.
+//
+// The test is retained deliberately as a dormant regression guard: if either
+// call site is ever re-inlined with its own bespoke assembly (undoing the
+// Phase 2H/2I consolidation), this test regains its teeth and will catch the
+// two paths drifting apart again.
 func TestDifferentialEnvoyExtensionPolicy(t *testing.T) {
 	route, domain := fixtureRoute("eep"), fixtureDomain()
 	for _, f := range envoyExtensionPolicyFamilyFixtures() {

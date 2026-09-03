@@ -60,6 +60,95 @@ func fixtureWAFConfig() WAFConfig {
 	return WAFConfig{Image: "example.com/coraza-proxy-wasm", Tag: "9.9.9"}
 }
 
+// fixtureLuaInput is the *EnvoyExtensionPolicyInput* counterpart of
+// fixtureLuaPolicy, for the input-shaped wrapper GenerateEnvoyExtensionPolicyYAMLWithWaf.
+func fixtureLuaInput() *EnvoyExtensionPolicyInput {
+	return &EnvoyExtensionPolicyInput{
+		Lua: &models.LuaExtensionConfig{
+			Type:   "Inline",
+			Inline: "return 1",
+		},
+	}
+}
+
+// fixtureWasmInput is an EnvoyExtensionPolicyInput configured with only a
+// Wasm extension.
+func fixtureWasmInput() *EnvoyExtensionPolicyInput {
+	return &EnvoyExtensionPolicyInput{
+		Wasm: &models.WasmExtensionConfig{
+			Name: "my-wasm",
+			Code: models.WasmCodeSource{
+				Type:  "Image",
+				Image: &models.WasmImageSource{URL: "ghcr.io/example/wasm:v1"},
+			},
+		},
+	}
+}
+
+// fixtureWafInput is the *WafPolicyInput* counterpart of fixtureWafPolicy, for
+// the input-shaped wrapper GenerateEnvoyExtensionPolicyYAMLWithWaf.
+func fixtureWafInput() *WafPolicyInput {
+	return &WafPolicyInput{Mode: "block"}
+}
+
+// envoyExtensionPolicyYAMLFixture is one call to a surviving
+// EnvoyExtensionPolicy YAML-string wrapper (GenerateAPIKeyEnvoyExtensionPolicyYAML,
+// GenerateEnvoyExtensionPolicyYAMLWithWaf, GenerateEnvoyExtensionPolicyYAMLFromSnapshot),
+// snapshotted as its rendered YAML text. The 4 fixtures in
+// envoyExtensionPolicyFixtures() above cover BuildEnvoyExtensionPolicyK8sConfig's
+// *config struct*; these cover the wrappers' *YAML string* output, which
+// nothing golden-tested before Phase 2I.
+type envoyExtensionPolicyYAMLFixture struct {
+	Name  string
+	Build func() string
+}
+
+// envoyExtensionPolicyYAMLFixtures returns every golden fixture for the three
+// surviving EnvoyExtensionPolicy YAML wrappers.
+func envoyExtensionPolicyYAMLFixtures() []envoyExtensionPolicyYAMLFixture {
+	return []envoyExtensionPolicyYAMLFixture{
+		// GenerateAPIKeyEnvoyExtensionPolicyYAML: per-client route, Lua only.
+		{
+			Name: "apikey-eep-lua",
+			Build: func() string {
+				route := fixtureRoute()
+				clientRouteName := route.K8sRouteName + "-ak-33333333"
+				return GenerateAPIKeyEnvoyExtensionPolicyYAML(route, fixtureRouteDomain(), fixtureLuaPolicy(), clientRouteName)
+			},
+		},
+		// GenerateEnvoyExtensionPolicyYAMLWithWaf: Lua only, no WAF in scope.
+		{
+			Name: "withwaf-eep-lua-only",
+			Build: func() string {
+				return GenerateEnvoyExtensionPolicyYAMLWithWaf(fixtureRoute(), fixtureRouteDomain(), fixtureLuaInput(), nil, WAFConfig{})
+			},
+		},
+		// GenerateEnvoyExtensionPolicyYAMLWithWaf: Wasm only, no WAF in scope.
+		{
+			Name: "withwaf-eep-wasm-only",
+			Build: func() string {
+				return GenerateEnvoyExtensionPolicyYAMLWithWaf(fixtureRoute(), fixtureRouteDomain(), fixtureWasmInput(), nil, WAFConfig{})
+			},
+		},
+		// GenerateEnvoyExtensionPolicyYAMLWithWaf: WAF only, no generic
+		// extensions in scope.
+		{
+			Name: "withwaf-eep-waf-only",
+			Build: func() string {
+				return GenerateEnvoyExtensionPolicyYAMLWithWaf(fixtureRoute(), fixtureRouteDomain(), nil, fixtureWafInput(), fixtureWAFConfig())
+			},
+		},
+		// GenerateEnvoyExtensionPolicyYAMLWithWaf: Lua and WAF together --
+		// exercises both halves of the input->model conversion in one call.
+		{
+			Name: "withwaf-eep-lua-and-waf",
+			Build: func() string {
+				return GenerateEnvoyExtensionPolicyYAMLWithWaf(fixtureRoute(), fixtureRouteDomain(), fixtureLuaInput(), fixtureWafInput(), fixtureWAFConfig())
+			},
+		},
+	}
+}
+
 // envoyExtensionPolicyFixtures returns every golden fixture for
 // BuildEnvoyExtensionPolicyK8sConfig, covering both call sites it unifies:
 // the base route (route_deploy.go, with and without WAF) and a per-client

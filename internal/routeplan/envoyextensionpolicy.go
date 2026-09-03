@@ -33,81 +33,17 @@ func BuildExtProcPolicyConfig(extProc *models.ExtProcExtensionConfig) kubernetes
 	return cfg
 }
 
-// GenerateAPIKeyEnvoyExtensionPolicyYAML generates EnvoyExtensionPolicy YAML for a per-client HTTPRoute
+// GenerateAPIKeyEnvoyExtensionPolicyYAML generates EnvoyExtensionPolicy YAML for a per-client HTTPRoute.
+// Delegates to BuildEnvoyExtensionPolicyK8sConfig (Phase 2H), passing routeName as
+// targetRouteName and no WAF policy -- the per-client path never has one in scope.
 func GenerateAPIKeyEnvoyExtensionPolicyYAML(route *models.Route, domain *models.Domain, extPolicy *models.EnvoyExtensionPolicy, routeName string) string {
 	if extPolicy == nil || extPolicy.Config.IsEmpty() {
 		return ""
 	}
 
-	extConfig := &kubernetes.EnvoyExtensionPolicyK8sConfig{
-		Name:      kubernetes.EnvoyExtensionPolicyName(routeName),
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  GetRouteKind(route.Protocol),
-			Name:  routeName,
-		},
-	}
+	config := BuildEnvoyExtensionPolicyK8sConfig(route, domain, routeName, extPolicy, nil, WAFConfig{})
 
-	// Copy Lua extension from base policy
-	if extPolicy.Config.Lua != nil {
-		luaConfig := kubernetes.LuaExtensionPolicyConfig{
-			Type:   extPolicy.Config.Lua.Type,
-			Inline: extPolicy.Config.Lua.Inline,
-		}
-		if extPolicy.Config.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &kubernetes.ValueRefPolicyConfig{
-				Group:     extPolicy.Config.Lua.ValueRef.Group,
-				Kind:      extPolicy.Config.Lua.ValueRef.Kind,
-				Name:      extPolicy.Config.Lua.ValueRef.Name,
-				Namespace: extPolicy.Config.Lua.ValueRef.Namespace,
-			}
-		}
-		extConfig.Lua = append(extConfig.Lua, luaConfig)
-	}
-
-	// Copy Wasm extension from base policy
-	if extPolicy.Config.Wasm != nil {
-		wasmConfig := kubernetes.WasmExtensionPolicyConfig{
-			Name:   extPolicy.Config.Wasm.Name,
-			RootID: extPolicy.Config.Wasm.RootID,
-			Code: kubernetes.WasmCodeSourcePolicyConfig{
-				Type: extPolicy.Config.Wasm.Code.Type,
-			},
-			Config: extPolicy.Config.Wasm.Config,
-		}
-		if extPolicy.Config.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &kubernetes.WasmHTTPSourcePolicyConfig{
-				URL:    extPolicy.Config.Wasm.Code.HTTP.URL,
-				SHA256: extPolicy.Config.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if extPolicy.Config.Wasm.Code.Image != nil {
-			imageConfig := &kubernetes.WasmImageSourcePolicyConfig{
-				URL:    extPolicy.Config.Wasm.Code.Image.URL,
-				SHA256: extPolicy.Config.Wasm.Code.Image.SHA256,
-			}
-			if extPolicy.Config.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &kubernetes.ValueRefPolicyConfig{
-					Group:     extPolicy.Config.Wasm.Code.Image.PullSecret.Group,
-					Kind:      extPolicy.Config.Wasm.Code.Image.PullSecret.Kind,
-					Name:      extPolicy.Config.Wasm.Code.Image.PullSecret.Name,
-					Namespace: extPolicy.Config.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		extConfig.Wasm = append(extConfig.Wasm, wasmConfig)
-	}
-
-	// Add ExtProc extension
-	if extPolicy.Config.ExtProc != nil {
-		extConfig.ExtProc = append(extConfig.ExtProc, BuildExtProcPolicyConfig(extPolicy.Config.ExtProc))
-	}
-
-	eep := kubernetes.BuildEnvoyExtensionPolicy(extConfig)
+	eep := kubernetes.BuildEnvoyExtensionPolicy(config)
 	if eep == nil {
 		return ""
 	}
@@ -120,187 +56,23 @@ func GenerateAPIKeyEnvoyExtensionPolicyYAML(route *models.Route, domain *models.
 	return string(yamlBytes)
 }
 
-// GenerateEnvoyExtensionPolicyYAML generates EnvoyExtensionPolicy YAML from input
-func GenerateEnvoyExtensionPolicyYAML(route *models.Route, domain *models.Domain, extInput *EnvoyExtensionPolicyInput) string {
-	if extInput == nil || !extInput.HasContent() {
-		return ""
-	}
-
-	// Build EnvoyExtensionPolicyK8sConfig
-	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
-		Name:      kubernetes.EnvoyExtensionPolicyName(route.K8sRouteName),
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  GetRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Convert Lua extension
-	if extInput.Lua != nil {
-		luaConfig := kubernetes.LuaExtensionPolicyConfig{
-			Type:   extInput.Lua.Type,
-			Inline: extInput.Lua.Inline,
-		}
-		if extInput.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &kubernetes.ValueRefPolicyConfig{
-				Group:     extInput.Lua.ValueRef.Group,
-				Kind:      extInput.Lua.ValueRef.Kind,
-				Name:      extInput.Lua.ValueRef.Name,
-				Namespace: extInput.Lua.ValueRef.Namespace,
-			}
-		}
-		config.Lua = append(config.Lua, luaConfig)
-	}
-
-	// Convert Wasm extension
-	if extInput.Wasm != nil {
-		wasmConfig := kubernetes.WasmExtensionPolicyConfig{
-			Name:   extInput.Wasm.Name,
-			RootID: extInput.Wasm.RootID,
-			Code: kubernetes.WasmCodeSourcePolicyConfig{
-				Type: extInput.Wasm.Code.Type,
-			},
-			Config: extInput.Wasm.Config,
-		}
-		if extInput.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &kubernetes.WasmHTTPSourcePolicyConfig{
-				URL:    extInput.Wasm.Code.HTTP.URL,
-				SHA256: extInput.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if extInput.Wasm.Code.Image != nil {
-			imageConfig := &kubernetes.WasmImageSourcePolicyConfig{
-				URL:    extInput.Wasm.Code.Image.URL,
-				SHA256: extInput.Wasm.Code.Image.SHA256,
-			}
-			if extInput.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &kubernetes.ValueRefPolicyConfig{
-					Group:     extInput.Wasm.Code.Image.PullSecret.Group,
-					Kind:      extInput.Wasm.Code.Image.PullSecret.Kind,
-					Name:      extInput.Wasm.Code.Image.PullSecret.Name,
-					Namespace: extInput.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		config.Wasm = append(config.Wasm, wasmConfig)
-	}
-
-	// Add ExtProc extension
-	if extInput != nil && extInput.ExtProc != nil {
-		config.ExtProc = append(config.ExtProc, BuildExtProcPolicyConfig(extInput.ExtProc))
-	}
-
-	// Build the EnvoyExtensionPolicy object
-	extensionPolicy := kubernetes.BuildEnvoyExtensionPolicy(config)
-	if extensionPolicy == nil {
-		return ""
-	}
-
-	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(extensionPolicy.Object)
-	if err != nil {
-		return fmt.Sprintf("# Error generating EnvoyExtensionPolicy YAML: %v", err)
-	}
-
-	return string(yamlBytes)
-}
-
-// GenerateEnvoyExtensionPolicyYAMLFromDB generates EnvoyExtensionPolicy YAML from database model
-func GenerateEnvoyExtensionPolicyYAMLFromDB(route *models.Route, domain *models.Domain, policy *models.EnvoyExtensionPolicy) string {
-	if policy == nil || policy.Config.IsEmpty() {
-		return ""
-	}
-
-	// Build EnvoyExtensionPolicyK8sConfig
-	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
-		Name:      kubernetes.EnvoyExtensionPolicyName(route.K8sRouteName),
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  GetRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Convert Lua extension
-	if policy.Config.Lua != nil {
-		luaConfig := kubernetes.LuaExtensionPolicyConfig{
-			Type:   policy.Config.Lua.Type,
-			Inline: policy.Config.Lua.Inline,
-		}
-		if policy.Config.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &kubernetes.ValueRefPolicyConfig{
-				Group:     policy.Config.Lua.ValueRef.Group,
-				Kind:      policy.Config.Lua.ValueRef.Kind,
-				Name:      policy.Config.Lua.ValueRef.Name,
-				Namespace: policy.Config.Lua.ValueRef.Namespace,
-			}
-		}
-		config.Lua = append(config.Lua, luaConfig)
-	}
-
-	// Convert Wasm extension
-	if policy.Config.Wasm != nil {
-		wasmConfig := kubernetes.WasmExtensionPolicyConfig{
-			Name:   policy.Config.Wasm.Name,
-			RootID: policy.Config.Wasm.RootID,
-			Code: kubernetes.WasmCodeSourcePolicyConfig{
-				Type: policy.Config.Wasm.Code.Type,
-			},
-			Config: policy.Config.Wasm.Config,
-		}
-		if policy.Config.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &kubernetes.WasmHTTPSourcePolicyConfig{
-				URL:    policy.Config.Wasm.Code.HTTP.URL,
-				SHA256: policy.Config.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if policy.Config.Wasm.Code.Image != nil {
-			imageConfig := &kubernetes.WasmImageSourcePolicyConfig{
-				URL:    policy.Config.Wasm.Code.Image.URL,
-				SHA256: policy.Config.Wasm.Code.Image.SHA256,
-			}
-			if policy.Config.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &kubernetes.ValueRefPolicyConfig{
-					Group:     policy.Config.Wasm.Code.Image.PullSecret.Group,
-					Kind:      policy.Config.Wasm.Code.Image.PullSecret.Kind,
-					Name:      policy.Config.Wasm.Code.Image.PullSecret.Name,
-					Namespace: policy.Config.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		config.Wasm = append(config.Wasm, wasmConfig)
-	}
-
-	// Add ExtProc extension
-	if policy.Config.ExtProc != nil {
-		config.ExtProc = append(config.ExtProc, BuildExtProcPolicyConfig(policy.Config.ExtProc))
-	}
-
-	// Build the EnvoyExtensionPolicy object
-	extensionPolicy := kubernetes.BuildEnvoyExtensionPolicy(config)
-	if extensionPolicy == nil {
-		return ""
-	}
-
-	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(extensionPolicy.Object)
-	if err != nil {
-		return fmt.Sprintf("# Error generating EnvoyExtensionPolicy YAML: %v", err)
-	}
-
-	return string(yamlBytes)
-}
-
-// GenerateEnvoyExtensionPolicyYAMLWithWaf generates EnvoyExtensionPolicy YAML from input with WAF support
+// GenerateEnvoyExtensionPolicyYAMLWithWaf generates EnvoyExtensionPolicy YAML from input with WAF support.
+//
+// extInput and wafInput are the *input* shapes (routeplan.EnvoyExtensionPolicyInput,
+// routeplan.WafPolicyInput) rather than the *models.EnvoyExtensionPolicy /
+// *models.WafPolicy the shared builder takes, so this wrapper converts before
+// delegating. The conversion is total in both directions:
+//   - EnvoyExtensionPolicyInput{Lua, Wasm, ExtProc} maps field-for-field onto
+//     models.EnvoyExtensionPolicyConfig{Lua, Wasm, ExtProc} -- same field names,
+//     same pointer types, nothing to translate.
+//   - WafPolicyInput{Mode, Rulesets, AnomalyThreshold, ParanoiaLevel,
+//     DisabledRuleIDs, CustomDirectives} maps field-for-field onto
+//     models.WafPolicyConfig, which declares exactly those six fields and no
+//     others.
+//   - The builder reads only policy.Config and wafPolicy.Config (never the
+//     model's ID/RouteID/DomainID/ProjectID/CreatedAt/UpdatedAt/relationship
+//     fields), so leaving those zero-valued on the converted models drops
+//     nothing the builder consults.
 func GenerateEnvoyExtensionPolicyYAMLWithWaf(route *models.Route, domain *models.Domain, extInput *EnvoyExtensionPolicyInput, wafInput *WafPolicyInput, waf WAFConfig) string {
 	// Check if we have any content
 	hasExtensions := extInput != nil && extInput.HasContent()
@@ -310,102 +82,32 @@ func GenerateEnvoyExtensionPolicyYAMLWithWaf(route *models.Route, domain *models
 		return ""
 	}
 
-	// Build EnvoyExtensionPolicyK8sConfig
-	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
-		Name:      kubernetes.EnvoyExtensionPolicyName(route.K8sRouteName),
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  GetRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Convert Lua extension
-	if hasExtensions && extInput.Lua != nil {
-		luaConfig := kubernetes.LuaExtensionPolicyConfig{
-			Type:   extInput.Lua.Type,
-			Inline: extInput.Lua.Inline,
-		}
-		if extInput.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &kubernetes.ValueRefPolicyConfig{
-				Group:     extInput.Lua.ValueRef.Group,
-				Kind:      extInput.Lua.ValueRef.Kind,
-				Name:      extInput.Lua.ValueRef.Name,
-				Namespace: extInput.Lua.ValueRef.Namespace,
-			}
-		}
-		config.Lua = append(config.Lua, luaConfig)
-	}
-
-	// Convert Wasm extension
-	if hasExtensions && extInput.Wasm != nil {
-		wasmConfig := kubernetes.WasmExtensionPolicyConfig{
-			Name:   extInput.Wasm.Name,
-			RootID: extInput.Wasm.RootID,
-			Code: kubernetes.WasmCodeSourcePolicyConfig{
-				Type: extInput.Wasm.Code.Type,
+	var policy *models.EnvoyExtensionPolicy
+	if extInput != nil {
+		policy = &models.EnvoyExtensionPolicy{
+			Config: models.EnvoyExtensionPolicyConfig{
+				Lua:     extInput.Lua,
+				Wasm:    extInput.Wasm,
+				ExtProc: extInput.ExtProc,
 			},
-			Config: extInput.Wasm.Config,
 		}
-		if extInput.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &kubernetes.WasmHTTPSourcePolicyConfig{
-				URL:    extInput.Wasm.Code.HTTP.URL,
-				SHA256: extInput.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if extInput.Wasm.Code.Image != nil {
-			imageConfig := &kubernetes.WasmImageSourcePolicyConfig{
-				URL:    extInput.Wasm.Code.Image.URL,
-				SHA256: extInput.Wasm.Code.Image.SHA256,
-			}
-			if extInput.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &kubernetes.ValueRefPolicyConfig{
-					Group:     extInput.Wasm.Code.Image.PullSecret.Group,
-					Kind:      extInput.Wasm.Code.Image.PullSecret.Kind,
-					Name:      extInput.Wasm.Code.Image.PullSecret.Name,
-					Namespace: extInput.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		config.Wasm = append(config.Wasm, wasmConfig)
 	}
 
-	// Add ExtProc extension
-	if hasExtensions && extInput.ExtProc != nil {
-		config.ExtProc = append(config.ExtProc, BuildExtProcPolicyConfig(extInput.ExtProc))
+	var wafPolicy *models.WafPolicy
+	if wafInput != nil {
+		wafPolicy = &models.WafPolicy{
+			Config: models.WafPolicyConfig{
+				Mode:             wafInput.Mode,
+				Rulesets:         wafInput.Rulesets,
+				AnomalyThreshold: wafInput.AnomalyThreshold,
+				ParanoiaLevel:    wafInput.ParanoiaLevel,
+				DisabledRuleIDs:  wafInput.DisabledRuleIDs,
+				CustomDirectives: wafInput.CustomDirectives,
+			},
+		}
 	}
 
-	// Add WAF (coraza) WASM entry if WAF is configured
-	if hasWaf {
-		// Build a temporary WafPolicyConfig to use BuildCorazaDirectives
-		wafConfig := &models.WafPolicyConfig{
-			Mode:             wafInput.Mode,
-			Rulesets:         wafInput.Rulesets,
-			AnomalyThreshold: wafInput.AnomalyThreshold,
-			ParanoiaLevel:    wafInput.ParanoiaLevel,
-			DisabledRuleIDs:  wafInput.DisabledRuleIDs,
-			CustomDirectives: wafInput.CustomDirectives,
-		}
-		corazaConfig, err := BuildCorazaDirectives(wafConfig)
-		if err == nil && corazaConfig != "" {
-			wasmConfig := kubernetes.WasmExtensionPolicyConfig{
-				Name:   "coraza-waf",
-				RootID: "",
-				Code: kubernetes.WasmCodeSourcePolicyConfig{
-					Type: "Image",
-					Image: &kubernetes.WasmImageSourcePolicyConfig{
-						URL: waf.ImageURL(),
-					},
-				},
-				Config: &corazaConfig,
-			}
-			config.Wasm = append(config.Wasm, wasmConfig)
-		}
-	}
+	config := BuildEnvoyExtensionPolicyK8sConfig(route, domain, route.K8sRouteName, policy, wafPolicy, waf)
 
 	// Build the EnvoyExtensionPolicy object
 	extensionPolicy := kubernetes.BuildEnvoyExtensionPolicy(config)
@@ -422,8 +124,10 @@ func GenerateEnvoyExtensionPolicyYAMLWithWaf(route *models.Route, domain *models
 	return string(yamlBytes)
 }
 
-// GenerateEnvoyExtensionPolicyYAMLFromSnapshot generates EnvoyExtensionPolicy YAML from policy models
-// This is a standalone function that can be called from approval_service.go for YAML diff generation
+// GenerateEnvoyExtensionPolicyYAMLFromSnapshot generates EnvoyExtensionPolicy YAML from policy models.
+// This is a standalone function that can be called from approval_service.go for YAML diff generation.
+// Direct delegation to BuildEnvoyExtensionPolicyK8sConfig (Phase 2H): every argument maps one-to-one,
+// with targetRouteName = route.K8sRouteName.
 func GenerateEnvoyExtensionPolicyYAMLFromSnapshot(route *models.Route, domain *models.Domain, extPolicy *models.EnvoyExtensionPolicy, wafPolicy *models.WafPolicy, waf WAFConfig) string {
 	// Check if we have any extensions to deploy
 	hasGenericExtensions := extPolicy != nil && !extPolicy.Config.IsEmpty()
@@ -433,92 +137,7 @@ func GenerateEnvoyExtensionPolicyYAMLFromSnapshot(route *models.Route, domain *m
 		return ""
 	}
 
-	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
-		Name:      kubernetes.EnvoyExtensionPolicyName(route.K8sRouteName),
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  GetRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Add Lua extension configuration (only if policy exists)
-	if hasGenericExtensions && extPolicy.Config.Lua != nil {
-		luaConfig := kubernetes.LuaExtensionPolicyConfig{
-			Type:   extPolicy.Config.Lua.Type,
-			Inline: extPolicy.Config.Lua.Inline,
-		}
-		if extPolicy.Config.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &kubernetes.ValueRefPolicyConfig{
-				Group:     extPolicy.Config.Lua.ValueRef.Group,
-				Kind:      extPolicy.Config.Lua.ValueRef.Kind,
-				Name:      extPolicy.Config.Lua.ValueRef.Name,
-				Namespace: extPolicy.Config.Lua.ValueRef.Namespace,
-			}
-		}
-		config.Lua = append(config.Lua, luaConfig)
-	}
-
-	// Add Wasm extension configuration (only if policy exists)
-	if hasGenericExtensions && extPolicy.Config.Wasm != nil {
-		wasmConfig := kubernetes.WasmExtensionPolicyConfig{
-			Name:   extPolicy.Config.Wasm.Name,
-			RootID: extPolicy.Config.Wasm.RootID,
-			Code: kubernetes.WasmCodeSourcePolicyConfig{
-				Type: extPolicy.Config.Wasm.Code.Type,
-			},
-			Config: extPolicy.Config.Wasm.Config,
-		}
-		if extPolicy.Config.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &kubernetes.WasmHTTPSourcePolicyConfig{
-				URL:    extPolicy.Config.Wasm.Code.HTTP.URL,
-				SHA256: extPolicy.Config.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if extPolicy.Config.Wasm.Code.Image != nil {
-			imageConfig := &kubernetes.WasmImageSourcePolicyConfig{
-				URL:    extPolicy.Config.Wasm.Code.Image.URL,
-				SHA256: extPolicy.Config.Wasm.Code.Image.SHA256,
-			}
-			if extPolicy.Config.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &kubernetes.ValueRefPolicyConfig{
-					Group:     extPolicy.Config.Wasm.Code.Image.PullSecret.Group,
-					Kind:      extPolicy.Config.Wasm.Code.Image.PullSecret.Kind,
-					Name:      extPolicy.Config.Wasm.Code.Image.PullSecret.Name,
-					Namespace: extPolicy.Config.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		config.Wasm = append(config.Wasm, wasmConfig)
-	}
-
-	// Add ExtProc extension configuration (only if policy exists)
-	if hasGenericExtensions && extPolicy.Config.ExtProc != nil {
-		config.ExtProc = append(config.ExtProc, BuildExtProcPolicyConfig(extPolicy.Config.ExtProc))
-	}
-
-	// Add WAF (coraza) WASM entry if WAF is configured
-	if hasWaf {
-		corazaConfig, err := BuildCorazaDirectives(&wafPolicy.Config)
-		if err == nil && corazaConfig != "" {
-			wasmConfig := kubernetes.WasmExtensionPolicyConfig{
-				Name:   "coraza-waf",
-				RootID: "",
-				Code: kubernetes.WasmCodeSourcePolicyConfig{
-					Type: "Image",
-					Image: &kubernetes.WasmImageSourcePolicyConfig{
-						URL: waf.ImageURL(),
-					},
-				},
-				Config: &corazaConfig,
-			}
-			config.Wasm = append(config.Wasm, wasmConfig)
-		}
-	}
+	config := BuildEnvoyExtensionPolicyK8sConfig(route, domain, route.K8sRouteName, extPolicy, wafPolicy, waf)
 
 	// Build the EnvoyExtensionPolicy object
 	extensionPolicy := kubernetes.BuildEnvoyExtensionPolicy(config)
