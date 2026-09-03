@@ -162,6 +162,13 @@ func (s *DomainService) applyDomainEnvoyExtensionPolicy(ctx context.Context, dom
 	}
 
 	// Handle ext-proc Backend CRD lifecycle
+	//
+	// Deliberately NOT extracted to a shared builder (Phase 2H, spec §6).
+	// The two ExtProcBackendConfig sites differ in owner identity -- this one
+	// sets DomainID with an empty RouteID; the route path sets RouteID -- and
+	// object construction is already shared via kubernetes.BuildExtProcBackend.
+	// A parameterised builder would encode two owner semantics in one
+	// signature for no reduction in size.
 	if extConfig.ExtProc != nil {
 		backendConfig := &kubernetes.ExtProcBackendConfig{
 			Name:      extProcBackendName,

@@ -178,18 +178,20 @@ func (s *DomainService) PreviewCreate(projectID uuid.UUID, input *DomainCreatePr
 
 	// Build Gateway config from input + template
 	k8sGatewayName := generateK8sName(input.Hostname)
-	gatewayConfig := &kubernetes.GatewayConfig{
-		Name:             k8sGatewayName,
-		Namespace:        previewNamespace,
-		GatewayClassName: dt.K8sGatewayClassName,
-		Hostname:         input.Hostname,
-		TLSMode:          string(dt.TLSMode),
-		HTTPPort:         dt.HTTPPort,
-		HTTPSPort:        dt.HTTPSPort,
-		TLSSecretName:    input.TLSSecretName,
-		TLSPolicy:        string(dt.TLSPolicy),
-		Annotations:      map[string]string(dt.Annotations),
+	previewDomain := &models.Domain{
+		K8sGatewayName:     k8sGatewayName,
+		Namespace:          previewNamespace,
+		K8sGatewayClass:    dt.K8sGatewayClassName,
+		Hostname:           input.Hostname,
+		TLSMode:            string(dt.TLSMode),
+		HTTPPort:           dt.HTTPPort,
+		HTTPSPort:          dt.HTTPSPort,
+		TLSSecretName:      input.TLSSecretName,
+		TLSSecretNamespace: input.TLSSecretNamespace,
+		TLSPolicy:          dt.TLSPolicy,
+		DomainTemplateID:   &domainTemplateID,
 	}
+	gatewayConfig := domainplan.BuildGatewayConfig(previewDomain, dt.Annotations)
 
 	result := &DomainCreatePreviewResult{}
 

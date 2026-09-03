@@ -8,9 +8,11 @@ import (
 	"strings"
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
+	"github.com/fastgateway-dev/backend-v2/internal/domainplan"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
+	"github.com/fastgateway-dev/backend-v2/internal/templateplan"
 	"github.com/google/uuid"
 	"sigs.k8s.io/yaml"
 )
@@ -276,7 +278,7 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 
 	// Create EnvoyProxy in Kubernetes — use the shared builder so all fields
 	// (telemetry, pod scheduling, PDB, deployment strategy) are included.
-	epConfig := s.buildEnvoyProxyConfig(dt)
+	epConfig := templateplan.BuildEnvoyProxyConfig(dt)
 
 	if err := s.k8sService.CreateEnvoyProxy(ctx, projectID, epConfig); err != nil {
 		log.Printf("Failed to create EnvoyProxy in Kubernetes: %v", err)
@@ -287,11 +289,7 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 	}
 
 	// Create GatewayClass in Kubernetes with reference to EnvoyProxy
-	gcConfig := &kubernetes.GatewayClassConfig{
-		Name:              k8sGatewayClassName,
-		ControllerName:    controllerName,
-		ParametersRefName: k8sEnvoyProxyName,
-	}
+	gcConfig := templateplan.BuildGatewayClassConfig(dt)
 
 	if err := s.k8sService.CreateGatewayClass(ctx, projectID, gcConfig); err != nil {
 		log.Printf("Failed to create GatewayClass in Kubernetes: %v", err)
@@ -428,7 +426,7 @@ func (s *DomainTemplateService) Update(id uuid.UUID, input *UpdateDomainTemplate
 		input.ClearPodPlacement || input.ClearPDBConfig || input.ClearDeploymentStrategy
 	if needsK8sUpdate {
 		ctx := context.Background()
-		epConfig := s.buildEnvoyProxyConfig(dt)
+		epConfig := templateplan.BuildEnvoyProxyConfig(dt)
 		if err := s.k8sService.UpdateEnvoyProxy(ctx, dt.ProjectID, epConfig); err != nil {
 			log.Printf("Failed to update EnvoyProxy in Kubernetes: %v", err)
 			// Continue with database update even if K8s update fails
@@ -529,26 +527,55 @@ func ValidateDomainTemplatePodScheduling(dt *models.DomainTemplate) error {
 	return nil
 }
 
-// buildEnvoyProxyConfig builds an EnvoyProxyConfig from a DomainTemplate
-func (s *DomainTemplateService) buildEnvoyProxyConfig(dt *models.DomainTemplate) *kubernetes.EnvoyProxyConfig {
-	return &kubernetes.EnvoyProxyConfig{
-		Name:                  dt.K8sEnvoyProxyName,
-		Namespace:             kubernetes.EnvoyGatewayNamespace,
-		ServiceType:           string(dt.ExposureType),
-		Annotations:           map[string]string(dt.Annotations),
-		ExternalTrafficPolicy: string(dt.ExternalTrafficPolicy),
-		LoadBalancerClass:     dt.LoadBalancerClass,
-		PodAnnotations:        map[string]string(dt.PodAnnotations),
-		ContainerResources:    dt.ContainerResources,
-		ScalingConfig:         dt.ScalingConfig,
-		MergeGateways:         dt.MergeGateways,
-		TelemetryAccessLog:    dt.TelemetryAccessLog,
-		TelemetryTracing:      dt.TelemetryTracing,
-		TelemetryMetrics:      dt.TelemetryMetrics,
-		GatewayClassName:      dt.K8sGatewayClassName,
-		PodPlacement:          dt.PodPlacement,
-		PDBConfig:             dt.PDBConfig,
-		DeploymentStrategy:    dt.DeploymentStrategy,
+// templateFromCreateInput projects an unsaved CreateDomainTemplateInput into
+// the models.DomainTemplate shape the manifest builders consume, so preview
+// and persistence share one assembler.
+//
+// This is where normalization now lives. Before Phase 2H,
+// NormalizeEmptyTelemetryMetrics and NormalizeEmptyPodPlacement were called
+// from three independent sites -- Create, Update and PreviewCreate -- which
+// agreed only by coincidence. Adding a normalized field to two of the three
+// would have made preview silently disagree with what deploys.
+//
+// httpPort, httpsPort and tlsPolicy arrive as parameters rather than being
+// read off input directly -- like controllerName, exposureType and
+// externalTrafficPolicy already do -- because the caller has already
+// defaulted and validated them (e.g. an unset HTTPPort becomes 80, an unset
+// TLSPolicy becomes "terminate"). Reading input.HTTPPort/HTTPSPort/TLSPolicy
+// here instead would silently drop those defaults and produce a projected
+// template that disagrees with what Create persists for the same input.
+func templateFromCreateInput(
+	input *CreateDomainTemplateInput,
+	controllerName, k8sGatewayClassName, k8sEnvoyProxyName string,
+	exposureType models.ExposureType,
+	externalTrafficPolicy models.ExternalTrafficPolicy,
+	httpPort, httpsPort int,
+	tlsPolicy models.TLSPolicy,
+) *models.DomainTemplate {
+	return &models.DomainTemplate{
+		Name:                  input.Name,
+		Description:           input.Description,
+		ControllerName:        controllerName,
+		ExposureType:          exposureType,
+		TLSMode:               models.TLSMode(input.TLSMode),
+		HTTPPort:              httpPort,
+		HTTPSPort:             httpsPort,
+		TLSPolicy:             tlsPolicy,
+		ExternalTrafficPolicy: externalTrafficPolicy,
+		LoadBalancerClass:     input.LoadBalancerClass,
+		Annotations:           models.Annotations(input.Annotations),
+		PodAnnotations:        models.Annotations(input.PodAnnotations),
+		ContainerResources:    input.ContainerResources,
+		ScalingConfig:         input.ScalingConfig,
+		MergeGateways:         input.MergeGateways,
+		TelemetryAccessLog:    input.TelemetryAccessLog,
+		TelemetryTracing:      input.TelemetryTracing,
+		TelemetryMetrics:      NormalizeEmptyTelemetryMetrics(input.TelemetryMetrics),
+		PodPlacement:          NormalizeEmptyPodPlacement(input.PodPlacement),
+		PDBConfig:             input.PDBConfig,
+		DeploymentStrategy:    input.DeploymentStrategy,
+		K8sGatewayClassName:   k8sGatewayClassName,
+		K8sEnvoyProxyName:     k8sEnvoyProxyName,
 	}
 }
 
@@ -565,18 +592,14 @@ func (s *DomainTemplateService) GetManifests(id uuid.UUID) (*DomainTemplateManif
 		return nil, err
 	}
 
-	gcConfig := &kubernetes.GatewayClassConfig{
-		Name:              dt.K8sGatewayClassName,
-		ControllerName:    dt.ControllerName,
-		ParametersRefName: dt.K8sEnvoyProxyName,
-	}
+	gcConfig := templateplan.BuildGatewayClassConfig(dt)
 	gcObj := kubernetes.BuildGatewayClassObject(gcConfig)
 	gcYaml, err := yaml.Marshal(gcObj.Object)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal GatewayClass: %w", err)
 	}
 
-	epConfig := s.buildEnvoyProxyConfig(dt)
+	epConfig := templateplan.BuildEnvoyProxyConfig(dt)
 	epObj := kubernetes.BuildEnvoyProxyObject(epConfig)
 	epYaml, err := yaml.Marshal(epObj.Object)
 	if err != nil {
@@ -610,7 +633,7 @@ func (s *DomainTemplateService) PreviewChanges(id uuid.UUID, input *UpdateDomain
 	}
 
 	// Generate current YAML
-	currentConfig := s.buildEnvoyProxyConfig(dt)
+	currentConfig := templateplan.BuildEnvoyProxyConfig(dt)
 	currentObj := kubernetes.BuildEnvoyProxyObject(currentConfig)
 	currentYaml, err := yaml.Marshal(currentObj.Object)
 	if err != nil {
@@ -642,7 +665,7 @@ func (s *DomainTemplateService) PreviewChanges(id uuid.UUID, input *UpdateDomain
 	}
 
 	// Generate proposed YAML
-	proposedConfig := s.buildEnvoyProxyConfig(&proposed)
+	proposedConfig := templateplan.BuildEnvoyProxyConfig(&proposed)
 	proposedObj := kubernetes.BuildEnvoyProxyObject(proposedConfig)
 	proposedYaml, err := yaml.Marshal(proposedObj.Object)
 	if err != nil {
@@ -771,63 +794,51 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 	k8sGatewayClassName := fmt.Sprintf("%s-%s", input.Name, exposureTypeLower)
 	k8sEnvoyProxyName := fmt.Sprintf("%s-%s-config", input.Name, exposureTypeLower)
 
+	// Project the unsaved input into the models.DomainTemplate shape both
+	// manifest builders consume, so preview shares one assembler with Create,
+	// Update and GetManifests.
+	projected := templateFromCreateInput(
+		input,
+		controllerName, k8sGatewayClassName, k8sEnvoyProxyName,
+		exposureType, externalTrafficPolicy,
+		httpPort, httpsPort, tlsPolicy,
+	)
+
 	// Build GatewayClass manifest
-	gcConfig := &kubernetes.GatewayClassConfig{
-		Name:              k8sGatewayClassName,
-		ControllerName:    controllerName,
-		ParametersRefName: k8sEnvoyProxyName,
-	}
+	gcConfig := templateplan.BuildGatewayClassConfig(projected)
 	gcObj := kubernetes.BuildGatewayClassObject(gcConfig)
 	gcYaml, err := yaml.Marshal(gcObj.Object)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal GatewayClass: %w", err)
 	}
 
-	// Build EnvoyProxy manifest. Normalize the optional blocks so empty payloads
-	// don't render meaningless YAML (matches what Create persists).
-	normalizedMetrics := NormalizeEmptyTelemetryMetrics(input.TelemetryMetrics)
-	normalizedPodPlacement := NormalizeEmptyPodPlacement(input.PodPlacement)
-	serviceType := string(exposureType)
-	epConfig := &kubernetes.EnvoyProxyConfig{
-		Name:                  k8sEnvoyProxyName,
-		Namespace:             kubernetes.EnvoyGatewayNamespace,
-		ServiceType:           serviceType,
-		Annotations:           input.Annotations,
-		ExternalTrafficPolicy: string(externalTrafficPolicy),
-		LoadBalancerClass:     input.LoadBalancerClass,
-		PodAnnotations:        input.PodAnnotations,
-		ContainerResources:    input.ContainerResources,
-		ScalingConfig:         input.ScalingConfig,
-		MergeGateways:         input.MergeGateways,
-		// Telemetry — render spec.telemetry on EnvoyProxy CRD
-		TelemetryAccessLog: input.TelemetryAccessLog,
-		TelemetryTracing:   input.TelemetryTracing,
-		TelemetryMetrics:   normalizedMetrics,
-		// Pod scheduling + lifecycle — render envoyDeployment.{pod,strategy} and envoyPDB.
-		// GatewayClassName is required so topology-spread labelSelector auto-fill works.
-		GatewayClassName:   k8sGatewayClassName,
-		PodPlacement:       normalizedPodPlacement,
-		PDBConfig:          input.PDBConfig,
-		DeploymentStrategy: input.DeploymentStrategy,
-	}
+	// Build EnvoyProxy manifest. templateFromCreateInput normalizes the
+	// optional blocks so empty payloads don't render meaningless YAML
+	// (matches what Create persists).
+	epConfig := templateplan.BuildEnvoyProxyConfig(projected)
 	epObj := kubernetes.BuildEnvoyProxyObject(epConfig)
 	epYaml, err := yaml.Marshal(epObj.Object)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal EnvoyProxy: %w", err)
 	}
 
-	// Build example Gateway manifest to show TLS configuration impact
-	gwConfig := &kubernetes.GatewayConfig{
-		Name:             "example-domain",
-		Namespace:        kubernetes.EnvoyGatewayNamespace,
-		GatewayClassName: k8sGatewayClassName,
-		Hostname:         "example.com",
-		TLSMode:          string(tlsMode),
-		HTTPPort:         httpPort,
-		HTTPSPort:        httpsPort,
-		TLSSecretName:    "example-tls-cert",
-		TLSPolicy:        string(tlsPolicy),
+	// Build example Gateway manifest to show TLS configuration impact.
+	//
+	// The example exists to show operators the impact of their TLS settings.
+	// Building it with the same assembler real Gateways use means the
+	// example cannot drift from what actually deploys.
+	exampleDomain := &models.Domain{
+		K8sGatewayName:  "example-domain",
+		Namespace:       kubernetes.EnvoyGatewayNamespace,
+		K8sGatewayClass: k8sGatewayClassName,
+		Hostname:        "example.com",
+		TLSMode:         string(tlsMode),
+		HTTPPort:        httpPort,
+		HTTPSPort:       httpsPort,
+		TLSSecretName:   "example-tls-cert",
+		TLSPolicy:       tlsPolicy,
 	}
+	gwConfig := domainplan.BuildGatewayConfig(exampleDomain, nil)
 	gwObj := kubernetes.BuildGatewayObject(gwConfig)
 	gwYaml, err := yaml.Marshal(gwObj.Object)
 	if err != nil {

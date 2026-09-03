@@ -1,0 +1,31 @@
+Annotations: null
+ContainerResources: null
+DeploymentStrategy:
+  rollingUpdate:
+    maxSurge: "1"
+    maxUnavailable: "0"
+  type: RollingUpdate
+ExternalTrafficPolicy: ""
+GatewayClassName: example-public
+LoadBalancerClass: ""
+MergeGateways: false
+Name: example-public-config
+Namespace: envoy-gateway-system
+PDBConfig:
+  kind: minAvailable
+  value: "1"
+PodAnnotations: null
+PodPlacement:
+  nodeSelector:
+    kubernetes.io/os: linux
+  priorityClassName: system-cluster-critical
+  tolerations:
+  - effect: NoSchedule
+    key: dedicated
+    operator: Equal
+    value: gateway
+ScalingConfig: null
+ServiceType: ClusterIP
+TelemetryAccessLog: null
+TelemetryMetrics: null
+TelemetryTracing: null

@@ -18,6 +18,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
 	"github.com/fastgateway-dev/backend-v2/internal/cluster"
+	"github.com/fastgateway-dev/backend-v2/internal/domainplan"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
@@ -293,19 +294,7 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 
 	// Create Gateway in Kubernetes
 	ctx := context.Background()
-	gatewayConfig := &kubernetes.GatewayConfig{
-		Name:               k8sGatewayName,
-		Namespace:          input.Namespace,
-		GatewayClassName:   k8sGatewayClass,
-		Hostname:           input.Hostname,
-		TLSMode:            string(tlsMode),
-		HTTPPort:           dt.HTTPPort,
-		HTTPSPort:          dt.HTTPSPort,
-		TLSSecretName:      input.TLSSecretName,
-		TLSSecretNamespace: input.TLSSecretNamespace,
-		TLSPolicy:          string(dt.TLSPolicy),
-		Annotations:        dt.Annotations,
-	}
+	gatewayConfig := domainplan.BuildGatewayConfig(domain, dt.Annotations)
 
 	if err := s.k8sGateways.CreateGateway(ctx, projectID, gatewayConfig); err != nil {
 		log.Printf("Failed to create Gateway in Kubernetes: %v", err)

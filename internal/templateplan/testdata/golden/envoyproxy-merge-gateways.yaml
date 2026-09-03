@@ -1,0 +1,17 @@
+Annotations: null
+ContainerResources: null
+DeploymentStrategy: null
+ExternalTrafficPolicy: ""
+GatewayClassName: example-public
+LoadBalancerClass: ""
+MergeGateways: true
+Name: example-public-config
+Namespace: envoy-gateway-system
+PDBConfig: null
+PodAnnotations: null
+PodPlacement: null
+ScalingConfig: null
+ServiceType: ClusterIP
+TelemetryAccessLog: null
+TelemetryMetrics: null
+TelemetryTracing: null

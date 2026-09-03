@@ -1,0 +1,19 @@
+Annotations:
+  service.beta.kubernetes.io/aws-load-balancer-type: nlb
+ContainerResources: null
+DeploymentStrategy: null
+ExternalTrafficPolicy: Local
+GatewayClassName: example-public
+LoadBalancerClass: service.k8s.aws/nlb
+MergeGateways: false
+Name: example-public-config
+Namespace: envoy-gateway-system
+PDBConfig: null
+PodAnnotations:
+  prometheus.io/scrape: "true"
+PodPlacement: null
+ScalingConfig: null
+ServiceType: LoadBalancer
+TelemetryAccessLog: null
+TelemetryMetrics: null
+TelemetryTracing: null

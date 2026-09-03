@@ -319,3 +319,21 @@ func TestBuildDomainExtensionPolicyConfig_ExtProc(t *testing.T) {
 	require.NotNil(t, ep.ProcessingMode.Response)
 	assert.Equal(t, "Streamed", ep.ProcessingMode.Response.Body)
 }
+
+// F2, closed in Phase 2H. BuildGatewayConfig mapped nine domain fields and
+// skipped TLSSecretNamespace, so the domain YAML PREVIEW rendered a
+// certificateRef with no namespace while the deploying path
+// (domain_service.go:297) set it and worked. Preview understated reality.
+//
+// The Phase 2F fixture comment recorded this backwards, as a branch that was
+// "DEAD on the domain path". It was dead on the preview path only.
+func TestBuildGatewayConfig_MapsTLSSecretNamespace(t *testing.T) {
+	domain := fixtureDomain()
+	domain.TLSSecretName = "wildcard-tls"
+	domain.TLSSecretNamespace = "shared-certs"
+
+	got := BuildGatewayConfig(domain, nil)
+
+	require.Equal(t, "shared-certs", got.TLSSecretNamespace,
+		"F2: preview must emit the same cross-namespace certificateRef that deploy does")
+}
