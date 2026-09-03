@@ -525,6 +525,13 @@ func (s *RouteService) deployEnvoyExtensionPolicy(ctx context.Context, route *mo
 	extProcBackendName := kubernetes.GenerateExtProcBackendName(route.ID.String())
 	if policy != nil && policy.Config.ExtProc != nil {
 		// Create/update ext-proc Backend CRD
+		//
+		// Deliberately NOT extracted to a shared builder (Phase 2H, spec §6).
+		// The two ExtProcBackendConfig sites differ in owner identity -- this one
+		// sets RouteID; the domain path sets DomainID with an empty RouteID -- and
+		// object construction is already shared via kubernetes.BuildExtProcBackend.
+		// A parameterised builder would encode two owner semantics in one
+		// signature for no reduction in size.
 		backendConfig := &kubernetes.ExtProcBackendConfig{
 			Name:      extProcBackendName,
 			Namespace: domain.Namespace,
@@ -608,7 +615,11 @@ func (s *RouteService) deleteEnvoyExtensionPolicy(ctx context.Context, route *mo
 	return nil
 }
 
-// buildEnvoyExtensionPolicyConfig builds EnvoyExtensionPolicyK8sConfig from database model
+// buildEnvoyExtensionPolicyConfig builds EnvoyExtensionPolicyK8sConfig from database model.
+//
+// The guard below decides *whether* to build at all and stays here; assembly
+// itself is delegated to routeplan.BuildEnvoyExtensionPolicyK8sConfig, shared
+// with the per-client route path in route_clients_apikey.go (Phase 2H).
 func (s *RouteService) buildEnvoyExtensionPolicyConfig(route *models.Route, domain *models.Domain, policy *models.EnvoyExtensionPolicy, wafPolicy *models.WafPolicy) *kubernetes.EnvoyExtensionPolicyK8sConfig {
 	// Check if we have any extensions to deploy
 	hasGenericExtensions := policy != nil && !policy.Config.IsEmpty()
@@ -618,94 +629,7 @@ func (s *RouteService) buildEnvoyExtensionPolicyConfig(route *models.Route, doma
 		return nil
 	}
 
-	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
-		Name:      kubernetes.EnvoyExtensionPolicyName(route.K8sRouteName),
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  routeplan.GetRouteKind(route.Protocol),
-			Name:  route.K8sRouteName,
-		},
-	}
-
-	// Add Lua extension configuration (only if policy exists)
-	if hasGenericExtensions && policy.Config.Lua != nil {
-		luaConfig := kubernetes.LuaExtensionPolicyConfig{
-			Type:   policy.Config.Lua.Type,
-			Inline: policy.Config.Lua.Inline,
-		}
-		if policy.Config.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &kubernetes.ValueRefPolicyConfig{
-				Group:     policy.Config.Lua.ValueRef.Group,
-				Kind:      policy.Config.Lua.ValueRef.Kind,
-				Name:      policy.Config.Lua.ValueRef.Name,
-				Namespace: policy.Config.Lua.ValueRef.Namespace,
-			}
-		}
-		config.Lua = append(config.Lua, luaConfig)
-	}
-
-	// Add Wasm extension configuration (only if policy exists)
-	if hasGenericExtensions && policy.Config.Wasm != nil {
-		wasmConfig := kubernetes.WasmExtensionPolicyConfig{
-			Name:   policy.Config.Wasm.Name,
-			RootID: policy.Config.Wasm.RootID,
-			Code: kubernetes.WasmCodeSourcePolicyConfig{
-				Type: policy.Config.Wasm.Code.Type,
-			},
-			Config: policy.Config.Wasm.Config,
-		}
-		if policy.Config.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &kubernetes.WasmHTTPSourcePolicyConfig{
-				URL:    policy.Config.Wasm.Code.HTTP.URL,
-				SHA256: policy.Config.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if policy.Config.Wasm.Code.Image != nil {
-			imageConfig := &kubernetes.WasmImageSourcePolicyConfig{
-				URL:    policy.Config.Wasm.Code.Image.URL,
-				SHA256: policy.Config.Wasm.Code.Image.SHA256,
-			}
-			if policy.Config.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &kubernetes.ValueRefPolicyConfig{
-					Group:     policy.Config.Wasm.Code.Image.PullSecret.Group,
-					Kind:      policy.Config.Wasm.Code.Image.PullSecret.Kind,
-					Name:      policy.Config.Wasm.Code.Image.PullSecret.Name,
-					Namespace: policy.Config.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		config.Wasm = append(config.Wasm, wasmConfig)
-	}
-
-	// Add ExtProc extension configuration (only if policy exists)
-	if hasGenericExtensions && policy.Config.ExtProc != nil {
-		config.ExtProc = append(config.ExtProc, routeplan.BuildExtProcPolicyConfig(policy.Config.ExtProc))
-	}
-
-	// Add WAF (coraza) WASM entry if WAF is configured
-	if hasWaf {
-		corazaConfig, err := routeplan.BuildCorazaDirectives(&wafPolicy.Config)
-		if err == nil && corazaConfig != "" {
-			wasmConfig := kubernetes.WasmExtensionPolicyConfig{
-				Name:   "coraza-waf",
-				RootID: "",
-				Code: kubernetes.WasmCodeSourcePolicyConfig{
-					Type: "Image",
-					Image: &kubernetes.WasmImageSourcePolicyConfig{
-						URL: s.wafConfig.ImageURL(),
-					},
-				},
-				Config: &corazaConfig,
-			}
-			config.Wasm = append(config.Wasm, wasmConfig)
-		}
-	}
-
-	return config
+	return routeplan.BuildEnvoyExtensionPolicyK8sConfig(route, domain, route.K8sRouteName, policy, wafPolicy, s.wafConfig)
 }
 
 // deployDirectResponse deploys HTTPRouteFilter and ConfigMap for direct response routes

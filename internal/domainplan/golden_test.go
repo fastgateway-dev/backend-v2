@@ -13,13 +13,12 @@ import (
 // internal/services/testdata/golden/ cover the route path only. These are its
 // first snapshots.
 //
-// One of them deliberately pins a KNOWN DEFECT rather than correct behaviour:
-//
-//	gateway-tls-secret-namespace-dropped-f2  -- F2, dead cross-namespace certRef
-//
-// See the comment on that fixture in fixtures_test.go. It is not fixed here;
-// pinning it stops it drifting further, and when it is fixed the golden MUST
-// change.
+// None of these goldens deliberately pins a KNOWN DEFECT any more. The last
+// one that did, gateway-tls-secret-namespace-dropped-f2 (F2, the dropped
+// cross-namespace certRef), was closed in Phase 2H: BuildGatewayConfig now
+// maps TLSSecretNamespace, the golden was regenerated, and the fixture and
+// golden were renamed to gateway-tls-secret-namespace to drop the defect
+// marker. See the comment on that fixture in fixtures_test.go.
 //
 // ctp-mtls-enabled-no-ca-refs (formerly ctp-mtls-enabled-no-ca-refs-f3) used
 // to pin F3, the mTLS rendering fail-open, the same way. Phase 2G fixed F3 in

@@ -1,0 +1,12 @@
+Annotations:
+  a: "1"
+GatewayClassName: example-public
+HTTPPort: 80
+HTTPSPort: 443
+Hostname: example.com
+Name: eg
+Namespace: gateway-ns
+TLSMode: tls_only
+TLSPolicy: terminate
+TLSSecretName: wildcard-tls
+TLSSecretNamespace: shared-certs

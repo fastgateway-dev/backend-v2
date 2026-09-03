@@ -1,0 +1,33 @@
+Annotations: null
+ContainerResources: null
+DeploymentStrategy: null
+ExternalTrafficPolicy: ""
+GatewayClassName: example-public
+LoadBalancerClass: ""
+MergeGateways: false
+Name: example-public-config
+Namespace: envoy-gateway-system
+PDBConfig: null
+PodAnnotations: null
+PodPlacement: null
+ScalingConfig: null
+ServiceType: ClusterIP
+TelemetryAccessLog:
+  format:
+    text: '%START_TIME%'
+    type: text
+  sink:
+    file:
+      path: /dev/stdout
+    type: file
+TelemetryMetrics:
+  enablePerEndpointStats: true
+  enableVirtualHostStats: true
+  prometheus:
+    disable: false
+TelemetryTracing:
+  provider:
+    namespace: observability
+    port: 4317
+    service: otel-collector
+  samplingRate: 10

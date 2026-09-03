@@ -54,9 +54,14 @@ func gatewayFixtures() []domainManifestFixture {
 				return BuildGatewayConfig(fixtureDomain(), nil)
 			},
 		},
-		// Every field BuildGatewayConfig actually maps, set to a distinct
-		// non-zero value. If a future edit drops one of the nine mappings this
-		// golden is the one that catches it.
+		// Every field BuildGatewayConfig actually maps EXCEPT
+		// TLSSecretNamespace, set to a distinct non-zero value. If a future
+		// edit drops one of the ten mappings this golden is the one that
+		// catches it. TLSSecretNamespace is covered instead by the
+		// "gateway-tls-secret-namespace" and "gateway-deploying-domain"
+		// fixtures below and by the F2 unit test
+		// (TestBuildGatewayConfig_MapsTLSSecretNamespace in
+		// domainplan_test.go).
 		{
 			Name: "gateway-all-mapped-fields",
 			Build: func() any {
@@ -97,30 +102,79 @@ func gatewayFixtures() []domainManifestFixture {
 				})
 			},
 		},
-		// F2 -- KNOWN DEFECT, PINNED NOT FIXED.
+		// F2, closed in Phase 2H. models.Domain.TLSSecretNamespace is
+		// user-settable and kubernetes.GatewayConfig has a
+		// TLSSecretNamespace field that kubernetes.BuildGatewayObject uses
+		// to emit a cross-namespace certificateRefs[].namespace
+		// (internal/kubernetes/gateway.go:63-66). BuildGatewayConfig now maps
+		// it, so a domain whose TLS secret lives in another namespace gets a
+		// certificateRef carrying that namespace, and Envoy Gateway resolves
+		// the secret where it actually lives.
 		//
-		// models.Domain.TLSSecretNamespace is user-settable and
-		// kubernetes.GatewayConfig has a TLSSecretNamespace field that
-		// kubernetes.BuildGatewayObject uses to emit a cross-namespace
-		// certificateRefs[].namespace (internal/kubernetes/gateway.go:63-66).
-		// BuildGatewayConfig maps nine domain fields and skips this one, so the
-		// emitted config always leaves TLSSecretNamespace empty and that
-		// cross-namespace branch is DEAD on the domain path: a domain whose TLS
-		// secret lives in another namespace gets a certificateRef with no
-		// namespace, which Envoy Gateway resolves in the Gateway's own
-		// namespace and fails to find.
-		//
-		// This golden records the CURRENT (omitting) output. It is a bug
-		// snapshot, not an endorsement -- F2 is pending its own triage. When it
-		// is fixed, this golden MUST change, and that diff is the proof.
+		// This golden used to pin the OPPOSITE of this comment, under the
+		// name "gateway-tls-secret-namespace-dropped-f2": the field was
+		// silently omitted, which meant the preview builder disagreed with
+		// the deploying path (domain_service.go:297), which set the field
+		// directly and worked. That was F2, mis-recorded at the time as
+		// "DEAD on the domain path" when it was in fact only dead on the
+		// preview path. Closing F2 in Phase 2H changed this golden's content
+		// and its name, dropping the defect marker.
 		{
-			Name: "gateway-tls-secret-namespace-dropped-f2",
+			Name: "gateway-tls-secret-namespace",
 			Build: func() any {
 				d := fixtureDomain()
 				d.TLSMode = "tls_only"
 				d.TLSSecretName = "example-com-tls"
-				d.TLSSecretNamespace = "cert-manager-ns" // NOT mapped -- see above
+				d.TLSSecretNamespace = "cert-manager-ns"
 				d.TLSPolicy = models.TLSPolicyTerminate
+				return BuildGatewayConfig(d, nil)
+			},
+		},
+		// Phase 2H. Characterizes domain_service.go:297, the path that
+		// actually deploys the Gateway. Before this phase it assembled its
+		// own kubernetes.GatewayConfig literal, bypassing this builder
+		// entirely, and no golden covered it -- this fixture and
+		// TestDomainService_DeployGatewayConfig_MatchesDomainplanBuilder
+		// (internal/services/domain_service_test.go) are its first
+		// coverage. Every field the deploying call site sets is non-default
+		// here, including TLSSecretNamespace (F2) and template annotations
+		// (always attached: Create requires a domain template, so
+		// DomainTemplateID is never nil at that call site).
+		{
+			Name: "gateway-deploying-domain",
+			Build: func() any {
+				d := fixtureDomain()
+				d.K8sGatewayClass = "example-public"
+				d.TLSMode = "tls_only"
+				d.HTTPPort = 80
+				d.HTTPSPort = 443
+				d.TLSSecretName = "wildcard-tls"
+				d.TLSSecretNamespace = "shared-certs"
+				d.TLSPolicy = models.TLSPolicyTerminate
+				d.DomainTemplateID = &fixtureTemplateID
+				return BuildGatewayConfig(d, map[string]string{"a": "1"})
+			},
+		},
+		// Phase 2H. Characterizes domain_template_service.go's example
+		// Gateway (PreviewCreate), built from a synthetic *models.Domain so
+		// the illustrative example cannot drift from what actually deploys.
+		// The synthetic domain carries no DomainTemplateID and no
+		// TLSSecretNamespace -- matching the literal it replaced, which
+		// never set either.
+		{
+			Name: "gateway-example-domain",
+			Build: func() any {
+				d := &models.Domain{
+					K8sGatewayName:  "example-domain",
+					Namespace:       "envoy-gateway-system",
+					K8sGatewayClass: "example-domain-public",
+					Hostname:        "example.com",
+					TLSMode:         "both",
+					HTTPPort:        80,
+					HTTPSPort:       443,
+					TLSSecretName:   "example-tls-cert",
+					TLSPolicy:       models.TLSPolicyTerminate,
+				}
 				return BuildGatewayConfig(d, nil)
 			},
 		},

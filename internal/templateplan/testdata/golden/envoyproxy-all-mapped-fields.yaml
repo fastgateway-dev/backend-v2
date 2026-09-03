@@ -1,0 +1,46 @@
+Annotations:
+  a: "1"
+ContainerResources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+DeploymentStrategy:
+  type: Recreate
+ExternalTrafficPolicy: Local
+GatewayClassName: example-public
+LoadBalancerClass: service.k8s.aws/nlb
+MergeGateways: true
+Name: example-public-config
+Namespace: envoy-gateway-system
+PDBConfig:
+  kind: minAvailable
+  value: "1"
+PodAnnotations:
+  b: "2"
+PodPlacement:
+  priorityClassName: system-cluster-critical
+ScalingConfig:
+  replicas: 3
+  type: fixed
+ServiceType: LoadBalancer
+TelemetryAccessLog:
+  format:
+    json:
+      level: info
+    type: json
+  sink:
+    file:
+      path: /dev/stdout
+    type: file
+TelemetryMetrics:
+  enablePerEndpointStats: false
+  enableVirtualHostStats: true
+TelemetryTracing:
+  provider:
+    namespace: observability
+    port: 4317
+    service: otel-collector
+  samplingRate: 5

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
+	"github.com/fastgateway-dev/backend-v2/internal/domainplan"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -909,4 +910,48 @@ func TestNewDomainService_RequiresEveryDependency(t *testing.T) {
 				func() { services.NewDomainService(d) })
 		})
 	}
+}
+
+// CHARACTERIZATION. domain_service.go:297 -- the path that actually deploys
+// the Gateway -- assembled its own config, bypassing the pure builder, and no
+// golden covered it. This pins that domainplan.BuildGatewayConfig, called
+// directly here with a hand-built models.Domain, produces the same
+// GatewayConfig the old inline literal did, for the deploy path's field
+// shape. It does NOT exercise DomainService.Create and so cannot catch
+// `domain` failing to carry a value at the actual call site: replacing the
+// deploy-path call with domainplan.BuildGatewayConfig(&models.Domain{}, nil)
+// -- a Gateway with no name, namespace, hostname or TLS -- leaves
+// internal/services green. That gap is closed by code review only.
+func TestDomainService_DeployGatewayConfig_MatchesDomainplanBuilder(t *testing.T) {
+	tmplID := uuid.New()
+	domain := &models.Domain{
+		K8sGatewayName:     "eg",
+		Namespace:          "gateway-ns",
+		K8sGatewayClass:    "example-public",
+		Hostname:           "example.com",
+		TLSMode:            "tls_only",
+		HTTPPort:           80,
+		HTTPSPort:          443,
+		TLSSecretName:      "wildcard-tls",
+		TLSSecretNamespace: "shared-certs",
+		TLSPolicy:          models.TLSPolicyTerminate,
+		DomainTemplateID:   &tmplID,
+	}
+	annotations := map[string]string{"a": "1"}
+
+	want := &kubernetes.GatewayConfig{
+		Name:               domain.K8sGatewayName,
+		Namespace:          domain.Namespace,
+		GatewayClassName:   domain.K8sGatewayClass,
+		Hostname:           domain.Hostname,
+		TLSMode:            domain.TLSMode,
+		HTTPPort:           domain.HTTPPort,
+		HTTPSPort:          domain.HTTPSPort,
+		TLSSecretName:      domain.TLSSecretName,
+		TLSSecretNamespace: domain.TLSSecretNamespace,
+		TLSPolicy:          string(domain.TLSPolicy),
+		Annotations:        annotations,
+	}
+
+	require.Equal(t, want, domainplan.BuildGatewayConfig(domain, annotations))
 }

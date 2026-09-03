@@ -537,7 +537,12 @@ func (s *RouteService) buildAPIKeySecurityPolicyConfig(route *models.Route, doma
 	})
 }
 
-// buildAPIKeyEnvoyExtensionPolicyConfig builds EnvoyExtensionPolicy config for a per-client route
+// buildAPIKeyEnvoyExtensionPolicyConfig builds EnvoyExtensionPolicy config for a per-client route.
+//
+// The guard below decides *whether* to build at all and stays here; assembly
+// itself is delegated to routeplan.BuildEnvoyExtensionPolicyK8sConfig, shared
+// with the base route path in route_deploy.go (Phase 2H). This site has no
+// WAF policy in scope, so wafPolicy is passed as nil.
 func (s *RouteService) buildAPIKeyEnvoyExtensionPolicyConfig(route *models.Route, domain *models.Domain, client routeplan.ClientAuthCategory, policy *models.EnvoyExtensionPolicy) *unstructured.Unstructured {
 	if policy == nil || policy.Config.IsEmpty() {
 		return nil
@@ -545,73 +550,7 @@ func (s *RouteService) buildAPIKeyEnvoyExtensionPolicyConfig(route *models.Route
 
 	routeName := route.K8sRouteName + "-ak-" + client.ClientID.String()[:8]
 
-	config := &kubernetes.EnvoyExtensionPolicyK8sConfig{
-		Name:      kubernetes.EnvoyExtensionPolicyName(routeName),
-		Namespace: domain.Namespace,
-		GatewayID: domain.ID.String(),
-		RouteID:   route.ID.String(),
-		TargetRef: kubernetes.EnvoyExtensionPolicyTargetRef{
-			Group: "gateway.networking.k8s.io",
-			Kind:  routeplan.GetRouteKind(route.Protocol),
-			Name:  routeName,
-		},
-	}
-
-	// Copy Lua extension from base policy
-	if policy.Config.Lua != nil {
-		luaConfig := kubernetes.LuaExtensionPolicyConfig{
-			Type:   policy.Config.Lua.Type,
-			Inline: policy.Config.Lua.Inline,
-		}
-		if policy.Config.Lua.ValueRef != nil {
-			luaConfig.ValueRef = &kubernetes.ValueRefPolicyConfig{
-				Group:     policy.Config.Lua.ValueRef.Group,
-				Kind:      policy.Config.Lua.ValueRef.Kind,
-				Name:      policy.Config.Lua.ValueRef.Name,
-				Namespace: policy.Config.Lua.ValueRef.Namespace,
-			}
-		}
-		config.Lua = append(config.Lua, luaConfig)
-	}
-
-	// Copy Wasm extension from base policy
-	if policy.Config.Wasm != nil {
-		wasmConfig := kubernetes.WasmExtensionPolicyConfig{
-			Name:   policy.Config.Wasm.Name,
-			RootID: policy.Config.Wasm.RootID,
-			Code: kubernetes.WasmCodeSourcePolicyConfig{
-				Type: policy.Config.Wasm.Code.Type,
-			},
-			Config: policy.Config.Wasm.Config,
-		}
-		if policy.Config.Wasm.Code.HTTP != nil {
-			wasmConfig.Code.HTTP = &kubernetes.WasmHTTPSourcePolicyConfig{
-				URL:    policy.Config.Wasm.Code.HTTP.URL,
-				SHA256: policy.Config.Wasm.Code.HTTP.SHA256,
-			}
-		}
-		if policy.Config.Wasm.Code.Image != nil {
-			imageConfig := &kubernetes.WasmImageSourcePolicyConfig{
-				URL:    policy.Config.Wasm.Code.Image.URL,
-				SHA256: policy.Config.Wasm.Code.Image.SHA256,
-			}
-			if policy.Config.Wasm.Code.Image.PullSecret != nil {
-				imageConfig.PullSecret = &kubernetes.ValueRefPolicyConfig{
-					Group:     policy.Config.Wasm.Code.Image.PullSecret.Group,
-					Kind:      policy.Config.Wasm.Code.Image.PullSecret.Kind,
-					Name:      policy.Config.Wasm.Code.Image.PullSecret.Name,
-					Namespace: policy.Config.Wasm.Code.Image.PullSecret.Namespace,
-				}
-			}
-			wasmConfig.Code.Image = imageConfig
-		}
-		config.Wasm = append(config.Wasm, wasmConfig)
-	}
-
-	// Copy ExtProc extension from base policy (shared Backend CRD, per-client EnvoyExtensionPolicy)
-	if policy.Config.ExtProc != nil {
-		config.ExtProc = append(config.ExtProc, routeplan.BuildExtProcPolicyConfig(policy.Config.ExtProc))
-	}
+	config := routeplan.BuildEnvoyExtensionPolicyK8sConfig(route, domain, routeName, policy, nil, routeplan.WAFConfig{})
 
 	return kubernetes.BuildEnvoyExtensionPolicy(config)
 }

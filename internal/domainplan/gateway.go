@@ -23,15 +23,16 @@ import (
 // at the call sites.
 func BuildGatewayConfig(domain *models.Domain, templateAnnotations map[string]string) *kubernetes.GatewayConfig {
 	config := &kubernetes.GatewayConfig{
-		Name:             domain.K8sGatewayName,
-		Namespace:        domain.Namespace,
-		GatewayClassName: domain.K8sGatewayClass,
-		Hostname:         domain.Hostname,
-		TLSMode:          domain.TLSMode,
-		HTTPPort:         domain.HTTPPort,
-		HTTPSPort:        domain.HTTPSPort,
-		TLSSecretName:    domain.TLSSecretName,
-		TLSPolicy:        string(domain.TLSPolicy),
+		Name:               domain.K8sGatewayName,
+		Namespace:          domain.Namespace,
+		GatewayClassName:   domain.K8sGatewayClass,
+		Hostname:           domain.Hostname,
+		TLSMode:            domain.TLSMode,
+		HTTPPort:           domain.HTTPPort,
+		HTTPSPort:          domain.HTTPSPort,
+		TLSSecretName:      domain.TLSSecretName,
+		TLSSecretNamespace: domain.TLSSecretNamespace,
+		TLSPolicy:          string(domain.TLSPolicy),
 	}
 	// Include annotations from domain template
 	if domain.DomainTemplateID != nil {
