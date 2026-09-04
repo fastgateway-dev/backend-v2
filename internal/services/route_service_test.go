@@ -2487,6 +2487,139 @@ func TestRouteService_Update_ApprovalHasConfigSnapshot(t *testing.T) {
 	assert.Equal(t, "/api/users", prevSnapshot.RouteConfig.Matches[0].Path.Value)
 }
 
+// TestRouteService_Update_ApprovalSnapshot_PreservesExtProc pins the approval
+// snapshot's EnvoyExtensionPolicy to include ExtProc on Update, the same way
+// TestRouteService_Create_ApprovalSnapshot_PreservesExtProc pins it on
+// Create. The input carries ExtProc alone -- no Lua, no Wasm -- so
+// EnvoyExtensionPolicyInput.HasContent() (internal/routeplan/input.go) is
+// true purely because of ExtProc, and the snapshot must still carry it.
+//
+// This guards against the drift once present in route_write.go's Update:
+// updateSnapshotEEP was built with only Lua and Wasm, silently dropping
+// ExtProc from the snapshot that becomes the approval's ConfigSnapshot
+// (route_write.go ~line 748) -- the very payload ApprovalService.GetDiff
+// renders as the proposed EnvoyExtensionPolicy YAML for whoever approves the
+// change. An ext-proc change on a route update was therefore invisible to
+// the approver, even though the entity actually persisted for deploy
+// (envoyExtensionPolicyRepo.Upsert, route_write.go ~line 844) always
+// included ExtProc correctly -- so this is an approval-review integrity
+// defect, not a deploy-path one.
+func TestRouteService_Update_ApprovalSnapshot_PreservesExtProc(t *testing.T) {
+	svc, routeRepo, approvalRepo, policyRepo, domainRepo, _ := newTestRouteService()
+
+	routeID := uuid.New()
+	domainID := uuid.New()
+	projectID := uuid.New()
+
+	route := &models.Route{
+		ID:           routeID,
+		DomainID:     domainID,
+		Name:         "user-api",
+		Status:       models.RouteStatusActive,
+		Config:       makeBasicHTTPRouteConfig(),
+		K8sRouteName: "user-api-12345678",
+	}
+	domain := &models.Domain{ID: domainID, ProjectID: projectID}
+
+	routeRepo.On("GetByID", routeID).Return(route, nil)
+	domainRepo.On("GetByID", domainID).Return(domain, nil)
+	routeRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
+		Return([]models.Route{}, int64(0), nil)
+	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
+	routeRepo.On("Update", mock.AnythingOfType("*models.Route")).Return(nil)
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
+
+	var capturedApproval *models.Approval
+	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Run(func(args mock.Arguments) {
+		capturedApproval = args.Get(0).(*models.Approval)
+	}).Return(nil)
+
+	extProc := &models.ExtProcExtensionConfig{
+		BackendRef: models.ExtProcBackendRef{Name: "ext-proc-svc", Namespace: "default", Port: 9000},
+	}
+
+	input := &services.UpdateRouteInput{
+		Config: makeBasicHTTPRouteConfig(),
+		ExtensionPolicy: &routeplan.EnvoyExtensionPolicyInput{
+			ExtProc: extProc,
+		},
+		ChangeDescription: "add ext_proc",
+	}
+
+	result, err := svc.Update(routeID, input, uuid.New())
+
+	require.NoError(t, err)
+	require.NotNil(t, result.PendingApproval)
+	require.NotNil(t, capturedApproval)
+
+	var snapshot models.RouteApprovalSnapshot
+	err = json.Unmarshal(capturedApproval.ConfigSnapshot, &snapshot)
+	require.NoError(t, err)
+
+	require.NotNil(t, snapshot.EnvoyExtensionPolicy, "approval snapshot dropped the EnvoyExtensionPolicy entirely")
+	assert.Equal(t, extProc, snapshot.EnvoyExtensionPolicy.ExtProc,
+		"approval snapshot dropped ExtProc: an ext-proc-only change on update would be invisible to whoever approves it")
+}
+
+// TestRouteService_Create_ApprovalSnapshot_PreservesExtProc is the mirror of
+// TestRouteService_Update_ApprovalSnapshot_PreservesExtProc for Create.
+// Create's snapshotEEP already includes ExtProc, so this passes immediately
+// -- it exists to pin both paths symmetrically so the drift found in Update
+// cannot silently reappear in either direction.
+func TestRouteService_Create_ApprovalSnapshot_PreservesExtProc(t *testing.T) {
+	svc, routeRepo, approvalRepo, policyRepo, domainRepo, teamRepo := newTestRouteService()
+
+	domainID := uuid.New()
+	projectID := uuid.New()
+	teamID := uuid.New()
+	createdBy := uuid.New()
+
+	domain := &models.Domain{
+		ID:        domainID,
+		ProjectID: projectID,
+		Hostname:  "example.com",
+	}
+
+	extProc := &models.ExtProcExtensionConfig{
+		BackendRef: models.ExtProcBackendRef{Name: "ext-proc-svc", Namespace: "default", Port: 9000},
+	}
+
+	input := &services.CreateRouteInput{
+		Name:   "user-api",
+		TeamID: teamID,
+		Config: makeBasicHTTPRouteConfig(),
+		ExtensionPolicy: &routeplan.EnvoyExtensionPolicyInput{
+			ExtProc: extProc,
+		},
+	}
+
+	routeRepo.On("ExistsByName", domainID, "user-api").Return(false, nil)
+	domainRepo.On("GetByID", domainID).Return(domain, nil)
+	teamRepo.On("GetByID", teamID).Return(&models.Team{ID: teamID, Name: "platform"}, nil)
+	routeRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
+		Return([]models.Route{}, int64(0), nil)
+	routeRepo.On("Create", mock.AnythingOfType("*models.Route")).Return(nil)
+	policyRepo.On("GetByProjectAndEntity", projectID, "route", mock.Anything).Return(nil, models.ErrPolicyNotFound).Maybe()
+
+	var capturedApproval *models.Approval
+	approvalRepo.On("Create", mock.AnythingOfType("*models.Approval")).Run(func(args mock.Arguments) {
+		capturedApproval = args.Get(0).(*models.Approval)
+	}).Return(nil)
+
+	result, err := svc.Create(domainID, input, createdBy)
+
+	require.NoError(t, err)
+	require.NotNil(t, result.PendingApproval)
+	require.NotNil(t, capturedApproval)
+
+	var snapshot models.RouteApprovalSnapshot
+	err = json.Unmarshal(capturedApproval.ConfigSnapshot, &snapshot)
+	require.NoError(t, err)
+
+	require.NotNil(t, snapshot.EnvoyExtensionPolicy)
+	assert.Equal(t, extProc, snapshot.EnvoyExtensionPolicy.ExtProc)
+}
+
 // =========================================================================
 // Deploy - route active but wrong status
 // =========================================================================

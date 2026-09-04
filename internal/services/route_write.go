@@ -701,8 +701,9 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 	var updateSnapshotEEP *models.EnvoyExtensionPolicyConfig
 	if input.ExtensionPolicy != nil && input.ExtensionPolicy.HasContent() {
 		updateSnapshotEEP = &models.EnvoyExtensionPolicyConfig{
-			Lua:  input.ExtensionPolicy.Lua,
-			Wasm: input.ExtensionPolicy.Wasm,
+			Lua:     input.ExtensionPolicy.Lua,
+			Wasm:    input.ExtensionPolicy.Wasm,
+			ExtProc: input.ExtensionPolicy.ExtProc,
 		}
 	}
 
