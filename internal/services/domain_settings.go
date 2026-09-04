@@ -227,7 +227,21 @@ func (s *DomainService) UpdateDomainSettings(domainID uuid.UUID, input *UpdateDo
 // alone, because a client attachment supplying the CA is a normal
 // configuration that must not produce this warning -- see
 // collectCASecretRefs and DomainMTLSConfig.Validate's doc comment.
-const mtlsNoCAWarning = "mTLS is enabled but no CA certificates are available for this domain (none configured directly, and no active mTLS clients attached). The domain will reject client connections until a CA is added or an mTLS client is attached."
+//
+// The consequence sentence was corrected by the Phase 2I e2e test
+// (e2e/suites/domain/mtls_no_ca_test.go): the original text asserted the
+// domain "will reject client connections," an untested claim about Envoy
+// Gateway's runtime behavior. CI has since run that test against Envoy
+// Gateway 1.8.4 and observed the opposite of a rejected handshake -- the
+// gateway completes TLS and returns HTTP 500 for the life of the window.
+// The security property still holds (unauthenticated traffic never reaches
+// the backend), so only the described mechanism changed, not the warning's
+// purpose. The Gateway-wide blast radius sentence is an inference, not a
+// measurement: ClientTrafficPolicy attaches to the Gateway, not the route,
+// so it necessarily affects every route behind it, but the e2e test only
+// ever exercised one route, so this is worded as "likely affects" rather
+// than as an observed fact.
+const mtlsNoCAWarning = "mTLS is enabled but no CA certificates are available for this domain (none configured directly, and no active mTLS clients attached). Requests will fail with an HTTP 500 at the gateway (measured on Envoy Gateway 1.8.4), not a rejected TLS handshake, until a CA is added or an mTLS client is attached. Because ClientTrafficPolicy is Gateway-scoped, this likely affects every route behind this domain's Gateway, not only this domain's routes."
 
 // applyEnvoyGatewayClientTrafficPolicy translates domain settings to Envoy
 // Gateway ClientTrafficPolicy CRD.

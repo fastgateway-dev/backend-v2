@@ -51,6 +51,24 @@ import (
 // Accepted condition precisely so that distinction is visible regardless
 // of which way the probe goes, and on both the EG 1.7.5 and 1.8.4 versions
 // CI runs this suite against.
+//
+// UPDATE (post-CI hotfix): this has now run against Envoy Gateway 1.8.4,
+// and the answer is a third outcome nobody above predicted. EG 1.8.4 does
+// not reject the ClientTrafficPolicy (status.conditions comes back empty --
+// see logClientTrafficPolicyStatus -- so the Accepted-condition question
+// above is simply inert on this version) and it does not fail open either.
+// It accepts the policy, programs the listener, completes the TLS
+// handshake, and returns HTTP 500 for the life of the poll window. The
+// fail-closed security property this test exists to protect still holds --
+// unauthenticated traffic never reaches the backend -- but the *mechanism*
+// both this suite (via waitForTLSFailure, which counted only a transport
+// error as failure and so treated the 500 as a passing "successful
+// response") and the operator warning in
+// internal/services/domain_settings.go (which promised a rejected
+// connection) got wrong. Both have been corrected: the poll helper below is
+// renamed waitForDomainBlocked and now also treats any non-2xx response as
+// blocked, and the warning text now describes an HTTP 500 rather than a
+// rejected handshake.
 func TestMTLSEnabledWithNoCARejectsConnections(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), routeLiveTimeout+3*time.Minute)
 	defer cancel()
@@ -94,7 +112,7 @@ func TestMTLSEnabledWithNoCARejectsConnections(t *testing.T) {
 	// Record what Envoy Gateway actually did with the zero-CA manifest,
 	// regardless of how the probe below turns out -- see this test's doc
 	// comment. Registered via t.Cleanup, rather than called inline after
-	// the poll, so it still runs even if waitForTLSFailure below calls
+	// the poll, so it still runs even if waitForDomainBlocked below calls
 	// t.Fatalf: that unwinds this goroutine via runtime.Goexit before any
 	// later statement in this function would execute, but registered
 	// cleanups still run, and LIFO ordering puts this one before the
@@ -106,59 +124,82 @@ func TestMTLSEnabledWithNoCARejectsConnections(t *testing.T) {
 		logClientTrafficPolicyStatus(t, logCtx)
 	})
 
-	// 3. Poll until the connection stops succeeding.
-	waitForTLSFailure(t, ctx, probe, changeTime, routeLiveTimeout)
+	// 3. Poll until the domain stops returning 2xx.
+	waitForDomainBlocked(t, ctx, probe, changeTime, routeLiveTimeout)
 }
 
-// consecutiveTLSFailuresRequired is how many IN-A-ROW transport-level
-// failures waitForTLSFailure demands before it will declare the domain
-// fail-closed. Poll interval is 2s, so 3 gives ~6s of sustained failure.
+// consecutiveTLSFailuresRequired is how many IN-A-ROW blocked probes
+// waitForDomainBlocked demands before it will declare the domain
+// fail-closed. Poll interval is 2s, so 3 gives ~6s of sustained blocking.
+// "Blocked" means either a transport-level error or a non-2xx HTTP
+// response -- see waitForDomainBlocked's doc comment for why both count.
 //
 // This exists to guard against a single transient blip -- a pod restart
 // mid-rollout, a connection reset, a brief control-plane hiccup -- being
-// mistaken for the domain genuinely rejecting connections. Unlike
+// mistaken for the domain genuinely blocking connections. Unlike
 // requireTLSFailure's single probe (safe only because its one round trip
 // is tightly coupled to a positive probe against the identical
-// configuration moments earlier), waitForTLSFailure polls across a long,
-// noisy window (up to routeLiveTimeout, ~180s): accepting the first error
-// anywhere in that window would let one unrelated blip satisfy a test that
-// exists specifically to verify the operator warning shipped in 826340b
-// ("will reject client connections"). A test that can pass for the wrong
-// reason here would ratify an unverified claim, which is worse than having
-// no test at all -- so this constant is not superstition, it is the
-// difference between "converged and failing closed" and "got unlucky
-// once." Do not lower it back to 1.
+// configuration moments earlier), waitForDomainBlocked polls across a long,
+// noisy window (up to routeLiveTimeout, ~180s): accepting the first blocked
+// probe anywhere in that window would let one unrelated blip satisfy a test
+// that exists specifically to verify the operator warning shipped in
+// 826340b (originally "will reject client connections"; corrected by this
+// hotfix to describe the HTTP 500 CI actually observed on Envoy Gateway
+// 1.8.4 -- see internal/services/domain_settings.go's mtlsNoCAWarning). A
+// test that can pass for the wrong reason here would ratify an unverified
+// claim, which is worse than having no test at all -- so this constant is
+// not superstition, it is the difference between "converged and failing
+// closed" and "got unlucky once." Do not lower it back to 1.
 const consecutiveTLSFailuresRequired = 3
 
-// mtlsReconcileSettleWindow is the minimum time waitForTLSFailure waits from
-// the moment mTLS is enabled (changeTime) before it will let ANY observed
-// failure count toward the consecutiveTLSFailuresRequired streak.
+// mtlsReconcileSettleWindow is the minimum time waitForDomainBlocked waits
+// from the moment mTLS is enabled (changeTime) before it will let ANY
+// observed blocked probe count toward the consecutiveTLSFailuresRequired
+// streak.
 //
 // Enabling mTLS on a domain triggers an Envoy Gateway listener reconcile,
 // and mid-reconcile the listener can be briefly torn down and rebuilt --
-// producing connection errors that have nothing to do with certificate
-// validation. consecutiveTLSFailuresRequired alone does not rule this out:
-// at a 2s poll interval, 3 consecutive failures is only ~6s of sustained
-// failure, and a reconcile window can plausibly exceed 6s. Without this
-// guard the test could observe exactly 3 consecutive failures during the
-// reconcile transition itself, declare the domain fail-closed, and never
-// actually observe the converged steady state.
+// producing connection errors or transient error responses that have
+// nothing to do with certificate validation. consecutiveTLSFailuresRequired
+// alone does not rule this out: at a 2s poll interval, 3 consecutive
+// blocked probes is only ~6s of sustained blocking, and a reconcile window
+// can plausibly exceed 6s. Without this guard the test could observe
+// exactly 3 consecutive blocked probes during the reconcile transition
+// itself, declare the domain fail-closed, and never actually observe the
+// converged steady state.
 //
 // This guards a DIFFERENT hole than consecutiveTLSFailuresRequired: that
 // constant rules out a single momentary blip anywhere in the poll window;
 // this one rules out the specific, structurally-predictable window of
 // churn immediately after the settings change, during which no observed
-// failure -- however many in a row -- can be trusted as meaningful. 20s is
-// comfortably longer than a plausible listener reconcile, while leaving
-// most of the 180s routeLiveTimeout (~160s) for a genuine failure streak to
-// accumulate once the listener has settled.
+// blocked probe -- however many in a row -- can be trusted as meaningful.
+// 20s is comfortably longer than a plausible listener reconcile, while
+// leaving most of the 180s routeLiveTimeout (~160s) for a genuine blocked
+// streak to accumulate once the listener has settled.
 const mtlsReconcileSettleWindow = 20 * time.Second
 
-// waitForTLSFailure polls probe (2s-interval loop, mirroring
-// waitForHTTPStatus's shape) until it returns a non-nil transport-level
-// error consecutiveTLSFailuresRequired times IN A ROW -- counting only
-// failures observed after mtlsReconcileSettleWindow has elapsed since
-// changeTime -- or fails t once timeout elapses.
+// waitForDomainBlocked polls probe (2s-interval loop, mirroring
+// waitForHTTPStatus's shape) until it reports the domain BLOCKED
+// consecutiveTLSFailuresRequired times IN A ROW -- counting only probes
+// observed after mtlsReconcileSettleWindow has elapsed since changeTime --
+// or fails t once timeout elapses.
+//
+// "Blocked" means either a non-nil transport-level error (a genuine TLS
+// handshake rejection, which is what the name waitForTLSFailure originally
+// assumed was the only possible mechanism) OR a non-2xx HTTP response. Both
+// count because CI has now observed, on Envoy Gateway 1.8.4, that an
+// mTLS-enabled domain with zero CA certificates does neither of the two
+// things the pre-hotfix version of this helper anticipated: it does not
+// reject the TLS handshake, and it does not serve traffic normally. It
+// completes the handshake and returns HTTP 500 for the full poll window.
+// Under the old "err != nil only" definition, that 500 was indistinguishable
+// from a normal 200 -- the helper counted it as a "successful response" and
+// the test failed with a message claiming the domain "did not fail closed,"
+// even though unauthenticated traffic never reached the backend. A non-2xx
+// response IS the fail-closed behavior on this version, so it must satisfy
+// this check; a transport-level error must ALSO still satisfy it, since a
+// genuine handshake rejection is equally valid fail-closed behavior and may
+// be what other Envoy Gateway versions do.
 //
 // This is the polling counterpart to requireTLSFailure: that helper issues
 // a single probe and is safe to use only once convergence is already
@@ -167,23 +208,23 @@ const mtlsReconcileSettleWindow = 20 * time.Second
 // -- the mTLS listener takes time to reconcile after updateDomainSettings
 // returns -- so a one-shot check would be racy: an early, still-succeeding
 // probe would look identical to a genuine fail-open, AND a single
-// transient error (unrelated to mTLS at all) would look identical to a
-// genuine fail-closed. The consecutive-run requirement rules out the
-// latter: the failure streak resets to zero the moment a probe succeeds
-// again, so an alternating success/failure pattern -- itself a real signal
+// transient blocked probe (unrelated to mTLS at all) would look identical
+// to a genuine fail-closed. The consecutive-run requirement rules out the
+// latter: the streak resets to zero the moment a probe succeeds (2xx)
+// again, so an alternating success/blocked pattern -- itself a real signal
 // that something other than a converged fail-closed listener is going on
 // -- never satisfies this check and the poll keeps going instead of
 // declaring victory early. The settle-window requirement above rules out a
-// third case neither of those covers: a burst of reconcile-induced failures
-// that happens to be sustained enough, and happens to fall entirely within
-// the transition, to satisfy the consecutive-run count on its own.
+// third case neither of those covers: a burst of reconcile-induced blocked
+// probes that happens to be sustained enough, and happens to fall entirely
+// within the transition, to satisfy the consecutive-run count on its own.
 //
-// It fails the test if probe is STILL returning a successful response when
-// the deadline arrives: a domain that keeps serving 200 with mTLS enabled
-// and no CA certificates configured is exactly the fail-open this test
-// exists to catch, so that outcome must never be treated as "not converged
-// yet, keep waiting" and silently retried away.
-func waitForTLSFailure(t *testing.T, ctx context.Context, probe func(context.Context) (*harness.Response, error), changeTime time.Time, timeout time.Duration) {
+// It fails the test if probe is STILL returning 2xx when the deadline
+// arrives: a domain that keeps serving 2xx with mTLS enabled and no CA
+// certificates configured is exactly the fail-open this test exists to
+// catch, so that outcome must never be treated as "not converged yet, keep
+// waiting" and silently retried away.
+func waitForDomainBlocked(t *testing.T, ctx context.Context, probe func(context.Context) (*harness.Response, error), changeTime time.Time, timeout time.Duration) {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
@@ -194,20 +235,26 @@ func waitForTLSFailure(t *testing.T, ctx context.Context, probe func(context.Con
 
 	for time.Now().Before(deadline) {
 		resp, err := probe(ctx)
-		if err != nil {
+		blocked := err != nil || resp.StatusCode < 200 || resp.StatusCode >= 300
+
+		if blocked {
 			if time.Now().Before(settleDeadline) {
-				t.Logf("mtls no-ca: transport-layer failure within %s post-change settle window, not counting toward streak (possible reconcile transition): %v", mtlsReconcileSettleWindow, err)
+				t.Logf("mtls no-ca: blocked probe within %s post-change settle window, not counting toward streak (possible reconcile transition): err=%v", mtlsReconcileSettleWindow, err)
 			} else {
 				consecutiveFailures++
-				t.Logf("mtls no-ca: transport-layer failure %d/%d consecutive: %v", consecutiveFailures, consecutiveTLSFailuresRequired, err)
+				if err != nil {
+					t.Logf("mtls no-ca: blocked probe %d/%d consecutive (transport-layer error): %v", consecutiveFailures, consecutiveTLSFailuresRequired, err)
+				} else {
+					t.Logf("mtls no-ca: blocked probe %d/%d consecutive (non-2xx status %d)", consecutiveFailures, consecutiveTLSFailuresRequired, resp.StatusCode)
+				}
 				if consecutiveFailures >= consecutiveTLSFailuresRequired {
-					t.Logf("mtls no-ca: got %d consecutive transport-layer failures, treating the domain as failed closed", consecutiveFailures)
+					t.Logf("mtls no-ca: got %d consecutive blocked probes, treating the domain as failed closed", consecutiveFailures)
 					return
 				}
 			}
 		} else {
 			if consecutiveFailures > 0 {
-				t.Logf("mtls no-ca: probe succeeded again (status %d) after %d consecutive failure(s) -- resetting streak, this was not a converged fail-closed state", resp.StatusCode, consecutiveFailures)
+				t.Logf("mtls no-ca: probe succeeded again (status %d) after %d consecutive blocked probe(s) -- resetting streak, this was not a converged fail-closed state", resp.StatusCode, consecutiveFailures)
 			}
 			consecutiveFailures = 0
 			sawSuccess = true
@@ -216,13 +263,13 @@ func waitForTLSFailure(t *testing.T, ctx context.Context, probe func(context.Con
 
 		select {
 		case <-ctx.Done():
-			t.Fatalf("mtls no-ca: waiting for TLS failure: %v", ctx.Err())
+			t.Fatalf("mtls no-ca: waiting for the domain to fail closed: %v", ctx.Err())
 		case <-time.After(2 * time.Second):
 		}
 	}
 
 	if sawSuccess {
-		t.Fatalf("mtls no-ca: still serving successful responses (last status %d) after %s -- an mTLS-enabled domain with zero CA certificates did not fail closed", lastStatus, timeout)
+		t.Fatalf("mtls no-ca: still serving successful (2xx) responses (last status %d) after %s -- an mTLS-enabled domain with zero CA certificates did not fail closed", lastStatus, timeout)
 	}
 	t.Fatalf("mtls no-ca: probe never completed within %s", timeout)
 }
@@ -235,19 +282,24 @@ func waitForTLSFailure(t *testing.T, ctx context.Context, probe func(context.Con
 // message).
 //
 // Whether Envoy Gateway ACCEPTS this policy with an empty
-// caCertificateRefs list, or rejects it as invalid, is the mechanism
-// behind whatever waitForTLSFailure above observes, and per task-4-brief
-// it may differ between EG 1.7.5 and 1.8.4: an Accepted=True condition
-// alongside an observed connection failure would confirm the fail-closed
-// listener behavior the operator warning promises, whereas an
-// Accepted=False condition would mean the manifest was rejected outright
-// and the fail-closed guarantee does not actually hold at the Envoy layer.
-// This is observational only and never fails the test on its own -- a
-// missing policy or unreadable status is itself useful information for
-// whoever reads CI output next, not a harness bug to panic over. No
-// Kubernetes client dependency is added for this: it reuses
-// harness.Kube's existing dynamic client and internal/kubernetes' existing
-// GVR constant.
+// caCertificateRefs list, or rejects it as invalid, would have been useful
+// evidence for the mechanism behind whatever waitForDomainBlocked above
+// observes -- an Accepted=True condition alongside a blocked probe would
+// confirm a fail-closed listener, whereas Accepted=False would mean the
+// manifest was rejected outright. In practice, on Envoy Gateway 1.8.4 (the
+// version CI runs this suite against as of this hotfix), status.conditions
+// on this ClientTrafficPolicy comes back empty every time -- see the CI run
+// that motivated this hotfix -- so this logging is currently inert on that
+// version: it never has an "Accepted" entry to report. It is kept anyway
+// because it is harmless and may report something useful on other Envoy
+// Gateway versions (it may also start reporting on a future 1.8.x patch).
+// It is diagnostic only: this function never fails the test on its own,
+// and waitForDomainBlocked's pass/fail verdict does not depend on anything
+// this function observes -- a missing policy or unreadable status is
+// itself useful information for whoever reads CI output next, not a
+// harness bug to panic over. No Kubernetes client dependency is added for
+// this: it reuses harness.Kube's existing dynamic client and
+// internal/kubernetes' existing GVR constant.
 func logClientTrafficPolicyStatus(t *testing.T, ctx context.Context) {
 	t.Helper()
 

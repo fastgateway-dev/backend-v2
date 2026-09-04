@@ -781,7 +781,7 @@ func setupMTLSWarningTestMocks(
 	settingsRepo.On("GetByDomainID", domain.ID).Return(&models.DomainSettings{DomainID: domain.ID}, nil)
 }
 
-const mtlsNoCAWarningText = "mTLS is enabled but no CA certificates are available for this domain (none configured directly, and no active mTLS clients attached). The domain will reject client connections until a CA is added or an mTLS client is attached."
+const mtlsNoCAWarningText = "mTLS is enabled but no CA certificates are available for this domain (none configured directly, and no active mTLS clients attached). Requests will fail with an HTTP 500 at the gateway (measured on Envoy Gateway 1.8.4), not a rejected TLS handshake, until a CA is added or an mTLS client is attached. Because ClientTrafficPolicy is Gateway-scoped, this likely affects every route behind this domain's Gateway, not only this domain's routes."
 
 // Test case 1 (mtls-warning-brief.md): mTLS enabled, no domain CAs, no mTLS
 // client attachments -> warning returned.
