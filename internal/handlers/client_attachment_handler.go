@@ -7,13 +7,28 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
+// ClientAttachmentServiceInterface is the subset of
+// clients.ClientAttachmentService that ClientAttachmentHandler uses.
+type ClientAttachmentServiceInterface interface {
+	AttachFromRoute(routeID uuid.UUID, input *clients.AttachFromRouteInput, submittedBy uuid.UUID) (*models.ClientRouteAttachment, error)
+	AttachFromClient(clientID uuid.UUID, input *clients.AttachFromClientInput, submittedBy uuid.UUID) (*models.ClientRouteAttachment, error)
+	RequestDetach(attachmentID uuid.UUID, submittedBy uuid.UUID) (*models.ClientRouteAttachment, error)
+	ApproveStage(approvalID, stageID uuid.UUID, reviewer *models.User) (*models.Approval, error)
+	RejectStage(approvalID, stageID uuid.UUID, reviewer *models.User, comment string) (*models.Approval, error)
+	GetApproval(id uuid.UUID) (*models.Approval, error)
+	ListApprovalsByProjectID(projectID uuid.UUID, page, limit int, status string) ([]models.Approval, int64, error)
+	ListByClientID(clientID uuid.UUID) ([]models.ClientRouteAttachment, error)
+	ListByRouteID(routeID uuid.UUID) ([]models.ClientRouteAttachment, error)
+}
+
 // ClientAttachmentHandler handles client-route attachment endpoints
 type ClientAttachmentHandler struct {
-	attachmentService services.ClientAttachmentServiceInterface
+	attachmentService ClientAttachmentServiceInterface
 	clientService     services.ClientReader
 	auditService      services.AuditServiceInterface
 	routeService      services.RouteApprovalReader
@@ -22,7 +37,7 @@ type ClientAttachmentHandler struct {
 
 // NewClientAttachmentHandler creates a new client attachment handler
 func NewClientAttachmentHandler(
-	attachmentService services.ClientAttachmentServiceInterface,
+	attachmentService ClientAttachmentServiceInterface,
 	clientService services.ClientReader,
 	auditService services.AuditServiceInterface,
 	routeService services.RouteApprovalReader,
@@ -84,7 +99,7 @@ func (h *ClientAttachmentHandler) AttachFromRoute(c *gin.Context) {
 		return
 	}
 
-	var input services.AttachFromRouteInput
+	var input clients.AttachFromRouteInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -255,7 +270,7 @@ func (h *ClientAttachmentHandler) AttachFromClient(c *gin.Context) {
 		return
 	}
 
-	var input services.AttachFromClientInput
+	var input clients.AttachFromClientInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

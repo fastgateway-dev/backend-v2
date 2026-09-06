@@ -1,4 +1,4 @@
-package services_test
+package clients_test
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -59,7 +59,7 @@ func newCASApprovalEngine(
 }
 
 // newTestClientAttachmentService stands in for
-// services.NewClientAttachmentService now that every dependency is required
+// clients.NewClientAttachmentService now that every dependency is required
 // (Phase 2E Task 3). Every test below built its ClientAttachmentService
 // positionally, passing nil for whatever the test did not need; this helper
 // preserves that call shape by substituting an inert mock for any nil
@@ -85,7 +85,7 @@ func newTestClientAttachmentService(
 	domainRepo *mocks.MockDomainRepository,
 	teamRepo *mocks.MockTeamRepository,
 	projectRepo *mocks.MockProjectRepository,
-) *services.ClientAttachmentService {
+) *clients.ClientAttachmentService {
 	return newTestClientAttachmentServiceWithEngine(nil,
 		attachmentRepo, approvalRepo, policyRepo, clientRepo, routeRepo, domainRepo, teamRepo, projectRepo)
 }
@@ -109,7 +109,7 @@ func newTestClientAttachmentServiceWithEngine(
 	domainRepo *mocks.MockDomainRepository,
 	teamRepo *mocks.MockTeamRepository,
 	projectRepo *mocks.MockProjectRepository,
-) *services.ClientAttachmentService {
+) *clients.ClientAttachmentService {
 	if attachmentRepo == nil {
 		attachmentRepo = new(mocks.MockClientAttachmentRepository)
 	}
@@ -139,7 +139,7 @@ func newTestClientAttachmentServiceWithEngine(
 	if engine == nil {
 		engine = newCASApprovalEngine(approvalRepo, policyRepo, teamRepo, projectRepo)
 	}
-	svc := services.NewClientAttachmentService(services.ClientAttachmentServiceDeps{
+	svc := clients.NewClientAttachmentService(clients.ClientAttachmentServiceDeps{
 		AttachmentRepo:     attachmentRepo,
 		ApprovalRepo:       approvalRepo,
 		ClientRepo:         clientRepo,
@@ -318,7 +318,7 @@ func TestClientAttachmentService_AttachFromRoute_Success(t *testing.T) {
 	attachmentResult := &models.ClientRouteAttachment{ID: uuid.New(), ClientID: clientID, RouteID: routeID, Status: models.AttachmentStatusPendingAttach}
 	attachmentRepo.On("GetByID", mock.AnythingOfType("uuid.UUID")).Return(attachmentResult, nil)
 
-	input := &services.AttachFromRouteInput{
+	input := &clients.AttachFromRouteInput{
 		ClientID:     clientID,
 		EnableAPIKey: true,
 	}
@@ -335,7 +335,7 @@ func TestClientAttachmentService_AttachFromRoute_ClientNotFound(t *testing.T) {
 
 	clientRepo.On("GetByID", mock.AnythingOfType("uuid.UUID")).Return(nil, errors.New("not found"))
 
-	input := &services.AttachFromRouteInput{ClientID: uuid.New(), EnableAPIKey: true}
+	input := &clients.AttachFromRouteInput{ClientID: uuid.New(), EnableAPIKey: true}
 	_, err := svc.AttachFromRoute(uuid.New(), input, uuid.New())
 
 	require.Error(t, err)
@@ -351,7 +351,7 @@ func TestClientAttachmentService_AttachFromRoute_RouteNotFound(t *testing.T) {
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID}, nil)
 	routeRepo.On("GetByID", mock.AnythingOfType("uuid.UUID")).Return(nil, errors.New("not found"))
 
-	input := &services.AttachFromRouteInput{ClientID: clientID, EnableAPIKey: true}
+	input := &clients.AttachFromRouteInput{ClientID: clientID, EnableAPIKey: true}
 	_, err := svc.AttachFromRoute(uuid.New(), input, uuid.New())
 
 	require.Error(t, err)
@@ -368,7 +368,7 @@ func TestClientAttachmentService_AttachFromRoute_GeneralMode(t *testing.T) {
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID}, nil)
 	routeRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, SecurityMode: models.SecurityModeGeneral}, nil)
 
-	input := &services.AttachFromRouteInput{ClientID: clientID, EnableAPIKey: true}
+	input := &clients.AttachFromRouteInput{ClientID: clientID, EnableAPIKey: true}
 	_, err := svc.AttachFromRoute(routeID, input, uuid.New())
 
 	require.Error(t, err)
@@ -389,7 +389,7 @@ func TestClientAttachmentService_AttachFromRoute_AlreadyAttached(t *testing.T) {
 		Status: models.AttachmentStatusActive,
 	}, nil)
 
-	input := &services.AttachFromRouteInput{ClientID: clientID, EnableAPIKey: true}
+	input := &clients.AttachFromRouteInput{ClientID: clientID, EnableAPIKey: true}
 	_, err := svc.AttachFromRoute(routeID, input, uuid.New())
 
 	require.Error(t, err)
@@ -437,7 +437,7 @@ func TestClientAttachmentService_AttachFromClient_Success(t *testing.T) {
 	attachmentResult := &models.ClientRouteAttachment{ID: uuid.New(), ClientID: clientID, RouteID: routeID, Status: models.AttachmentStatusPendingAttach}
 	attachmentRepo.On("GetByID", mock.AnythingOfType("uuid.UUID")).Return(attachmentResult, nil)
 
-	input := &services.AttachFromClientInput{
+	input := &clients.AttachFromClientInput{
 		RouteID:      routeID,
 		ProjectID:    projectID,
 		EnableAPIKey: true,
@@ -456,7 +456,7 @@ func TestClientAttachmentService_AttachFromClient_ClientNotFound(t *testing.T) {
 	clientID := uuid.New()
 	clientRepo.On("GetByID", clientID).Return(nil, errors.New("not found"))
 
-	input := &services.AttachFromClientInput{RouteID: uuid.New(), ProjectID: uuid.New(), EnableAPIKey: true}
+	input := &clients.AttachFromClientInput{RouteID: uuid.New(), ProjectID: uuid.New(), EnableAPIKey: true}
 	_, err := svc.AttachFromClient(clientID, input, uuid.New())
 
 	require.Error(t, err)
@@ -473,7 +473,7 @@ func TestClientAttachmentService_AttachFromClient_RouteNotFound(t *testing.T) {
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID}, nil)
 	routeRepo.On("GetByID", routeID).Return(nil, errors.New("not found"))
 
-	input := &services.AttachFromClientInput{RouteID: routeID, ProjectID: uuid.New(), EnableAPIKey: true}
+	input := &clients.AttachFromClientInput{RouteID: routeID, ProjectID: uuid.New(), EnableAPIKey: true}
 	_, err := svc.AttachFromClient(clientID, input, uuid.New())
 
 	require.Error(t, err)
@@ -490,7 +490,7 @@ func TestClientAttachmentService_AttachFromClient_GeneralMode(t *testing.T) {
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID}, nil)
 	routeRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, SecurityMode: models.SecurityModeGeneral}, nil)
 
-	input := &services.AttachFromClientInput{RouteID: routeID, ProjectID: uuid.New(), EnableAPIKey: true}
+	input := &clients.AttachFromClientInput{RouteID: routeID, ProjectID: uuid.New(), EnableAPIKey: true}
 	_, err := svc.AttachFromClient(clientID, input, uuid.New())
 
 	require.Error(t, err)
@@ -516,7 +516,7 @@ func TestClientAttachmentService_AttachFromClient_AlreadyAttached(t *testing.T) 
 		Status: models.AttachmentStatusActive,
 	}, nil)
 
-	input := &services.AttachFromClientInput{RouteID: routeID, ProjectID: projectID, EnableAPIKey: true}
+	input := &clients.AttachFromClientInput{RouteID: routeID, ProjectID: projectID, EnableAPIKey: true}
 	_, err := svc.AttachFromClient(clientID, input, uuid.New())
 
 	require.Error(t, err)
@@ -539,7 +539,7 @@ func TestClientAttachmentService_AttachFromClient_WrongProject(t *testing.T) {
 	routeRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient}, nil)
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
 
-	input := &services.AttachFromClientInput{RouteID: routeID, ProjectID: otherProjectID, EnableAPIKey: true}
+	input := &clients.AttachFromClientInput{RouteID: routeID, ProjectID: otherProjectID, EnableAPIKey: true}
 	_, err := svc.AttachFromClient(clientID, input, uuid.New())
 
 	require.Error(t, err)
@@ -1100,7 +1100,7 @@ func TestClientAttachmentService_ListByRouteID_WithPendingApprovals(t *testing.T
 // ---------------------------------------------------------------------------
 
 func newTestClientAttachmentServiceFull() (
-	*services.ClientAttachmentService,
+	*clients.ClientAttachmentService,
 	*mocks.MockClientAttachmentRepository,
 	*mocks.MockUnifiedApprovalRepository,
 	*mocks.MockApprovalPolicyRepository,
@@ -1125,7 +1125,7 @@ func newTestClientAttachmentServiceFull() (
 // findExpectedCall returns the FIRST match with Repeatability > -1, so a later
 // On("GetByID", ...) would never be reached.
 func newTestClientAttachmentServiceApprovalsDisabled() (
-	*services.ClientAttachmentService,
+	*clients.ClientAttachmentService,
 	*mocks.MockClientAttachmentRepository,
 	*mocks.MockUnifiedApprovalRepository,
 	*mocks.MockApprovalPolicyRepository,
@@ -1139,7 +1139,7 @@ func newTestClientAttachmentServiceApprovalsDisabled() (
 }
 
 func newTestClientAttachmentServiceWithApprovals(approvalEnabled bool) (
-	*services.ClientAttachmentService,
+	*clients.ClientAttachmentService,
 	*mocks.MockClientAttachmentRepository,
 	*mocks.MockUnifiedApprovalRepository,
 	*mocks.MockApprovalPolicyRepository,
@@ -1214,7 +1214,7 @@ func attachFastPathRouteStatusCase(t *testing.T, status models.RouteStatus, want
 		return r.ID == routeID && r.Status == models.RouteStatusPendingDeploy
 	})).Return(nil).Maybe()
 
-	result, err := svc.AttachFromRoute(routeID, &services.AttachFromRouteInput{
+	result, err := svc.AttachFromRoute(routeID, &clients.AttachFromRouteInput{
 		ClientID:          clientID,
 		EnableIPAllowlist: true,
 	}, submittedBy)
@@ -1310,7 +1310,7 @@ func attachFromClientFastPathRouteStatusCase(t *testing.T, status models.RouteSt
 		return r.ID == routeID && r.Status == models.RouteStatusPendingDeploy
 	})).Return(nil).Maybe()
 
-	result, err := svc.AttachFromClient(clientID, &services.AttachFromClientInput{
+	result, err := svc.AttachFromClient(clientID, &clients.AttachFromClientInput{
 		RouteID:           routeID,
 		ProjectID:         projectID,
 		EnableIPAllowlist: true,
@@ -1492,7 +1492,7 @@ func TestClientAttachmentService_AttachFromRoute_ClientNotFound2(t *testing.T) {
 	clientID := uuid.New()
 	clientRepo.On("GetByID", clientID).Return(nil, errors.New("not found"))
 
-	input := &services.AttachFromRouteInput{
+	input := &clients.AttachFromRouteInput{
 		ClientID:          clientID,
 		EnableIPAllowlist: true,
 	}
@@ -1512,7 +1512,7 @@ func TestClientAttachmentService_AttachFromRoute_RouteNotFound2(t *testing.T) {
 	clientRepo.On("GetByID", clientID).Return(client, nil)
 	routeRepo.On("GetByID", routeID).Return(nil, errors.New("not found"))
 
-	input := &services.AttachFromRouteInput{
+	input := &clients.AttachFromRouteInput{
 		ClientID:          clientID,
 		EnableIPAllowlist: true,
 	}
@@ -1534,7 +1534,7 @@ func TestClientAttachmentService_AttachFromRoute_GeneralModeRejected(t *testing.
 	route := &models.Route{ID: routeID, SecurityMode: models.SecurityModeGeneral}
 	routeRepo.On("GetByID", routeID).Return(route, nil)
 
-	input := &services.AttachFromRouteInput{
+	input := &clients.AttachFromRouteInput{
 		ClientID:          clientID,
 		EnableIPAllowlist: true,
 	}
@@ -1558,7 +1558,7 @@ func TestClientAttachmentService_AttachFromRoute_NoAuthMethodEnabled(t *testing.
 
 	attachmentRepo.On("GetByClientAndRoute", clientID, routeID).Return(nil, errors.New("not found"))
 
-	input := &services.AttachFromRouteInput{
+	input := &clients.AttachFromRouteInput{
 		ClientID: clientID,
 		// No auth methods enabled
 	}
@@ -1607,7 +1607,7 @@ func TestClientAttachmentService_AttachFromRoute_ResolveTeamScope_Any(t *testing
 	enrichedAttachment := &models.ClientRouteAttachment{ID: attachmentID, ClientID: clientID, RouteID: routeID}
 	attachmentRepo.On("GetByID", mock.AnythingOfType("uuid.UUID")).Return(enrichedAttachment, nil)
 
-	input := &services.AttachFromRouteInput{
+	input := &clients.AttachFromRouteInput{
 		ClientID:          clientID,
 		EnableIPAllowlist: true,
 	}
@@ -1663,7 +1663,7 @@ func TestClientAttachmentService_AttachFromRoute_ResolveTeamScope_SubmitterTeam(
 	enrichedAttachment := &models.ClientRouteAttachment{ID: attachmentID, ClientID: clientID, RouteID: routeID}
 	attachmentRepo.On("GetByID", mock.AnythingOfType("uuid.UUID")).Return(enrichedAttachment, nil)
 
-	input := &services.AttachFromRouteInput{
+	input := &clients.AttachFromRouteInput{
 		ClientID:          clientID,
 		EnableIPAllowlist: true,
 	}
@@ -1726,7 +1726,7 @@ func TestClientAttachmentService_AttachFromRoute_ResolveTeamScope_OtherTeam(t *t
 	enrichedAttachment := &models.ClientRouteAttachment{ID: attachmentID, ClientID: clientID, RouteID: routeID}
 	attachmentRepo.On("GetByID", mock.AnythingOfType("uuid.UUID")).Return(enrichedAttachment, nil)
 
-	input := &services.AttachFromRouteInput{
+	input := &clients.AttachFromRouteInput{
 		ClientID:          clientID,
 		EnableIPAllowlist: true,
 	}
@@ -1766,7 +1766,7 @@ func TestClientAttachmentService_AttachFromRoute_ResolveTeamScope_UnknownScope(t
 	policy := &models.ApprovalPolicy{Stages: stagesJSON}
 	policyRepo.On("GetByProjectAndEntity", projectID, "client_attachment", mock.Anything).Return(policy, nil)
 
-	input := &services.AttachFromRouteInput{
+	input := &clients.AttachFromRouteInput{
 		ClientID:          clientID,
 		EnableIPAllowlist: true,
 	}
@@ -1791,7 +1791,7 @@ func TestClientAttachmentService_AttachFromRoute_APIKeyNotConfigured(t *testing.
 
 	attachmentRepo.On("GetByClientAndRoute", clientID, routeID).Return(nil, errors.New("not found"))
 
-	input := &services.AttachFromRouteInput{
+	input := &clients.AttachFromRouteInput{
 		ClientID:     clientID,
 		EnableAPIKey: true,
 	}
@@ -1829,7 +1829,7 @@ func TestClientAttachmentService_AttachFromRoute_FastPath_RejectedTransitionWrit
 	attachmentRepo.On("GetByClientAndRoute", clientID, routeID).Return(nil, errors.New("not found"))
 	attachmentRepo.On("Create", mock.AnythingOfType("*models.ClientRouteAttachment")).Return(nil)
 
-	result, err := svc.AttachFromRoute(routeID, &services.AttachFromRouteInput{
+	result, err := svc.AttachFromRoute(routeID, &clients.AttachFromRouteInput{
 		ClientID:          clientID,
 		EnableIPAllowlist: true,
 	}, uuid.New())
@@ -1845,8 +1845,8 @@ func TestClientAttachmentService_AttachFromRoute_FastPath_RejectedTransitionWrit
 // NewClientAttachmentService
 // ---------------------------------------------------------------------------
 
-func fullClientAttachmentServiceDeps() services.ClientAttachmentServiceDeps {
-	return services.ClientAttachmentServiceDeps{
+func fullClientAttachmentServiceDeps() clients.ClientAttachmentServiceDeps {
+	return clients.ClientAttachmentServiceDeps{
 		AttachmentRepo:     new(mocks.MockClientAttachmentRepository),
 		ApprovalRepo:       new(mocks.MockUnifiedApprovalRepository),
 		ClientRepo:         new(mocks.MockClientRepository),
@@ -1859,17 +1859,17 @@ func fullClientAttachmentServiceDeps() services.ClientAttachmentServiceDeps {
 }
 
 func TestNewClientAttachmentService_RequiresEveryDependency(t *testing.T) {
-	require.NotPanics(t, func() { services.NewClientAttachmentService(fullClientAttachmentServiceDeps()) })
+	require.NotPanics(t, func() { clients.NewClientAttachmentService(fullClientAttachmentServiceDeps()) })
 
-	cases := map[string]func(*services.ClientAttachmentServiceDeps){
-		"AttachmentRepo":     func(d *services.ClientAttachmentServiceDeps) { d.AttachmentRepo = nil },
-		"ApprovalRepo":       func(d *services.ClientAttachmentServiceDeps) { d.ApprovalRepo = nil },
-		"ClientRepo":         func(d *services.ClientAttachmentServiceDeps) { d.ClientRepo = nil },
-		"RouteRepo":          func(d *services.ClientAttachmentServiceDeps) { d.RouteRepo = nil },
-		"DomainRepo":         func(d *services.ClientAttachmentServiceDeps) { d.DomainRepo = nil },
-		"ProjectRepo":        func(d *services.ClientAttachmentServiceDeps) { d.ProjectRepo = nil },
-		"DomainSettingsRepo": func(d *services.ClientAttachmentServiceDeps) { d.DomainSettingsRepo = nil },
-		"Approvals":          func(d *services.ClientAttachmentServiceDeps) { d.Approvals = nil },
+	cases := map[string]func(*clients.ClientAttachmentServiceDeps){
+		"AttachmentRepo":     func(d *clients.ClientAttachmentServiceDeps) { d.AttachmentRepo = nil },
+		"ApprovalRepo":       func(d *clients.ClientAttachmentServiceDeps) { d.ApprovalRepo = nil },
+		"ClientRepo":         func(d *clients.ClientAttachmentServiceDeps) { d.ClientRepo = nil },
+		"RouteRepo":          func(d *clients.ClientAttachmentServiceDeps) { d.RouteRepo = nil },
+		"DomainRepo":         func(d *clients.ClientAttachmentServiceDeps) { d.DomainRepo = nil },
+		"ProjectRepo":        func(d *clients.ClientAttachmentServiceDeps) { d.ProjectRepo = nil },
+		"DomainSettingsRepo": func(d *clients.ClientAttachmentServiceDeps) { d.DomainSettingsRepo = nil },
+		"Approvals":          func(d *clients.ClientAttachmentServiceDeps) { d.Approvals = nil },
 	}
 	for name, breakIt := range cases {
 		t.Run("nil "+name, func(t *testing.T) {
@@ -1877,7 +1877,7 @@ func TestNewClientAttachmentService_RequiresEveryDependency(t *testing.T) {
 			breakIt(&d)
 			assert.PanicsWithValue(t,
 				"services.NewClientAttachmentService: missing required dependency: "+name,
-				func() { services.NewClientAttachmentService(d) })
+				func() { clients.NewClientAttachmentService(d) })
 		})
 	}
 }

@@ -1,4 +1,4 @@
-package services
+package clients
 
 import (
 	"errors"
@@ -8,6 +8,7 @@ import (
 	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
+	"github.com/fastgateway-dev/backend-v2/internal/routestate"
 	"github.com/google/uuid"
 )
 
@@ -38,8 +39,8 @@ type ClientAttachmentService struct {
 	// completers afterwards.
 	approvals *approvalpkg.Engine
 
-	// state is the sole writer of route.Status. See route_state.go.
-	state *routeStateMachine
+	// state is the sole writer of route.Status. See internal/routestate.
+	state *routestate.Machine
 }
 
 // ClientAttachmentServiceDeps carries everything ClientAttachmentService
@@ -111,7 +112,7 @@ func NewClientAttachmentService(deps ClientAttachmentServiceDeps) *ClientAttachm
 		approvals:          deps.Approvals,
 		// routeRepo is already a constructor dependency, so the state
 		// machine needs no setter of its own.
-		state: &routeStateMachine{repo: deps.RouteRepo},
+		state: routestate.New(deps.RouteRepo),
 	}
 }
 
@@ -290,7 +291,7 @@ func (s *ClientAttachmentService) AttachFromRoute(
 		//
 		// To owns route.Status and nothing else, and nothing else on the
 		// route has been mutated here, so its no-op path drops nothing.
-		if err := s.state.To(SiteAttachFromRoute, route, models.RouteStatusPendingDeploy,
+		if err := s.state.To(models.SiteAttachFromRoute, route, models.RouteStatusPendingDeploy,
 			"client attached from route side, project approvals disabled"); err != nil {
 			return nil, err
 		}
@@ -468,7 +469,7 @@ func (s *ClientAttachmentService) AttachFromClient(
 		//
 		// To owns route.Status and nothing else, and nothing else on the
 		// route has been mutated here, so its no-op path drops nothing.
-		if err := s.state.To(SiteAttachFromClient, route, models.RouteStatusPendingDeploy,
+		if err := s.state.To(models.SiteAttachFromClient, route, models.RouteStatusPendingDeploy,
 			"client attached from client side, project approvals disabled"); err != nil {
 			return nil, err
 		}
@@ -544,7 +545,7 @@ func (s *ClientAttachmentService) RequestDetach(attachmentID uuid.UUID, submitte
 		//
 		// To owns route.Status and nothing else, and nothing else on the
 		// route has been mutated here, so its no-op path drops nothing.
-		if err := s.state.To(SiteRequestDetach, route, models.RouteStatusPendingDeploy,
+		if err := s.state.To(models.SiteRequestDetach, route, models.RouteStatusPendingDeploy,
 			"client detach requested, project approvals disabled"); err != nil {
 			return nil, err
 		}
@@ -760,7 +761,7 @@ func (s *ClientAttachmentService) validateMTLSPairing(enableMTLS bool, client *m
 // It re-fetches the route rather than taking its caller's copy, so a TOCTOU
 // gap survives between the caller's read of route.Status and this one. What
 // changed in Phase 2D is the consequence: the write now goes through
-// routeStateMachine.To, which validates the RE-FETCHED status. A route that
+// routestate.Machine.To, which validates the RE-FETCHED status. A route that
 // moved to a state with no legal edge to `status` in between now produces an
 // error instead of being blindly overwritten. The gap is narrowed, not
 // closed: a concurrent move to a state that does have such an edge is still
@@ -772,5 +773,5 @@ func (s *ClientAttachmentService) updateRouteStatus(routeID uuid.UUID, status mo
 	if err != nil {
 		return err
 	}
-	return s.state.To(SiteAttachmentApproved, route, status, reason)
+	return s.state.To(models.SiteAttachmentApproved, route, status, reason)
 }

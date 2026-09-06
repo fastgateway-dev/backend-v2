@@ -17,6 +17,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -220,7 +221,7 @@ func main() {
 		Approvals:    approvalEngine,
 	})
 	auditService := services.NewAuditService(auditLogRepo)
-	clientService := services.NewClientService(services.ClientServiceDeps{
+	clientService := clients.NewClientService(clients.ClientServiceDeps{
 		ClientRepo:           clientRepo,
 		ClientIPRepo:         clientIPRepo,
 		ClientHeaderRepo:     clientHeaderRepo,
@@ -230,7 +231,7 @@ func main() {
 		K8sSecrets:           k8sService,
 		K8sAPIKeys:           k8sService,
 	})
-	clientAttachmentService := services.NewClientAttachmentService(services.ClientAttachmentServiceDeps{
+	clientAttachmentService := clients.NewClientAttachmentService(clients.ClientAttachmentServiceDeps{
 		AttachmentRepo:     clientAttachmentRepo,
 		ApprovalRepo:       approvalRepo,
 		ClientRepo:         clientRepo,

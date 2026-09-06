@@ -10,6 +10,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 )
 
 // TestClientModeJWT ports client_mode/test_jwt.py, fixing the tautology
@@ -63,7 +64,7 @@ func TestClientModeJWT(t *testing.T) {
 		t.Fatalf("client mode jwt: configure client JWT: %v", err)
 	}
 
-	if _, err := attachAndDeploy(ctx, route.ID.String(), services.AttachFromRouteInput{
+	if _, err := attachAndDeploy(ctx, route.ID.String(), clients.AttachFromRouteInput{
 		ClientID:  client.ID,
 		EnableJWT: true,
 	}); err != nil {

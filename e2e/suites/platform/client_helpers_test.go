@@ -13,7 +13,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 )
 
 // Local copies of the client-management helpers e2e/suites/security and
@@ -27,7 +27,7 @@ import (
 // createClient mirrors e2e/suites/security/client_mode_helpers_test.go's
 // createClient (POST /clients).
 func createClient(ctx context.Context, name string, td uuid.UUID) (harness.Client, error) {
-	body := services.CreateClientInput{
+	body := clients.CreateClientInput{
 		Name:         name,
 		Description:  "E2E test",
 		TeamID:       td,
@@ -47,7 +47,7 @@ func deleteClient(ctx context.Context, clientID string) error {
 // addClientIP mirrors e2e/suites/security/client_mode_helpers_test.go's
 // addClientIP (POST /clients/:clientId/ips).
 func addClientIP(ctx context.Context, clientID, cidr, description string) error {
-	body := services.CreateClientIPInput{CIDR: cidr, Description: description}
+	body := clients.CreateClientIPInput{CIDR: cidr, Description: description}
 	_, err := env.Admin.Do(ctx, http.MethodPost, "/clients/"+clientID+"/ips", body, nil)
 	return err
 }
@@ -56,7 +56,7 @@ func addClientIP(ctx context.Context, clientID, cidr, description string) error 
 // attachAndDeploy: attach a client to routeID as editor, approve the
 // resulting pending client approval as admin, then redeploy the route as
 // editor so the resulting SecurityPolicy/attachment is actually applied.
-func attachAndDeploy(ctx context.Context, routeID string, input services.AttachFromRouteInput) (models.ClientRouteAttachment, error) {
+func attachAndDeploy(ctx context.Context, routeID string, input clients.AttachFromRouteInput) (models.ClientRouteAttachment, error) {
 	attachment, err := env.Editor.AttachClient(ctx, env.ProjectID, env.DomainID, routeID, input)
 	if err != nil {
 		return models.ClientRouteAttachment{}, fmt.Errorf("attach client: %w", err)

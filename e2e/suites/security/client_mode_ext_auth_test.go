@@ -10,6 +10,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 )
 
 // TestClientModeExtAuth ports client_mode/test_ext_auth.py, fixing the
@@ -60,7 +61,7 @@ func TestClientModeExtAuth(t *testing.T) {
 	}
 
 	failOpen := false
-	if _, err := attachAndDeploy(ctx, route.ID.String(), services.AttachFromRouteInput{
+	if _, err := attachAndDeploy(ctx, route.ID.String(), clients.AttachFromRouteInput{
 		ClientID:     client.ID,
 		EnableAPIKey: true,
 		ExtAuth: &models.ExtAuthConfig{

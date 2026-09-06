@@ -10,6 +10,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 )
 
 // TestClientModeCombinedAuth ports client_mode/test_combined_auth.py,
@@ -79,7 +80,7 @@ func TestClientModeCombinedAuth(t *testing.T) {
 		t.Fatalf("client mode combined auth: add client IP: %v", err)
 	}
 
-	if _, err := attachAndDeploy(ctx, route.ID.String(), services.AttachFromRouteInput{
+	if _, err := attachAndDeploy(ctx, route.ID.String(), clients.AttachFromRouteInput{
 		ClientID:          client.ID,
 		EnableIPAllowlist: true,
 		EnableAPIKey:      true,

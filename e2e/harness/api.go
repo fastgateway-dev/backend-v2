@@ -439,7 +439,7 @@ func (a *API) RevokeAPIToken(ctx context.Context, tokenID string) error {
 // --- Clients ---
 
 // CreateClient mirrors api.py:create_client (POST /clients). body is
-// typically a services.CreateClientInput value.
+// typically a clients.CreateClientInput value.
 func (a *API) CreateClient(ctx context.Context, body any) (Client, error) {
 	var out Client
 	if _, err := a.Do(ctx, http.MethodPost, "/clients", body, &out); err != nil {
@@ -450,7 +450,7 @@ func (a *API) CreateClient(ctx context.Context, body any) (Client, error) {
 
 // AttachClient mirrors api.py:attach_client -- the route-side attachment
 // endpoint (ClientAttachmentHandler.AttachFromRoute). body is typically a
-// services.AttachFromRouteInput value.
+// clients.AttachFromRouteInput value.
 func (a *API) AttachClient(ctx context.Context, projectID, domainID, routeID string, body any) (models.ClientRouteAttachment, error) {
 	var out models.ClientRouteAttachment
 	path := fmt.Sprintf("/projects/%s/domains/%s/routes/%s/clients/attach", projectID, domainID, routeID)

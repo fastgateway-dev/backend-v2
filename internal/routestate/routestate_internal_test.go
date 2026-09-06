@@ -1,7 +1,6 @@
-package services
+package routestate
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -66,7 +65,7 @@ const routeStatusAny models.RouteStatus = "ANY"
 // approval_service.go:4xx/5xx references no longer resolve; its analysis
 // still does.
 var observedTransitions = []struct {
-	At      TransitionSite
+	At      models.TransitionSite
 	From    models.RouteStatus
 	To      models.RouteStatus
 	Site    string
@@ -75,7 +74,7 @@ var observedTransitions = []struct {
 }{
 	// --- #1 route_approval.go OnApproved case Create (was ANY) ------------
 	{
-		At:   SiteApprovalApproved,
+		At:   models.SiteApprovalApproved,
 		From: models.RouteStatusPendingCreate, To: models.RouteStatusApproved,
 		Site: "route_approval.go:65 OnApproved/create", Derived: true,
 		Why: "reached only when a route-creation approval completes; Create() persists pending_create before submitting that approval, and Update/Delete are refused while one is pending",
@@ -83,7 +82,7 @@ var observedTransitions = []struct {
 
 	// --- #2 route_approval.go OnApproved case Update (was ANY) ------------
 	{
-		At:   SiteApprovalApproved,
+		At:   models.SiteApprovalApproved,
 		From: models.RouteStatusPendingUpdate, To: models.RouteStatusPendingDeploy,
 		Site: "route_approval.go:65 OnApproved/update", Derived: true,
 		Why: "Update() persists pending_update before submitting the update approval this callback completes",
@@ -91,7 +90,7 @@ var observedTransitions = []struct {
 
 	// --- #3 route_approval.go OnApproved case Delete (was ANY) ------------
 	{
-		At:   SiteApprovalApproved,
+		At:   models.SiteApprovalApproved,
 		From: models.RouteStatusPendingDelete, To: models.RouteStatusPendingDeploy,
 		Site: "route_approval.go:65 OnApproved/delete", Derived: true,
 		Why: "Delete() persists pending_delete before submitting the delete approval this callback completes",
@@ -106,7 +105,7 @@ var observedTransitions = []struct {
 	// could take a route with a QUEUED REDEPLOY straight to active and
 	// silently discard it. Per-site keying is what makes the absence bite.
 	{
-		At:   SiteApprovalRejected,
+		At:   models.SiteApprovalRejected,
 		From: models.RouteStatusPendingCreate, To: models.RouteStatusRejected,
 		Site: "route_approval.go:89 OnRejected/create", Derived: true,
 		Why: "same causal chain as #1: only a pending route-creation approval can be rejected here",
@@ -114,7 +113,7 @@ var observedTransitions = []struct {
 
 	// --- #5 route_approval.go OnRejected case Update (was ANY) ------------
 	{
-		At:   SiteApprovalRejected,
+		At:   models.SiteApprovalRejected,
 		From: models.RouteStatusPendingUpdate, To: models.RouteStatusActive,
 		Site: "route_approval.go:89 OnRejected/update", Derived: true,
 		Why: "same causal chain as #2; a rejected update returns the still-deployed route to active",
@@ -122,7 +121,7 @@ var observedTransitions = []struct {
 
 	// --- #6 route_approval.go OnRejected case Delete (was ANY) ------------
 	{
-		At:   SiteApprovalRejected,
+		At:   models.SiteApprovalRejected,
 		From: models.RouteStatusPendingDelete, To: models.RouteStatusActive,
 		Site: "route_approval.go:89 OnRejected/delete", Derived: true,
 		Why: "same causal chain as #3; a rejected delete returns the still-deployed route to active",
@@ -131,13 +130,13 @@ var observedTransitions = []struct {
 	// --- #7 route_approval.go OnCancelled update/delete (was ANY) ---------
 	// One case, two actions, so two origins.
 	{
-		At:   SiteApprovalCancelled,
+		At:   models.SiteApprovalCancelled,
 		From: models.RouteStatusPendingUpdate, To: models.RouteStatusActive,
 		Site: "route_approval.go:111 OnCancelled/update", Derived: true,
 		Why: "only an in-flight update approval can be cancelled, and Update() persisted pending_update before submitting it",
 	},
 	{
-		At:   SiteApprovalCancelled,
+		At:   models.SiteApprovalCancelled,
 		From: models.RouteStatusPendingDelete, To: models.RouteStatusActive,
 		Site: "route_approval.go:111 OnCancelled/delete", Derived: true,
 		Why: "only an in-flight delete approval can be cancelled, and Delete() persisted pending_delete before submitting it",
@@ -172,37 +171,37 @@ var observedTransitions = []struct {
 	// client_attachment_service_test.go, added in the same round because
 	// these paths had no coverage whatsoever.
 	{
-		At:   SiteAttachFromRoute,
+		At:   models.SiteAttachFromRoute,
 		From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromRoute/approvals-disabled", Derived: true,
 		Why: "the mainline: attaching a client to a live route",
 	},
 	{
-		At:   SiteAttachFromRoute,
+		At:   models.SiteAttachFromRoute,
 		From: models.RouteStatusApproved, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromRoute/approvals-disabled", Derived: true,
 		Why: "Create in an approvals-disabled project leaves the route at approved, and this function reads route.Status nowhere; create -> attach -> deploy is the ordinary flow",
 	},
 	{
-		At:   SiteAttachFromRoute,
+		At:   models.SiteAttachFromRoute,
 		From: models.RouteStatusRejected, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromRoute/approvals-disabled", Derived: true,
 		Why: "a rejected route implies approvals were on when it was created; ApprovalEnabled is toggleable at runtime, so the unguarded fast path reaches it once they are off",
 	},
 	{
-		At:   SiteAttachFromRoute,
+		At:   models.SiteAttachFromRoute,
 		From: models.RouteStatusPendingCreate, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromRoute/approvals-disabled", Derived: true,
 		Why: "same runtime toggle as the rejected row, and additionally an orphan: Create persists pending_create before calling approvals.Submit, so a failed submit leaves one",
 	},
 	{
-		At:   SiteAttachFromRoute,
+		At:   models.SiteAttachFromRoute,
 		From: models.RouteStatusPendingUpdate, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromRoute/approvals-disabled", Derived: true,
 		Why: "same runtime toggle; an in-flight update does not block an attach, and this function reads route.Status nowhere. Implicit under the old global key (the pair came from #2/#20); stated per-site now",
 	},
 	{
-		At:   SiteAttachFromRoute,
+		At:   models.SiteAttachFromRoute,
 		From: models.RouteStatusPendingDelete, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromRoute/approvals-disabled", Derived: true,
 		Why: "mirror of the pending_update row; implicit under the old global key (the pair came from #3/#22)",
@@ -211,37 +210,37 @@ var observedTransitions = []struct {
 	// --- #9 AttachFromClient/approvals-disabled (was ANY) ----------------
 	// Identical body to #8 for this purpose, and the same corrected set.
 	{
-		At:   SiteAttachFromClient,
+		At:   models.SiteAttachFromClient,
 		From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromClient/approvals-disabled", Derived: true,
 		Why: "same as #8; AttachFromClient and AttachFromRoute differ only in which side submits",
 	},
 	{
-		At:   SiteAttachFromClient,
+		At:   models.SiteAttachFromClient,
 		From: models.RouteStatusApproved, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromClient/approvals-disabled", Derived: true,
 		Why: "same as #8",
 	},
 	{
-		At:   SiteAttachFromClient,
+		At:   models.SiteAttachFromClient,
 		From: models.RouteStatusRejected, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromClient/approvals-disabled", Derived: true,
 		Why: "same as #8",
 	},
 	{
-		At:   SiteAttachFromClient,
+		At:   models.SiteAttachFromClient,
 		From: models.RouteStatusPendingCreate, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromClient/approvals-disabled", Derived: true,
 		Why: "same as #8",
 	},
 	{
-		At:   SiteAttachFromClient,
+		At:   models.SiteAttachFromClient,
 		From: models.RouteStatusPendingUpdate, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromClient/approvals-disabled", Derived: true,
 		Why: "same as #8",
 	},
 	{
-		At:   SiteAttachFromClient,
+		At:   models.SiteAttachFromClient,
 		From: models.RouteStatusPendingDelete, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go AttachFromClient/approvals-disabled", Derived: true,
 		Why: "same as #8",
@@ -267,19 +266,19 @@ var observedTransitions = []struct {
 	// under the old key those two rows were left implicit because #2/#3 and
 	// #20/#22 already put the pairs in the table.
 	{
-		At:   SiteRequestDetach,
+		At:   models.SiteRequestDetach,
 		From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go RequestDetach/approvals-disabled", Derived: true,
 		Why: "guarded on attachment.Status == active, and an attachment only becomes active inside a successful Deploy, which sets route.Status = active in the same call",
 	},
 	{
-		At:   SiteRequestDetach,
+		At:   models.SiteRequestDetach,
 		From: models.RouteStatusPendingUpdate, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go RequestDetach/approvals-disabled", Derived: true,
 		Why: "residual gap item 2: an attachment stays active across a later Update, so detach on an in-flight route is reachable",
 	},
 	{
-		At:   SiteRequestDetach,
+		At:   models.SiteRequestDetach,
 		From: models.RouteStatusPendingDelete, To: models.RouteStatusPendingDeploy,
 		Site: "client_attachment_service.go RequestDetach/approvals-disabled", Derived: true,
 		Why: "mirror of the pending_update row: the attachment likewise stays active across a Delete submission",
@@ -317,37 +316,37 @@ var observedTransitions = []struct {
 	// (route_service_test.go), both of which failed with `illegal
 	// transition` before these two rows were added.
 	{
-		At:   SiteRouteUpdate,
+		At:   models.SiteRouteUpdate,
 		From: models.RouteStatusPendingDelete, To: models.RouteStatusPendingUpdate,
 		Site: "route_write.go:645 Update", Derived: true,
 		Why: "an orphaned pending_delete route (Delete persisted the status, then approvals.Submit failed) carries no pending approval, so Update reaches the assignment; same orphan class as the pending_create row below",
 	},
 	{
-		At:   SiteRouteUpdate,
+		At:   models.SiteRouteUpdate,
 		From: models.RouteStatusPendingCreate, To: models.RouteStatusPendingUpdate,
 		Site: "route_write.go:645 Update", Derived: true,
 		Why: "identical precondition to Delete (route_write.go:609-613 vs :887-891, byte-for-byte); an orphaned pending_create route must stay revisable, not only deletable",
 	},
 	{
-		At:   SiteRouteUpdate,
+		At:   models.SiteRouteUpdate,
 		From: models.RouteStatusApproved, To: models.RouteStatusPendingUpdate,
 		Site: "route_write.go:645 Update", Derived: true,
 		Why: "approved carries no pending approval, so Update reaches the assignment",
 	},
 	{
-		At:   SiteRouteUpdate,
+		At:   models.SiteRouteUpdate,
 		From: models.RouteStatusActive, To: models.RouteStatusPendingUpdate,
 		Site: "route_write.go:645 Update", Derived: true,
 		Why: "the mainline: updating a live route",
 	},
 	{
-		At:   SiteRouteUpdate,
+		At:   models.SiteRouteUpdate,
 		From: models.RouteStatusRejected, To: models.RouteStatusPendingUpdate,
 		Site: "route_write.go:645 Update", Derived: true,
 		Why: "a rejected creation carries no pending approval; revising and resubmitting it is the intended recovery",
 	},
 	{
-		At:   SiteRouteUpdate,
+		At:   models.SiteRouteUpdate,
 		From: models.RouteStatusPendingDeploy, To: models.RouteStatusPendingUpdate,
 		Site: "route_write.go:645 Update", Derived: true,
 		Why: "the approval that produced pending_deploy is approved, not pending, so a further update can be submitted on top",
@@ -359,37 +358,37 @@ var observedTransitions = []struct {
 	// That symmetry is what forces the pending_update row below -- see the
 	// "CORRECTED IN THE FINAL FIX WAVE" note on #19 for the full argument.
 	{
-		At:   SiteRouteDelete,
+		At:   models.SiteRouteDelete,
 		From: models.RouteStatusPendingUpdate, To: models.RouteStatusPendingDelete,
 		Site: "route_write.go:894 Delete", Derived: true,
 		Why: "an orphaned pending_update route (Update persisted the status, then approvals.Submit failed) carries no pending approval, so Delete reaches the assignment; mirror of the pending_delete row under #19",
 	},
 	{
-		At:   SiteRouteDelete,
+		At:   models.SiteRouteDelete,
 		From: models.RouteStatusPendingCreate, To: models.RouteStatusPendingDelete,
 		Site: "route_write.go:894 Delete", Derived: true,
 		Why: "identical precondition to Update; TestRouteService_Delete_PendingCreateRoute corroborates but is not the justification",
 	},
 	{
-		At:   SiteRouteDelete,
+		At:   models.SiteRouteDelete,
 		From: models.RouteStatusApproved, To: models.RouteStatusPendingDelete,
 		Site: "route_write.go:894 Delete", Derived: true,
 		Why: "approved carries no pending approval, so Delete reaches the assignment",
 	},
 	{
-		At:   SiteRouteDelete,
+		At:   models.SiteRouteDelete,
 		From: models.RouteStatusActive, To: models.RouteStatusPendingDelete,
 		Site: "route_write.go:894 Delete", Derived: true,
 		Why: "the mainline: deleting a live route",
 	},
 	{
-		At:   SiteRouteDelete,
+		At:   models.SiteRouteDelete,
 		From: models.RouteStatusRejected, To: models.RouteStatusPendingDelete,
 		Site: "route_write.go:894 Delete", Derived: true,
 		Why: "cleaning up a rejected creation",
 	},
 	{
-		At:   SiteRouteDelete,
+		At:   models.SiteRouteDelete,
 		From: models.RouteStatusPendingDeploy, To: models.RouteStatusPendingDelete,
 		Site: "route_write.go:894 Delete", Derived: true,
 		Why: "same as the pending_deploy row for #19: no approval is pending",
@@ -402,22 +401,22 @@ var observedTransitions = []struct {
 	// updateRouteStatus, which re-fetches the route and is the write that
 	// always actually happened. The guard OnApproved applies before calling
 	// it -- route.Status == active -- is what makes this row {active}.
-	{At: SiteAttachmentApproved, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_attachment_service.go updateRouteStatus (via OnApproved)"},
+	{At: models.SiteAttachmentApproved, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_attachment_service.go updateRouteStatus (via OnApproved)"},
 
 	// The five cascade* methods all funnel through the single
 	// cascadeToAttachedRoutes implementation, which skips any route that is
 	// not active. One site, one pair.
-	{At: SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:301 cascadeIPChangeToRoutes"},
-	{At: SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:445 cascadeMethodChangeToRoutes"},
-	{At: SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:467 cascadeHeaderChangeToRoutes"},
-	{At: SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:608 cascadeAPIKeyChangeToRoutes"},
-	{At: SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:796 cascadeJWTChangeToRoutes"},
+	{At: models.SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:301 cascadeIPChangeToRoutes"},
+	{At: models.SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:445 cascadeMethodChangeToRoutes"},
+	{At: models.SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:467 cascadeHeaderChangeToRoutes"},
+	{At: models.SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:608 cascadeAPIKeyChangeToRoutes"},
+	{At: models.SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:796 cascadeJWTChangeToRoutes"},
 
-	{At: SiteRouteCreateFastPath, From: models.RouteStatusPendingCreate, To: models.RouteStatusApproved, Site: "route_write.go:343 Create/approvals-disabled"},
-	{At: SiteRouteUpdateFastPath, From: models.RouteStatusPendingUpdate, To: models.RouteStatusPendingDeploy, Site: "route_write.go:734 Update/approvals-disabled"},
-	{At: SiteRouteDeleteFastPath, From: models.RouteStatusPendingDelete, To: models.RouteStatusPendingDeploy, Site: "route_write.go:941 Delete/approvals-disabled"},
-	{At: SiteDeploy, From: models.RouteStatusApproved, To: models.RouteStatusActive, Site: "route_deploy.go:124 Deploy/create"},
-	{At: SiteDeploy, From: models.RouteStatusPendingDeploy, To: models.RouteStatusActive, Site: "route_deploy.go:195 Deploy/update"},
+	{At: models.SiteRouteCreateFastPath, From: models.RouteStatusPendingCreate, To: models.RouteStatusApproved, Site: "route_write.go:343 Create/approvals-disabled"},
+	{At: models.SiteRouteUpdateFastPath, From: models.RouteStatusPendingUpdate, To: models.RouteStatusPendingDeploy, Site: "route_write.go:734 Update/approvals-disabled"},
+	{At: models.SiteRouteDeleteFastPath, From: models.RouteStatusPendingDelete, To: models.RouteStatusPendingDeploy, Site: "route_write.go:941 Delete/approvals-disabled"},
+	{At: models.SiteDeploy, From: models.RouteStatusApproved, To: models.RouteStatusActive, Site: "route_deploy.go:124 Deploy/create"},
+	{At: models.SiteDeploy, From: models.RouteStatusPendingDeploy, To: models.RouteStatusActive, Site: "route_deploy.go:195 Deploy/update"},
 }
 
 // The table must permit everything the pre-2D code could do, once each
@@ -453,7 +452,7 @@ func TestLegalTransitions_CoversEveryObservedTransition(t *testing.T) {
 // the (site, from, to) key -- table, fixture and the narrowings list below
 // must move together or none of the three means anything.
 func TestLegalTransitions_HasNoUnobservedEntry(t *testing.T) {
-	observed := map[TransitionSite]map[models.RouteStatus]map[models.RouteStatus]string{}
+	observed := map[models.TransitionSite]map[models.RouteStatus]map[models.RouteStatus]string{}
 	for _, tr := range observedTransitions {
 		if observed[tr.At] == nil {
 			observed[tr.At] = map[models.RouteStatus]map[models.RouteStatus]string{}
@@ -479,26 +478,26 @@ func TestLegalTransitions_HasNoUnobservedEntry(t *testing.T) {
 // hand and pinned by TestTransitionSites_TableCoversEverySite below, so a
 // site added to legalTransitions without being added here fails rather than
 // silently escaping the narrowing sweep.
-var allTransitionSites = []TransitionSite{
-	SiteRouteCreateFastPath,
-	SiteRouteUpdate,
-	SiteRouteUpdateFastPath,
-	SiteRouteDelete,
-	SiteRouteDeleteFastPath,
-	SiteApprovalApproved,
-	SiteApprovalRejected,
-	SiteApprovalCancelled,
-	SiteAttachFromRoute,
-	SiteAttachFromClient,
-	SiteRequestDetach,
-	SiteAttachmentApproved,
-	SiteClientCascade,
-	SiteDeploy,
+var allTransitionSites = []models.TransitionSite{
+	models.SiteRouteCreateFastPath,
+	models.SiteRouteUpdate,
+	models.SiteRouteUpdateFastPath,
+	models.SiteRouteDelete,
+	models.SiteRouteDeleteFastPath,
+	models.SiteApprovalApproved,
+	models.SiteApprovalRejected,
+	models.SiteApprovalCancelled,
+	models.SiteAttachFromRoute,
+	models.SiteAttachFromClient,
+	models.SiteRequestDetach,
+	models.SiteAttachmentApproved,
+	models.SiteClientCascade,
+	models.SiteDeploy,
 }
 
 // Every site named in the table is in allTransitionSites and vice versa.
 func TestTransitionSites_TableCoversEverySite(t *testing.T) {
-	listed := map[TransitionSite]bool{}
+	listed := map[models.TransitionSite]bool{}
 	for _, s := range allTransitionSites {
 		assert.Falsef(t, listed[s], "site %s listed twice in allTransitionSites", s)
 		listed[s] = true
@@ -552,23 +551,86 @@ func TestLegalTransitions_EveryStatusHasAnExit(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// routeStateMachine.To
+// Machine.To
 //
-// internal/mocks depends on internal/services (for compile-time interface
-// checks), so a package-services internal test file cannot import
-// internal/mocks without an import cycle -- see the same note in
-// route_approval_internal_test.go. metricsTestRouteRepo
-// (metrics_service_test.go) is the local stub satisfying
-// repository.RouteRepositoryInterface.
+// internal/mocks is in package mocks and (via mock_services.go) imports
+// internal/services; after this task internal/services imports
+// internal/routestate for Machine, so this package importing internal/mocks
+// would close that cycle. testRouteRepo is therefore a local stub satisfying
+// repository.RouteRepositoryInterface, mirroring metricsTestRouteRepo in
+// internal/services/metrics_service_test.go.
 // ---------------------------------------------------------------------------
 
+type testRouteRepo struct{ mock.Mock }
+
+func (m *testRouteRepo) Create(route *models.Route) error {
+	args := m.Called(route)
+	return args.Error(0)
+}
+
+func (m *testRouteRepo) GetByID(id uuid.UUID) (*models.Route, error) {
+	args := m.Called(id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Route), args.Error(1)
+}
+
+func (m *testRouteRepo) GetByIDs(ids []uuid.UUID) ([]models.Route, error) {
+	args := m.Called(ids)
+	return args.Get(0).([]models.Route), args.Error(1)
+}
+
+func (m *testRouteRepo) GetByIDWithApproval(id uuid.UUID) (*models.Route, error) {
+	args := m.Called(id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Route), args.Error(1)
+}
+
+func (m *testRouteRepo) ListByDomainID(domainID uuid.UUID, page, limit int, teamID *uuid.UUID, status string, search string, searchField string, labels map[string]string) ([]models.Route, int64, error) {
+	args := m.Called(domainID, page, limit, teamID, status, search, searchField, labels)
+	return args.Get(0).([]models.Route), args.Get(1).(int64), args.Error(2)
+}
+
+func (m *testRouteRepo) ListByProjectID(projectID uuid.UUID, page, limit int, filters repository.RouteListFilters) ([]models.Route, int64, error) {
+	args := m.Called(projectID, page, limit, filters)
+	return args.Get(0).([]models.Route), args.Get(1).(int64), args.Error(2)
+}
+
+func (m *testRouteRepo) Update(route *models.Route) error {
+	args := m.Called(route)
+	return args.Error(0)
+}
+
+func (m *testRouteRepo) Delete(id uuid.UUID) error {
+	args := m.Called(id)
+	return args.Error(0)
+}
+
+func (m *testRouteRepo) ExistsByName(domainID uuid.UUID, name string) (bool, error) {
+	args := m.Called(domainID, name)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *testRouteRepo) GetActiveRoutesByDomainID(domainID uuid.UUID) ([]models.Route, error) {
+	args := m.Called(domainID)
+	return args.Get(0).([]models.Route), args.Error(1)
+}
+
+func (m *testRouteRepo) CountByDomainID(domainID uuid.UUID) (int, error) {
+	args := m.Called(domainID)
+	return args.Int(0), args.Error(1)
+}
+
 func TestRouteStateMachine_RejectsIllegalTransition(t *testing.T) {
-	routeRepo := new(metricsTestRouteRepo)
-	m := &routeStateMachine{repo: routeRepo}
+	routeRepo := new(testRouteRepo)
+	m := &Machine{repo: routeRepo}
 
 	route := &models.Route{ID: uuid.New(), Status: models.RouteStatusRejected}
 
-	err := m.To(SiteApprovalRejected, route, models.RouteStatusActive, "test")
+	err := m.To(models.SiteApprovalRejected, route, models.RouteStatusActive, "test")
 
 	require.Error(t, err)
 	assert.Equal(t, models.RouteStatusRejected, route.Status, "status must not mutate on rejection")
@@ -576,12 +638,12 @@ func TestRouteStateMachine_RejectsIllegalTransition(t *testing.T) {
 }
 
 func TestRouteStateMachine_NoOpTransitionDoesNotWrite(t *testing.T) {
-	routeRepo := new(metricsTestRouteRepo)
-	m := &routeStateMachine{repo: routeRepo}
+	routeRepo := new(testRouteRepo)
+	m := &Machine{repo: routeRepo}
 
 	route := &models.Route{ID: uuid.New(), Status: models.RouteStatusActive}
 
-	err := m.To(SiteApprovalRejected, route, models.RouteStatusActive, "test")
+	err := m.To(models.SiteApprovalRejected, route, models.RouteStatusActive, "test")
 
 	require.NoError(t, err)
 	routeRepo.AssertNotCalled(t, "Update", mock.Anything)
@@ -590,24 +652,24 @@ func TestRouteStateMachine_NoOpTransitionDoesNotWrite(t *testing.T) {
 func TestRouteStateMachine_LegalTransitionPersists(t *testing.T) {
 	routeID := uuid.New()
 
-	routeRepo := new(metricsTestRouteRepo)
+	routeRepo := new(testRouteRepo)
 	routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
 		return r.ID == routeID && r.Status == models.RouteStatusPendingDeploy
 	})).Return(nil)
 
-	m := &routeStateMachine{repo: routeRepo}
+	m := &Machine{repo: routeRepo}
 	route := &models.Route{ID: routeID, Status: models.RouteStatusActive}
 
-	err := m.To(SiteClientCascade, route, models.RouteStatusPendingDeploy, "client credential rotated")
+	err := m.To(models.SiteClientCascade, route, models.RouteStatusPendingDeploy, "client credential rotated")
 
 	require.NoError(t, err)
 	routeRepo.AssertExpectations(t)
 }
 
 func TestRouteStateMachine_NilRouteIsAnError(t *testing.T) {
-	m := &routeStateMachine{repo: new(metricsTestRouteRepo)}
+	m := &Machine{repo: new(testRouteRepo)}
 
-	err := m.To(SiteDeploy, nil, models.RouteStatusActive, "test")
+	err := m.To(models.SiteDeploy, nil, models.RouteStatusActive, "test")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nil route")
@@ -617,12 +679,12 @@ func TestRouteStateMachine_NilRouteIsAnError(t *testing.T) {
 // zero-value row, say) has no entry in the table and must be reported as
 // such rather than silently accepted.
 func TestRouteStateMachine_UnknownFromStatusIsAnError(t *testing.T) {
-	routeRepo := new(metricsTestRouteRepo)
-	m := &routeStateMachine{repo: routeRepo}
+	routeRepo := new(testRouteRepo)
+	m := &Machine{repo: routeRepo}
 
 	route := &models.Route{ID: uuid.New(), Status: models.RouteStatus("")}
 
-	err := m.To(SiteDeploy, route, models.RouteStatusActive, "test")
+	err := m.To(models.SiteDeploy, route, models.RouteStatusActive, "test")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no transitions defined from")
@@ -702,8 +764,8 @@ func TestRouteStateMachine_NarrowingsVersusANY(t *testing.T) {
 	// TestTransitionSites_TableCoversEverySite) guarantees.
 	for _, n := range narrowed {
 		for _, site := range allTransitionSites {
-			routeRepo := new(metricsTestRouteRepo)
-			m := &routeStateMachine{repo: routeRepo}
+			routeRepo := new(testRouteRepo)
+			m := &Machine{repo: routeRepo}
 			route := &models.Route{ID: uuid.New(), Status: n.from}
 
 			err := m.To(site, route, n.to, "narrowing check")
@@ -725,7 +787,7 @@ func TestRouteStateMachine_NarrowingsVersusANY(t *testing.T) {
 
 func TestRouteStateMachine_RejectsTransitionLegalForAnotherSite(t *testing.T) {
 	perSiteNarrowings := []struct {
-		site TransitionSite
+		site models.TransitionSite
 		from models.RouteStatus
 		to   models.RouteStatus
 		why  string
@@ -735,9 +797,9 @@ func TestRouteStateMachine_RejectsTransitionLegalForAnotherSite(t *testing.T) {
 		// rejected or cancelled approval marks the route live while the
 		// queued redeploy has not been pushed -- silent loss of a pending
 		// change.
-		{SiteApprovalRejected, models.RouteStatusPendingDeploy, models.RouteStatusActive,
+		{models.SiteApprovalRejected, models.RouteStatusPendingDeploy, models.RouteStatusActive,
 			"a rejected approval must not clear a queued redeploy"},
-		{SiteApprovalCancelled, models.RouteStatusPendingDeploy, models.RouteStatusActive,
+		{models.SiteApprovalCancelled, models.RouteStatusPendingDeploy, models.RouteStatusActive,
 			"a cancelled approval must not clear a queued redeploy"},
 
 		// transitions.md "Known residual gaps" item 3: the detach fast path
@@ -745,46 +807,46 @@ func TestRouteStateMachine_RejectsTransitionLegalForAnotherSite(t *testing.T) {
 		// had no site dimension. An attachment only becomes active inside a
 		// successful Deploy, which sets route.Status = active, so a detach
 		// can never see a route at approved, rejected or pending_create.
-		{SiteRequestDetach, models.RouteStatusApproved, models.RouteStatusPendingDeploy,
+		{models.SiteRequestDetach, models.RouteStatusApproved, models.RouteStatusPendingDeploy,
 			"an attachment cannot be active on a never-deployed route"},
-		{SiteRequestDetach, models.RouteStatusRejected, models.RouteStatusPendingDeploy,
+		{models.SiteRequestDetach, models.RouteStatusRejected, models.RouteStatusPendingDeploy,
 			"an attachment cannot be active on a rejected route"},
-		{SiteRequestDetach, models.RouteStatusPendingCreate, models.RouteStatusPendingDeploy,
+		{models.SiteRequestDetach, models.RouteStatusPendingCreate, models.RouteStatusPendingDeploy,
 			"an attachment cannot be active on a pending_create route"},
 
 		// The cascade and attachment-approval sites are guarded on
 		// route.Status == active in their callers; nothing else is reachable.
-		{SiteClientCascade, models.RouteStatusApproved, models.RouteStatusPendingDeploy,
+		{models.SiteClientCascade, models.RouteStatusApproved, models.RouteStatusPendingDeploy,
 			"cascadeToAttachedRoutes skips any route that is not active"},
-		{SiteAttachmentApproved, models.RouteStatusApproved, models.RouteStatusPendingDeploy,
+		{models.SiteAttachmentApproved, models.RouteStatusApproved, models.RouteStatusPendingDeploy,
 			"ClientAttachmentService.OnApproved only calls through when the route is active"},
 
 		// The approvals-disabled fast paths run immediately after their own
 		// site persisted the pending_* status, so no other origin is
 		// reachable at them.
-		{SiteRouteCreateFastPath, models.RouteStatusActive, models.RouteStatusApproved,
+		{models.SiteRouteCreateFastPath, models.RouteStatusActive, models.RouteStatusApproved,
 			"Create's fast path runs on a route it just persisted at pending_create"},
-		{SiteRouteUpdateFastPath, models.RouteStatusPendingDelete, models.RouteStatusPendingDeploy,
+		{models.SiteRouteUpdateFastPath, models.RouteStatusPendingDelete, models.RouteStatusPendingDeploy,
 			"Update's fast path runs on a route it just persisted at pending_update"},
-		{SiteRouteDeleteFastPath, models.RouteStatusPendingUpdate, models.RouteStatusPendingDeploy,
+		{models.SiteRouteDeleteFastPath, models.RouteStatusPendingUpdate, models.RouteStatusPendingDeploy,
 			"Delete's fast path runs on a route it just persisted at pending_delete"},
 
 		// Deploy's entry guard admits approved and pending_deploy only.
-		{SiteDeploy, models.RouteStatusPendingUpdate, models.RouteStatusActive,
+		{models.SiteDeploy, models.RouteStatusPendingUpdate, models.RouteStatusActive,
 			"Deploy's entry guard rejects anything that is not approved or pending_deploy"},
 
 		// OnApproved's action and from-status move together (argument A1):
 		// a create approval completes from pending_create, never from a
 		// route someone else left at pending_update.
-		{SiteApprovalApproved, models.RouteStatusActive, models.RouteStatusApproved,
+		{models.SiteApprovalApproved, models.RouteStatusActive, models.RouteStatusApproved,
 			"a creation approval completes only from pending_create"},
-		{SiteApprovalRejected, models.RouteStatusActive, models.RouteStatusRejected,
+		{models.SiteApprovalRejected, models.RouteStatusActive, models.RouteStatusRejected,
 			"a creation rejection lands only on a pending_create route"},
 	}
 
 	for _, n := range perSiteNarrowings {
-		routeRepo := new(metricsTestRouteRepo)
-		m := &routeStateMachine{repo: routeRepo}
+		routeRepo := new(testRouteRepo)
+		m := &Machine{repo: routeRepo}
 		route := &models.Route{ID: uuid.New(), Status: n.from}
 
 		err := m.To(n.site, route, n.to, "per-site narrowing check")
@@ -803,36 +865,36 @@ func TestRouteStateMachine_RejectsTransitionLegalForAnotherSite(t *testing.T) {
 // would be a regression, not a fix.
 func TestRouteStateMachine_AllowsTransitionForItsOwnSite(t *testing.T) {
 	stillLegal := []struct {
-		site TransitionSite
+		site models.TransitionSite
 		from models.RouteStatus
 		to   models.RouteStatus
 	}{
-		{SiteDeploy, models.RouteStatusPendingDeploy, models.RouteStatusActive},
-		{SiteDeploy, models.RouteStatusApproved, models.RouteStatusActive},
-		{SiteAttachFromRoute, models.RouteStatusApproved, models.RouteStatusPendingDeploy},
-		{SiteAttachFromClient, models.RouteStatusRejected, models.RouteStatusPendingDeploy},
-		{SiteAttachFromRoute, models.RouteStatusPendingCreate, models.RouteStatusPendingDeploy},
-		{SiteRequestDetach, models.RouteStatusActive, models.RouteStatusPendingDeploy},
-		{SiteClientCascade, models.RouteStatusActive, models.RouteStatusPendingDeploy},
-		{SiteAttachmentApproved, models.RouteStatusActive, models.RouteStatusPendingDeploy},
-		{SiteApprovalRejected, models.RouteStatusPendingUpdate, models.RouteStatusActive},
-		{SiteApprovalCancelled, models.RouteStatusPendingDelete, models.RouteStatusActive},
-		{SiteApprovalApproved, models.RouteStatusPendingCreate, models.RouteStatusApproved},
-		{SiteRouteCreateFastPath, models.RouteStatusPendingCreate, models.RouteStatusApproved},
-		{SiteRouteUpdateFastPath, models.RouteStatusPendingUpdate, models.RouteStatusPendingDeploy},
-		{SiteRouteDeleteFastPath, models.RouteStatusPendingDelete, models.RouteStatusPendingDeploy},
-		{SiteRouteUpdate, models.RouteStatusPendingDeploy, models.RouteStatusPendingUpdate},
-		{SiteRouteDelete, models.RouteStatusPendingDeploy, models.RouteStatusPendingDelete},
+		{models.SiteDeploy, models.RouteStatusPendingDeploy, models.RouteStatusActive},
+		{models.SiteDeploy, models.RouteStatusApproved, models.RouteStatusActive},
+		{models.SiteAttachFromRoute, models.RouteStatusApproved, models.RouteStatusPendingDeploy},
+		{models.SiteAttachFromClient, models.RouteStatusRejected, models.RouteStatusPendingDeploy},
+		{models.SiteAttachFromRoute, models.RouteStatusPendingCreate, models.RouteStatusPendingDeploy},
+		{models.SiteRequestDetach, models.RouteStatusActive, models.RouteStatusPendingDeploy},
+		{models.SiteClientCascade, models.RouteStatusActive, models.RouteStatusPendingDeploy},
+		{models.SiteAttachmentApproved, models.RouteStatusActive, models.RouteStatusPendingDeploy},
+		{models.SiteApprovalRejected, models.RouteStatusPendingUpdate, models.RouteStatusActive},
+		{models.SiteApprovalCancelled, models.RouteStatusPendingDelete, models.RouteStatusActive},
+		{models.SiteApprovalApproved, models.RouteStatusPendingCreate, models.RouteStatusApproved},
+		{models.SiteRouteCreateFastPath, models.RouteStatusPendingCreate, models.RouteStatusApproved},
+		{models.SiteRouteUpdateFastPath, models.RouteStatusPendingUpdate, models.RouteStatusPendingDeploy},
+		{models.SiteRouteDeleteFastPath, models.RouteStatusPendingDelete, models.RouteStatusPendingDeploy},
+		{models.SiteRouteUpdate, models.RouteStatusPendingDeploy, models.RouteStatusPendingUpdate},
+		{models.SiteRouteDelete, models.RouteStatusPendingDeploy, models.RouteStatusPendingDelete},
 	}
 
 	for _, c := range stillLegal {
 		routeID := uuid.New()
-		routeRepo := new(metricsTestRouteRepo)
+		routeRepo := new(testRouteRepo)
 		routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
 			return r.ID == routeID && r.Status == c.to
 		})).Return(nil).Once()
 
-		m := &routeStateMachine{repo: routeRepo}
+		m := &Machine{repo: routeRepo}
 		route := &models.Route{ID: routeID, Status: c.from}
 
 		require.NoErrorf(t, m.To(c.site, route, c.to, "own-site check"),
@@ -840,118 +902,4 @@ func TestRouteStateMachine_AllowsTransitionForItsOwnSite(t *testing.T) {
 		assert.Equal(t, c.to, route.Status)
 		routeRepo.AssertExpectations(t)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// To's CONTRACT: it owns route.Status and nothing else.
-//
-// OnApproved applies the approved config snapshot to the route BEFORE
-// transitioning. To does not write on a no-op transition, so if the route
-// already sits at the target status the snapshot would be applied in memory
-// and thrown away -- silent data loss, and NOT one of the narrowings this
-// task set out to make. OnApproved persists explicitly on that path; these
-// tests pin it.
-// ---------------------------------------------------------------------------
-
-func routeApprovalSnapshotJSON(t *testing.T, rt models.RouteType) json.RawMessage {
-	t.Helper()
-	raw, err := json.Marshal(models.RouteApprovalSnapshot{
-		RouteConfig: &models.RouteConfig{RouteType: rt},
-	})
-	require.NoError(t, err)
-	return raw
-}
-
-func TestOnApproved_AtTargetStatus_StillPersistsSnapshot(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		action models.ApprovalAction
-		status models.RouteStatus
-	}{
-		{"create already approved", models.ApprovalActionCreate, models.RouteStatusApproved},
-		{"update already pending_deploy", models.ApprovalActionUpdate, models.RouteStatusPendingDeploy},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			routeID := uuid.New()
-			route := &models.Route{
-				ID:     routeID,
-				Status: tc.status,
-				Config: models.RouteConfig{RouteType: models.RouteTypeBackend},
-			}
-
-			routeRepo := new(metricsTestRouteRepo)
-			routeRepo.On("GetByID", routeID).Return(route, nil)
-			routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
-				// The snapshot must have landed, and the status must not have
-				// moved: this is a no-op transition, not a narrowing.
-				return r.ID == routeID && r.Config.RouteType == models.RouteTypeRedirect && r.Status == tc.status
-			})).Return(nil)
-
-			svc := newOnApprovedTestService(routeRepo)
-
-			err := svc.OnApproved(&models.Approval{
-				ID:             uuid.New(),
-				EntityType:     models.ApprovalEntityRoute,
-				EntityID:       routeID,
-				Action:         tc.action,
-				ConfigSnapshot: routeApprovalSnapshotJSON(t, models.RouteTypeRedirect),
-			})
-
-			require.NoError(t, err)
-			assert.Equal(t, models.RouteTypeRedirect, route.Config.RouteType, "approved config snapshot must be applied")
-			assert.Equal(t, tc.status, route.Status, "a no-op transition must not move the status")
-			routeRepo.AssertExpectations(t)
-		})
-	}
-}
-
-// The moving case, for contrast: when the status does change, To's own write
-// carries the snapshot and OnApproved must not write twice.
-func TestOnApproved_MovingStatus_PersistsSnapshotExactlyOnce(t *testing.T) {
-	routeID := uuid.New()
-	route := &models.Route{
-		ID:     routeID,
-		Status: models.RouteStatusPendingUpdate,
-		Config: models.RouteConfig{RouteType: models.RouteTypeBackend},
-	}
-
-	routeRepo := new(metricsTestRouteRepo)
-	routeRepo.On("GetByID", routeID).Return(route, nil)
-	routeRepo.On("Update", mock.MatchedBy(func(r *models.Route) bool {
-		return r.ID == routeID && r.Config.RouteType == models.RouteTypeRedirect &&
-			r.Status == models.RouteStatusPendingDeploy
-	})).Return(nil).Once()
-
-	svc := newOnApprovedTestService(routeRepo)
-
-	err := svc.OnApproved(&models.Approval{
-		ID:             uuid.New(),
-		EntityType:     models.ApprovalEntityRoute,
-		EntityID:       routeID,
-		Action:         models.ApprovalActionUpdate,
-		ConfigSnapshot: routeApprovalSnapshotJSON(t, models.RouteTypeRedirect),
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, models.RouteStatusPendingDeploy, route.Status)
-	routeRepo.AssertExpectations(t)
-}
-
-// newOnApprovedTestService builds a RouteService for the OnApproved tests.
-//
-// Phase 2E Task 2 made all fifteen repositories required constructor
-// parameters, and these tests previously passed nil for approvalRepo,
-// policyRepo, domainRepo and teamRepo. This package is `package services`, so
-// it cannot import internal/mocks (that package imports internal/services), and
-// OnApproved touches nothing but routeRepo and the state machine. The struct
-// literal is the same escape hatch golden_httproute_test.go and
-// golden_policy_test.go already use for receiver-only helpers.
-//
-// FINDING for Task 9: these two tests relied on the other fourteen
-// dependencies being unset. They do not exercise them; the nil arguments were
-// convenience, not a degraded path under test.
-func newOnApprovedTestService(routeRepo repository.RouteRepositoryInterface) *RouteService {
-	svc := &RouteService{routeRepo: routeRepo}
-	svc.state = &routeStateMachine{repo: routeRepo}
-	return svc
 }

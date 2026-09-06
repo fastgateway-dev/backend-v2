@@ -58,26 +58,6 @@ type AuthServiceInterface interface {
 	GenerateTokensForUser(user *models.User) (accessToken, refreshToken string, err error)
 }
 
-// ClientAttachmentServiceInterface defines the public methods of ClientAttachmentService
-type ClientAttachmentServiceInterface interface {
-	AttachFromRoute(routeID uuid.UUID, input *AttachFromRouteInput, submittedBy uuid.UUID) (*models.ClientRouteAttachment, error)
-	AttachFromClient(clientID uuid.UUID, input *AttachFromClientInput, submittedBy uuid.UUID) (*models.ClientRouteAttachment, error)
-	RequestDetach(attachmentID uuid.UUID, submittedBy uuid.UUID) (*models.ClientRouteAttachment, error)
-	ApproveStage(approvalID, stageID uuid.UUID, reviewer *models.User) (*models.Approval, error)
-	RejectStage(approvalID, stageID uuid.UUID, reviewer *models.User, comment string) (*models.Approval, error)
-	GetApproval(id uuid.UUID) (*models.Approval, error)
-	ListApprovalsByProjectID(projectID uuid.UUID, page, limit int, status string) ([]models.Approval, int64, error)
-	ListByClientID(clientID uuid.UUID) ([]models.ClientRouteAttachment, error)
-	ListByRouteID(routeID uuid.UUID) ([]models.ClientRouteAttachment, error)
-	GetAttachment(id uuid.UUID) (*models.ClientRouteAttachment, error)
-	// approval.Completer -- the engine calls exactly one of these when a
-	// client_attachment approval reaches a terminal state. Renamed from
-	// OnApprovalComplete/OnApprovalRejected in Phase 2D Task 8.
-	OnApproved(approval *models.Approval) error
-	OnRejected(approval *models.Approval) error
-	OnCancelled(approval *models.Approval) error
-}
-
 // ClientReader is the slice of ClientService that ClientAttachmentHandler
 // uses: it resolves a client by ID so the handler can authorize the caller
 // against that client's team before listing or attaching its routes. Named
@@ -86,28 +66,6 @@ type ClientAttachmentServiceInterface interface {
 // declared the 18-method ClientServiceInterface in full to call one method.
 type ClientReader interface {
 	GetByID(id uuid.UUID) (*models.Client, error)
-}
-
-// ClientServiceInterface defines the public methods of ClientService
-type ClientServiceInterface interface {
-	Create(input *CreateClientInput, createdBy uuid.UUID) (*models.Client, error)
-	GetByID(id uuid.UUID) (*models.Client, error)
-	Update(id uuid.UUID, input *UpdateClientInput) (*models.Client, error)
-	Delete(ctx context.Context, id uuid.UUID) error
-	List(page, limit int, teamID *uuid.UUID) ([]models.Client, int64, error)
-	AddIP(clientID uuid.UUID, input *CreateClientIPInput, createdBy uuid.UUID) (*models.ClientIPAddress, error)
-	RemoveIP(clientID uuid.UUID, ipID uuid.UUID) error
-	ListIPs(clientID uuid.UUID) ([]models.ClientIPAddress, error)
-	GenerateAPIKey(ctx context.Context, clientID uuid.UUID, input *GenerateAPIKeyInput, createdBy uuid.UUID) (*GenerateAPIKeyResponse, error)
-	RevokeAPIKey(ctx context.Context, clientID uuid.UUID) error
-	GetAPIKeyForDeploy(ctx context.Context, client *models.Client) (string, error)
-	ConfigureJWT(ctx context.Context, clientID uuid.UUID, input *ConfigureJWTInput, createdBy uuid.UUID) (*ConfigureJWTResponse, error)
-	RemoveJWT(ctx context.Context, clientID uuid.UUID) error
-	UpdateClientMTLS(ctx context.Context, clientID uuid.UUID, input *UpdateClientMTLSInput, updatedBy uuid.UUID) (*models.Client, error)
-	AddHeader(clientID uuid.UUID, input *CreateClientHeaderInput, createdBy uuid.UUID) (*models.ClientHeader, error)
-	RemoveHeader(clientID uuid.UUID, headerID uuid.UUID) error
-	ListHeaders(clientID uuid.UUID) ([]models.ClientHeader, error)
-	SetAllowedMethods(clientID uuid.UUID, methods []string) (*models.Client, error)
 }
 
 // CommentServiceInterface defines the public methods of CommentService
@@ -388,9 +346,6 @@ var _ AIServiceInterface = (*AIService)(nil)
 var _ ApprovalServiceInterface = (*ApprovalService)(nil)
 var _ AuditServiceInterface = (*AuditService)(nil)
 var _ AuthServiceInterface = (*AuthService)(nil)
-var _ ClientAttachmentServiceInterface = (*ClientAttachmentService)(nil)
-var _ ClientServiceInterface = (*ClientService)(nil)
-var _ ClientReader = (*ClientService)(nil)
 var _ CommentServiceInterface = (*CommentService)(nil)
 var _ DomainServiceInterface = (*DomainService)(nil)
 var _ DomainReader = (*DomainService)(nil)

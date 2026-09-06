@@ -1,4 +1,4 @@
-package services
+package clients
 
 import (
 	"errors"
@@ -91,7 +91,7 @@ func (s *ClientService) cascadeToAttachedRoutes(
 		if route.Status != models.RouteStatusActive {
 			continue
 		}
-		if err := s.state.To(SiteClientCascade, route, models.RouteStatusPendingDeploy, reason); err != nil {
+		if err := s.state.To(models.SiteClientCascade, route, models.RouteStatusPendingDeploy, reason); err != nil {
 			failures = append(failures, fmt.Errorf("route %s: %w", route.ID, err))
 		}
 	}

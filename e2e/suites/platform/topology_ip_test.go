@@ -12,6 +12,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 )
 
 // findIPRow returns the first row in rows matching source+refID+cidr, or
@@ -137,7 +138,7 @@ func TestTopologySameCIDRTwoClientsTwoRows(t *testing.T) {
 	if err := addClientIP(ctx, clientA.ID.String(), sharedCIDR, "shared CIDR fixture (A)"); err != nil {
 		t.Fatalf("add IP to clientA: %v", err)
 	}
-	if _, err := attachAndDeploy(ctx, routeA.ID.String(), services.AttachFromRouteInput{ClientID: clientA.ID, EnableIPAllowlist: true}); err != nil {
+	if _, err := attachAndDeploy(ctx, routeA.ID.String(), clients.AttachFromRouteInput{ClientID: clientA.ID, EnableIPAllowlist: true}); err != nil {
 		t.Fatalf("attach clientA to route %s (%s): %v", routeA.Name, routeA.ID, err)
 	}
 
@@ -149,7 +150,7 @@ func TestTopologySameCIDRTwoClientsTwoRows(t *testing.T) {
 	if err := addClientIP(ctx, clientB.ID.String(), sharedCIDR, "shared CIDR fixture (B)"); err != nil {
 		t.Fatalf("add IP to clientB: %v", err)
 	}
-	if _, err := attachAndDeploy(ctx, routeB.ID.String(), services.AttachFromRouteInput{ClientID: clientB.ID, EnableIPAllowlist: true}); err != nil {
+	if _, err := attachAndDeploy(ctx, routeB.ID.String(), clients.AttachFromRouteInput{ClientID: clientB.ID, EnableIPAllowlist: true}); err != nil {
 		t.Fatalf("attach clientB to route %s (%s): %v", routeB.Name, routeB.ID, err)
 	}
 
