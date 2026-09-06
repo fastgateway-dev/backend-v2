@@ -1,4 +1,4 @@
-package services
+package clients
 
 // CHARACTERIZATION, migrated by Task 11.
 //
@@ -37,6 +37,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
+	"github.com/fastgateway-dev/backend-v2/internal/routestate"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -53,7 +54,7 @@ func newCascadeTestService(
 	return &ClientService{
 		clientAttachmentRepo: attachRepo,
 		routeRepo:            routeRepo,
-		state:                &routeStateMachine{repo: routeRepo},
+		state:                routestate.New(routeRepo),
 	}
 }
 

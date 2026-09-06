@@ -271,11 +271,11 @@ func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route
 	//
 	// This replaces the two assignments of active to route.Status that used to
 	// sit inside the switch plus the unconditional routeRepo.Update that
-	// followed it: routeStateMachine.To persists, so a second write here
+	// followed it: routestate.Machine.To persists, so a second write here
 	// would be redundant. Deploy's entry guard rejects anything that is not
 	// approved or pending_deploy, so To is never on its no-op path and no
 	// route field mutation can be dropped (Deploy mutates no other field).
-	if err := s.state.To(SiteDeploy, route, models.RouteStatusActive,
+	if err := s.state.To(models.SiteDeploy, route, models.RouteStatusActive,
 		fmt.Sprintf("deploy succeeded (action %s)", approval.Action)); err != nil {
 		return nil, err
 	}

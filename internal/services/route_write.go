@@ -342,7 +342,7 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 		// route was just persisted at pending_create (struct literal
 		// above), so this is pending_create -> approved and To always
 		// writes; nothing else has been mutated since routeRepo.Create.
-		if err := s.state.To(SiteRouteCreateFastPath, route, models.RouteStatusApproved,
+		if err := s.state.To(models.SiteRouteCreateFastPath, route, models.RouteStatusApproved,
 			"route created, project approvals disabled"); err != nil {
 			return nil, err
 		}
@@ -650,7 +650,7 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 
 	// Update route status.
 	//
-	// routeStateMachine.To owns route.Status and nothing else, and it does
+	// routestate.Machine.To owns route.Status and nothing else, and it does
 	// NOT write on a no-op transition (see its CONTRACT comment). Description
 	// and Labels above are exactly the mutations the pre-2D unconditional
 	// routeRepo.Update persisted, so an already-pending_update route — an
@@ -660,7 +660,7 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		if err := s.routeRepo.Update(route); err != nil {
 			return nil, err
 		}
-	} else if err := s.state.To(SiteRouteUpdate, route, models.RouteStatusPendingUpdate,
+	} else if err := s.state.To(models.SiteRouteUpdate, route, models.RouteStatusPendingUpdate,
 		"route update submitted"); err != nil {
 		return nil, err
 	}
@@ -739,7 +739,7 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		// Skip approval — set route directly to pending_deploy.
 		// route sits at pending_update, persisted above, and no field
 		// other than Status has been touched since.
-		if err := s.state.To(SiteRouteUpdateFastPath, route, models.RouteStatusPendingDeploy,
+		if err := s.state.To(models.SiteRouteUpdateFastPath, route, models.RouteStatusPendingDeploy,
 			"route update submitted, project approvals disabled"); err != nil {
 			return nil, err
 		}
@@ -899,7 +899,7 @@ func (s *RouteService) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Rout
 
 	// Update route status. Delete mutates no other route field, so To's
 	// no-op path (an already-pending_delete orphan) drops nothing.
-	if err := s.state.To(SiteRouteDelete, route, models.RouteStatusPendingDelete,
+	if err := s.state.To(models.SiteRouteDelete, route, models.RouteStatusPendingDelete,
 		"route deletion submitted"); err != nil {
 		return nil, err
 	}
@@ -937,7 +937,7 @@ func (s *RouteService) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Rout
 	if !project.ApprovalEnabled {
 		// Skip approval — set route directly to pending_deploy.
 		// route sits at pending_delete, persisted above.
-		if err := s.state.To(SiteRouteDeleteFastPath, route, models.RouteStatusPendingDeploy,
+		if err := s.state.To(models.SiteRouteDeleteFastPath, route, models.RouteStatusPendingDeploy,
 			"route deletion submitted, project approvals disabled"); err != nil {
 			return nil, err
 		}

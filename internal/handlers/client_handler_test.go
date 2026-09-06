@@ -12,7 +12,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/handlers"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -56,7 +56,7 @@ func TestClientHandler_Create_Success(t *testing.T) {
 	user := testUser() // owner role
 	teamID := uuid.New()
 	client := &models.Client{ID: uuid.New(), Name: "new-client", TeamID: teamID}
-	mockClient.On("Create", mock.AnythingOfType("*services.CreateClientInput"), user.ID).Return(client, nil)
+	mockClient.On("Create", mock.AnythingOfType("*clients.CreateClientInput"), user.ID).Return(client, nil)
 	mockAudit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	body, _ := json.Marshal(map[string]interface{}{"name": "new-client", "teamId": teamID.String()})
@@ -169,7 +169,7 @@ func TestClientHandler_Update_Success(t *testing.T) {
 	client := &models.Client{ID: clientID, Name: "client1", TeamID: teamID}
 	updatedClient := &models.Client{ID: clientID, Name: "updated-client", TeamID: teamID}
 	mockClient.On("GetByID", clientID).Return(client, nil)
-	mockClient.On("Update", clientID, mock.AnythingOfType("*services.UpdateClientInput")).Return(updatedClient, nil)
+	mockClient.On("Update", clientID, mock.AnythingOfType("*clients.UpdateClientInput")).Return(updatedClient, nil)
 	mockAudit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	body, _ := json.Marshal(map[string]string{"name": "updated-client"})
@@ -231,7 +231,7 @@ func TestClientHandler_AddIP_Success(t *testing.T) {
 	client := &models.Client{ID: clientID, Name: "client1", TeamID: teamID}
 	ip := &models.ClientIPAddress{ID: uuid.New(), ClientID: clientID, CIDR: "192.168.1.0/24"}
 	mockClient.On("GetByID", clientID).Return(client, nil)
-	mockClient.On("AddIP", clientID, mock.AnythingOfType("*services.CreateClientIPInput"), user.ID).Return(ip, nil)
+	mockClient.On("AddIP", clientID, mock.AnythingOfType("*clients.CreateClientIPInput"), user.ID).Return(ip, nil)
 	mockAudit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	body, _ := json.Marshal(map[string]string{"cidr": "192.168.1.0/24"})
@@ -290,14 +290,14 @@ func TestClientHandler_GenerateAPIKey_Success(t *testing.T) {
 	clientID := uuid.New()
 	teamID := uuid.New()
 	client := &models.Client{ID: clientID, Name: "client1", TeamID: teamID}
-	resp := &services.GenerateAPIKeyResponse{
+	resp := &clients.GenerateAPIKeyResponse{
 		APIKey:     "fg_live_abc123",
 		Prefix:     "fg_live_abc1",
 		HeaderName: "X-API-Key",
 		CreatedAt:  time.Now(),
 	}
 	mockClient.On("GetByID", clientID).Return(client, nil)
-	mockClient.On("GenerateAPIKey", mock.Anything, clientID, mock.AnythingOfType("*services.GenerateAPIKeyInput"), user.ID).Return(resp, nil)
+	mockClient.On("GenerateAPIKey", mock.Anything, clientID, mock.AnythingOfType("*clients.GenerateAPIKeyInput"), user.ID).Return(resp, nil)
 	mockAudit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	router := gin.New()
@@ -678,7 +678,7 @@ func TestClientHandler_ConfigureJWT_Success(t *testing.T) {
 	clientID := uuid.New()
 	teamID := uuid.New()
 	client := &models.Client{ID: clientID, Name: "client1", TeamID: teamID}
-	resp := &services.ConfigureJWTResponse{JWTEnabled: true}
+	resp := &clients.ConfigureJWTResponse{JWTEnabled: true}
 	mockClient.On("GetByID", clientID).Return(client, nil)
 	mockClient.On("ConfigureJWT", mock.Anything, clientID, mock.Anything, user.ID).Return(resp, nil)
 	mockAudit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -790,7 +790,7 @@ func TestClientHandler_UpdateJWT_Success(t *testing.T) {
 	teamID := uuid.New()
 	client := &models.Client{ID: clientID, Name: "client1", TeamID: teamID, JWTEnabled: true}
 	mockClient.On("GetByID", clientID).Return(client, nil)
-	mockClient.On("ConfigureJWT", mock.Anything, clientID, mock.Anything, user.ID).Return(&services.ConfigureJWTResponse{JWTEnabled: true, JWTIssuer: "https://auth.example.com"}, nil)
+	mockClient.On("ConfigureJWT", mock.Anything, clientID, mock.Anything, user.ID).Return(&clients.ConfigureJWTResponse{JWTEnabled: true, JWTIssuer: "https://auth.example.com"}, nil)
 	mockAudit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	body, _ := json.Marshal(map[string]string{"issuer": "https://auth.example.com", "jwksUrl": "https://auth.example.com/.well-known/jwks.json"})

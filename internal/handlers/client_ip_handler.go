@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -70,7 +70,7 @@ func (h *ClientHandler) AddIP(c *gin.Context) {
 		return
 	}
 
-	var input services.CreateClientIPInput
+	var input clients.CreateClientIPInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

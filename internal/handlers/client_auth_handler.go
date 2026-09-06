@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -36,7 +36,7 @@ func (h *ClientHandler) GenerateAPIKey(c *gin.Context) {
 		return
 	}
 
-	var input services.GenerateAPIKeyInput
+	var input clients.GenerateAPIKeyInput
 	// Input is optional, so we don't fail if body is empty
 	_ = c.ShouldBindJSON(&input)
 
@@ -135,7 +135,7 @@ func (h *ClientHandler) ConfigureJWT(c *gin.Context) {
 		return
 	}
 
-	var input services.ConfigureJWTInput
+	var input clients.ConfigureJWTInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -199,7 +199,7 @@ func (h *ClientHandler) UpdateJWT(c *gin.Context) {
 		return
 	}
 
-	var input services.ConfigureJWTInput
+	var input clients.ConfigureJWTInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -305,7 +305,7 @@ func (h *ClientHandler) UpdateClientMTLS(c *gin.Context) {
 		return
 	}
 
-	var input services.UpdateClientMTLSInput
+	var input clients.UpdateClientMTLSInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -360,7 +360,7 @@ func (h *ClientHandler) DeleteClientMTLS(c *gin.Context) {
 		return
 	}
 
-	client, err := h.clientService.UpdateClientMTLS(c.Request.Context(), clientID, &services.UpdateClientMTLSInput{
+	client, err := h.clientService.UpdateClientMTLS(c.Request.Context(), clientID, &clients.UpdateClientMTLSInput{
 		Enabled: false,
 	}, user.ID)
 	if err != nil {

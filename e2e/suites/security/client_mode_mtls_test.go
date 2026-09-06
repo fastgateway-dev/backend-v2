@@ -10,6 +10,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 )
 
 // TestClientModeMTLS ports client_mode/test_mtls.py, fixing the tautology
@@ -152,7 +153,7 @@ func TestClientModeMTLS(t *testing.T) {
 	// configureClientMTLS uses env.Editor, not env.Admin -- see its own
 	// doc comment for why (a real team-membership check with no
 	// owner-role bypass).
-	if err := configureClientMTLS(ctx, client.ID.String(), services.UpdateClientMTLSInput{
+	if err := configureClientMTLS(ctx, client.ID.String(), clients.UpdateClientMTLSInput{
 		Enabled: true,
 		CAName:  "Root CA 3",
 		CAPem:   caPEM,
@@ -161,7 +162,7 @@ func TestClientModeMTLS(t *testing.T) {
 		t.Fatalf("client mode mtls: configure client mTLS: %v", err)
 	}
 
-	if _, err := attachAndDeploy(ctx, route.ID.String(), services.AttachFromRouteInput{
+	if _, err := attachAndDeploy(ctx, route.ID.String(), clients.AttachFromRouteInput{
 		ClientID:   client.ID,
 		EnableMTLS: true,
 	}); err != nil {

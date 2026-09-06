@@ -132,7 +132,7 @@ func TestClientAttachmentHandler_AttachFromRoute_Success(t *testing.T) {
 	routeID := uuid.New()
 	clientID := uuid.New()
 	attachment := &models.ClientRouteAttachment{ID: uuid.New(), ClientID: clientID, RouteID: routeID, Status: "pending_approval"}
-	mockAttachment.On("AttachFromRoute", routeID, mock.AnythingOfType("*services.AttachFromRouteInput"), user.ID).Return(attachment, nil)
+	mockAttachment.On("AttachFromRoute", routeID, mock.AnythingOfType("*clients.AttachFromRouteInput"), user.ID).Return(attachment, nil)
 	mockRoute.On("GetDomainName", mock.AnythingOfType("uuid.UUID")).Return("test-domain", nil)
 	mockRoute.On("GetApprovalIDForEntity", models.ApprovalEntityClientAttachment, attachment.ID).Return(nil, errors.New("not found"))
 	mockAudit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -303,7 +303,7 @@ func TestClientAttachmentHandler_AttachFromClient_Success(t *testing.T) {
 	attachment := &models.ClientRouteAttachment{ID: uuid.New(), ClientID: clientID, RouteID: routeID, Status: "pending_approval"}
 
 	mockClient.On("GetByID", clientID).Return(client, nil)
-	mockAttachment.On("AttachFromClient", clientID, mock.AnythingOfType("*services.AttachFromClientInput"), user.ID).Return(attachment, nil)
+	mockAttachment.On("AttachFromClient", clientID, mock.AnythingOfType("*clients.AttachFromClientInput"), user.ID).Return(attachment, nil)
 	mockRoute.On("GetApprovalIDForEntity", models.ApprovalEntityClientAttachment, attachment.ID).Return(nil, errors.New("not found"))
 	mockAudit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -631,7 +631,7 @@ func TestClientAttachmentHandler_AttachFromRoute_ServiceError(t *testing.T) {
 	projectID := uuid.New()
 	routeID := uuid.New()
 	clientID := uuid.New()
-	mockAttachment.On("AttachFromRoute", routeID, mock.AnythingOfType("*services.AttachFromRouteInput"), user.ID).Return(nil, errors.New("already attached"))
+	mockAttachment.On("AttachFromRoute", routeID, mock.AnythingOfType("*clients.AttachFromRouteInput"), user.ID).Return(nil, errors.New("already attached"))
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"clientId": clientID.String(),
@@ -860,7 +860,7 @@ func TestClientAttachmentHandler_AttachFromClient_ServiceError(t *testing.T) {
 	routeID := uuid.New()
 	client := &models.Client{ID: clientID, TeamID: teamID, Name: "test-client"}
 	mockClient.On("GetByID", clientID).Return(client, nil)
-	mockAttachment.On("AttachFromClient", clientID, mock.AnythingOfType("*services.AttachFromClientInput"), user.ID).Return(nil, errors.New("already attached"))
+	mockAttachment.On("AttachFromClient", clientID, mock.AnythingOfType("*clients.AttachFromClientInput"), user.ID).Return(nil, errors.New("already attached"))
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"routeId":   routeID.String(),

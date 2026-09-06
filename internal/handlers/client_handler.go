@@ -1,25 +1,50 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
+	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
+// ClientServiceInterface is the subset of clients.ClientService that
+// ClientHandler uses.
+type ClientServiceInterface interface {
+	Create(input *clients.CreateClientInput, createdBy uuid.UUID) (*models.Client, error)
+	GetByID(id uuid.UUID) (*models.Client, error)
+	Update(id uuid.UUID, input *clients.UpdateClientInput) (*models.Client, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	List(page, limit int, teamID *uuid.UUID) ([]models.Client, int64, error)
+	AddIP(clientID uuid.UUID, input *clients.CreateClientIPInput, createdBy uuid.UUID) (*models.ClientIPAddress, error)
+	RemoveIP(clientID uuid.UUID, ipID uuid.UUID) error
+	ListIPs(clientID uuid.UUID) ([]models.ClientIPAddress, error)
+	GenerateAPIKey(ctx context.Context, clientID uuid.UUID, input *clients.GenerateAPIKeyInput, createdBy uuid.UUID) (*clients.GenerateAPIKeyResponse, error)
+	RevokeAPIKey(ctx context.Context, clientID uuid.UUID) error
+	ConfigureJWT(ctx context.Context, clientID uuid.UUID, input *clients.ConfigureJWTInput, createdBy uuid.UUID) (*clients.ConfigureJWTResponse, error)
+	RemoveJWT(ctx context.Context, clientID uuid.UUID) error
+	UpdateClientMTLS(ctx context.Context, clientID uuid.UUID, input *clients.UpdateClientMTLSInput, updatedBy uuid.UUID) (*models.Client, error)
+	AddHeader(clientID uuid.UUID, input *clients.CreateClientHeaderInput, createdBy uuid.UUID) (*models.ClientHeader, error)
+	RemoveHeader(clientID uuid.UUID, headerID uuid.UUID) error
+	ListHeaders(clientID uuid.UUID) ([]models.ClientHeader, error)
+	SetAllowedMethods(clientID uuid.UUID, methods []string) (*models.Client, error)
+}
+
 // ClientHandler handles client endpoints
 type ClientHandler struct {
-	clientService services.ClientServiceInterface
+	clientService ClientServiceInterface
 	auditService  services.AuditServiceInterface
 	perms         *middleware.PermissionChecker
 }
 
 // NewClientHandler creates a new client handler
 func NewClientHandler(
-	clientService services.ClientServiceInterface,
+	clientService ClientServiceInterface,
 	auditService services.AuditServiceInterface,
 	perms *middleware.PermissionChecker,
 ) *ClientHandler {
@@ -78,7 +103,7 @@ func (h *ClientHandler) Create(c *gin.Context) {
 		return
 	}
 
-	var input services.CreateClientInput
+	var input clients.CreateClientInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -155,7 +180,7 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		return
 	}
 
-	var input services.UpdateClientInput
+	var input clients.UpdateClientInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

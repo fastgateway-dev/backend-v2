@@ -8,6 +8,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
+	"github.com/fastgateway-dev/backend-v2/internal/routestate"
 	"github.com/google/uuid"
 )
 
@@ -46,10 +47,10 @@ type RouteService struct {
 	// constructor dependency since Phase 2E Task 6. See internal/approval.
 	approvals *approvalpkg.Engine
 
-	// state is the sole writer of route.Status. See route_state.go: before
-	// Phase 2D the field was assigned at 24 sites with no transition
+	// state is the sole writer of route.Status. See internal/routestate:
+	// before Phase 2D the field was assigned at 24 sites with no transition
 	// validation at all.
-	state *routeStateMachine
+	state *routestate.Machine
 
 	// idgen mints route IDs. Injected so the preview path is deterministic under
 	// test: the first 8 hex characters of the ID minted in PreviewCreate are
@@ -257,7 +258,7 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 	}
 	// routeRepo is already a constructor parameter, so the state machine
 	// needs no setter of its own.
-	svc.state = &routeStateMachine{repo: deps.RouteRepo}
+	svc.state = routestate.New(deps.RouteRepo)
 	return svc
 }
 

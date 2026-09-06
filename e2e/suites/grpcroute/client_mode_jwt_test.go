@@ -13,6 +13,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/e2e/testdata/pb/echo"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 )
 
 // TestGRPCClientModeJWT ports grpc_client_mode/test_jwt.py: a client
@@ -55,7 +56,7 @@ func TestGRPCClientModeJWT(t *testing.T) {
 		t.Fatalf("client mode jwt: configure client JWT: %v", err)
 	}
 
-	if _, err := attachAndDeploy(ctx, route.ID.String(), services.AttachFromRouteInput{
+	if _, err := attachAndDeploy(ctx, route.ID.String(), clients.AttachFromRouteInput{
 		ClientID:  client.ID,
 		EnableJWT: true,
 	}); err != nil {

@@ -23,6 +23,86 @@ const (
 	RouteStatusPendingDeploy RouteStatus = "pending_deploy" // Approved update/delete, waiting for deployment
 )
 
+// TransitionSite names one call site of routestate.Machine.To.
+//
+// PHASE 2E TASK 11 (ruling R12). Before this task legalTransitions was keyed
+// on (from, to) only, so ANY site could perform ANY transition that some
+// OTHER site was entitled to produce. Phase 2D recorded two consequences of
+// that and could not fix either without this key:
+//
+//   - transitions.md, "Known residual gaps" item 3 -- the detach fast path
+//     accepted the approved/rejected/pending_create origins that only the two
+//     ATTACH fast paths can actually reach.
+//   - The concrete hazard the final review found: OnRejected/update and
+//     OnCancelled/update could take a pending_deploy route to active, because
+//     pending_deploy -> active is legal for the DEPLOY site. That silently
+//     discards a queued redeploy -- the route stops being scheduled for a
+//     push it still needs.
+//
+// The constant's string value is its own identifier so that a rejection names
+// the site in the error; the doc comment on each carries the source location.
+type TransitionSite string
+
+const (
+	// SiteRouteCreateFastPath is route_write.go Create, approvals-disabled
+	// branch. The route was just persisted at pending_create.
+	SiteRouteCreateFastPath TransitionSite = "SiteRouteCreateFastPath"
+
+	// SiteRouteUpdate is route_write.go Update, the pending_update
+	// assignment. Enumeration site #19.
+	SiteRouteUpdate TransitionSite = "SiteRouteUpdate"
+
+	// SiteRouteUpdateFastPath is route_write.go Update, approvals-disabled
+	// branch. Enumeration site #20.
+	SiteRouteUpdateFastPath TransitionSite = "SiteRouteUpdateFastPath"
+
+	// SiteRouteDelete is route_write.go Delete, the pending_delete
+	// assignment. Enumeration site #21.
+	SiteRouteDelete TransitionSite = "SiteRouteDelete"
+
+	// SiteRouteDeleteFastPath is route_write.go Delete, approvals-disabled
+	// branch. Enumeration site #22.
+	SiteRouteDeleteFastPath TransitionSite = "SiteRouteDeleteFastPath"
+
+	// SiteApprovalApproved is route_approval.go RouteService.OnApproved.
+	// Enumeration sites #1, #2, #3.
+	SiteApprovalApproved TransitionSite = "SiteApprovalApproved"
+
+	// SiteApprovalRejected is route_approval.go RouteService.OnRejected.
+	// Enumeration sites #4, #5, #6.
+	SiteApprovalRejected TransitionSite = "SiteApprovalRejected"
+
+	// SiteApprovalCancelled is route_approval.go RouteService.OnCancelled,
+	// the update/delete case. Enumeration site #7. (A cancelled create
+	// deletes the row instead of moving its status.)
+	SiteApprovalCancelled TransitionSite = "SiteApprovalCancelled"
+
+	// SiteAttachFromRoute is client_attachment_service.go AttachFromRoute,
+	// approvals-disabled branch. Enumeration site #8.
+	SiteAttachFromRoute TransitionSite = "SiteAttachFromRoute"
+
+	// SiteAttachFromClient is client_attachment_service.go AttachFromClient,
+	// approvals-disabled branch. Enumeration site #9.
+	SiteAttachFromClient TransitionSite = "SiteAttachFromClient"
+
+	// SiteRequestDetach is client_attachment_service.go RequestDetach,
+	// approvals-disabled branch. Enumeration site #10.
+	SiteRequestDetach TransitionSite = "SiteRequestDetach"
+
+	// SiteAttachmentApproved is client_attachment_service.go
+	// updateRouteStatus, reached only from ClientAttachmentService.OnApproved
+	// under its route.Status == active guard.
+	SiteAttachmentApproved TransitionSite = "SiteAttachmentApproved"
+
+	// SiteClientCascade is client_service.go cascadeToAttachedRoutes, the
+	// single implementation behind the five cascade* methods. Guarded on
+	// route.Status == active.
+	SiteClientCascade TransitionSite = "SiteClientCascade"
+
+	// SiteDeploy is route_deploy.go Deploy. Enumeration sites #23, #24.
+	SiteDeploy TransitionSite = "SiteDeploy"
+)
+
 // RouteProtocol represents the protocol of a route
 type RouteProtocol string
 

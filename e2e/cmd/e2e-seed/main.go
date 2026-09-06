@@ -29,6 +29,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	clientspkg "github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/google/uuid"
 
 	corev1 "k8s.io/api/core/v1"
@@ -262,7 +263,7 @@ func main() {
 	clients := map[string]uuid.UUID{}
 
 	// Client 1: IP allowlist only
-	c1 := createClient(ctx, api, services.CreateClientInput{
+	c1 := createClient(ctx, api, clientspkg.CreateClientInput{
 		Name:         "ip-only-client",
 		Description:  "Client with only IP allowlist authentication",
 		TeamID:       teams["dev"],
@@ -279,7 +280,7 @@ func main() {
 	}
 
 	// Client 2: IP allowlist + API key
-	c2 := createClient(ctx, api, services.CreateClientInput{
+	c2 := createClient(ctx, api, clientspkg.CreateClientInput{
 		Name:               "ip-apikey-client",
 		Description:        "Client with IP allowlist and API key authentication",
 		TeamID:             teams["dev"],
@@ -302,7 +303,7 @@ func main() {
 	}
 
 	// Client 3: API key only
-	c3 := createClient(ctx, api, services.CreateClientInput{
+	c3 := createClient(ctx, api, clientspkg.CreateClientInput{
 		Name:               "apikey-only-client",
 		Description:        "Client with only API key authentication",
 		TeamID:             teams["money-dev"],
@@ -319,7 +320,7 @@ func main() {
 	}
 
 	// Client 4: JWT authentication (uses jwt-server)
-	c4 := createClient(ctx, api, services.CreateClientInput{
+	c4 := createClient(ctx, api, clientspkg.CreateClientInput{
 		Name:               "jwt-client",
 		Description:        "Client with JWT authentication via jwt-server",
 		TeamID:             teams["dev"],
@@ -329,7 +330,7 @@ func main() {
 	})
 	clients["jwt-client"] = c4.ID
 	log.Printf("  Created client: jwt-client (%s)", c4.ID)
-	if err := api.post(ctx, fmt.Sprintf("/clients/%s/jwt", c4.ID), services.ConfigureJWTInput{
+	if err := api.post(ctx, fmt.Sprintf("/clients/%s/jwt", c4.ID), clientspkg.ConfigureJWTInput{
 		// The Service is in "default", but the JWKS fetch happens from the
 		// Envoy proxy pod in "envoy-gateway-system", where the bare name
 		// "jwt-server" does not resolve -- use the in-cluster FQDN, same
@@ -348,7 +349,7 @@ func main() {
 	}
 
 	// Client 5: JWT + IP (combined auth)
-	c5 := createClient(ctx, api, services.CreateClientInput{
+	c5 := createClient(ctx, api, clientspkg.CreateClientInput{
 		Name:               "jwt-ip-client",
 		Description:        "Client with JWT + IP allowlist authentication",
 		TeamID:             teams["dev"],
@@ -359,7 +360,7 @@ func main() {
 	clients["jwt-ip-client"] = c5.ID
 	log.Printf("  Created client: jwt-ip-client (%s)", c5.ID)
 	addClientIP(ctx, api, c5.ID, "192.168.1.0/24", "Internal network")
-	if err := api.post(ctx, fmt.Sprintf("/clients/%s/jwt", c5.ID), services.ConfigureJWTInput{
+	if err := api.post(ctx, fmt.Sprintf("/clients/%s/jwt", c5.ID), clientspkg.ConfigureJWTInput{
 		// The Service is in "default", but the JWKS fetch happens from the
 		// Envoy proxy pod in "envoy-gateway-system", where the bare name
 		// "jwt-server" does not resolve -- use the in-cluster FQDN, same
@@ -548,7 +549,7 @@ func (a *seedAPI) post(ctx context.Context, path string, body, out any) error {
 
 // --- client helpers ---
 
-func createClient(ctx context.Context, api *seedAPI, input services.CreateClientInput) models.Client {
+func createClient(ctx context.Context, api *seedAPI, input clientspkg.CreateClientInput) models.Client {
 	var out models.Client
 	if err := api.post(ctx, "/clients", input, &out); err != nil {
 		log.Fatalf("FATAL: create client %s: %v", input.Name, err)
@@ -557,7 +558,7 @@ func createClient(ctx context.Context, api *seedAPI, input services.CreateClient
 }
 
 func addClientIP(ctx context.Context, api *seedAPI, clientID uuid.UUID, cidr, desc string) {
-	if err := api.post(ctx, fmt.Sprintf("/clients/%s/ips", clientID), services.CreateClientIPInput{
+	if err := api.post(ctx, fmt.Sprintf("/clients/%s/ips", clientID), clientspkg.CreateClientIPInput{
 		CIDR:        cidr,
 		Description: desc,
 	}, nil); err != nil {
@@ -567,9 +568,9 @@ func addClientIP(ctx context.Context, api *seedAPI, clientID uuid.UUID, cidr, de
 	log.Printf("    Added IP: %s", cidr)
 }
 
-func generateAPIKey(ctx context.Context, api *seedAPI, clientID uuid.UUID) (services.GenerateAPIKeyResponse, error) {
-	var out services.GenerateAPIKeyResponse
-	err := api.post(ctx, fmt.Sprintf("/clients/%s/api-key", clientID), services.GenerateAPIKeyInput{
+func generateAPIKey(ctx context.Context, api *seedAPI, clientID uuid.UUID) (clientspkg.GenerateAPIKeyResponse, error) {
+	var out clientspkg.GenerateAPIKeyResponse
+	err := api.post(ctx, fmt.Sprintf("/clients/%s/api-key", clientID), clientspkg.GenerateAPIKeyInput{
 		HeaderName: "x-api-key",
 	}, &out)
 	return out, err

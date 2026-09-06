@@ -8199,7 +8199,7 @@ func TestDirectResponsePercentWarnings(t *testing.T) {
 // Added in fix round 1 of Task 10+11. Before it, NOTHING in the test tree
 // stubbed a project with approvals off -- newTestRouteService never even
 // calls SetProjectRepository -- so the three route_write.go fast paths, all
-// migrated onto routeStateMachine.To in Task 10, ran unexercised. That same
+// migrated onto routestate.Machine.To in Task 10, ran unexercised. That same
 // blind spot is what let a wrong from-set for the attach fast paths ship (see
 // TestClientAttachmentService_AttachFromRoute_FastPath_*).
 //

@@ -12,6 +12,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 )
 
 // TestGRPCClientModeIPAllowlisting ports
@@ -85,7 +86,7 @@ func TestGRPCClientModeIPAllowlisting(t *testing.T) {
 	if err := addClientIP(ctx, clientAllow.ID.String(), "0.0.0.0/0", "allow all for testing"); err != nil {
 		t.Fatalf("client mode ip allowlisting: add allow-all CIDR: %v", err)
 	}
-	if _, err := attachAndDeploy(ctx, allowRoute.ID.String(), services.AttachFromRouteInput{
+	if _, err := attachAndDeploy(ctx, allowRoute.ID.String(), clients.AttachFromRouteInput{
 		ClientID:          clientAllow.ID,
 		EnableIPAllowlist: true,
 	}); err != nil {
@@ -132,7 +133,7 @@ func TestGRPCClientModeIPAllowlisting(t *testing.T) {
 	if err := addClientIP(ctx, clientDeny.ID.String(), "192.0.2.0/24", "excluded CIDR for testing"); err != nil {
 		t.Fatalf("client mode ip allowlisting: add excluded CIDR: %v", err)
 	}
-	if _, err := attachAndDeploy(ctx, denyRoute.ID.String(), services.AttachFromRouteInput{
+	if _, err := attachAndDeploy(ctx, denyRoute.ID.String(), clients.AttachFromRouteInput{
 		ClientID:          clientDeny.ID,
 		EnableIPAllowlist: true,
 	}); err != nil {

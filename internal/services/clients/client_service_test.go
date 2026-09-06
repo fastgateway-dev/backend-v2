@@ -1,4 +1,4 @@
-package services_test
+package clients_test
 
 import (
 	"context"
@@ -7,14 +7,14 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-// newTestClientService stands in for services.NewClientService now that
+// newTestClientService stands in for clients.NewClientService now that
 // every dependency is required (Phase 2E Task 3). Every test below built its
 // ClientService positionally with just (clientRepo, clientIPRepo, teamRepo),
 // passing nil for whatever it did not need; this helper preserves that call
@@ -38,7 +38,7 @@ func newTestClientService(
 	clientRepo *mocks.MockClientRepository,
 	clientIPRepo *mocks.MockClientIPRepository,
 	teamRepo *mocks.MockTeamRepository,
-) *services.ClientService {
+) *clients.ClientService {
 	if clientRepo == nil {
 		clientRepo = new(mocks.MockClientRepository)
 	}
@@ -75,7 +75,7 @@ func newTestClientService(
 	teamRepo.On("ListTeamProjects", mock.Anything).
 		Return([]models.ProjectTeamRole{}, nil).Maybe()
 
-	return services.NewClientService(services.ClientServiceDeps{
+	return clients.NewClientService(clients.ClientServiceDeps{
 		ClientRepo:           clientRepo,
 		ClientIPRepo:         clientIPRepo,
 		ClientHeaderRepo:     new(mocks.MockClientHeaderRepository),
@@ -99,7 +99,7 @@ func TestClientService_Create_Success(t *testing.T) {
 
 	teamID := uuid.New()
 	createdBy := uuid.New()
-	input := &services.CreateClientInput{
+	input := &clients.CreateClientInput{
 		Name:        "test-client",
 		Description: "A test client",
 		TeamID:      teamID,
@@ -135,7 +135,7 @@ func TestClientService_Create_DuplicateName(t *testing.T) {
 	teamRepo.On("GetByID", teamID).Return(&models.Team{ID: teamID}, nil)
 	clientRepo.On("ExistsByName", "dup-client").Return(true, nil)
 
-	_, err := svc.Create(&services.CreateClientInput{
+	_, err := svc.Create(&clients.CreateClientInput{
 		Name:   "dup-client",
 		TeamID: teamID,
 	}, uuid.New())
@@ -153,7 +153,7 @@ func TestClientService_Create_TeamNotFound(t *testing.T) {
 	teamID := uuid.New()
 	teamRepo.On("GetByID", teamID).Return(nil, errors.New("not found"))
 
-	_, err := svc.Create(&services.CreateClientInput{
+	_, err := svc.Create(&clients.CreateClientInput{
 		Name:   "test",
 		TeamID: teamID,
 	}, uuid.New())
@@ -208,7 +208,7 @@ func TestClientService_Update_Success(t *testing.T) {
 	clientRepo.On("Update", mock.AnythingOfType("*models.Client")).Return(nil)
 	clientRepo.On("GetByID", id).Return(&models.Client{ID: id, Name: "new-name"}, nil).Once()
 
-	result, err := svc.Update(id, &services.UpdateClientInput{Name: "new-name"})
+	result, err := svc.Update(id, &clients.UpdateClientInput{Name: "new-name"})
 
 	require.NoError(t, err)
 	assert.Equal(t, "new-name", result.Name)
@@ -222,7 +222,7 @@ func TestClientService_Update_NotFound(t *testing.T) {
 	id := uuid.New()
 	clientRepo.On("GetByID", id).Return(nil, errors.New("not found"))
 
-	_, err := svc.Update(id, &services.UpdateClientInput{Name: "x"})
+	_, err := svc.Update(id, &clients.UpdateClientInput{Name: "x"})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "client not found")
@@ -300,7 +300,7 @@ func TestClientService_AddIP_Success(t *testing.T) {
 		CIDR:     "10.0.0.0/24",
 	}, nil)
 
-	result, err := svc.AddIP(clientID, &services.CreateClientIPInput{CIDR: "10.0.0.0/24"}, createdBy)
+	result, err := svc.AddIP(clientID, &clients.CreateClientIPInput{CIDR: "10.0.0.0/24"}, createdBy)
 
 	require.NoError(t, err)
 	assert.Equal(t, "10.0.0.0/24", result.CIDR)
@@ -315,7 +315,7 @@ func TestClientService_AddIP_InvalidCIDR(t *testing.T) {
 	clientID := uuid.New()
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID}, nil)
 
-	_, err := svc.AddIP(clientID, &services.CreateClientIPInput{CIDR: "not-a-cidr"}, uuid.New())
+	_, err := svc.AddIP(clientID, &clients.CreateClientIPInput{CIDR: "not-a-cidr"}, uuid.New())
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid CIDR")
@@ -329,7 +329,7 @@ func TestClientService_AddIP_ClientNotFound(t *testing.T) {
 	clientID := uuid.New()
 	clientRepo.On("GetByID", clientID).Return(nil, errors.New("not found"))
 
-	_, err := svc.AddIP(clientID, &services.CreateClientIPInput{CIDR: "10.0.0.0/24"}, uuid.New())
+	_, err := svc.AddIP(clientID, &clients.CreateClientIPInput{CIDR: "10.0.0.0/24"}, uuid.New())
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "client not found")
@@ -445,7 +445,7 @@ func TestClientService_Update_DuplicateName(t *testing.T) {
 	clientRepo.On("GetByID", id).Return(existing, nil)
 	clientRepo.On("ExistsByNameExcluding", "dup-name", id).Return(true, nil)
 
-	_, err := svc.Update(id, &services.UpdateClientInput{Name: "dup-name"})
+	_, err := svc.Update(id, &clients.UpdateClientInput{Name: "dup-name"})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "client name already exists")
@@ -461,7 +461,7 @@ func TestClientService_Update_SameNameNoCheck(t *testing.T) {
 	clientRepo.On("Update", mock.AnythingOfType("*models.Client")).Return(nil)
 	clientRepo.On("GetByID", id).Return(&models.Client{ID: id, Name: "same-name", Description: "new desc"}, nil).Once()
 
-	result, err := svc.Update(id, &services.UpdateClientInput{Name: "same-name", Description: "new desc"})
+	result, err := svc.Update(id, &clients.UpdateClientInput{Name: "same-name", Description: "new desc"})
 
 	require.NoError(t, err)
 	assert.Equal(t, "new desc", result.Description)
@@ -514,7 +514,7 @@ func TestClientService_GenerateAPIKey_CustomHeaderName(t *testing.T) {
 	clientRepo.On("GetByID", clientID).Return(client, nil)
 	clientRepo.On("Update", mock.AnythingOfType("*models.Client")).Return(nil)
 
-	input := &services.GenerateAPIKeyInput{HeaderName: "X-Custom-Key"}
+	input := &clients.GenerateAPIKeyInput{HeaderName: "X-Custom-Key"}
 	result, err := svc.GenerateAPIKey(context.Background(), clientID, input, uuid.New())
 
 	require.NoError(t, err)
@@ -628,8 +628,8 @@ func TestClientService_RevokeAPIKey_NoKey(t *testing.T) {
 // NewClientService
 // ---------------------------------------------------------------------------
 
-func fullClientServiceDeps() services.ClientServiceDeps {
-	return services.ClientServiceDeps{
+func fullClientServiceDeps() clients.ClientServiceDeps {
+	return clients.ClientServiceDeps{
 		ClientRepo:           new(mocks.MockClientRepository),
 		ClientIPRepo:         new(mocks.MockClientIPRepository),
 		ClientHeaderRepo:     new(mocks.MockClientHeaderRepository),
@@ -642,20 +642,20 @@ func fullClientServiceDeps() services.ClientServiceDeps {
 }
 
 func TestNewClientService_RequiresEveryDependency(t *testing.T) {
-	require.NotPanics(t, func() { services.NewClientService(fullClientServiceDeps()) })
+	require.NotPanics(t, func() { clients.NewClientService(fullClientServiceDeps()) })
 
-	cases := map[string]func(*services.ClientServiceDeps){
-		"ClientRepo":           func(d *services.ClientServiceDeps) { d.ClientRepo = nil },
-		"ClientIPRepo":         func(d *services.ClientServiceDeps) { d.ClientIPRepo = nil },
-		"ClientHeaderRepo":     func(d *services.ClientServiceDeps) { d.ClientHeaderRepo = nil },
-		"TeamRepo":             func(d *services.ClientServiceDeps) { d.TeamRepo = nil },
-		"ClientAttachmentRepo": func(d *services.ClientServiceDeps) { d.ClientAttachmentRepo = nil },
-		"RouteRepo":            func(d *services.ClientServiceDeps) { d.RouteRepo = nil },
+	cases := map[string]func(*clients.ClientServiceDeps){
+		"ClientRepo":           func(d *clients.ClientServiceDeps) { d.ClientRepo = nil },
+		"ClientIPRepo":         func(d *clients.ClientServiceDeps) { d.ClientIPRepo = nil },
+		"ClientHeaderRepo":     func(d *clients.ClientServiceDeps) { d.ClientHeaderRepo = nil },
+		"TeamRepo":             func(d *clients.ClientServiceDeps) { d.TeamRepo = nil },
+		"ClientAttachmentRepo": func(d *clients.ClientServiceDeps) { d.ClientAttachmentRepo = nil },
+		"RouteRepo":            func(d *clients.ClientServiceDeps) { d.RouteRepo = nil },
 		// Required since Phase 2E Task 9 (fix round 1) deleted the two
 		// conditions that skipped Kubernetes secret cleanup when they were
 		// unset -- client_service.go Delete and UpdateClientMTLS.
-		"K8sSecrets": func(d *services.ClientServiceDeps) { d.K8sSecrets = nil },
-		"K8sAPIKeys": func(d *services.ClientServiceDeps) { d.K8sAPIKeys = nil },
+		"K8sSecrets": func(d *clients.ClientServiceDeps) { d.K8sSecrets = nil },
+		"K8sAPIKeys": func(d *clients.ClientServiceDeps) { d.K8sAPIKeys = nil },
 	}
 	for name, breakIt := range cases {
 		t.Run("nil "+name, func(t *testing.T) {
@@ -663,7 +663,7 @@ func TestNewClientService_RequiresEveryDependency(t *testing.T) {
 			breakIt(&d)
 			assert.PanicsWithValue(t,
 				"services.NewClientService: missing required dependency: "+name,
-				func() { services.NewClientService(d) })
+				func() { clients.NewClientService(d) })
 		})
 	}
 }

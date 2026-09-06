@@ -13,7 +13,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/e2e/harness"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 )
 
 // The Python grpc_client_mode suite drove client management (create,
@@ -27,7 +27,7 @@ import (
 
 // createClient mirrors api.py:create_client (POST /clients).
 func createClient(ctx context.Context, name string, td uuid.UUID) (harness.Client, error) {
-	body := services.CreateClientInput{
+	body := clients.CreateClientInput{
 		Name:         name,
 		Description:  "E2E test",
 		TeamID:       td,
@@ -47,8 +47,8 @@ func deleteClient(ctx context.Context, clientID string) error {
 // /clients/:clientId/api-key). headerName == "" lets the backend default it
 // to "x-api-key" (see ClientHandler.GenerateAPIKey).
 func generateClientAPIKey(ctx context.Context, clientID, headerName string) (apiKey string, err error) {
-	body := services.GenerateAPIKeyInput{HeaderName: headerName}
-	var out services.GenerateAPIKeyResponse
+	body := clients.GenerateAPIKeyInput{HeaderName: headerName}
+	var out clients.GenerateAPIKeyResponse
 	if _, err := env.Admin.Do(ctx, http.MethodPost, "/clients/"+clientID+"/api-key", body, &out); err != nil {
 		return "", err
 	}
@@ -57,7 +57,7 @@ func generateClientAPIKey(ctx context.Context, clientID, headerName string) (api
 
 // addClientIP mirrors api.py:add_client_ip (POST /clients/:clientId/ips).
 func addClientIP(ctx context.Context, clientID, cidr, description string) error {
-	body := services.CreateClientIPInput{CIDR: cidr, Description: description}
+	body := clients.CreateClientIPInput{CIDR: cidr, Description: description}
 	_, err := env.Admin.Do(ctx, http.MethodPost, "/clients/"+clientID+"/ips", body, nil)
 	return err
 }
@@ -65,7 +65,7 @@ func addClientIP(ctx context.Context, clientID, cidr, description string) error 
 // configureClientJWT mirrors api.py:configure_client_jwt (POST
 // /clients/:clientId/jwt).
 func configureClientJWT(ctx context.Context, clientID, issuer, jwksURL string, audiences []string) error {
-	body := services.ConfigureJWTInput{Issuer: issuer, JWKSURL: jwksURL, Audiences: audiences}
+	body := clients.ConfigureJWTInput{Issuer: issuer, JWKSURL: jwksURL, Audiences: audiences}
 	_, err := env.Admin.Do(ctx, http.MethodPost, "/clients/"+clientID+"/jwt", body, nil)
 	return err
 }
@@ -75,7 +75,7 @@ func configureClientJWT(ctx context.Context, clientID, issuer, jwksURL string, a
 // admin (owner bypasses team-membership checks, same as the Python
 // fixture), then redeploy the route as editor so the SecurityPolicy is
 // actually applied.
-func attachAndDeploy(ctx context.Context, routeID string, input services.AttachFromRouteInput) (models.ClientRouteAttachment, error) {
+func attachAndDeploy(ctx context.Context, routeID string, input clients.AttachFromRouteInput) (models.ClientRouteAttachment, error) {
 	attachment, err := env.Editor.AttachClient(ctx, env.ProjectID, env.DomainID, routeID, input)
 	if err != nil {
 		return models.ClientRouteAttachment{}, fmt.Errorf("attach client: %w", err)

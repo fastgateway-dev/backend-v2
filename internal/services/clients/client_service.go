@@ -1,4 +1,4 @@
-package services
+package clients
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
+	"github.com/fastgateway-dev/backend-v2/internal/routestate"
 	"github.com/google/uuid"
 )
 
@@ -28,10 +29,10 @@ type ClientService struct {
 	k8sSecrets SecretWriter
 	k8sAPIKeys APIKeySecretDeleter
 
-	// state is the sole writer of route.Status. See route_state.go.
+	// state is the sole writer of route.Status. See internal/routestate.
 	// routeRepo is a constructor parameter, so state is built alongside it
 	// in NewClientService.
-	state *routeStateMachine
+	state *routestate.Machine
 }
 
 // ClientServiceDeps carries everything ClientService needs. Every field is
@@ -102,7 +103,7 @@ func NewClientService(deps ClientServiceDeps) *ClientService {
 	}
 	// routeRepo is already a constructor parameter, so the state machine
 	// needs no setter of its own.
-	svc.state = &routeStateMachine{repo: deps.RouteRepo}
+	svc.state = routestate.New(deps.RouteRepo)
 	return svc
 }
 
