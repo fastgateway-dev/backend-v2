@@ -854,6 +854,48 @@ func TestRouteService_Update_AlreadyPendingApproval(t *testing.T) {
 	assert.EqualError(t, err, "there is already a pending approval for this route")
 }
 
+// TestRouteService_Update_UnknownSecurityMode_IsAccepted pins current
+// behaviour; it does not endorse it. Create rejects a security mode
+// outside {general, client} (TestRouteService_Create_InvalidSecurityMode).
+// Update has no else branch and accepts it. Phase 2K preserves both.
+//
+// Reaching the pending-approval error is the assertion: it proves the
+// update ran past security-mode validation without rejecting "invalid".
+func TestRouteService_Update_UnknownSecurityMode_IsAccepted(t *testing.T) {
+	svc, routeRepo, approvalRepo, _, domainRepo, _ := newTestRouteService()
+
+	routeID := uuid.New()
+	domainID := uuid.New()
+	projectID := uuid.New()
+
+	route := &models.Route{
+		ID:           routeID,
+		DomainID:     domainID,
+		Name:         "user-api",
+		Status:       models.RouteStatusActive,
+		SecurityMode: models.SecurityMode("invalid"),
+		Config:       makeBasicHTTPRouteConfig(),
+	}
+	domain := &models.Domain{ID: domainID, ProjectID: projectID}
+	existingApproval := &models.Approval{ID: uuid.New(), Status: models.ApprovalStatusPending}
+
+	routeRepo.On("GetByID", routeID).Return(route, nil)
+	domainRepo.On("GetByID", domainID).Return(domain, nil)
+	routeRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
+		Return([]models.Route{}, int64(0), nil)
+	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(existingApproval, nil)
+
+	input := &services.UpdateRouteInput{
+		Config: makeBasicHTTPRouteConfig(),
+	}
+
+	result, err := svc.Update(routeID, input, uuid.New())
+
+	assert.Nil(t, result)
+	assert.EqualError(t, err, "there is already a pending approval for this route")
+	assert.NotContains(t, err.Error(), "invalid security mode")
+}
+
 // =========================================================================
 // Update - validation errors (no backends)
 // =========================================================================

@@ -22,7 +22,7 @@ func TestTeamHandler_List_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser() // owner role
 	teams := []models.Team{
@@ -49,7 +49,7 @@ func TestTeamHandler_Create_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	team := &models.Team{ID: uuid.New(), Name: "new-team"}
@@ -73,7 +73,7 @@ func TestTeamHandler_Get_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	teamID := uuid.New()
 	team := &models.Team{ID: teamID, Name: "team1"}
@@ -94,7 +94,7 @@ func TestTeamHandler_Get_InvalidID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -110,7 +110,7 @@ func TestTeamHandler_Get_NotFound(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	teamID := uuid.New()
 	mockTeam.On("GetByID", teamID).Return(nil, errors.New("not found"))
@@ -130,7 +130,7 @@ func TestTeamHandler_Update_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -159,7 +159,7 @@ func TestTeamHandler_Delete_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -186,7 +186,7 @@ func TestTeamHandler_ListMembers_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	teamID := uuid.New()
 	members := []models.User{
@@ -215,7 +215,7 @@ func TestTeamHandler_AddMember_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -244,7 +244,7 @@ func TestTeamHandler_RemoveMember_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -270,7 +270,7 @@ func TestTeamHandler_ListProjectTeams_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	projectID := uuid.New()
 	teamRoles := []models.ProjectTeamRole{
@@ -295,7 +295,7 @@ func TestTeamHandler_ListTeamProjects_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	teamID := uuid.New()
 	projects := []models.ProjectTeamRole{
@@ -320,7 +320,7 @@ func TestTeamHandler_ListTeamProjects_InvalidID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	router := gin.New()
 	router.GET("/teams/:teamId/projects", func(c *gin.Context) {
@@ -338,7 +338,7 @@ func TestTeamHandler_GetProjectTeamRole_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	projectID := uuid.New()
 	teamID := uuid.New()
@@ -362,7 +362,7 @@ func TestTeamHandler_GetProjectTeamRole_InvalidProjectID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	router := gin.New()
 	router.GET("/projects/:projectId/teams/:teamId", func(c *gin.Context) {
@@ -380,7 +380,7 @@ func TestTeamHandler_RemoveTeamFromProject_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -406,7 +406,7 @@ func TestTeamHandler_ListMyTeams_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser() // owner role - sees all teams
 	teams := []models.Team{
@@ -429,7 +429,7 @@ func TestTeamHandler_ListMyTeams_NoUser(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -445,7 +445,7 @@ func TestTeamHandler_ListMyTeamsInProject_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -472,7 +472,7 @@ func TestTeamHandler_ListMyTeamsInProject_NoUser(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	projectID := uuid.New()
 
@@ -493,7 +493,7 @@ func TestTeamHandler_List_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	mockTeam.On("List").Return([]models.Team{}, errors.New("db error"))
@@ -513,7 +513,7 @@ func TestTeamHandler_Update_InvalidID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -534,7 +534,7 @@ func TestTeamHandler_Delete_InvalidID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -555,7 +555,7 @@ func TestTeamHandler_Delete_NotFound(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -579,7 +579,7 @@ func TestTeamHandler_AssignTeamToProject_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -613,7 +613,7 @@ func TestTeamHandler_UpdateTeamPresets_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -646,7 +646,7 @@ func TestTeamHandler_UpdateTeamPresets_InvalidProjectID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -667,7 +667,7 @@ func TestTeamHandler_UpdateTeamPresets_InvalidTeamID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -688,10 +688,8 @@ func TestTeamHandler_AddMemberByEmail_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
-
 	mockEmailInvite := new(mocks.MockTeamEmailInviteService)
-	h.SetEmailInviteService(mockEmailInvite)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, mockEmailInvite)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -719,7 +717,7 @@ func TestTeamHandler_AddMemberByEmail_InvalidTeamID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	router := gin.New()
 	router.POST("/teams/:teamId/members/email", func(c *gin.Context) {
@@ -738,7 +736,7 @@ func TestTeamHandler_AddMemberByEmail_InvalidBody(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	router := gin.New()
 	router.POST("/teams/:teamId/members/email", func(c *gin.Context) {
@@ -759,10 +757,8 @@ func TestTeamHandler_AddMemberByEmail_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
-
 	mockEmailInvite := new(mocks.MockTeamEmailInviteService)
-	h.SetEmailInviteService(mockEmailInvite)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, mockEmailInvite)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -789,10 +785,8 @@ func TestTeamHandler_ListInvites_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
-
 	mockEmailInvite := new(mocks.MockTeamEmailInviteService)
-	h.SetEmailInviteService(mockEmailInvite)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, mockEmailInvite)
 
 	teamID := uuid.New()
 	mockEmailInvite.On("ListInvites", teamID).Return([]models.TeamEmailInvite{}, nil)
@@ -814,7 +808,7 @@ func TestTeamHandler_ListInvites_InvalidTeamID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	router := gin.New()
 	router.GET("/teams/:teamId/invites", func(c *gin.Context) {
@@ -832,10 +826,8 @@ func TestTeamHandler_DeleteInvite_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
-
 	mockEmailInvite := new(mocks.MockTeamEmailInviteService)
-	h.SetEmailInviteService(mockEmailInvite)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, mockEmailInvite)
 
 	inviteID := uuid.New()
 	mockEmailInvite.On("DeleteInvite", inviteID).Return(nil)
@@ -857,7 +849,7 @@ func TestTeamHandler_DeleteInvite_InvalidID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	router := gin.New()
 	router.DELETE("/invites/:inviteId", func(c *gin.Context) {
@@ -875,7 +867,7 @@ func TestTeamHandler_ListProjectMembers_Success(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	projectID := uuid.New()
 	members := []models.User{
@@ -900,7 +892,7 @@ func TestTeamHandler_ListProjectMembers_InvalidProjectID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	router := gin.New()
 	router.GET("/projects/:projectId/members", func(c *gin.Context) {
@@ -918,7 +910,7 @@ func TestTeamHandler_ListProjectMembers_WithSearch(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	projectID := uuid.New()
 	mockTeam.On("ListProjectMembers", projectID, "john").Return([]models.User{}, nil)
@@ -940,7 +932,7 @@ func TestTeamHandler_Create_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	mockTeam.On("Create", mock.AnythingOfType("*services.CreateTeamInput")).Return(nil, errors.New("duplicate name"))
@@ -962,7 +954,7 @@ func TestTeamHandler_Create_InvalidBody(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -981,7 +973,7 @@ func TestTeamHandler_AddMember_InvalidTeamID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -1002,7 +994,7 @@ func TestTeamHandler_AddMember_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -1030,7 +1022,7 @@ func TestTeamHandler_RemoveMember_InvalidTeamID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -1051,7 +1043,7 @@ func TestTeamHandler_RemoveMember_InvalidUserID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -1072,7 +1064,7 @@ func TestTeamHandler_RemoveMember_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -1097,7 +1089,7 @@ func TestTeamHandler_List_NoUser(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -1113,7 +1105,7 @@ func TestTeamHandler_List_NonOwnerWithPermission(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := &models.User{
 		ID:       uuid.New(),
@@ -1142,7 +1134,7 @@ func TestTeamHandler_List_NonOwnerForbidden(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := &models.User{
 		ID:       uuid.New(),
@@ -1168,7 +1160,7 @@ func TestTeamHandler_List_NonOwnerRepoError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := &models.User{
 		ID:       uuid.New(),
@@ -1194,7 +1186,7 @@ func TestTeamHandler_ListProjectTeams_InvalidProjectID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	router := gin.New()
 	router.GET("/projects/:projectId/teams", func(c *gin.Context) {
@@ -1212,7 +1204,7 @@ func TestTeamHandler_ListProjectTeams_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	projectID := uuid.New()
 	mockTeam.On("ListProjectTeams", projectID).Return([]models.ProjectTeamRole{}, errors.New("db error"))
@@ -1234,7 +1226,7 @@ func TestTeamHandler_AssignTeamToProject_InvalidProjectID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -1255,7 +1247,7 @@ func TestTeamHandler_AssignTeamToProject_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -1285,7 +1277,7 @@ func TestTeamHandler_RemoveTeamFromProject_InvalidProjectID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -1306,7 +1298,7 @@ func TestTeamHandler_RemoveTeamFromProject_InvalidTeamID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -1327,7 +1319,7 @@ func TestTeamHandler_RemoveTeamFromProject_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -1352,7 +1344,7 @@ func TestTeamHandler_GetProjectTeamRole_InvalidTeamID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	router := gin.New()
 	router.GET("/projects/:projectId/teams/:teamId", func(c *gin.Context) {
@@ -1370,7 +1362,7 @@ func TestTeamHandler_GetProjectTeamRole_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	projectID := uuid.New()
 	teamID := uuid.New()
@@ -1393,7 +1385,7 @@ func TestTeamHandler_ListMyTeams_NonOwnerServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := &models.User{
 		ID:       uuid.New(),
@@ -1419,7 +1411,7 @@ func TestTeamHandler_ListMyTeamsInProject_InvalidProjectID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 
@@ -1440,7 +1432,7 @@ func TestTeamHandler_ListMyTeamsInProject_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -1464,7 +1456,7 @@ func TestTeamHandler_ListMembers_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	teamID := uuid.New()
 	mockTeam.On("ListMembers", teamID).Return([]models.User{}, errors.New("db error"))
@@ -1486,7 +1478,7 @@ func TestTeamHandler_ListTeamProjects_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	teamID := uuid.New()
 	mockTeam.On("ListTeamProjects", teamID).Return([]models.ProjectTeamRole{}, errors.New("db error"))
@@ -1508,7 +1500,7 @@ func TestTeamHandler_Update_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -1535,7 +1527,7 @@ func TestTeamHandler_Update_BadBody(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -1558,7 +1550,7 @@ func TestTeamHandler_Delete_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	teamID := uuid.New()
@@ -1584,7 +1576,7 @@ func TestTeamHandler_ListProjectMembers_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	projectID := uuid.New()
 	mockTeam.On("ListProjectMembers", projectID, "").Return([]models.User{}, errors.New("db error"))
@@ -1606,10 +1598,8 @@ func TestTeamHandler_ListInvites_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
-
 	mockEmailInvite := new(mocks.MockTeamEmailInviteService)
-	h.SetEmailInviteService(mockEmailInvite)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, mockEmailInvite)
 
 	teamID := uuid.New()
 	mockEmailInvite.On("ListInvites", teamID).Return([]models.TeamEmailInvite{}, errors.New("db error"))
@@ -1631,10 +1621,8 @@ func TestTeamHandler_DeleteInvite_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
-
 	mockEmailInvite := new(mocks.MockTeamEmailInviteService)
-	h.SetEmailInviteService(mockEmailInvite)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, mockEmailInvite)
 
 	inviteID := uuid.New()
 	mockEmailInvite.On("DeleteInvite", inviteID).Return(errors.New("not found"))
@@ -1656,7 +1644,7 @@ func TestTeamHandler_UpdateTeamPresets_ServiceError(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -1686,7 +1674,7 @@ func TestTeamHandler_ListMembers_InvalidTeamID(t *testing.T) {
 	mockTeam := new(mocks.MockTeamService)
 	mockTeamRepo := new(mocks.MockTeamRepository)
 	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit)
+	h := handlers.NewTeamHandler(mockTeam, permsFor(mockTeamRepo), mockAudit, nil)
 
 	router := gin.New()
 	router.GET("/teams/:teamId/members", func(c *gin.Context) {

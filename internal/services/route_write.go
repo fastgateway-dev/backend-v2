@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 
-	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
@@ -91,99 +89,12 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 		return nil, errors.New("domain not found")
 	}
 
-	// Validate backend required fields (namespace, service, port)
-	if err := s.validateBackendRequiredFields(&input.Config); err != nil {
+	if err := s.validateRouteTrafficPolicies(&input.Config, input.BackendTrafficPolicy, domain.ProjectID); err != nil {
 		return nil, err
 	}
 
-	// Validate backend namespaces are managed by the project
-	if err := s.validateBackendNamespaces(domain.ProjectID, &input.Config); err != nil {
+	if err := validateDirectResponseInput(&input.Config, input.BackendTrafficPolicy); err != nil {
 		return nil, err
-	}
-
-	// Validate mirror targets (must be different from primary backends)
-	if err := s.validateMirrorTargets(&input.Config); err != nil {
-		return nil, err
-	}
-
-	// Validate failover configuration (must have at least one primary when fallback exists)
-	if err := s.validateFailoverConfig(&input.Config); err != nil {
-		return nil, err
-	}
-
-	// Validate retry configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.Retry != nil {
-		if err := input.BackendTrafficPolicy.Retry.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid retry configuration: %w", err)
-		}
-	}
-
-	// Validate load balancer configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.LoadBalancer != nil {
-		if err := input.BackendTrafficPolicy.LoadBalancer.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid load balancer configuration: %w", err)
-		}
-	}
-
-	// Validate circuit breaker configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.CircuitBreaker != nil {
-		if err := input.BackendTrafficPolicy.CircuitBreaker.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid circuit breaker configuration: %w", err)
-		}
-	}
-
-	// Validate health check configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.HealthCheck != nil {
-		if err := input.BackendTrafficPolicy.HealthCheck.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid health check configuration: %w", err)
-		}
-	}
-
-	// Validate fault injection configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.FaultInjection != nil {
-		if err := input.BackendTrafficPolicy.FaultInjection.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid fault injection configuration: %w", err)
-		}
-	}
-
-	// Validate rate limit configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.RateLimit != nil {
-		if err := input.BackendTrafficPolicy.RateLimit.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid rate limit configuration: %w", err)
-		}
-	}
-
-	// Validate timeout configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.Timeout != nil {
-		if err := input.BackendTrafficPolicy.Timeout.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid timeout configuration: %w", err)
-		}
-	}
-
-	// Validate direct response configuration if provided
-	if input.Config.RouteType == models.RouteTypeDirectResponse {
-		if input.Config.DirectResponse == nil {
-			return nil, errors.New("directResponse configuration is required for directResponse route type")
-		}
-		if err := input.Config.DirectResponse.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid direct response configuration: %w", err)
-		}
-		// Direct response routes cannot have backends
-		if len(input.Config.Backends) > 0 {
-			return nil, errors.New("directResponse routes cannot have backends")
-		}
-		// Direct response routes cannot have URL rewrite
-		if input.Config.URLRewrite != nil {
-			return nil, errors.New("directResponse routes cannot have URL rewrite")
-		}
-		// Direct response routes cannot have request header modifier
-		if input.Config.RequestHeaderModifier != nil {
-			return nil, errors.New("directResponse routes cannot have request header modifier")
-		}
-		// Direct response routes cannot have backend traffic policy
-		if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.HasContent() {
-			return nil, errors.New("directResponse routes cannot have backend traffic policy")
-		}
 	}
 
 	// Verify team exists
@@ -203,40 +114,11 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 		securityMode = models.SecurityModeGeneral
 	}
 
-	// Validate security mode specific config
-	if securityMode == models.SecurityModeGeneral {
-		if err := validateSecurityModeGeneral(input.SecurityPolicy); err != nil {
-			return nil, err
-		}
-	} else if securityMode == models.SecurityModeClient {
-		if err := validateSecurityModeClient(input.SecurityPolicy); err != nil {
-			return nil, err
-		}
-	} else {
-		return nil, fmt.Errorf("invalid security mode: %s (must be 'general' or 'client')", securityMode)
-	}
-
-	// Validate protocol-specific config
-	if protocol == models.RouteProtocolGRPC {
-		if err := validateGRPCRouteConfig(&input.Config); err != nil {
-			return nil, err
-		}
-		if err := validateGRPCBackendTrafficPolicy(input.BackendTrafficPolicy); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := validateHTTPRouteConfig(&input.Config); err != nil {
-			return nil, err
-		}
-	}
-
-	// Validate essential route configuration
-	if err := validateRouteConfig(&input.Config, protocol); err != nil {
+	if err := validateWriteSecurityMode(securityMode, input.SecurityPolicy, true); err != nil {
 		return nil, err
 	}
 
-	// Check for matcher conflicts with existing routes in the domain
-	if err := s.validateMatcherConflict(domainID, &input.Config, nil); err != nil {
+	if err := s.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, protocol, domainID, nil); err != nil {
 		return nil, err
 	}
 
@@ -332,131 +214,16 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 		}
 	}
 
-	// Check if approvals are disabled for this project
-	project, err := s.projectRepo.GetByID(domain.ProjectID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check project approval settings: %w", err)
-	}
-	if !project.ApprovalEnabled {
-		// Skip approval — set route directly to approved.
-		// route was just persisted at pending_create (struct literal
-		// above), so this is pending_create -> approved and To always
-		// writes; nothing else has been mutated since routeRepo.Create.
-		if err := s.state.To(models.SiteRouteCreateFastPath, route, models.RouteStatusApproved,
-			"route created, project approvals disabled"); err != nil {
-			return nil, err
-		}
-		return route, nil
-	}
-
-	configSnapshot, _ := json.Marshal(models.RouteApprovalSnapshot{
-		RouteConfig:          &input.Config,
-		SecurityPolicy:       snapshotSP,
-		BackendTrafficPolicy: snapshotBTP,
-		EnvoyExtensionPolicy: snapshotEEP,
-		WafPolicy:            snapshotWaf,
-	})
-
-	// Submit plans the stages and persists the approval; the service no
-	// longer builds either.
-	approval, err := s.approvals.Submit(approvalpkg.Spec{
-		ProjectID:         domain.ProjectID,
-		EntityType:        models.ApprovalEntityRoute,
-		EntityID:          route.ID,
-		Action:            models.ApprovalActionCreate,
-		ConfigSnapshot:    configSnapshot,
-		SubmittedBy:       createdBy,
-		ChangeDescription: input.ChangeDescription,
-		AIReview:          input.AIReview,
-	})
+	approval, fastPath, err := s.submitCreateApproval(route, domain, input, createdBy, snapshotSP, snapshotBTP, snapshotEEP, snapshotWaf)
 	if err != nil {
 		return nil, err
 	}
-
-	// Create SecurityPolicy if provided
-	if input.SecurityPolicy != nil {
-		spConfig := models.SecurityPolicyConfig{
-			CORS: input.SecurityPolicy.CORS,
-		}
-		if securityMode == models.SecurityModeGeneral {
-			spConfig.Authorization = routeplan.BuildAuthorizationConfigFromInput(input.SecurityPolicy.Authorization)
-			spConfig.APIKeyAuth = routeplan.BuildAPIKeyAuthConfigFromInput(input.SecurityPolicy.APIKeyAuth)
-			spConfig.JWT = routeplan.BuildJWTConfigFromInput(input.SecurityPolicy.JWT)
-			spConfig.OIDC = routeplan.BuildOIDCConfigFromInput(input.SecurityPolicy.OIDC)
-		}
-		// ExtAuth is allowed in both modes
-		spConfig.ExtAuth = input.SecurityPolicy.ExtAuth
-		securityPolicy := &models.SecurityPolicy{
-			RouteID:   route.ID,
-			ProjectID: domain.ProjectID,
-			Config:    spConfig,
-		}
-		if err := s.securityPolicyRepo.Create(securityPolicy); err != nil {
-			return nil, fmt.Errorf("failed to create security policy: %w", err)
-		}
+	if fastPath {
+		return route, nil
 	}
 
-	// Create BackendTrafficPolicy if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.HasContent() {
-		backendTrafficPolicy := &models.BackendTrafficPolicy{
-			RouteID:   &route.ID,
-			ProjectID: domain.ProjectID,
-			Config: models.BackendTrafficPolicyConfig{
-				Compression:      input.BackendTrafficPolicy.Compression,
-				Retry:            input.BackendTrafficPolicy.Retry,
-				LoadBalancer:     input.BackendTrafficPolicy.LoadBalancer,
-				CircuitBreaker:   input.BackendTrafficPolicy.CircuitBreaker,
-				HealthCheck:      input.BackendTrafficPolicy.HealthCheck,
-				FaultInjection:   input.BackendTrafficPolicy.FaultInjection,
-				RateLimit:        input.BackendTrafficPolicy.RateLimit,
-				RequestBuffer:    input.BackendTrafficPolicy.RequestBuffer,
-				ResponseOverride: input.BackendTrafficPolicy.ResponseOverride,
-				Timeout:          input.BackendTrafficPolicy.Timeout,
-			},
-		}
-		if err := s.backendTrafficPolicyRepo.Create(backendTrafficPolicy); err != nil {
-			return nil, fmt.Errorf("failed to create backend traffic policy: %w", err)
-		}
-	}
-
-	// Create EnvoyExtensionPolicy if provided
-	if input.ExtensionPolicy != nil && input.ExtensionPolicy.HasContent() {
-		extensionPolicy := &models.EnvoyExtensionPolicy{
-			RouteID:   &route.ID,
-			ProjectID: domain.ProjectID,
-			Config: models.EnvoyExtensionPolicyConfig{
-				Lua:     input.ExtensionPolicy.Lua,
-				Wasm:    input.ExtensionPolicy.Wasm,
-				ExtProc: input.ExtensionPolicy.ExtProc,
-			},
-		}
-		if err := s.envoyExtensionPolicyRepo.Create(extensionPolicy); err != nil {
-			return nil, fmt.Errorf("failed to create envoy extension policy: %w", err)
-		}
-	}
-
-	// Create WAF policy if provided
-	if input.WafPolicy != nil {
-		wafConfig := models.WafPolicyConfig{
-			Mode:             input.WafPolicy.Mode,
-			Rulesets:         input.WafPolicy.Rulesets,
-			AnomalyThreshold: input.WafPolicy.AnomalyThreshold,
-			ParanoiaLevel:    input.WafPolicy.ParanoiaLevel,
-			DisabledRuleIDs:  input.WafPolicy.DisabledRuleIDs,
-			CustomDirectives: input.WafPolicy.CustomDirectives,
-		}
-		if err := wafConfig.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid WAF policy config: %w", err)
-		}
-
-		wafPolicy := &models.WafPolicy{
-			RouteID:   route.ID,
-			ProjectID: domain.ProjectID,
-			Config:    wafConfig,
-		}
-		if err := s.wafPolicyRepo.Create(wafPolicy); err != nil {
-			return nil, fmt.Errorf("failed to create WAF policy: %w", err)
-		}
+	if err := s.persistCreatePolicies(route, domain.ProjectID, securityMode, input); err != nil {
+		return nil, err
 	}
 
 	route.PendingApproval = approval
@@ -476,134 +243,20 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		return nil, errors.New("domain not found")
 	}
 
-	// Validate backend required fields (namespace, service, port)
-	if err := s.validateBackendRequiredFields(&input.Config); err != nil {
+	if err := s.validateRouteTrafficPolicies(&input.Config, input.BackendTrafficPolicy, domain.ProjectID); err != nil {
 		return nil, err
 	}
 
-	// Validate backend namespaces are managed by the project
-	if err := s.validateBackendNamespaces(domain.ProjectID, &input.Config); err != nil {
+	if err := validateWriteSecurityMode(route.SecurityMode, input.SecurityPolicy, false); err != nil {
 		return nil, err
 	}
 
-	// Validate mirror targets (must be different from primary backends)
-	if err := s.validateMirrorTargets(&input.Config); err != nil {
+	if err := s.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, route.Protocol, route.DomainID, &id); err != nil {
 		return nil, err
 	}
 
-	// Validate failover configuration (must have at least one primary when fallback exists)
-	if err := s.validateFailoverConfig(&input.Config); err != nil {
+	if err := validateDirectResponseInput(&input.Config, input.BackendTrafficPolicy); err != nil {
 		return nil, err
-	}
-
-	// Validate retry configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.Retry != nil {
-		if err := input.BackendTrafficPolicy.Retry.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid retry configuration: %w", err)
-		}
-	}
-
-	// Validate load balancer configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.LoadBalancer != nil {
-		if err := input.BackendTrafficPolicy.LoadBalancer.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid load balancer configuration: %w", err)
-		}
-	}
-
-	// Validate circuit breaker configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.CircuitBreaker != nil {
-		if err := input.BackendTrafficPolicy.CircuitBreaker.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid circuit breaker configuration: %w", err)
-		}
-	}
-
-	// Validate health check configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.HealthCheck != nil {
-		if err := input.BackendTrafficPolicy.HealthCheck.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid health check configuration: %w", err)
-		}
-	}
-
-	// Validate fault injection configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.FaultInjection != nil {
-		if err := input.BackendTrafficPolicy.FaultInjection.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid fault injection configuration: %w", err)
-		}
-	}
-
-	// Validate rate limit configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.RateLimit != nil {
-		if err := input.BackendTrafficPolicy.RateLimit.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid rate limit configuration: %w", err)
-		}
-	}
-
-	// Validate timeout configuration if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.Timeout != nil {
-		if err := input.BackendTrafficPolicy.Timeout.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid timeout configuration: %w", err)
-		}
-	}
-
-	// Validate security mode specific config (use route's existing security mode)
-	if route.SecurityMode == models.SecurityModeGeneral || route.SecurityMode == "" {
-		if err := validateSecurityModeGeneral(input.SecurityPolicy); err != nil {
-			return nil, err
-		}
-	} else if route.SecurityMode == models.SecurityModeClient {
-		if err := validateSecurityModeClient(input.SecurityPolicy); err != nil {
-			return nil, err
-		}
-	}
-
-	// Validate protocol-specific config
-	if route.Protocol == models.RouteProtocolGRPC {
-		if err := validateGRPCRouteConfig(&input.Config); err != nil {
-			return nil, err
-		}
-		if err := validateGRPCBackendTrafficPolicy(input.BackendTrafficPolicy); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := validateHTTPRouteConfig(&input.Config); err != nil {
-			return nil, err
-		}
-	}
-
-	// Validate essential route configuration
-	if err := validateRouteConfig(&input.Config, route.Protocol); err != nil {
-		return nil, err
-	}
-
-	// Check for matcher conflicts with existing routes in the domain
-	if err := s.validateMatcherConflict(route.DomainID, &input.Config, &id); err != nil {
-		return nil, err
-	}
-
-	// Validate direct response configuration if provided
-	if input.Config.RouteType == models.RouteTypeDirectResponse {
-		if input.Config.DirectResponse == nil {
-			return nil, errors.New("directResponse configuration is required for directResponse route type")
-		}
-		if err := input.Config.DirectResponse.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid direct response configuration: %w", err)
-		}
-		// Direct response routes cannot have backends
-		if len(input.Config.Backends) > 0 {
-			return nil, errors.New("directResponse routes cannot have backends")
-		}
-		// Direct response routes cannot have URL rewrite
-		if input.Config.URLRewrite != nil {
-			return nil, errors.New("directResponse routes cannot have URL rewrite")
-		}
-		// Direct response routes cannot have request header modifier
-		if input.Config.RequestHeaderModifier != nil {
-			return nil, errors.New("directResponse routes cannot have request header modifier")
-		}
-		// Direct response routes cannot have backend traffic policy
-		if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.HasContent() {
-			return nil, errors.New("directResponse routes cannot have backend traffic policy")
-		}
 	}
 
 	// Check if there's already a pending approval
@@ -730,148 +383,27 @@ func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy
 		previousWafPolicy = &prevWaf
 	}
 
-	// Check if approvals are disabled for this project
-	project, err := s.projectRepo.GetByID(domain.ProjectID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check project approval settings: %w", err)
-	}
-	if !project.ApprovalEnabled {
-		// Skip approval — set route directly to pending_deploy.
-		// route sits at pending_update, persisted above, and no field
-		// other than Status has been touched since.
-		if err := s.state.To(models.SiteRouteUpdateFastPath, route, models.RouteStatusPendingDeploy,
-			"route update submitted, project approvals disabled"); err != nil {
-			return nil, err
-		}
-		return route, nil
-	}
+	approval, fastPath, err := s.submitUpdateApproval(route, domain, input, submittedBy, updateApprovalSnapshots{
+		ProposedSecurityPolicy:       updateSnapshotSP,
+		ProposedBackendTrafficPolicy: updateSnapshotBTP,
+		ProposedEnvoyExtensionPolicy: updateSnapshotEEP,
+		ProposedWafPolicy:            updateSnapshotWaf,
 
-	configSnapshot, _ := json.Marshal(models.RouteApprovalSnapshot{
-		RouteConfig:          &input.Config,
-		SecurityPolicy:       updateSnapshotSP,
-		BackendTrafficPolicy: updateSnapshotBTP,
-		EnvoyExtensionPolicy: updateSnapshotEEP,
-		WafPolicy:            updateSnapshotWaf,
-	})
-
-	// Build previous config snapshot
-	var prevConfigSnapshot json.RawMessage
-	prevConfigSnapshot, _ = json.Marshal(models.RouteApprovalSnapshot{
-		RouteConfig:          &previousConfig,
-		SecurityPolicy:       previousSecurityPolicy,
-		BackendTrafficPolicy: previousBackendTrafficPolicy,
-		EnvoyExtensionPolicy: previousEnvoyExtensionPolicy,
-		WafPolicy:            previousWafPolicy,
-	})
-
-	approval, err := s.approvals.Submit(approvalpkg.Spec{
-		ProjectID:         domain.ProjectID,
-		EntityType:        models.ApprovalEntityRoute,
-		EntityID:          route.ID,
-		Action:            models.ApprovalActionUpdate,
-		ConfigSnapshot:    configSnapshot,
-		PreviousConfig:    prevConfigSnapshot,
-		SubmittedBy:       submittedBy,
-		ChangeDescription: input.ChangeDescription,
-		AIReview:          input.AIReview,
+		PreviousConfig:               previousConfig,
+		PreviousSecurityPolicy:       previousSecurityPolicy,
+		PreviousBackendTrafficPolicy: previousBackendTrafficPolicy,
+		PreviousEnvoyExtensionPolicy: previousEnvoyExtensionPolicy,
+		PreviousWafPolicy:            previousWafPolicy,
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	// Update or create SecurityPolicy if provided
-	if input.SecurityPolicy != nil {
-		spConfig := models.SecurityPolicyConfig{
-			CORS: input.SecurityPolicy.CORS,
-		}
-		if route.SecurityMode == models.SecurityModeGeneral || route.SecurityMode == "" {
-			spConfig.Authorization = routeplan.BuildAuthorizationConfigFromInput(input.SecurityPolicy.Authorization)
-			spConfig.APIKeyAuth = routeplan.BuildAPIKeyAuthConfigFromInput(input.SecurityPolicy.APIKeyAuth)
-			spConfig.JWT = routeplan.BuildJWTConfigFromInput(input.SecurityPolicy.JWT)
-			spConfig.OIDC = routeplan.BuildOIDCConfigFromInput(input.SecurityPolicy.OIDC)
-		}
-		// ExtAuth is allowed in both modes
-		spConfig.ExtAuth = input.SecurityPolicy.ExtAuth
-		securityPolicy := &models.SecurityPolicy{
-			RouteID:   route.ID,
-			ProjectID: domain.ProjectID,
-			Config:    spConfig,
-		}
-		if err := s.securityPolicyRepo.Upsert(securityPolicy); err != nil {
-			return nil, fmt.Errorf("failed to update security policy: %w", err)
-		}
-	} else if input.SecurityPolicy == nil {
-		// If SecurityPolicy is explicitly nil, delete existing one
-		_ = s.securityPolicyRepo.DeleteByRouteID(route.ID)
+	if fastPath {
+		return route, nil
 	}
 
-	// Update or create BackendTrafficPolicy if provided
-	if input.BackendTrafficPolicy != nil && input.BackendTrafficPolicy.HasContent() {
-		backendTrafficPolicy := &models.BackendTrafficPolicy{
-			RouteID:   &route.ID,
-			ProjectID: domain.ProjectID,
-			Config: models.BackendTrafficPolicyConfig{
-				Compression:      input.BackendTrafficPolicy.Compression,
-				Retry:            input.BackendTrafficPolicy.Retry,
-				LoadBalancer:     input.BackendTrafficPolicy.LoadBalancer,
-				CircuitBreaker:   input.BackendTrafficPolicy.CircuitBreaker,
-				HealthCheck:      input.BackendTrafficPolicy.HealthCheck,
-				FaultInjection:   input.BackendTrafficPolicy.FaultInjection,
-				RateLimit:        input.BackendTrafficPolicy.RateLimit,
-				RequestBuffer:    input.BackendTrafficPolicy.RequestBuffer,
-				ResponseOverride: input.BackendTrafficPolicy.ResponseOverride,
-				Timeout:          input.BackendTrafficPolicy.Timeout,
-			},
-		}
-		if err := s.backendTrafficPolicyRepo.Upsert(backendTrafficPolicy); err != nil {
-			return nil, fmt.Errorf("failed to update backend traffic policy: %w", err)
-		}
-	} else if input.BackendTrafficPolicy == nil || !input.BackendTrafficPolicy.HasContent() {
-		// If BackendTrafficPolicy is explicitly nil or has no content, delete existing one
-		_ = s.backendTrafficPolicyRepo.DeleteByRouteID(route.ID)
-	}
-
-	// Update or create EnvoyExtensionPolicy if provided
-	if input.ExtensionPolicy != nil && input.ExtensionPolicy.HasContent() {
-		extensionPolicy := &models.EnvoyExtensionPolicy{
-			RouteID:   &route.ID,
-			ProjectID: domain.ProjectID,
-			Config: models.EnvoyExtensionPolicyConfig{
-				Lua:     input.ExtensionPolicy.Lua,
-				Wasm:    input.ExtensionPolicy.Wasm,
-				ExtProc: input.ExtensionPolicy.ExtProc,
-			},
-		}
-		if err := s.envoyExtensionPolicyRepo.Upsert(extensionPolicy); err != nil {
-			return nil, fmt.Errorf("failed to update envoy extension policy: %w", err)
-		}
-	} else if input.ExtensionPolicy == nil || !input.ExtensionPolicy.HasContent() {
-		// If ExtensionPolicy is explicitly nil or has no content, delete existing one
-		_ = s.envoyExtensionPolicyRepo.DeleteByRouteID(route.ID)
-	}
-
-	// Update WAF policy if provided
-	if input.WafPolicy != nil {
-		wafConfig := models.WafPolicyConfig{
-			Mode:             input.WafPolicy.Mode,
-			Rulesets:         input.WafPolicy.Rulesets,
-			AnomalyThreshold: input.WafPolicy.AnomalyThreshold,
-			ParanoiaLevel:    input.WafPolicy.ParanoiaLevel,
-			DisabledRuleIDs:  input.WafPolicy.DisabledRuleIDs,
-			CustomDirectives: input.WafPolicy.CustomDirectives,
-		}
-		if err := wafConfig.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid WAF policy config: %w", err)
-		}
-
-		wafPolicy := &models.WafPolicy{
-			RouteID:   route.ID,
-			ProjectID: domain.ProjectID,
-			Config:    wafConfig,
-		}
-		if err := s.wafPolicyRepo.Upsert(wafPolicy); err != nil {
-			return nil, fmt.Errorf("failed to update WAF policy: %w", err)
-		}
+	if err := s.persistUpdatePolicies(route, domain.ProjectID, input); err != nil {
+		return nil, err
 	}
 
 	route.PendingApproval = approval
@@ -929,40 +461,12 @@ func (s *RouteService) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Rout
 		deletePrevWaf = &wafConfig
 	}
 
-	// Check if approvals are disabled for this project
-	project, err := s.projectRepo.GetByID(domain.ProjectID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check project approval settings: %w", err)
-	}
-	if !project.ApprovalEnabled {
-		// Skip approval — set route directly to pending_deploy.
-		// route sits at pending_delete, persisted above.
-		if err := s.state.To(models.SiteRouteDeleteFastPath, route, models.RouteStatusPendingDeploy,
-			"route deletion submitted, project approvals disabled"); err != nil {
-			return nil, err
-		}
-		return route, nil
-	}
-
-	// Build config snapshot (current config being deleted)
-	configSnapshot, _ := json.Marshal(models.RouteApprovalSnapshot{
-		RouteConfig:          &route.Config,
-		SecurityPolicy:       deletePrevSP,
-		BackendTrafficPolicy: deletePrevBTP,
-		EnvoyExtensionPolicy: deletePrevEEP,
-		WafPolicy:            deletePrevWaf,
-	})
-
-	approval, err := s.approvals.Submit(approvalpkg.Spec{
-		ProjectID:      domain.ProjectID,
-		EntityType:     models.ApprovalEntityRoute,
-		EntityID:       route.ID,
-		Action:         models.ApprovalActionDelete,
-		ConfigSnapshot: configSnapshot,
-		SubmittedBy:    submittedBy,
-	})
+	approval, fastPath, err := s.submitDeleteApproval(route, domain, submittedBy, deletePrevSP, deletePrevBTP, deletePrevEEP, deletePrevWaf)
 	if err != nil {
 		return nil, err
+	}
+	if fastPath {
+		return route, nil
 	}
 
 	route.PendingApproval = approval
