@@ -9,6 +9,7 @@ type VersionPair struct {
 // SupportedVersionPairs are the (EG, GatewayAPI) combinations FastGateway has
 // been explicitly tested against. Add new pairs as new versions are validated.
 var SupportedVersionPairs = []VersionPair{
+	{EnvoyGateway: "1.8.4", GatewayAPI: "1.5.1"},
 	{EnvoyGateway: "1.7.0", GatewayAPI: "1.4.1"},
 	{EnvoyGateway: "1.6.2", GatewayAPI: "1.4.1"},
 }

@@ -36,6 +36,13 @@ type Config struct {
 	// naming the release in a failure or skip message, so a report says
 	// WHICH Envoy Gateway produced the behaviour -- see
 	// grpcroute/features_mirror_test.go.
+	//
+	// The one sanctioned branch is ExpectationFor in expectations.go, which
+	// does not weaken anything: a matched test asserts the divergent
+	// behaviour instead of the correct one, and fails when the release stops
+	// diverging. Prefer detecting the defect from live cluster state where
+	// that is possible -- features_mirror_test.go reads the gateway's own
+	// ResolvedRefs message and needs no version window at all.
 	EnvoyGatewayVersion string
 }
 
