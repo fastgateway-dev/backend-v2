@@ -285,7 +285,7 @@ func main() {
 	topologyHandler := handlers.NewTopologyHandler(topologyService)
 	openapiImportService := services.NewOpenAPIImportService()
 	openapiImportHandler := handlers.NewOpenAPIImportHandler(openapiImportService)
-	teamHandler := handlers.NewTeamHandler(teamService, permChecker, auditService)
+	teamHandler := handlers.NewTeamHandler(teamService, permChecker, auditService, emailInviteService)
 	domainTemplateHandler := handlers.NewDomainTemplateHandler(domainTemplateService, auditService, domainTemplateService)
 	domainHandler := handlers.NewDomainHandler(domainService, auditService, permChecker, domainService)
 	routeHandler := handlers.NewRouteHandler(routeService, auditService, permChecker)
@@ -302,9 +302,6 @@ func main() {
 	presetHandler := handlers.NewPresetHandler(presetService, auditService)
 	commentHandler := handlers.NewCommentHandler(commentService)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
-
-	// Wire email invite service into team handler
-	teamHandler.SetEmailInviteService(emailInviteService)
 
 	// Initialize SSO handler
 	frontendURL := ""

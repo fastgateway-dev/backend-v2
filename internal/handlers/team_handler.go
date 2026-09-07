@@ -18,17 +18,13 @@ type TeamHandler struct {
 	emailInviteService services.TeamEmailInviteServiceInterface
 }
 
-// SetEmailInviteService sets the email invite service on the handler
-func (h *TeamHandler) SetEmailInviteService(s services.TeamEmailInviteServiceInterface) {
-	h.emailInviteService = s
-}
-
 // NewTeamHandler creates a new team handler
-func NewTeamHandler(teamService services.TeamServiceInterface, perms *middleware.PermissionChecker, auditService services.AuditServiceInterface) *TeamHandler {
+func NewTeamHandler(teamService services.TeamServiceInterface, perms *middleware.PermissionChecker, auditService services.AuditServiceInterface, emailInviteService services.TeamEmailInviteServiceInterface) *TeamHandler {
 	return &TeamHandler{
-		teamService:  teamService,
-		perms:        perms,
-		auditService: auditService,
+		teamService:        teamService,
+		perms:              perms,
+		auditService:       auditService,
+		emailInviteService: emailInviteService,
 	}
 }
 

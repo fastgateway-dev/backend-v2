@@ -412,9 +412,9 @@ var observedTransitions = []struct {
 	{At: models.SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:608 cascadeAPIKeyChangeToRoutes"},
 	{At: models.SiteClientCascade, From: models.RouteStatusActive, To: models.RouteStatusPendingDeploy, Site: "client_service.go:796 cascadeJWTChangeToRoutes"},
 
-	{At: models.SiteRouteCreateFastPath, From: models.RouteStatusPendingCreate, To: models.RouteStatusApproved, Site: "route_write.go:343 Create/approvals-disabled"},
-	{At: models.SiteRouteUpdateFastPath, From: models.RouteStatusPendingUpdate, To: models.RouteStatusPendingDeploy, Site: "route_write.go:734 Update/approvals-disabled"},
-	{At: models.SiteRouteDeleteFastPath, From: models.RouteStatusPendingDelete, To: models.RouteStatusPendingDeploy, Site: "route_write.go:941 Delete/approvals-disabled"},
+	{At: models.SiteRouteCreateFastPath, From: models.RouteStatusPendingCreate, To: models.RouteStatusApproved, Site: "route_write_approval.go:34 Create/approvals-disabled"},
+	{At: models.SiteRouteUpdateFastPath, From: models.RouteStatusPendingUpdate, To: models.RouteStatusPendingDeploy, Site: "route_write_approval.go:88 Update/approvals-disabled"},
+	{At: models.SiteRouteDeleteFastPath, From: models.RouteStatusPendingDelete, To: models.RouteStatusPendingDeploy, Site: "route_write_approval.go:127 Delete/approvals-disabled"},
 	{At: models.SiteDeploy, From: models.RouteStatusApproved, To: models.RouteStatusActive, Site: "route_deploy.go:124 Deploy/create"},
 	{At: models.SiteDeploy, From: models.RouteStatusPendingDeploy, To: models.RouteStatusActive, Site: "route_deploy.go:195 Deploy/update"},
 }
