@@ -124,8 +124,68 @@ func TestMTLSEnabledWithNoCARejectsConnections(t *testing.T) {
 		logClientTrafficPolicyStatus(t, logCtx)
 	})
 
-	// 3. Poll until the domain stops returning 2xx.
+	// 3. Poll until the domain stops returning 2xx -- unless this release is
+	// listed in harness.Expectations, in which case assert the divergence
+	// instead, so the entry retires itself the moment the release fixes it.
+	if exp := harness.ExpectationFor(t.Name(), env.Cfg.EnvoyGatewayVersion); exp != nil {
+		t.Logf("mtls no-ca: Envoy Gateway %s is %s", env.Cfg.EnvoyGatewayVersion, exp)
+		requireDomainStillServing(t, ctx, probe, changeTime, exp)
+		return
+	}
 	waitForDomainBlocked(t, ctx, probe, changeTime, routeLiveTimeout)
+}
+
+// knownFailProbeCount is how many consecutive 2xx probes requireDomainStillServing
+// demands before it will confirm a release is still ignoring the policy. It
+// mirrors consecutiveTLSFailuresRequired's reasoning inverted: one 2xx could be
+// a stale connection, three in a row after the reconcile has settled is the
+// steady state.
+const knownFailProbeCount = 3
+
+// requireDomainStillServing asserts the KNOWN-BAD behaviour recorded in
+// harness.Expectations: the domain keeps serving 2xx to a request carrying no
+// client certificate, because this Envoy Gateway release never reconciles the
+// zero-CA ClientTrafficPolicy.
+//
+// It is deliberately the inverse of waitForDomainBlocked rather than a skip.
+// A skip would keep passing forever after upstream fixed the defect, and the
+// exemption would outlive its reason with nothing to reveal it. This fails the
+// moment the domain starts blocking -- which is the good news -- and names the
+// entry to delete.
+//
+// It waits out mtlsReconcileSettleWindow for the same reason waitForDomainBlocked
+// does: probes taken mid-reconcile describe the transition, not the steady state.
+func requireDomainStillServing(t *testing.T, ctx context.Context, probe func(context.Context) (*harness.Response, error), changeTime time.Time, exp *harness.Expectation) {
+	t.Helper()
+
+	settleDeadline := changeTime.Add(mtlsReconcileSettleWindow)
+	for time.Now().Before(settleDeadline) {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("mtls no-ca: context cancelled waiting out the reconcile settle window: %v", ctx.Err())
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	for i := 0; i < knownFailProbeCount; i++ {
+		resp, err := probe(ctx)
+		if err != nil {
+			t.Fatalf("mtls no-ca: probe %d/%d hit a transport error, but %s is recorded as serving traffic: %v\n"+
+				"If this release now fails closed, DELETE the harness.Expectations entry for %s -- the defect is fixed.",
+				i+1, knownFailProbeCount, exp.Ref, err, t.Name())
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			t.Fatalf("mtls no-ca: probe %d/%d returned HTTP %d, but %s is recorded as serving 2xx.\n"+
+				"This release now blocks unauthenticated traffic -- DELETE the harness.Expectations entry for %s.",
+				i+1, knownFailProbeCount, resp.StatusCode, exp.Ref, t.Name())
+		}
+		if i+1 < knownFailProbeCount {
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	t.Logf("mtls no-ca: confirmed still serving 2xx with no client certificate after %s -- "+
+		"the fail-open recorded in %s is unchanged on this release", mtlsReconcileSettleWindow, exp.Ref)
 }
 
 // consecutiveTLSFailuresRequired is how many IN-A-ROW blocked probes
