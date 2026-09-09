@@ -14,39 +14,6 @@ import (
 
 // RouteService handles route business logic
 type RouteService struct {
-	routeRepo                repository.RouteRepositoryInterface
-	approvalRepo             repository.UnifiedApprovalRepositoryInterface
-	policyRepo               repository.ApprovalPolicyRepositoryInterface
-	domainRepo               repository.DomainRepositoryInterface
-	teamRepo                 repository.TeamRepositoryInterface
-	projectNamespaceRepo     repository.ProjectNamespaceRepositoryInterface
-	securityPolicyRepo       repository.SecurityPolicyRepositoryInterface
-	backendTrafficPolicyRepo repository.BackendTrafficPolicyRepositoryInterface
-	envoyExtensionPolicyRepo repository.EnvoyExtensionPolicyRepositoryInterface
-	wafPolicyRepo            repository.WafPolicyRepositoryInterface
-	clientAttachmentRepo     repository.ClientAttachmentRepositoryInterface
-	clientIPRepo             repository.ClientIPRepositoryInterface
-	clientHeaderRepo         repository.ClientHeaderRepositoryInterface
-	clientRepo               repository.ClientRepositoryInterface
-	projectRepo              repository.ProjectRepositoryInterface
-	// The seven cluster roles route deployment uses. Before Phase 2E Task 7
-	// they arrived as one interface naming all 58 methods of the cluster
-	// client, of which RouteService calls twenty-six.
-	k8sRoutes        RouteApplier
-	k8sPolicies      PolicyApplier
-	k8sBackends      BackendApplier
-	k8sBackendReaper RouteBackendReaper
-	k8sSecrets       SecretWriter
-	k8sAPIKeys       APIKeySecretApplier
-	k8sRefGrants     ReferenceGrantChecker
-	domains          ClientTrafficPolicyEnsurer
-	routeVersions    RouteVersionRecorder
-	wafConfig        routeplan.WAFConfig
-
-	// approvals owns approval planning and traversal. A required
-	// constructor dependency since Phase 2E Task 6. See internal/approval.
-	approvals *approvalpkg.Engine
-
 	// state is the sole writer of route.Status. See internal/routestate:
 	// before Phase 2D the field was assigned at 24 sites with no transition
 	// validation at all.
@@ -55,8 +22,14 @@ type RouteService struct {
 	// idgen mints route IDs. Injected so the preview path is deterministic under
 	// test: the first 8 hex characters of the ID minted in PreviewCreate are
 	// embedded in every previewed resource name. Nil means uuid.New (see
-	// newID in route_service_idgen.go).
+	// newID in route_assembler.go).
 	idgen func() uuid.UUID
+
+	assembler *routeAssembler
+
+	query  *routeQuery
+	deploy *routeDeploy
+	write  *routeWrite
 }
 
 // ClientTrafficPolicyEnsurer re-applies a domain's Envoy Gateway
@@ -138,7 +111,7 @@ type RouteServiceDeps struct {
 	// IDGen mints route IDs. Optional: nil means uuid.New. Injected so the
 	// preview path is deterministic under test - the first 8 hex characters
 	// of the ID minted in PreviewCreate appear in every previewed resource
-	// name. See route_service_idgen.go.
+	// name. See route_assembler.go.
 	IDGen func() uuid.UUID
 }
 
@@ -228,45 +201,191 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 	}
 
 	svc := &RouteService{
+		idgen: deps.IDGen,
+	}
+	// routeRepo is already a constructor parameter, so the state machine
+	// needs no setter of its own.
+	svc.state = routestate.New(deps.RouteRepo)
+	svc.assembler = &routeAssembler{
+		clientRepo:           deps.ClientRepo,
+		clientAttachmentRepo: deps.ClientAttachmentRepo,
+		clientIPRepo:         deps.ClientIPRepo,
+		clientHeaderRepo:     deps.ClientHeaderRepo,
+		k8sAPIKeys:           deps.K8sAPIKeys,
+		wafConfig:            deps.WafConfig,
+		idgen:                svc.idgen,
+	}
+	svc.query = &routeQuery{
 		routeRepo:                deps.RouteRepo,
-		approvalRepo:             deps.ApprovalRepo,
-		policyRepo:               deps.PolicyRepo,
+		securityPolicyRepo:       deps.SecurityPolicyRepo,
+		backendTrafficPolicyRepo: deps.BackendTrafficPolicyRepo,
+		envoyExtensionPolicyRepo: deps.EnvoyExtensionPolicyRepo,
+		wafPolicyRepo:            deps.WafPolicyRepo,
+		domainRepo:               deps.DomainRepo,
+		projectNamespaceRepo:     deps.ProjectNamespaceRepo,
+		wafConfig:                deps.WafConfig,
+		assembler:                svc.assembler,
+	}
+	svc.write = &routeWrite{
+		routeRepo:                deps.RouteRepo,
 		domainRepo:               deps.DomainRepo,
 		teamRepo:                 deps.TeamRepo,
-		projectNamespaceRepo:     deps.ProjectNamespaceRepo,
+		projectRepo:              deps.ProjectRepo,
+		approvalRepo:             deps.ApprovalRepo,
+		securityPolicyRepo:       deps.SecurityPolicyRepo,
+		backendTrafficPolicyRepo: deps.BackendTrafficPolicyRepo,
+		envoyExtensionPolicyRepo: deps.EnvoyExtensionPolicyRepo,
+		wafPolicyRepo:            deps.WafPolicyRepo,
+		k8sRefGrants:             deps.K8sRefGrants,
+		approvals:                deps.Approvals,
+		state:                    svc.state,
+		assembler:                svc.assembler,
+		query:                    svc.query,
+	}
+	svc.deploy = &routeDeploy{
+		routeRepo:                deps.RouteRepo,
+		approvalRepo:             deps.ApprovalRepo,
+		domainRepo:               deps.DomainRepo,
 		securityPolicyRepo:       deps.SecurityPolicyRepo,
 		backendTrafficPolicyRepo: deps.BackendTrafficPolicyRepo,
 		envoyExtensionPolicyRepo: deps.EnvoyExtensionPolicyRepo,
 		wafPolicyRepo:            deps.WafPolicyRepo,
 		clientAttachmentRepo:     deps.ClientAttachmentRepo,
-		clientIPRepo:             deps.ClientIPRepo,
-		clientHeaderRepo:         deps.ClientHeaderRepo,
-		clientRepo:               deps.ClientRepo,
-		projectRepo:              deps.ProjectRepo,
-		wafConfig:                deps.WafConfig,
-		domains:                  deps.Domains,
-		routeVersions:            deps.RouteVersions,
-		approvals:                deps.Approvals,
-		idgen:                    deps.IDGen,
 		k8sRoutes:                deps.K8sRoutes,
 		k8sPolicies:              deps.K8sPolicies,
 		k8sBackends:              deps.K8sBackends,
 		k8sBackendReaper:         deps.K8sBackendReaper,
 		k8sSecrets:               deps.K8sSecrets,
 		k8sAPIKeys:               deps.K8sAPIKeys,
-		k8sRefGrants:             deps.K8sRefGrants,
+		domains:                  deps.Domains,
+		routeVersions:            deps.RouteVersions,
+		state:                    svc.state,
+		assembler:                svc.assembler,
+		write:                    svc.write,
 	}
-	// routeRepo is already a constructor parameter, so the state machine
-	// needs no setter of its own.
-	svc.state = routestate.New(deps.RouteRepo)
 	return svc
+}
+
+// Deploy deploys an approved route to Kubernetes
+// This can only be called by the route owner team
+func (s *RouteService) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route, error) {
+	return s.deploy.Deploy(id, deployedBy)
 }
 
 // GetDomainName returns the domain name for a given domain ID (used for audit enrichment)
 func (s *RouteService) GetDomainName(domainID uuid.UUID) (string, error) {
-	domain, err := s.domainRepo.GetByID(domainID)
-	if err != nil {
-		return "", err
-	}
-	return domain.Name, nil
+	return s.query.GetDomainName(domainID)
+}
+
+// GetEffectiveIPAllowlist returns the merged IP allowlist for a route from active client attachments
+func (s *RouteService) GetEffectiveIPAllowlist(routeID uuid.UUID) ([]EffectiveIPEntry, error) {
+	return s.assembler.GetEffectiveIPAllowlist(routeID)
+}
+
+// GetByID gets a route by ID
+func (s *RouteService) GetByID(id uuid.UUID) (*models.Route, error) {
+	return s.query.GetByID(id)
+}
+
+// GetSecurityPolicy gets the security policy for a route
+func (s *RouteService) GetSecurityPolicy(routeID uuid.UUID) (*models.SecurityPolicy, error) {
+	return s.query.GetSecurityPolicy(routeID)
+}
+
+// GetBackendTrafficPolicy gets the backend traffic policy for a route
+func (s *RouteService) GetBackendTrafficPolicy(routeID uuid.UUID) (*models.BackendTrafficPolicy, error) {
+	return s.query.GetBackendTrafficPolicy(routeID)
+}
+
+// GetEnvoyExtensionPolicy gets the envoy extension policy for a route
+func (s *RouteService) GetEnvoyExtensionPolicy(routeID uuid.UUID) (*models.EnvoyExtensionPolicy, error) {
+	return s.query.GetEnvoyExtensionPolicy(routeID)
+}
+
+// GetWafPolicy gets the WAF policy for a route
+func (s *RouteService) GetWafPolicy(routeID uuid.UUID) (*models.WafPolicy, error) {
+	return s.query.GetWafPolicy(routeID)
+}
+
+// ListByDomainID lists routes for a domain
+func (s *RouteService) ListByDomainID(domainID uuid.UUID, page, limit int, teamID *uuid.UUID, status string, search string, searchField string, labels map[string]string) ([]models.Route, int64, error) {
+	return s.query.ListByDomainID(domainID, page, limit, teamID, status, search, searchField, labels)
+}
+
+// ListByProjectID returns routes across all domains in a project, optionally
+// filtered by backend service+namespace.
+func (s *RouteService) ListByProjectID(projectID uuid.UUID, page, limit int, filters RouteListFilters) ([]models.Route, int64, error) {
+	return s.query.ListByProjectID(projectID, page, limit, filters)
+}
+
+// CheckMatcherConflicts checks if the given matcher conflicts with any existing route
+// in the domain. Returns all conflicting routes. excludeRouteID can be set to skip
+// the route being updated.
+func (s *RouteService) CheckMatcherConflicts(domainID uuid.UUID, match models.RouteMatch, excludeRouteID *uuid.UUID) ([]ConflictResult, error) {
+	return s.query.CheckMatcherConflicts(domainID, match, excludeRouteID)
+}
+
+// GenerateYAML generates the Kubernetes YAML for a route
+func (s *RouteService) GenerateYAML(id uuid.UUID) (string, error) {
+	return s.query.GenerateYAML(id)
+}
+
+// GenerateYAMLs generates both HTTPRoute and SecurityPolicy YAML for a route
+func (s *RouteService) GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error) {
+	return s.query.GenerateYAMLs(id)
+}
+
+// PreviewCreate generates a preview of what the HTTPRoute YAML would look like for a new route
+func (s *RouteService) PreviewCreate(domainID uuid.UUID, input *CreateRouteInput) (*PreviewCreateResult, error) {
+	return s.query.PreviewCreate(domainID, input)
+}
+
+// PreviewUpdate generates a preview comparing current and proposed HTTPRoute YAML
+func (s *RouteService) PreviewUpdate(routeID uuid.UUID, input *UpdateRouteInput) (*PreviewUpdateResult, error) {
+	return s.query.PreviewUpdate(routeID, input)
+}
+
+// PreviewDelete generates a preview of what will be deleted
+func (s *RouteService) PreviewDelete(routeID uuid.UUID) (*PreviewDeleteResult, error) {
+	return s.query.PreviewDelete(routeID)
+}
+
+// Create creates a new route (submits for approval)
+func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID) (*models.Route, error) {
+	return s.write.Create(domainID, input, createdBy)
+}
+
+// Update updates a route (submits for approval)
+func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy uuid.UUID) (*models.Route, error) {
+	return s.write.Update(id, input, submittedBy)
+}
+
+// Delete requests deletion of a route (submits for approval)
+func (s *RouteService) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Route, error) {
+	return s.write.Delete(id, submittedBy)
+}
+
+// OnApproved moves the route to its post-approval state.
+func (s *RouteService) OnApproved(a *models.Approval) error {
+	return s.write.OnApproved(a)
+}
+
+// OnRejected reverts the route when its approval is rejected.
+func (s *RouteService) OnRejected(a *models.Approval) error {
+	return s.write.OnRejected(a)
+}
+
+// OnCancelled reverts the route when its approval is withdrawn.
+func (s *RouteService) OnCancelled(a *models.Approval) error {
+	return s.write.OnCancelled(a)
+}
+
+// CanCancel implements approval.CancelAuthorizer for routes.
+func (s *RouteService) CanCancel(a *models.Approval, user *models.User) bool {
+	return s.write.CanCancel(a, user)
+}
+
+// GetApprovalIDForEntity returns the most recent approval ID for an entity.
+func (s *RouteService) GetApprovalIDForEntity(entityType models.ApprovalEntityType, entityID uuid.UUID) (*uuid.UUID, error) {
+	return s.write.GetApprovalIDForEntity(entityType, entityID)
 }

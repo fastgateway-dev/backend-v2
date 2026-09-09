@@ -160,8 +160,8 @@ func secPolicyLookupFixtures() (*models.Route, *models.Domain) {
 	return route, domain
 }
 
-func secPolicyLookupService(repo repository.SecurityPolicyRepositoryInterface, policies PolicyApplier, backends BackendApplier) *RouteService {
-	return &RouteService{
+func secPolicyLookupService(repo repository.SecurityPolicyRepositoryInterface, policies PolicyApplier, backends BackendApplier) *routeDeploy {
+	return &routeDeploy{
 		securityPolicyRepo: repo,
 		k8sPolicies:        policies,
 		k8sBackends:        backends,
@@ -390,12 +390,13 @@ func (r *wafLookupTestRepo) Upsert(policy *models.WafPolicy) error {
 	panic("unexpected call: Upsert")
 }
 
-func eepLookupService(eepRepo repository.EnvoyExtensionPolicyRepositoryInterface, wafRepo repository.WafPolicyRepositoryInterface, policies PolicyApplier, backends BackendApplier) *RouteService {
-	return &RouteService{
+func eepLookupService(eepRepo repository.EnvoyExtensionPolicyRepositoryInterface, wafRepo repository.WafPolicyRepositoryInterface, policies PolicyApplier, backends BackendApplier) *routeDeploy {
+	return &routeDeploy{
 		envoyExtensionPolicyRepo: eepRepo,
 		wafPolicyRepo:            wafRepo,
 		k8sPolicies:              policies,
 		k8sBackends:              backends,
+		assembler:                &routeAssembler{},
 	}
 }
 

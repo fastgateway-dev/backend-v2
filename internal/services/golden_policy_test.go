@@ -324,7 +324,7 @@ func fixtureJWTClientAuthCategory() routeplan.ClientAuthCategory {
 }
 
 func TestGoldenSecurityPolicyAPIKeyClient(t *testing.T) {
-	svc := &RouteService{}
+	svc := &routeAssembler{}
 	route, domain := fixtureRoute("secpol"), fixtureDomain()
 	cfg := svc.buildAPIKeySecurityPolicyConfig(route, domain, fixtureJWTClientAuthCategory(), true, nil)
 	assertGolden(t, filepath.Join("securitypolicy-apikey-client", "jwt-required-claims"), cfg)
@@ -672,7 +672,7 @@ func envoyExtensionPolicyFamilyFixtures() []struct {
 // and generateEnvoyExtensionPolicyYAMLFromSnapshot use.
 func deployEnvoyExtensionPolicyYAML(t *testing.T, route *models.Route, domain *models.Domain, policy *models.EnvoyExtensionPolicy, wafPolicy *models.WafPolicy) string {
 	t.Helper()
-	svc := &RouteService{}
+	svc := &routeAssembler{}
 	config := svc.buildEnvoyExtensionPolicyConfig(route, domain, policy, wafPolicy)
 	if config == nil {
 		return ""
