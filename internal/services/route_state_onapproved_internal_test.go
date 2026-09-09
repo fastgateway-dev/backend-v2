@@ -121,8 +121,8 @@ func TestOnApproved_MovingStatus_PersistsSnapshotExactlyOnce(t *testing.T) {
 // FINDING for Task 9: these two tests relied on the other fourteen
 // dependencies being unset. They do not exercise them; the nil arguments were
 // convenience, not a degraded path under test.
-func newOnApprovedTestService(routeRepo repository.RouteRepositoryInterface) *RouteService {
-	svc := &RouteService{routeRepo: routeRepo}
-	svc.state = routestate.New(routeRepo)
-	return svc
+func newOnApprovedTestService(routeRepo repository.RouteRepositoryInterface) *routeWrite {
+	w := &routeWrite{routeRepo: routeRepo}
+	w.state = routestate.New(routeRepo)
+	return w
 }

@@ -484,7 +484,7 @@ func TestCountClientAttachments_RepoErrorPropagates(t *testing.T) {
 	attachRepo := &approvalCharTestAttachmentRepo{}
 	attachRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{}, dbErr)
 
-	svc := &RouteService{clientAttachmentRepo: attachRepo}
+	svc := &routeAssembler{clientAttachmentRepo: attachRepo}
 
 	got, err := svc.countClientAttachments(routeID)
 
@@ -545,11 +545,11 @@ func TestDeploySecurityPolicy_ClientCountRepoErrorFailsDeployInsteadOfSkippingDe
 
 	policies := &secPolicyLookupTestPolicies{}
 	backends := &secPolicyLookupTestBackends{}
-	svc := &RouteService{
-		securityPolicyRepo:   &secPolicyLookupTestRepo{err: gorm.ErrRecordNotFound},
-		clientAttachmentRepo: attachRepo,
-		k8sPolicies:          policies,
-		k8sBackends:          backends,
+	svc := &routeDeploy{
+		securityPolicyRepo: &secPolicyLookupTestRepo{err: gorm.ErrRecordNotFound},
+		k8sPolicies:        policies,
+		k8sBackends:        backends,
+		assembler:          &routeAssembler{clientAttachmentRepo: attachRepo},
 	}
 
 	err := svc.deploySecurityPolicy(context.Background(), route, domain)
@@ -588,7 +588,7 @@ func TestCountClientAttachments_ApprovedListRepoErrorPropagates(t *testing.T) {
 	attachRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{{}}, nil)
 	attachRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, dbErr)
 
-	svc := &RouteService{clientAttachmentRepo: attachRepo}
+	svc := &routeAssembler{clientAttachmentRepo: attachRepo}
 
 	got, err := svc.countClientAttachments(routeID)
 
@@ -626,7 +626,7 @@ func TestCollectClientHeaders_ActiveListErrorPropagates(t *testing.T) {
 	// returns before reaching it (route_clients.go:154), and the mock.Mock
 	// stub panics on any unexpected call -- so this test also proves that.
 
-	svc := &RouteService{clientAttachmentRepo: attachRepo}
+	svc := &routeAssembler{clientAttachmentRepo: attachRepo}
 
 	got, err := svc.collectClientHeaders(routeID)
 
@@ -645,7 +645,7 @@ func TestCollectClientMethods_ActiveListErrorPropagates(t *testing.T) {
 	attachRepo.On("ListActiveByRouteID", routeID).
 		Return([]models.ClientRouteAttachment{}, errors.New("connection refused"))
 
-	svc := &RouteService{clientAttachmentRepo: attachRepo}
+	svc := &routeAssembler{clientAttachmentRepo: attachRepo}
 
 	got, err := svc.collectClientMethods(routeID)
 
@@ -671,7 +671,7 @@ func TestCollectClientMethods_ClientGenuinelyAbsentIsSkippedNotPropagated(t *tes
 	attachRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{att}, nil)
 	attachRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
-	svc := &RouteService{
+	svc := &routeAssembler{
 		clientAttachmentRepo: attachRepo,
 		clientRepo:           &failopenClientRepo{err: gorm.ErrRecordNotFound},
 	}
@@ -690,7 +690,7 @@ func TestCollectClientIPCIDRs_ActiveListErrorPropagates(t *testing.T) {
 	attachRepo.On("ListActiveByRouteID", routeID).
 		Return([]models.ClientRouteAttachment{}, errors.New("connection refused"))
 
-	svc := &RouteService{clientAttachmentRepo: attachRepo}
+	svc := &routeAssembler{clientAttachmentRepo: attachRepo}
 
 	got, err := svc.collectClientIPCIDRs(routeID)
 
@@ -743,7 +743,7 @@ func TestCategorizeClientAttachments_IPListErrorPropagates(t *testing.T) {
 	attachRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{att}, nil)
 	attachRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
-	svc := &RouteService{
+	svc := &routeAssembler{
 		clientAttachmentRepo: attachRepo,
 		clientRepo:           &failopenClientRepo{client: client},
 		clientIPRepo:         &failopenClientIPRepo{err: errors.New("connection refused")},
@@ -803,7 +803,7 @@ func TestCategorizeClientAttachments_APIKeyDecodeFailurePropagates(t *testing.T)
 	attachRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{att}, nil)
 	attachRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
-	svc := &RouteService{
+	svc := &routeAssembler{
 		clientAttachmentRepo: attachRepo,
 		clientRepo:           &failopenClientRepo{client: client},
 	}
@@ -849,7 +849,7 @@ func TestBuildAPIKeyHTTPRouteConfig_PublishesClientIDMatchEvenWithEmptyAPIKey(t 
 		ClientIDHeaderName: "x-client-id",
 	}
 
-	svc := &RouteService{}
+	svc := &routeAssembler{}
 	got := svc.buildAPIKeyHTTPRouteConfig(route, domain, cat)
 
 	require.Len(t, got.Rules, 1)
@@ -897,7 +897,7 @@ func TestCategorizeClientAttachments_HeaderListErrorPropagates(t *testing.T) {
 	attachRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{att}, nil)
 	attachRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
-	svc := &RouteService{
+	svc := &routeAssembler{
 		clientAttachmentRepo: attachRepo,
 		clientRepo:           &failopenClientRepo{client: client},
 		clientHeaderRepo:     &failopenClientHeaderRepo{err: errors.New("connection refused")},
@@ -1059,9 +1059,11 @@ func TestGenerateAPIKeyClientResourceYAMLs_CategorizeErrorPropagates(t *testing.
 	attachRepo.On("ListActiveByRouteID", routeID).Return([]models.ClientRouteAttachment{att}, nil)
 	attachRepo.On("ListApprovedByRouteID", routeID).Return([]models.ClientRouteAttachment{}, nil)
 
-	svc := &RouteService{
-		clientAttachmentRepo: attachRepo,
-		clientRepo:           &failopenClientRepo{client: client},
+	svc := &routeQuery{
+		assembler: &routeAssembler{
+			clientAttachmentRepo: attachRepo,
+			clientRepo:           &failopenClientRepo{client: client},
+		},
 	}
 
 	got, err := svc.generateAPIKeyClientResourceYAMLs(route, domain)

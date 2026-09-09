@@ -13,7 +13,7 @@ import (
 // TestGoldenHTTPRouteDeploy snapshots the HTTPRoute the DEPLOY path produces.
 // This is the authoritative path -- it is what the cluster actually runs.
 func TestGoldenHTTPRouteDeploy(t *testing.T) {
-	svc := &RouteService{} // buildHTTPRouteConfig does not use its receiver
+	svc := &routeAssembler{} // buildHTTPRouteConfig does not use its receiver
 	for _, f := range goldenFixtures() {
 		if f.Route.Protocol != "" && f.Route.Protocol != "http" {
 			continue
@@ -60,7 +60,7 @@ func TestGoldenHTTPRoutePreview(t *testing.T) {
 // situation -- a deliberately-reintroduced, tracked divergence -- but no
 // fixture currently sets it, and none should without a corresponding defect.
 func TestDifferentialHTTPRoute(t *testing.T) {
-	svc := &RouteService{}
+	svc := &routeAssembler{}
 	for _, f := range goldenFixtures() {
 		if f.Route.Protocol != "" && f.Route.Protocol != "http" {
 			continue
@@ -86,7 +86,7 @@ func TestDifferentialHTTPRoute(t *testing.T) {
 }
 
 func TestGoldenGRPCRouteDeploy(t *testing.T) {
-	svc := &RouteService{}
+	svc := &routeAssembler{}
 	for _, f := range goldenFixtures() {
 		if f.Route.Protocol != models.RouteProtocolGRPC {
 			continue
@@ -123,7 +123,7 @@ func TestGoldenGRPCRoutePreview(t *testing.T) {
 // function -- that is what keeps the assertion trivially true rather than
 // silently wrong.
 func TestDifferentialGRPCRoute(t *testing.T) {
-	svc := &RouteService{}
+	svc := &routeAssembler{}
 	for _, f := range goldenFixtures() {
 		if f.Route.Protocol != models.RouteProtocolGRPC {
 			continue
