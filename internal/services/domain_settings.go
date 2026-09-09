@@ -241,7 +241,7 @@ func (s *DomainService) UpdateDomainSettings(domainID uuid.UUID, input *UpdateDo
 // so it necessarily affects every route behind it, but the e2e test only
 // ever exercised one route, so this is worded as "likely affects" rather
 // than as an observed fact.
-const mtlsNoCAWarning = "mTLS is enabled but no CA certificates are available for this domain (none configured directly, and no active mTLS clients attached). Requests will fail with an HTTP 500 at the gateway (measured on Envoy Gateway 1.8.4), not a rejected TLS handshake, until a CA is added or an mTLS client is attached. Because ClientTrafficPolicy is Gateway-scoped, this likely affects every route behind this domain's Gateway, not only this domain's routes."
+const mtlsNoCAWarning = "mTLS is enabled but no CA certificates are available for this domain (none configured directly, and no active mTLS clients attached). The effect depends on the Envoy Gateway version. On 1.8.0 and later the gateway fails closed: requests get an HTTP 500 at the gateway (not a rejected TLS handshake) until a CA is added or an mTLS client is attached. On versions before 1.8.0 the ClientTrafficPolicy is not reconciled and the domain keeps serving traffic with NO client authentication -- it fails OPEN, so do not rely on mTLS on those versions until a CA is added or an mTLS client is attached. Because ClientTrafficPolicy is Gateway-scoped, this likely affects every route behind this domain's Gateway, not only this domain's routes."
 
 // applyEnvoyGatewayClientTrafficPolicy translates domain settings to Envoy
 // Gateway ClientTrafficPolicy CRD.
