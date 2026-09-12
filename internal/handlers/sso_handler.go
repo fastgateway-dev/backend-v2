@@ -11,13 +11,13 @@ import (
 
 // SSOHandler handles SSO/OIDC endpoints
 type SSOHandler struct {
-	ssoService      services.SSOServiceInterface
-	settingsService services.SystemSettingsServiceInterface
+	ssoService      SSOServiceInterface
+	settingsService SystemSettingsServiceInterface
 	frontendURL     string // fallback if settings service unavailable
 }
 
 // NewSSOHandler creates a new SSO handler
-func NewSSOHandler(ssoService services.SSOServiceInterface, settingsService services.SystemSettingsServiceInterface, frontendURL string) *SSOHandler {
+func NewSSOHandler(ssoService SSOServiceInterface, settingsService SystemSettingsServiceInterface, frontendURL string) *SSOHandler {
 	return &SSOHandler{
 		ssoService:      ssoService,
 		settingsService: settingsService,

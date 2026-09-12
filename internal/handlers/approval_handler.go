@@ -5,19 +5,18 @@ import (
 	"strconv"
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 // ApprovalHandler handles approval endpoints
 type ApprovalHandler struct {
-	approvalService services.ApprovalServiceInterface
-	auditService    services.AuditServiceInterface
+	approvalService ApprovalServiceInterface
+	auditService    AuditServiceInterface
 }
 
 // NewApprovalHandler creates a new approval handler
-func NewApprovalHandler(approvalService services.ApprovalServiceInterface, auditService services.AuditServiceInterface) *ApprovalHandler {
+func NewApprovalHandler(approvalService ApprovalServiceInterface, auditService AuditServiceInterface) *ApprovalHandler {
 	return &ApprovalHandler{
 		approvalService: approvalService,
 		auditService:    auditService,

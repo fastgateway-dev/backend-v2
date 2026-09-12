@@ -9,11 +9,11 @@ import (
 
 // SystemSettingsHandler handles system settings endpoints
 type SystemSettingsHandler struct {
-	settingsService services.SystemSettingsServiceInterface
+	settingsService SystemSettingsServiceInterface
 }
 
 // NewSystemSettingsHandler creates a new system settings handler
-func NewSystemSettingsHandler(settingsService services.SystemSettingsServiceInterface) *SystemSettingsHandler {
+func NewSystemSettingsHandler(settingsService SystemSettingsServiceInterface) *SystemSettingsHandler {
 	return &SystemSettingsHandler{
 		settingsService: settingsService,
 	}

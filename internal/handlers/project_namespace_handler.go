@@ -11,13 +11,13 @@ import (
 
 // ProjectNamespaceHandler handles project namespace endpoints
 type ProjectNamespaceHandler struct {
-	nsService    services.ProjectNamespaceServiceInterface
-	auditService services.AuditServiceInterface
+	nsService    ProjectNamespaceServiceInterface
+	auditService AuditServiceInterface
 	permChecker  *middleware.PermissionChecker
 }
 
 // NewProjectNamespaceHandler creates a new project namespace handler
-func NewProjectNamespaceHandler(nsService services.ProjectNamespaceServiceInterface, auditService services.AuditServiceInterface, permChecker *middleware.PermissionChecker) *ProjectNamespaceHandler {
+func NewProjectNamespaceHandler(nsService ProjectNamespaceServiceInterface, auditService AuditServiceInterface, permChecker *middleware.PermissionChecker) *ProjectNamespaceHandler {
 	return &ProjectNamespaceHandler{
 		nsService:    nsService,
 		auditService: auditService,

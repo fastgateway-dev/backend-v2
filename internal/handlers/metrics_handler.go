@@ -4,18 +4,17 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 // MetricsHandler serves observability endpoints.
 type MetricsHandler struct {
-	metricsService services.MetricsServiceInterface
+	metricsService MetricsServiceInterface
 }
 
 // NewMetricsHandler constructs a MetricsHandler.
-func NewMetricsHandler(svc services.MetricsServiceInterface) *MetricsHandler {
+func NewMetricsHandler(svc MetricsServiceInterface) *MetricsHandler {
 	return &MetricsHandler{metricsService: svc}
 }
 

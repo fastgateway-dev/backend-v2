@@ -11,11 +11,11 @@ import (
 
 // TopologyHandler exposes the read-only topology endpoints.
 type TopologyHandler struct {
-	svc services.TopologyServiceInterface
+	svc TopologyServiceInterface
 }
 
 // NewTopologyHandler constructs a TopologyHandler.
-func NewTopologyHandler(svc services.TopologyServiceInterface) *TopologyHandler {
+func NewTopologyHandler(svc TopologyServiceInterface) *TopologyHandler {
 	return &TopologyHandler{svc: svc}
 }
 

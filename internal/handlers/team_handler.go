@@ -12,14 +12,14 @@ import (
 
 // TeamHandler handles global team endpoints
 type TeamHandler struct {
-	teamService        services.TeamServiceInterface
+	teamService        TeamServiceInterface
 	perms              *middleware.PermissionChecker
-	auditService       services.AuditServiceInterface
-	emailInviteService services.TeamEmailInviteServiceInterface
+	auditService       AuditServiceInterface
+	emailInviteService TeamEmailInviteServiceInterface
 }
 
 // NewTeamHandler creates a new team handler
-func NewTeamHandler(teamService services.TeamServiceInterface, perms *middleware.PermissionChecker, auditService services.AuditServiceInterface, emailInviteService services.TeamEmailInviteServiceInterface) *TeamHandler {
+func NewTeamHandler(teamService TeamServiceInterface, perms *middleware.PermissionChecker, auditService AuditServiceInterface, emailInviteService TeamEmailInviteServiceInterface) *TeamHandler {
 	return &TeamHandler{
 		teamService:        teamService,
 		perms:              perms,

@@ -12,6 +12,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// RouteListFilters is the service layer's name for the optional filters a
+// project-scoped route listing accepts.
+//
+// It is an alias, not a copy: RouteService.ListByProjectID hands the value
+// straight to the repository, so an alias keeps the two provably identical
+// while giving handlers a services-package name to construct. Phase 2F Task 4
+// -- route_handler.go imported internal/repository solely to spell this type,
+// which is why it was the one handler importing the package without calling a
+// repository method.
+type RouteListFilters = repository.RouteListFilters
+
 // RouteService handles route business logic
 type RouteService struct {
 	// state is the sole writer of route.Status. See internal/routestate:

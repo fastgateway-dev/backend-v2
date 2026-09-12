@@ -14,13 +14,13 @@ import (
 
 // RouteHandler handles route endpoints
 type RouteHandler struct {
-	routeService services.RouteHandlerService
-	auditService services.AuditServiceInterface
+	routeService RouteHandlerService
+	auditService AuditServiceInterface
 	permChecker  *middleware.PermissionChecker
 }
 
 // NewRouteHandler creates a new route handler
-func NewRouteHandler(routeService services.RouteHandlerService, auditService services.AuditServiceInterface, permChecker *middleware.PermissionChecker) *RouteHandler {
+func NewRouteHandler(routeService RouteHandlerService, auditService AuditServiceInterface, permChecker *middleware.PermissionChecker) *RouteHandler {
 	return &RouteHandler{
 		routeService: routeService,
 		auditService: auditService,

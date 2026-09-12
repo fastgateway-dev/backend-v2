@@ -6,18 +6,17 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 // AuditHandler handles audit log endpoints
 type AuditHandler struct {
-	auditService services.AuditServiceInterface
+	auditService AuditServiceInterface
 }
 
 // NewAuditHandler creates a new audit handler
-func NewAuditHandler(auditService services.AuditServiceInterface) *AuditHandler {
+func NewAuditHandler(auditService AuditServiceInterface) *AuditHandler {
 	return &AuditHandler{
 		auditService: auditService,
 	}

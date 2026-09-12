@@ -4,18 +4,17 @@ import (
 	"net/http"
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 // CommentHandler handles approval comment HTTP requests
 type CommentHandler struct {
-	commentService services.CommentServiceInterface
+	commentService CommentServiceInterface
 }
 
 // NewCommentHandler creates a new comment handler
-func NewCommentHandler(commentService services.CommentServiceInterface) *CommentHandler {
+func NewCommentHandler(commentService CommentServiceInterface) *CommentHandler {
 	return &CommentHandler{commentService: commentService}
 }
 
