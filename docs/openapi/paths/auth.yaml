@@ -64,7 +64,7 @@ me:
         content:
           application/json:
             schema:
-              $ref: '../schemas/user.yaml#/User'
+              $ref: '../schemas/user.yaml#/CurrentUser'
 
 tokens:
   get:

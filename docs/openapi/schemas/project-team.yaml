@@ -44,22 +44,25 @@ ProjectTeamPreset:
 
 AssignTeamRequest:
   type: object
-  required: [teamId]
+  required: [teamId, presetIds]
   properties:
     teamId:
       type: string
       format: uuid
     presetIds:
       type: array
+      minItems: 1
       items:
         type: string
         format: uuid
 
 UpdateTeamPresetsInput:
   type: object
+  required: [presetIds]
   properties:
     presetIds:
       type: array
+      minItems: 1
       items:
         type: string
         format: uuid

@@ -22,6 +22,9 @@ ClientRouteAttachment:
       type: boolean
     enableMtls:
       type: boolean
+    enableHeaderAuth:
+      type: boolean
+      description: Whether header-based authorization is enabled for this attachment
     rateLimitConfig:
       $ref: './btp.yaml#/RateLimitConfig'
     extAuth:
@@ -72,6 +75,10 @@ AttachFromRouteRequest:
     enableMtls:
       type: boolean
       default: false
+    enableHeaderAuth:
+      type: boolean
+      default: false
+      description: Require client to satisfy header-based authorization rules
     rateLimitConfig:
       $ref: './btp.yaml#/RateLimitConfig'
     extAuth:
@@ -105,6 +112,10 @@ AttachFromClientRequest:
     enableMtls:
       type: boolean
       default: false
+    enableHeaderAuth:
+      type: boolean
+      default: false
+      description: Require client to satisfy header-based authorization rules
     rateLimitConfig:
       $ref: './btp.yaml#/RateLimitConfig'
     extAuth:

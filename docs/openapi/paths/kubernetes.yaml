@@ -16,6 +16,14 @@ namespaces:
               type: array
               items:
                 $ref: '../schemas/kubernetes.yaml#/K8sNamespace'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '500':
+        description: Cluster discovery failed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
 
 gateway-classes:
   get:
@@ -28,18 +36,21 @@ gateway-classes:
       - $ref: '../components/parameters.yaml#/projectId'
     responses:
       '200':
-        description: List of GatewayClasses
+        description: List of GatewayClass names
         content:
           application/json:
             schema:
               type: array
               items:
-                type: object
-                properties:
-                  name:
-                    type: string
-                  controllerName:
-                    type: string
+                type: string
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '500':
+        description: Cluster discovery failed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
 
 services:
   get:
@@ -64,3 +75,11 @@ services:
               type: array
               items:
                 $ref: '../schemas/kubernetes.yaml#/K8sService'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '500':
+        description: Cluster discovery failed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

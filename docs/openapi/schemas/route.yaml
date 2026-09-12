@@ -26,12 +26,6 @@ Route:
       $ref: '#/RouteConfig'
     securityMode:
       $ref: '#/SecurityMode'
-    securityPolicy:
-      $ref: './security.yaml#/SecurityPolicy'
-    backendTrafficPolicy:
-      $ref: './btp.yaml#/BackendTrafficPolicy'
-    wafPolicy:
-      $ref: './waf.yaml#/WafPolicy'
     pendingApproval:
       $ref: './approval.yaml#/Approval'
     clientCount:
@@ -51,6 +45,8 @@ Route:
     updatedAt:
       type: string
       format: date-time
+    labels:
+      $ref: './common.yaml#/Labels'
 
 RouteList:
   type: object
@@ -61,6 +57,37 @@ RouteList:
         $ref: '#/Route'
     pagination:
       $ref: './common.yaml#/Pagination'
+
+RouteWithPolicies:
+  type: object
+  description: |
+    Route detail response (GET /routes/{routeId} only) - the plain Route plus
+    its associated policies, each only present when configured for the route.
+  allOf:
+    - $ref: '#/Route'
+    - type: object
+      properties:
+        securityPolicy:
+          $ref: './security.yaml#/SecurityPolicy'
+        backendTrafficPolicy:
+          $ref: './btp.yaml#/BackendTrafficPolicy'
+        extensionPolicy:
+          $ref: './extension.yaml#/EnvoyExtensionPolicy'
+        wafPolicy:
+          $ref: './waf.yaml#/WafPolicy'
+
+RouteResponse:
+  type: object
+  description: Route returned by createRoute/updateRoute, with any non-fatal warnings generated while assembling the route.
+  allOf:
+    - $ref: '#/Route'
+    - type: object
+      properties:
+        warnings:
+          type: array
+          items:
+            type: string
+          description: Non-fatal warnings (e.g. backend TLS configuration, direct-response percentage) generated while creating/updating the route
 
 RouteConfig:
   type: object
@@ -381,6 +408,8 @@ CreateRouteRequest:
       description: Optional description of the changes for approval
     aiReview:
       $ref: './ai.yaml#/AIReviewResult'
+    labels:
+      $ref: './common.yaml#/Labels'
 
 UpdateRouteRequest:
   type: object
@@ -402,24 +431,32 @@ UpdateRouteRequest:
       description: Optional description of the changes for approval
     aiReview:
       $ref: './ai.yaml#/AIReviewResult'
+    labels:
+      $ref: './common.yaml#/Labels'
 
 SecurityPolicyInput:
   type: object
   properties:
     cors:
       $ref: './security.yaml#/CORSConfig'
-    ipAllowlist:
-      type: array
-      items:
-        $ref: './security.yaml#/IPAllowlistEntry'
-      description: Direct IP allowlist entries to configure on the route
     authorization:
       type: object
+      description: General mode IP/header/method allowlisting
       properties:
         allowedCIDRs:
           type: array
           items:
             type: string
+        headers:
+          type: array
+          items:
+            $ref: './security.yaml#/AuthorizationHeaderMatch'
+          description: Required header match rules
+        methods:
+          type: array
+          items:
+            type: string
+          description: Allowed HTTP methods
     apiKeyAuth:
       type: object
       properties:
@@ -493,6 +530,40 @@ RouteYAMLsResponse:
     backendYaml:
       type: string
       description: Backend CRD Kubernetes YAML for external service backends (if configured)
+    httpRouteFilterYaml:
+      type: string
+      description: HTTPRouteFilter Kubernetes YAML for direct-response routes (if configured)
+    configMapYaml:
+      type: string
+      description: ConfigMap Kubernetes YAML backing a direct-response body (if configured)
+    apiKeyClientResources:
+      type: array
+      items:
+        $ref: '#/APIKeyClientResourceYAMLs'
+      description: Per-client Kubernetes resources for clients using API-key auth (secrets redacted)
+
+APIKeyClientResourceYAMLs:
+  type: object
+  required: [clientId, clientName, httpRouteYaml, securityPolicyYaml]
+  description: Kubernetes resources generated for a single API-key client attachment, with secrets redacted
+  properties:
+    clientId:
+      type: string
+      format: uuid
+    clientName:
+      type: string
+    httpRouteYaml:
+      type: string
+      description: Per-client HTTPRoute/GRPCRoute Kubernetes YAML
+    securityPolicyYaml:
+      type: string
+      description: Per-client SecurityPolicy Kubernetes YAML
+    backendTrafficPolicyYaml:
+      type: string
+      description: Per-client BackendTrafficPolicy Kubernetes YAML (if configured)
+    envoyExtensionPolicyYaml:
+      type: string
+      description: Per-client EnvoyExtensionPolicy Kubernetes YAML (if configured)
 
 PreviewCreateResponse:
   type: object
@@ -513,6 +584,12 @@ PreviewCreateResponse:
     proposedEnvoyExtensionPolicyYaml:
       type: string
       description: Proposed EnvoyExtensionPolicy YAML for Lua/Wasm extensions (if configured)
+    proposedHttpRouteFilterYaml:
+      type: string
+      description: Proposed HTTPRouteFilter YAML for direct-response routes (if configured)
+    proposedConfigMapYaml:
+      type: string
+      description: Proposed ConfigMap YAML backing a direct-response body (if configured)
 
 PreviewUpdateResponse:
   type: object
@@ -548,6 +625,18 @@ PreviewUpdateResponse:
     proposedEnvoyExtensionPolicyYaml:
       type: string
       description: Proposed EnvoyExtensionPolicy YAML for Lua/Wasm extensions (if configured)
+    currentHttpRouteFilterYaml:
+      type: string
+      description: Current HTTPRouteFilter YAML for direct-response routes (if exists)
+    proposedHttpRouteFilterYaml:
+      type: string
+      description: Proposed HTTPRouteFilter YAML for direct-response routes (if configured)
+    currentConfigMapYaml:
+      type: string
+      description: Current ConfigMap YAML backing a direct-response body (if exists)
+    proposedConfigMapYaml:
+      type: string
+      description: Proposed ConfigMap YAML backing a direct-response body (if configured)
 
 PreviewDeleteResponse:
   type: object
@@ -568,3 +657,39 @@ PreviewDeleteResponse:
     currentEnvoyExtensionPolicyYaml:
       type: string
       description: Current EnvoyExtensionPolicy YAML (will be deleted if exists)
+    currentHttpRouteFilterYaml:
+      type: string
+      description: Current HTTPRouteFilter YAML for direct-response routes (will be deleted if exists)
+    currentConfigMapYaml:
+      type: string
+      description: Current ConfigMap YAML backing a direct-response body (will be deleted if exists)
+
+CheckConflictsRequest:
+  type: object
+  required: [match]
+  description: Request body for checking whether a route matcher conflicts with existing routes in the domain
+  properties:
+    match:
+      $ref: '#/RouteMatch'
+    excludeRouteId:
+      type: string
+      format: uuid
+      description: Route ID to exclude from conflict checking (e.g., when checking conflicts while editing an existing route)
+
+CheckConflictsResponse:
+  type: object
+  properties:
+    conflicts:
+      type: array
+      items:
+        $ref: '#/ConflictResult'
+
+ConflictResult:
+  type: object
+  description: An existing route whose matcher conflicts with the one being checked
+  properties:
+    routeId:
+      type: string
+      format: uuid
+    routeName:
+      type: string

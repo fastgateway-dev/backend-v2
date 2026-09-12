@@ -8,13 +8,23 @@ Project:
       type: string
     description:
       type: string
+    connectionType:
+      type: string
+      enum: [in_cluster, kubeconfig, api_token]
+      description: Kubernetes connection type
     k8sApiUrl:
       type: string
+    k8sTlsSkipVerify:
+      type: boolean
+      description: Whether TLS verification of the K8s API server is skipped
     isConnected:
       type: boolean
     lastConnectedAt:
       type: string
       format: date-time
+    createdBy:
+      type: string
+      format: uuid
     domainCount:
       type: integer
     routeCount:
@@ -25,6 +35,30 @@ Project:
     updatedAt:
       type: string
       format: date-time
+    labels:
+      $ref: './common.yaml#/Labels'
+    approvalEnabled:
+      type: boolean
+      description: Whether route changes in this project require approval
+    selfApprovalAllowed:
+      type: boolean
+      description: Whether the author of a change may also approve it
+    metricsEndpointUrl:
+      type: string
+      description: Prometheus/VictoriaMetrics-compatible metrics endpoint URL
+    metricsAuthType:
+      type: string
+      enum: [none, bearer, basic]
+      description: Authentication method for the metrics endpoint
+    metricsUsername:
+      type: string
+      description: Username for basic auth against the metrics endpoint
+    metricsTlsSkipVerify:
+      type: boolean
+      description: Whether TLS verification of the metrics endpoint is skipped
+    metricsCaCert:
+      type: string
+      description: Custom CA certificate PEM for the metrics endpoint
 
 ProjectList:
   type: object
@@ -46,24 +80,26 @@ CreateProjectRequest:
       type: string
     connectionType:
       type: string
-      enum: [in-cluster, kubeconfig, api-token]
-      description: Kubernetes connection type
+      enum: [in_cluster, kubeconfig, api_token]
+      description: Kubernetes connection type. The wire values use underscores (e.g. `in_cluster`, `api_token`), not hyphens.
     kubeconfig:
       type: string
-      description: Kubeconfig content (for kubeconfig connection type)
+      description: Kubeconfig content (for connectionType=kubeconfig)
     k8sApiUrl:
       type: string
-      description: Kubernetes API URL (for api-token connection type)
+      description: Kubernetes API URL (for connectionType=api_token)
     k8sToken:
       type: string
-      description: Kubernetes bearer token (for api-token connection type)
+      description: Kubernetes bearer token (for connectionType=api_token)
     tlsVerification:
       type: string
-      enum: [system, custom, skip]
-      description: TLS verification mode for K8s API
+      enum: [system_ca, custom_ca, skip]
+      description: TLS verification mode for the K8s API (connectionType=api_token only). Defaults to `skip` when omitted.
     k8sCaCert:
       type: string
-      description: Custom CA certificate PEM (for tlsVerification=custom)
+      description: Custom CA certificate PEM (required when tlsVerification=custom_ca)
+    labels:
+      $ref: './common.yaml#/Labels'
 
 UpdateProjectRequest:
   type: object
@@ -74,20 +110,50 @@ UpdateProjectRequest:
       type: string
     kubeconfig:
       type: string
-      description: Kubeconfig content (for kubeconfig connection type)
+      description: Kubeconfig content (for connectionType=kubeconfig)
     k8sApiUrl:
       type: string
-      description: Kubernetes API URL (for api-token connection type)
+      description: Kubernetes API URL (for connectionType=api_token)
     k8sToken:
       type: string
-      description: Kubernetes bearer token (for api-token connection type)
+      description: Kubernetes bearer token (for connectionType=api_token)
     tlsVerification:
       type: string
-      enum: [system, custom, skip]
-      description: TLS verification mode for K8s API
+      enum: [system_ca, custom_ca, skip]
+      description: TLS verification mode for the K8s API (connectionType=api_token only)
     k8sCaCert:
       type: string
-      description: Custom CA certificate PEM (for tlsVerification=custom)
+      description: Custom CA certificate PEM (required when tlsVerification=custom_ca)
+    labels:
+      $ref: './common.yaml#/Labels'
+    approvalEnabled:
+      type: boolean
+      description: Whether route changes in this project require approval
+    selfApprovalAllowed:
+      type: boolean
+      description: Whether the author of a change may also approve it
+    metricsEndpointUrl:
+      type: string
+      description: Prometheus/VictoriaMetrics-compatible metrics endpoint URL
+    metricsAuthType:
+      type: string
+      enum: [none, bearer, basic]
+      description: Authentication method for the metrics endpoint
+    metricsUsername:
+      type: string
+      description: Username for basic auth against the metrics endpoint
+    metricsPassword:
+      type: string
+      description: Password for basic auth against the metrics endpoint. Write-only; encrypted at rest and never returned.
+    metricsToken:
+      type: string
+      description: Bearer token for the metrics endpoint. Write-only; encrypted at rest and never returned.
+    metricsTlsSkipVerify:
+      type: boolean
+      description: Whether TLS verification of the metrics endpoint is skipped
+    metricsCaCert:
+      type: string
+      description: Custom CA certificate PEM for the metrics endpoint
 
 ConnectionTestResult:
   type: object
@@ -138,3 +204,64 @@ ProjectCapabilities:
     rateLimitAvailable:
       type: boolean
       description: Whether rate limiting is available (requires Redis backend in Envoy Gateway)
+
+VersionInfo:
+  type: object
+  description: Detected Envoy Gateway / Gateway API versions for a project's cluster, with compatibility classification against the versions FastGateway has been tested with.
+  properties:
+    status:
+      $ref: '#/VersionStatus'
+    envoyGateway:
+      $ref: '#/ProbeResult'
+    gatewayAPI:
+      $ref: '#/ProbeResult'
+    supportedPairs:
+      type: array
+      items:
+        $ref: '#/VersionPair'
+    checkedAt:
+      type: string
+      format: date-time
+    cacheExpiresAt:
+      type: string
+      format: date-time
+
+VersionStatus:
+  type: string
+  enum: [supported, untested, unknown]
+  description: |
+    - `supported`: the detected (envoyGateway, gatewayAPI) pair is in `supportedPairs`.
+    - `untested`: both versions were detected but the pair is not one FastGateway has tested against.
+    - `unknown`: detection failed for one or both components.
+
+ProbeResult:
+  type: object
+  description: The detected version of one component (Envoy Gateway or Gateway API).
+  properties:
+    version:
+      type: string
+      description: Detected version string (e.g. "1.8.4"), empty if detection failed.
+    image:
+      type: string
+      description: Container image the version was detected from, if applicable.
+    source:
+      type: string
+      description: How the version was detected (e.g. deployment image, CRD version).
+    detected:
+      type: boolean
+      description: Whether a version was successfully detected.
+    error:
+      type: string
+      nullable: true
+      description: Error message if detection failed; null otherwise.
+
+VersionPair:
+  type: object
+  description: A tested (Envoy Gateway, Gateway API) version combination.
+  properties:
+    envoyGateway:
+      type: string
+      example: "1.8.4"
+    gatewayAPI:
+      type: string
+      example: "1.5.1"

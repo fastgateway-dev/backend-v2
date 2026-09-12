@@ -39,25 +39,6 @@ project-teams:
             schema:
               $ref: '../schemas/project-team.yaml#/ProjectTeamRole'
 
-my-project-teams:
-  get:
-    tags: [Project Teams]
-    summary: Get current user's teams for this project
-    operationId: getMyProjectTeams
-    security:
-      - bearerAuth: []
-    parameters:
-      - $ref: '../components/parameters.yaml#/projectId'
-    responses:
-      '200':
-        description: Current user's teams for project
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                $ref: '../schemas/project-team.yaml#/ProjectTeamRole'
-
 project-team_{teamId}:
   get:
     tags: [Project Teams]

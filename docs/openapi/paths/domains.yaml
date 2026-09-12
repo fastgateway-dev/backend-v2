@@ -39,6 +39,53 @@ domains:
             schema:
               $ref: '../schemas/domain.yaml#/Domain'
 
+domain-tls-secrets:
+  get:
+    tags: [Domains]
+    summary: List TLS secrets available for domain TLS configuration
+    description: Lists kubernetes.io/tls Secrets in a namespace, annotated with whether FastGateway manages them, plus the namespaces available for lookup in this project.
+    operationId: listDomainTLSSecrets
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - name: namespace
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Kubernetes namespace to list TLS secrets from. Defaults to the project's default namespace.
+    responses:
+      '200':
+        description: TLS secrets available in the namespace
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/ListTLSSecretsResponse'
+      '400':
+        description: Namespace not managed by this project, or namespace management not configured
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+domain-available-namespaces:
+  get:
+    tags: [Domains]
+    summary: List namespaces eligible for domain deployment
+    operationId: listDomainAvailableNamespaces
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: Namespaces eligible for domain deployment in this project
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/AvailableNamespacesResponse'
+
 domains_{domainId}:
   get:
     tags: [Domains]
@@ -106,7 +153,7 @@ domain-settings:
       - $ref: '../components/parameters.yaml#/domainId'
     responses:
       '200':
-        description: Domain settings (null if not configured)
+        description: Domain settings ({} with all fields omitted if not configured)
         content:
           application/json:
             schema:
@@ -133,11 +180,11 @@ domain-settings:
             $ref: '../schemas/domain.yaml#/UpdateDomainSettingsRequest'
     responses:
       '200':
-        description: Domain settings updated (null if all settings disabled)
+        description: Domain settings updated, with any operator-facing warnings (null if all settings disabled)
         content:
           application/json:
             schema:
-              $ref: '../schemas/domain.yaml#/DomainSettings'
+              $ref: '../schemas/domain.yaml#/UpdateDomainSettingsResponse'
       '403':
         description: Access denied - only project admins can manage domain settings
         content:
@@ -162,8 +209,12 @@ domain-mtls-ca:
           schema:
             $ref: '../schemas/domain.yaml#/AddDomainMTLSCARequest'
     responses:
-      '201':
-        description: CA certificate added
+      '200':
+        description: CA certificate added; returns the updated domain settings
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/DomainSettingsRecord'
       '403':
         $ref: '../components/responses.yaml#/Forbidden'
 
@@ -183,8 +234,12 @@ domain-mtls-ca_{caId}:
         schema:
           type: string
     responses:
-      '204':
-        description: CA certificate removed
+      '200':
+        description: CA certificate removed; returns the updated domain settings
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/domain.yaml#/DomainSettingsRecord'
       '403':
         $ref: '../components/responses.yaml#/Forbidden'
 

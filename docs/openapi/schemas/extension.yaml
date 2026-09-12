@@ -1,11 +1,49 @@
-EnvoyExtensionPolicyInput:
+EnvoyExtensionPolicy:
   type: object
-  description: Envoy extension policy input for Lua and Wasm extensions
+  description: Envoy Gateway EnvoyExtensionPolicy resource (Lua, Wasm, and/or ext_proc extensions configured on a route)
+  properties:
+    id:
+      type: string
+      format: uuid
+    routeId:
+      type: string
+      format: uuid
+    domainId:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    config:
+      $ref: '#/EnvoyExtensionPolicyConfig'
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+EnvoyExtensionPolicyConfig:
+  type: object
+  description: Lua, Wasm, and ext_proc extension configuration stored for a route
   properties:
     lua:
       $ref: '#/LuaExtensionConfig'
     wasm:
       $ref: '#/WasmExtensionConfig'
+    extProc:
+      $ref: '#/ExtProcExtensionConfig'
+
+EnvoyExtensionPolicyInput:
+  type: object
+  description: Envoy extension policy input for Lua, Wasm, and ext_proc extensions
+  properties:
+    lua:
+      $ref: '#/LuaExtensionConfig'
+    wasm:
+      $ref: '#/WasmExtensionConfig'
+    extProc:
+      $ref: '#/ExtProcExtensionConfig'
 
 LuaExtensionConfig:
   type: object
@@ -79,3 +117,52 @@ WasmImageSource:
     pullSecret:
       $ref: './btp.yaml#/ValueRef'
       description: Reference to Secret containing registry credentials
+
+ExtProcExtensionConfig:
+  type: object
+  required: [backendRef]
+  description: External processing (ext_proc) extension configuration - sends request/response traffic to a gRPC processor service
+  properties:
+    backendRef:
+      $ref: '#/ExtProcBackendRef'
+    processingMode:
+      $ref: '#/ExtProcProcessingMode'
+    failOpen:
+      type: boolean
+      default: false
+      description: If true, traffic is allowed through when the ext_proc server is unavailable
+
+ExtProcBackendRef:
+  type: object
+  required: [name, namespace, port]
+  description: gRPC service to send request/response traffic to for ext_proc processing
+  properties:
+    name:
+      type: string
+      description: Service name of the ext_proc gRPC backend
+    namespace:
+      type: string
+      description: Namespace of the ext_proc gRPC backend
+    port:
+      type: integer
+      minimum: 1
+      maximum: 65535
+      description: Port of the ext_proc gRPC backend
+
+ExtProcProcessingMode:
+  type: object
+  description: Controls which request/response parts are sent to the ext_proc processor
+  properties:
+    request:
+      $ref: '#/ExtProcBodyMode'
+    response:
+      $ref: '#/ExtProcBodyMode'
+
+ExtProcBodyMode:
+  type: object
+  description: Body processing mode for a request or response phase
+  properties:
+    body:
+      type: string
+      enum: [None, Buffered, Streamed]
+      description: How the body is sent to the ext_proc processor

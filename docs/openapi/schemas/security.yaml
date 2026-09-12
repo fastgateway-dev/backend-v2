@@ -48,6 +48,20 @@ IPAllowlistEntry:
       type: string
       description: Optional description for this IP entry
 
+AuthorizationHeaderMatch:
+  type: object
+  required: [name, values]
+  description: Required header match rule for general-mode authorization
+  properties:
+    name:
+      type: string
+      description: Header name to match
+    values:
+      type: array
+      items:
+        type: string
+      description: Allowed values for the header
+
 AuthorizationConfig:
   type: object
   description: Authorization configuration computed at deploy time from active client attachments

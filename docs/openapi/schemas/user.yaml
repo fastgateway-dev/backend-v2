@@ -14,12 +14,29 @@ User:
       enum: [owner, user]
     isActive:
       type: boolean
+    authProvider:
+      type: string
+      description: How the user authenticates (e.g., local, sso)
+    providerSubject:
+      type: string
+      nullable: true
+      description: Subject identifier from the SSO provider, if applicable
     createdAt:
       type: string
       format: date-time
     updatedAt:
       type: string
       format: date-time
+
+CurrentUser:
+  description: User profile returned by GET /auth/me, including how the caller authenticated this request
+  allOf:
+    - $ref: '#/User'
+    - type: object
+      properties:
+        authMethod:
+          type: string
+          description: How the current request was authenticated (e.g., jwt, api_token)
 
 UserList:
   type: object

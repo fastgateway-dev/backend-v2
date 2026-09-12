@@ -1,0 +1,46 @@
+EffectiveSettings:
+  type: object
+  description: Resolved settings value for each field (DB override if set, else the env var/config default)
+  properties:
+    baseUrl:
+      type: string
+    jwtExpiry:
+      type: string
+    refreshTokenExpiry:
+      type: string
+    logLevel:
+      type: string
+      enum: [debug, info, warn, error]
+
+SystemSettingsResponse:
+  type: object
+  properties:
+    baseUrl:
+      type: string
+    jwtExpiry:
+      type: string
+      description: Go duration string (e.g. 24h, 1h30m)
+    refreshTokenExpiry:
+      type: string
+      description: Go duration string (e.g. 168h, 720h)
+    logLevel:
+      type: string
+      enum: [debug, info, warn, error]
+    effective:
+      $ref: '#/EffectiveSettings'
+
+SystemSettingsInput:
+  type: object
+  description: All fields are optional; omitted fields are cleared to empty (falling back to the effective default).
+  properties:
+    baseUrl:
+      type: string
+    jwtExpiry:
+      type: string
+      description: Go duration string (e.g. 24h, 1h30m)
+    refreshTokenExpiry:
+      type: string
+      description: Go duration string (e.g. 168h, 720h)
+    logLevel:
+      type: string
+      enum: [debug, info, warn, error]

@@ -121,8 +121,60 @@ capabilities:
           application/json:
             schema:
               $ref: '../schemas/project.yaml#/ProjectCapabilities'
-      '403':
-        $ref: '../components/responses.yaml#/Forbidden'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+
+versions:
+  get:
+    tags: [Projects]
+    summary: Get detected Envoy Gateway / Gateway API versions for project
+    description: Returns the cached (or freshly-detected, if the cache is cold or expired) version-compatibility info for the project's cluster.
+    operationId: getProjectVersions
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: Version info
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project.yaml#/VersionInfo'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '500':
+        description: Version detection failed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+versions-refresh:
+  post:
+    tags: [Projects]
+    summary: Invalidate cached version info and re-detect
+    description: Drops the cached version info for the project, then immediately re-detects and re-caches it.
+    operationId: refreshProjectVersions
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: Freshly-detected version info
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/project.yaml#/VersionInfo'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '500':
+        description: Version detection failed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
 
 permissions:
   get:
@@ -202,6 +254,11 @@ members:
       - bearerAuth: []
     parameters:
       - $ref: '../components/parameters.yaml#/projectId'
+      - name: search
+        in: query
+        schema:
+          type: string
+        description: Free-text search term to filter members
     responses:
       '200':
         description: List of project members

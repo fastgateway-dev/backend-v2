@@ -1,0 +1,50 @@
+system-settings:
+  get:
+    tags: [System Settings]
+    summary: Get system settings (Owner only)
+    description: Returns the raw DB-stored values alongside the effective values (DB override if set, else env var/config default).
+    operationId: getSystemSettings
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: System settings
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/system-settings.yaml#/SystemSettingsResponse'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+  put:
+    tags: [System Settings]
+    summary: Update system settings (Owner only)
+    description: |
+      All fields are optional, but any field omitted from the request body is
+      cleared to empty (falling back to its effective default) — this is a
+      full replace, not a partial merge. jwtExpiry/refreshTokenExpiry must
+      parse as Go duration strings (e.g. 24h, 1h30m); logLevel must be one of
+      debug/info/warn/error.
+    operationId: updateSystemSettings
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/system-settings.yaml#/SystemSettingsInput'
+    responses:
+      '200':
+        description: System settings updated
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/system-settings.yaml#/SystemSettingsResponse'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'

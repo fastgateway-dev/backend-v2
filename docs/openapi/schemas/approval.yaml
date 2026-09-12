@@ -18,8 +18,12 @@ Approval:
       enum: [create, update, delete, attach, detach]
     configSnapshot:
       type: object
+      nullable: true
+      description: Snapshot of the proposed config. Raw JSON; shape varies by entityType/action.
     previousConfig:
       type: object
+      nullable: true
+      description: Snapshot of the prior config (update/delete only). Raw JSON; shape varies by entityType/action.
     submittedBy:
       type: string
       format: uuid
@@ -34,6 +38,9 @@ Approval:
         $ref: '#/ApprovalStage'
     entityName:
       type: string
+    domainName:
+      type: string
+      description: Hostname of the domain for route approvals (computed, not stored)
     changeDescription:
       type: string
       description: Optional human description of the changes
@@ -71,7 +78,39 @@ ApprovalStage:
       enum: [pending, approved, rejected]
     comment:
       type: string
+    minApprovers:
+      type: integer
+      description: Minimum number of approvers required for this stage (defaults to 1)
+    reviews:
+      type: array
+      description: >-
+        Individual reviewer decisions for multi-approver stages. Currently
+        always empty in practice (not preloaded by the repository layer).
+      items:
+        $ref: '#/ApprovalStageReview'
     reviewedAt:
+      type: string
+      format: date-time
+
+ApprovalStageReview:
+  type: object
+  description: An individual reviewer decision on a multi-approver stage
+  properties:
+    id:
+      type: string
+      format: uuid
+    stageId:
+      type: string
+      format: uuid
+    reviewerId:
+      type: string
+      format: uuid
+    reviewer:
+      $ref: './user.yaml#/User'
+    decision:
+      type: string
+      enum: [approved, rejected]
+    createdAt:
       type: string
       format: date-time
 

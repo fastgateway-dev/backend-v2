@@ -1,0 +1,118 @@
+TestConnectionResult:
+  type: object
+  required: [ok]
+  properties:
+    ok:
+      type: boolean
+    prometheusVersion:
+      type: string
+      description: Prometheus server version, present when ok is true
+    error:
+      type: string
+      description: Failure reason, present when ok is false
+
+PromPoint:
+  type: object
+  properties:
+    time:
+      type: string
+      format: date-time
+    value:
+      type: number
+
+MetricsTimeRange:
+  type: object
+  properties:
+    start:
+      type: string
+      format: date-time
+    end:
+      type: string
+      format: date-time
+    step:
+      type: string
+      description: Resolved PromQL step (e.g. 15s, 1m)
+
+RpsByClass:
+  type: object
+  description: Requests-per-second time series bucketed by HTTP status class
+  properties:
+    '2xx':
+      type: array
+      items:
+        $ref: '#/PromPoint'
+    '3xx':
+      type: array
+      items:
+        $ref: '#/PromPoint'
+    '4xx':
+      type: array
+      items:
+        $ref: '#/PromPoint'
+    '5xx':
+      type: array
+      items:
+        $ref: '#/PromPoint'
+
+LatencyPercentiles:
+  type: object
+  properties:
+    p50:
+      type: array
+      items:
+        $ref: '#/PromPoint'
+    p95:
+      type: array
+      items:
+        $ref: '#/PromPoint'
+    p99:
+      type: array
+      items:
+        $ref: '#/PromPoint'
+
+RouteMetricsResult:
+  type: object
+  properties:
+    timeRange:
+      $ref: '#/MetricsTimeRange'
+    totalRequests:
+      type: number
+    errorRatePercent:
+      type: number
+    rps:
+      $ref: '#/RpsByClass'
+    latency:
+      $ref: '#/LatencyPercentiles'
+
+TopRouteEntry:
+  type: object
+  properties:
+    routeId:
+      type: string
+      format: uuid
+    routeName:
+      type: string
+    value:
+      type: number
+
+DomainMetricsResult:
+  type: object
+  properties:
+    timeRange:
+      $ref: '#/MetricsTimeRange'
+    totalRequests:
+      type: number
+    errorRatePercent:
+      type: number
+    rps:
+      $ref: '#/RpsByClass'
+    latency:
+      $ref: '#/LatencyPercentiles'
+    topRoutesByRps:
+      type: array
+      items:
+        $ref: '#/TopRouteEntry'
+    topRoutesByErrorRate:
+      type: array
+      items:
+        $ref: '#/TopRouteEntry'

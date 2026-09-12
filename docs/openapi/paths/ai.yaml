@@ -36,6 +36,14 @@ generate:
           text/event-stream:
             schema:
               type: string
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '404':
+        description: Domain not found
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
       '429':
         description: Rate limit exceeded
         content:

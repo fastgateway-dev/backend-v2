@@ -105,6 +105,12 @@ ensure-reference-grant:
       - $ref: '../components/parameters.yaml#/namespaceId'
     responses:
       '200':
-        description: ReferenceGrant ensured
+        description: ReferenceGrant ensured; returns the project namespace
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/namespace.yaml#/ProjectNamespace'
       '403':
         $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'

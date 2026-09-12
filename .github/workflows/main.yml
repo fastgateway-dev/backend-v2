@@ -40,6 +40,16 @@ jobs:
       - name: Verify mocks are up to date
         run: make mocks-check
 
+      # cmd/server/openapi.yaml is a bundle of docs/openapi/ (see `make
+      # openapi`), //go:embed-ed into the server binary and checked against
+      # the live router by TestRouteSpecParity in cmd/server. Without this
+      # check, a docs/openapi/ edit that is never re-bundled would leave the
+      # committed cmd/server/openapi.yaml -- and therefore the spec served at
+      # /api/v1/docs/openapi.yaml -- silently stale, the same class of drift
+      # mocks-check exists to catch for internal/mocks.
+      - name: Verify OpenAPI bundle is up to date
+        run: make openapi-check
+
       - name: Test
         run: go test ./... -count=1
 

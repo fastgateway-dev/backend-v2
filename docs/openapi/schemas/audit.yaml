@@ -25,6 +25,8 @@ AuditLog:
       type: object
     ipAddress:
       type: string
+    userAgent:
+      type: string
     createdAt:
       type: string
       format: date-time
