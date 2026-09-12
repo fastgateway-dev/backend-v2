@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/google/uuid"
@@ -401,4 +402,249 @@ func isValidK8sName(name string) bool {
 	}
 
 	return true
+}
+
+// validateBackendNamespaces validates that all backend and mirror namespaces are managed by the project
+func (q *routeQuery) validateBackendNamespaces(projectID uuid.UUID, config *models.RouteConfig) error {
+	// Validate primary backend namespaces
+	for _, backend := range config.Backends {
+		// Empty namespace or fastgateway-system namespace is always allowed
+		if backend.Namespace == "" || backend.Namespace == kubernetes.FastGatewayNamespace {
+			continue
+		}
+
+		// Check if namespace is managed by this project
+		exists, err := q.projectNamespaceRepo.ExistsByProjectAndNamespace(projectID, backend.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to validate namespace '%s': %w", backend.Namespace, err)
+		}
+		if !exists {
+			return fmt.Errorf("namespace '%s' is not managed by this project. Add it in Project Settings > Namespaces before using it as a backend", backend.Namespace)
+		}
+	}
+
+	// Validate mirror backend namespaces (same rules as primary backends)
+	for _, mirror := range config.Mirrors {
+		// Empty namespace or fastgateway-system namespace is always allowed
+		if mirror.Namespace == "" || mirror.Namespace == kubernetes.FastGatewayNamespace {
+			continue
+		}
+
+		// Check if namespace is managed by this project
+		exists, err := q.projectNamespaceRepo.ExistsByProjectAndNamespace(projectID, mirror.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to validate mirror namespace '%s': %w", mirror.Namespace, err)
+		}
+		if !exists {
+			return fmt.Errorf("mirror namespace '%s' is not managed by this project. Add it in Project Settings > Namespaces before using it as a mirror target", mirror.Namespace)
+		}
+	}
+
+	return nil
+}
+
+// validateMirrorTargets ensures mirror backends are different from primary backends
+func (q *routeQuery) validateMirrorTargets(config *models.RouteConfig) error {
+	if len(config.Mirrors) == 0 {
+		return nil
+	}
+
+	// Mirror-only routes not allowed (must have primary backends, redirect, or direct response)
+	if len(config.Backends) == 0 && config.Redirect == nil && config.DirectResponse == nil {
+		return errors.New("routes with mirrors must have at least one primary backend")
+	}
+
+	// Build set of primary backend identifiers
+	primaryBackends := make(map[string]bool)
+	for _, backend := range config.Backends {
+		if backend.Type == models.BackendTypeKubernetes {
+			key := fmt.Sprintf("%s/%s:%d", backend.Namespace, backend.Service, backend.Port)
+			primaryBackends[key] = true
+		}
+	}
+
+	// Check mirrors don't duplicate primaries
+	for _, mirror := range config.Mirrors {
+		key := fmt.Sprintf("%s/%s:%d", mirror.Namespace, mirror.Service, mirror.Port)
+		if primaryBackends[key] {
+			return fmt.Errorf("mirror target '%s/%s:%d' cannot be the same as a primary backend", mirror.Namespace, mirror.Service, mirror.Port)
+		}
+	}
+
+	return nil
+}
+
+// validateFailoverConfig validates failover configuration
+func (q *routeQuery) validateFailoverConfig(config *models.RouteConfig) error {
+	if !config.HasFailover() {
+		return nil
+	}
+
+	// Count primary and fallback backends
+	primaryCount := 0
+	fallbackCount := 0
+	for _, b := range config.Backends {
+		if b.Fallback {
+			fallbackCount++
+		} else {
+			primaryCount++
+		}
+	}
+
+	// Must have at least one primary backend
+	if primaryCount == 0 {
+		return errors.New("failover requires at least one primary backend")
+	}
+
+	// Must have at least one fallback backend (implicit from HasFailover check, but be explicit)
+	if fallbackCount == 0 {
+		return errors.New("failover requires at least one fallback backend")
+	}
+
+	// Build set of primary backend identifiers
+	primaryBackends := make(map[string]bool)
+	for _, b := range config.Backends {
+		if !b.Fallback {
+			var key string
+			if b.Type == models.BackendTypeKubernetes {
+				key = fmt.Sprintf("k8s:%s/%s:%d", b.Namespace, b.Service, b.Port)
+			} else if b.Type == models.BackendTypeExternal {
+				key = fmt.Sprintf("ext:%s:%d", b.Address, b.Port)
+			}
+			if key != "" {
+				primaryBackends[key] = true
+			}
+		}
+	}
+
+	// Check fallback backends are different from primary backends
+	for _, b := range config.Backends {
+		if b.Fallback {
+			var key string
+			if b.Type == models.BackendTypeKubernetes {
+				key = fmt.Sprintf("k8s:%s/%s:%d", b.Namespace, b.Service, b.Port)
+			} else if b.Type == models.BackendTypeExternal {
+				key = fmt.Sprintf("ext:%s:%d", b.Address, b.Port)
+			}
+			if key != "" && primaryBackends[key] {
+				if b.Type == models.BackendTypeKubernetes {
+					return fmt.Errorf("fallback backend '%s/%s:%d' cannot be the same as a primary backend", b.Namespace, b.Service, b.Port)
+				} else {
+					return fmt.Errorf("fallback backend '%s:%d' cannot be the same as a primary backend", b.Address, b.Port)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateBackendRequiredFields validates that all backends have required fields
+func (q *routeQuery) validateBackendRequiredFields(config *models.RouteConfig) error {
+	// Validate primary backends
+	for i, backend := range config.Backends {
+		if backend.Type == models.BackendTypeKubernetes {
+			if backend.Namespace == "" {
+				return fmt.Errorf("backend %d: namespace is required for Kubernetes backends", i+1)
+			}
+			if backend.Service == "" {
+				return fmt.Errorf("backend %d: service is required for Kubernetes backends", i+1)
+			}
+			if backend.Port <= 0 {
+				return fmt.Errorf("backend %d: port must be greater than 0 for Kubernetes backends", i+1)
+			}
+			// Validate TLS configuration (allowed for K8s backends too)
+			if backend.TLS != nil {
+				if err := backend.TLS.Validate(); err != nil {
+					return fmt.Errorf("backend %d: %w", i+1, err)
+				}
+			}
+		} else if backend.Type == models.BackendTypeExternal {
+			if backend.Address == "" {
+				return fmt.Errorf("backend %d: address is required for external backends", i+1)
+			}
+			if backend.Port <= 0 {
+				return fmt.Errorf("backend %d: port must be greater than 0 for external backends", i+1)
+			}
+			// Validate TLS configuration
+			if backend.TLS != nil {
+				if err := backend.TLS.Validate(); err != nil {
+					return fmt.Errorf("backend %d: %w", i+1, err)
+				}
+			}
+		}
+	}
+
+	// Validate mirror backends
+	for i, mirror := range config.Mirrors {
+		if mirror.Namespace == "" {
+			return fmt.Errorf("mirror %d: namespace is required", i+1)
+		}
+		if mirror.Service == "" {
+			return fmt.Errorf("mirror %d: service is required", i+1)
+		}
+		if mirror.Port <= 0 {
+			return fmt.Errorf("mirror %d: port must be greater than 0", i+1)
+		}
+	}
+
+	return nil
+}
+
+// validateMatcherConflict checks if the given route config's matcher conflicts with
+// any existing route in the same domain. excludeRouteID can be set to skip the route
+// being updated. Returns an error naming the conflicting route if found.
+func (q *routeQuery) validateMatcherConflict(domainID uuid.UUID, config *models.RouteConfig, excludeRouteID *uuid.UUID) error {
+	if len(config.Matches) == 0 {
+		return nil
+	}
+	newMatch := config.Matches[0]
+
+	// Fetch all routes in the domain (no filters, high limit)
+	existingRoutes, _, err := q.routeRepo.ListByDomainID(domainID, 1, 10000, nil, "", "", "", nil)
+	if err != nil {
+		return fmt.Errorf("failed to check matcher conflicts: %w", err)
+	}
+
+	for _, route := range existingRoutes {
+		if excludeRouteID != nil && route.ID == *excludeRouteID {
+			continue
+		}
+		if len(route.Config.Matches) == 0 {
+			continue
+		}
+		if routeMatchersEqual(newMatch, route.Config.Matches[0]) {
+			return fmt.Errorf("route matcher conflicts with existing route '%s'", route.Name)
+		}
+	}
+
+	return nil
+}
+
+// CheckMatcherConflicts checks if the given matcher conflicts with any existing route
+// in the domain. Returns all conflicting routes. excludeRouteID can be set to skip
+// the route being updated.
+func (q *routeQuery) CheckMatcherConflicts(domainID uuid.UUID, match models.RouteMatch, excludeRouteID *uuid.UUID) ([]ConflictResult, error) {
+	existingRoutes, _, err := q.routeRepo.ListByDomainID(domainID, 1, 10000, nil, "", "", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check matcher conflicts: %w", err)
+	}
+
+	var conflicts []ConflictResult
+	for _, route := range existingRoutes {
+		if excludeRouteID != nil && route.ID == *excludeRouteID {
+			continue
+		}
+		if len(route.Config.Matches) == 0 {
+			continue
+		}
+		if routeMatchersEqual(match, route.Config.Matches[0]) {
+			conflicts = append(conflicts, ConflictResult{
+				RouteID:   route.ID,
+				RouteName: route.Name,
+			})
+		}
+	}
+
+	return conflicts, nil
 }
