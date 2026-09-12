@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -14,11 +13,11 @@ import (
 
 // NotificationHandler handles notification HTTP requests
 type NotificationHandler struct {
-	notificationService services.NotificationServiceInterface
+	notificationService NotificationServiceInterface
 }
 
 // NewNotificationHandler creates a new notification handler
-func NewNotificationHandler(notificationService services.NotificationServiceInterface) *NotificationHandler {
+func NewNotificationHandler(notificationService NotificationServiceInterface) *NotificationHandler {
 	return &NotificationHandler{notificationService: notificationService}
 }
 

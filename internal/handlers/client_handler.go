@@ -7,7 +7,6 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -38,14 +37,14 @@ type ClientServiceInterface interface {
 // ClientHandler handles client endpoints
 type ClientHandler struct {
 	clientService ClientServiceInterface
-	auditService  services.AuditServiceInterface
+	auditService  AuditServiceInterface
 	perms         *middleware.PermissionChecker
 }
 
 // NewClientHandler creates a new client handler
 func NewClientHandler(
 	clientService ClientServiceInterface,
-	auditService services.AuditServiceInterface,
+	auditService AuditServiceInterface,
 	perms *middleware.PermissionChecker,
 ) *ClientHandler {
 	return &ClientHandler{

@@ -29,14 +29,14 @@ type DomainSettingsResponse struct {
 
 // DomainHandler handles domain endpoints
 type DomainHandler struct {
-	domainService services.DomainServiceInterface
-	auditService  services.AuditServiceInterface
+	domainService DomainServiceInterface
+	auditService  AuditServiceInterface
 	permChecker   *middleware.PermissionChecker
-	policyReader  services.DomainPolicyReader
+	policyReader  DomainPolicyReader
 }
 
 // NewDomainHandler creates a new domain handler
-func NewDomainHandler(domainService services.DomainServiceInterface, auditService services.AuditServiceInterface, permChecker *middleware.PermissionChecker, policyReader services.DomainPolicyReader) *DomainHandler {
+func NewDomainHandler(domainService DomainServiceInterface, auditService AuditServiceInterface, permChecker *middleware.PermissionChecker, policyReader DomainPolicyReader) *DomainHandler {
 	return &DomainHandler{
 		domainService: domainService,
 		auditService:  auditService,

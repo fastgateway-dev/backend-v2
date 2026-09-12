@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/fastgateway-dev/backend-v2/internal/cluster"
 	"github.com/fastgateway-dev/backend-v2/internal/config"
 	"github.com/fastgateway-dev/backend-v2/internal/crypto"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -15,6 +16,8 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 )
+
+var _ cluster.ProjectCredentials = (*ProjectService)(nil)
 
 // ProjectService handles project business logic
 type ProjectService struct {

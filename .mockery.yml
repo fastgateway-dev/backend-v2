@@ -22,24 +22,18 @@ packages:
     config:
       all: true
       filename: mock_services.go
+
+  github.com/fastgateway-dev/backend-v2/internal/handlers:
+    config:
+      all: true
+      filename: mock_handler_services.go
     interfaces:
       # RouteHandlerService is the consumer-sized interface Task 8 split out
       # of RouteServiceInterface; the mock keeps its established name.
       RouteHandlerService:
         config:
           structname: MockRouteService
-          filename: mock_services.go
-
-  # ClientServiceInterface and ClientAttachmentServiceInterface live in
-  # internal/handlers, the package that consumes them. `all` stays false so
-  # the other handler interfaces are not generated.
-  github.com/fastgateway-dev/backend-v2/internal/handlers:
-    config:
-      all: false
-      filename: mock_handler_services.go
-    interfaces:
-      ClientServiceInterface:
-      ClientAttachmentServiceInterface:
+          filename: mock_handler_services.go
 
   # The nineteen Kubernetes roles, as one mock. See internal/mocks/roles.
   github.com/fastgateway-dev/backend-v2/internal/mocks/roles:

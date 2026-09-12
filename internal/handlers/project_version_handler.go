@@ -3,17 +3,16 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 // ProjectVersionHandler exposes detected EG and Gateway API versions for a project.
 type ProjectVersionHandler struct {
-	svc services.ProjectVersionServiceInterface
+	svc ProjectVersionServiceInterface
 }
 
-func NewProjectVersionHandler(svc services.ProjectVersionServiceInterface) *ProjectVersionHandler {
+func NewProjectVersionHandler(svc ProjectVersionServiceInterface) *ProjectVersionHandler {
 	return &ProjectVersionHandler{svc: svc}
 }
 

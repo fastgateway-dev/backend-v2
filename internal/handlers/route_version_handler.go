@@ -6,19 +6,18 @@ import (
 	"strings"
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 // RouteVersionHandler handles route version history endpoints
 type RouteVersionHandler struct {
-	routeVersionService services.RouteVersionServiceInterface
-	auditService        services.AuditServiceInterface
+	routeVersionService RouteVersionServiceInterface
+	auditService        AuditServiceInterface
 }
 
 // NewRouteVersionHandler creates a new route version handler
-func NewRouteVersionHandler(routeVersionService services.RouteVersionServiceInterface, auditService services.AuditServiceInterface) *RouteVersionHandler {
+func NewRouteVersionHandler(routeVersionService RouteVersionServiceInterface, auditService AuditServiceInterface) *RouteVersionHandler {
 	return &RouteVersionHandler{
 		routeVersionService: routeVersionService,
 		auditService:        auditService,

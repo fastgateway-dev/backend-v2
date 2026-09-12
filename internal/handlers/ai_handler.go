@@ -8,20 +8,19 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 // AIHandler handles AI-related endpoints
 type AIHandler struct {
-	aiService       services.AIServiceInterface
-	approvalService services.ApprovalServiceInterface
-	domainService   services.DomainReader
+	aiService       AIServiceInterface
+	approvalService ApprovalServiceInterface
+	domainService   DomainReader
 }
 
 // NewAIHandler creates a new AI handler
-func NewAIHandler(aiService services.AIServiceInterface, approvalService services.ApprovalServiceInterface, domainService services.DomainReader) *AIHandler {
+func NewAIHandler(aiService AIServiceInterface, approvalService ApprovalServiceInterface, domainService DomainReader) *AIHandler {
 	return &AIHandler{
 		aiService:       aiService,
 		approvalService: approvalService,

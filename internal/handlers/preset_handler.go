@@ -11,12 +11,12 @@ import (
 
 // PresetHandler handles HTTP requests for permission presets
 type PresetHandler struct {
-	presetService services.PresetServiceInterface
-	auditService  services.AuditServiceInterface
+	presetService PresetServiceInterface
+	auditService  AuditServiceInterface
 }
 
 // NewPresetHandler creates a new preset handler
-func NewPresetHandler(presetService services.PresetServiceInterface, auditService services.AuditServiceInterface) *PresetHandler {
+func NewPresetHandler(presetService PresetServiceInterface, auditService AuditServiceInterface) *PresetHandler {
 	return &PresetHandler{
 		presetService: presetService,
 		auditService:  auditService,

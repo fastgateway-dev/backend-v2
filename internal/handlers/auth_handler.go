@@ -6,18 +6,17 @@ import (
 	"time"
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
-	authService services.AuthServiceInterface
+	authService AuthServiceInterface
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(authService services.AuthServiceInterface) *AuthHandler {
+func NewAuthHandler(authService AuthServiceInterface) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
 	}

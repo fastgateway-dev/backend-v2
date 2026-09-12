@@ -153,9 +153,12 @@ func TestK8sRoles_EveryRoleIsAsserted(t *testing.T) {
 // concrete *XService that appeared in an interface signature was a setter
 // parameter, and none should remain.
 func TestInterfaces_NoConcreteServiceTypes(t *testing.T) {
-	src, err := os.ReadFile("interfaces.go")
+	// Phase 2M moved the service interfaces to package handlers, where a
+	// concrete service type is written qualified (*services.XService), so the
+	// regex matches both the bare form and the package-qualified form.
+	src, err := os.ReadFile("../handlers/service_interfaces.go")
 	require.NoError(t, err)
-	re := regexp.MustCompile(`\*[A-Z][A-Za-z]*Service\b`)
+	re := regexp.MustCompile(`\*(services\.)?[A-Z][A-Za-z]*Service\b`)
 	var offenders []string
 	for i, line := range strings.Split(string(src), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "//") {
@@ -165,7 +168,7 @@ func TestInterfaces_NoConcreteServiceTypes(t *testing.T) {
 			continue // compile-time assertions legitimately name concrete types
 		}
 		if re.MatchString(line) {
-			offenders = append(offenders, fmt.Sprintf("interfaces.go:%d: %s", i+1, strings.TrimSpace(line)))
+			offenders = append(offenders, fmt.Sprintf("service_interfaces.go:%d: %s", i+1, strings.TrimSpace(line)))
 		}
 	}
 	assert.Emptyf(t, offenders, "concrete service types in interface signatures:\n%s",
@@ -176,7 +179,7 @@ func TestInterfaces_NoConcreteServiceTypes(t *testing.T) {
 // a Set* method is asking its implementations to be mutable after
 // construction, which is what Phase 2E removed.
 func TestInterfaces_NoSetters(t *testing.T) {
-	src, err := os.ReadFile("interfaces.go")
+	src, err := os.ReadFile("../handlers/service_interfaces.go")
 	require.NoError(t, err)
 	// SetAllowedMethods is a business operation on ClientService, not a
 	// dependency setter: it takes (uuid.UUID, []string) and returns
@@ -187,7 +190,7 @@ func TestInterfaces_NoSetters(t *testing.T) {
 		if !re.MatchString(line) || strings.HasPrefix(strings.TrimSpace(line), "SetAllowedMethods(") {
 			continue
 		}
-		offenders = append(offenders, fmt.Sprintf("interfaces.go:%d: %s", i+1, strings.TrimSpace(line)))
+		offenders = append(offenders, fmt.Sprintf("service_interfaces.go:%d: %s", i+1, strings.TrimSpace(line)))
 	}
 	assert.Emptyf(t, offenders, "dependency setters still declared on interfaces:\n%s",
 		strings.Join(offenders, "\n"))

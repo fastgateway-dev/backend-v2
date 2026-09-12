@@ -6,7 +6,6 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -29,18 +28,18 @@ type ClientAttachmentServiceInterface interface {
 // ClientAttachmentHandler handles client-route attachment endpoints
 type ClientAttachmentHandler struct {
 	attachmentService ClientAttachmentServiceInterface
-	clientService     services.ClientReader
-	auditService      services.AuditServiceInterface
-	routeService      services.RouteApprovalReader
+	clientService     ClientReader
+	auditService      AuditServiceInterface
+	routeService      RouteApprovalReader
 	perms             *middleware.PermissionChecker
 }
 
 // NewClientAttachmentHandler creates a new client attachment handler
 func NewClientAttachmentHandler(
 	attachmentService ClientAttachmentServiceInterface,
-	clientService services.ClientReader,
-	auditService services.AuditServiceInterface,
-	routeService services.RouteApprovalReader,
+	clientService ClientReader,
+	auditService AuditServiceInterface,
+	routeService RouteApprovalReader,
 	perms *middleware.PermissionChecker,
 ) *ClientAttachmentHandler {
 	return &ClientAttachmentHandler{

@@ -12,12 +12,12 @@ import (
 
 // UserHandler handles user management endpoints
 type UserHandler struct {
-	userService  services.UserServiceInterface
-	auditService services.AuditServiceInterface
+	userService  UserServiceInterface
+	auditService AuditServiceInterface
 }
 
 // NewUserHandler creates a new user handler
-func NewUserHandler(userService services.UserServiceInterface, auditService services.AuditServiceInterface) *UserHandler {
+func NewUserHandler(userService UserServiceInterface, auditService AuditServiceInterface) *UserHandler {
 	return &UserHandler{
 		userService:  userService,
 		auditService: auditService,

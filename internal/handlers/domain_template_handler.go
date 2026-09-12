@@ -12,16 +12,16 @@ import (
 
 // DomainTemplateHandler handles domain template endpoints
 type DomainTemplateHandler struct {
-	dtService    services.DomainTemplateServiceInterface
-	auditService services.AuditServiceInterface
-	domainLister services.TemplateDomainLister
+	dtService    DomainTemplateServiceInterface
+	auditService AuditServiceInterface
+	domainLister TemplateDomainLister
 }
 
 // NewDomainTemplateHandler creates a new domain template handler
 func NewDomainTemplateHandler(
-	dtService services.DomainTemplateServiceInterface,
-	auditService services.AuditServiceInterface,
-	domainLister services.TemplateDomainLister,
+	dtService DomainTemplateServiceInterface,
+	auditService AuditServiceInterface,
+	domainLister TemplateDomainLister,
 ) *DomainTemplateHandler {
 	return &DomainTemplateHandler{
 		dtService:    dtService,

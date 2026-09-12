@@ -12,13 +12,13 @@ import (
 
 // ProjectHandler handles project endpoints
 type ProjectHandler struct {
-	projectService services.ProjectServiceInterface
-	auditService   services.AuditServiceInterface
+	projectService ProjectServiceInterface
+	auditService   AuditServiceInterface
 	k8sService     services.RateLimitProbe
 }
 
 // NewProjectHandler creates a new project handler
-func NewProjectHandler(projectService services.ProjectServiceInterface, auditService services.AuditServiceInterface, k8sService services.RateLimitProbe) *ProjectHandler {
+func NewProjectHandler(projectService ProjectServiceInterface, auditService AuditServiceInterface, k8sService services.RateLimitProbe) *ProjectHandler {
 	return &ProjectHandler{
 		projectService: projectService,
 		auditService:   auditService,
