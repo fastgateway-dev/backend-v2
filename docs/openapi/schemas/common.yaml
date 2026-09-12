@@ -18,3 +18,9 @@ Pagination:
       type: integer
     totalPages:
       type: integer
+
+Labels:
+  type: object
+  additionalProperties:
+    type: string
+  description: Arbitrary key/value labels (Kubernetes-style) attached to a resource.

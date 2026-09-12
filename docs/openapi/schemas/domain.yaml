@@ -23,6 +23,9 @@ Domain:
       enum: [tls_only, no_tls, both]
     tlsSecretName:
       type: string
+    tlsSecretNamespace:
+      type: string
+      description: Kubernetes namespace containing the TLS secret (defaults to the project's managed namespace)
     tlsPolicy:
       type: string
       enum: [terminate, passthrough]
@@ -40,8 +43,13 @@ Domain:
       enum: [pending, active, error]
     statusMessage:
       type: string
+    createdBy:
+      type: string
+      format: uuid
     routeCount:
       type: integer
+    labels:
+      $ref: './common.yaml#/Labels'
     createdAt:
       type: string
       format: date-time
@@ -72,6 +80,14 @@ CreateDomainRequest:
       format: uuid
     tlsSecretName:
       type: string
+    tlsSecretNamespace:
+      type: string
+      description: Kubernetes namespace containing the TLS secret. Must be managed by the project unless it is the default FastGateway namespace.
+    namespace:
+      type: string
+      description: Kubernetes namespace to deploy the domain's gateway resources into. Defaults to the default FastGateway namespace; any other value must be registered for this project.
+    labels:
+      $ref: './common.yaml#/Labels'
 
 UpdateDomainRequest:
   type: object
@@ -80,11 +96,44 @@ UpdateDomainRequest:
       type: string
     tlsSecretName:
       type: string
+    tlsSecretNamespace:
+      type: string
+      description: Kubernetes namespace containing the TLS secret. Must be managed by the project unless it is the default FastGateway namespace.
+    labels:
+      $ref: './common.yaml#/Labels'
 
 DomainSettings:
   type: object
-  nullable: true
-  description: Domain-level settings (gateway-agnostic configuration)
+  description: |
+    Domain-level settings (gateway-agnostic configuration), plus the domain's
+    BackendTrafficPolicy and EnvoyExtensionPolicy configuration. Always returned
+    as an object; fields are omitted (not null) when not configured.
+  properties:
+    id:
+      type: string
+      format: uuid
+    domainId:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    settings:
+      $ref: '#/DomainSettingsConfig'
+    backendTrafficPolicy:
+      $ref: './btp.yaml#/BackendTrafficPolicyConfig'
+    extensionPolicy:
+      $ref: './extension.yaml#/EnvoyExtensionPolicyConfig'
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+DomainSettingsRecord:
+  type: object
+  description: Stored domain settings record, as returned directly by the mTLS CA endpoints (no BackendTrafficPolicy/EnvoyExtensionPolicy attached).
   properties:
     id:
       type: string
@@ -103,6 +152,38 @@ DomainSettings:
     updatedAt:
       type: string
       format: date-time
+
+UpdateDomainSettingsResponse:
+  type: object
+  nullable: true
+  description: |
+    Domain settings written by updateDomainSettings, with any operator-facing
+    warnings generated while applying the change (e.g. mTLS enabled with no CA
+    configured). Null when the update disabled every CTP/BTP/extension setting
+    for this domain.
+  properties:
+    id:
+      type: string
+      format: uuid
+    domainId:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    settings:
+      $ref: '#/DomainSettingsConfig'
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+    warnings:
+      type: array
+      items:
+        type: string
+      description: Non-fatal, operator-facing warnings generated while writing the settings
 
 DomainSettingsConfig:
   type: object
@@ -204,6 +285,10 @@ UpdateDomainSettingsRequest:
       $ref: '#/TLSSettingsConfig'
     mtls:
       $ref: '#/DomainMTLSConfig'
+    backendTrafficPolicy:
+      $ref: './btp.yaml#/BackendTrafficPolicyConfig'
+    extensionPolicy:
+      $ref: './extension.yaml#/EnvoyExtensionPolicyConfig'
 
 ProxyProtocolConfig:
   type: object
@@ -262,11 +347,11 @@ TLSSettingsConfig:
   properties:
     minVersion:
       type: string
-      enum: [TLS1.2, TLS1.3]
+      enum: ["TLS1.0", "TLSv1.0", "TLS1.1", "TLSv1.1", "TLS1.2", "TLSv1.2", "TLS1.3", "TLSv1.3", "Auto", ""]
       description: Minimum TLS version
     maxVersion:
       type: string
-      enum: [TLS1.2, TLS1.3]
+      enum: ["TLS1.0", "TLSv1.0", "TLS1.1", "TLSv1.1", "TLS1.2", "TLSv1.2", "TLS1.3", "TLSv1.3", "Auto", ""]
       description: Maximum TLS version
     ciphers:
       type: array
@@ -332,7 +417,7 @@ MTLSSANEntry:
   properties:
     type:
       type: string
-      enum: [DNS, Email, URI, IP]
+      enum: [DNS, URI]
       description: SAN type
     value:
       type: string
@@ -340,20 +425,15 @@ MTLSSANEntry:
 
 AddDomainMTLSCARequest:
   type: object
-  required: [caPem]
+  required: [caPem, name]
   description: Request to add CA certificate for domain mTLS
   properties:
     caPem:
       type: string
       description: CA certificate PEM content
-    caName:
+    name:
       type: string
       description: Display name for the CA
-    hashes:
-      type: array
-      items:
-        type: string
-      description: Certificate hashes
 
 DomainYAMLs:
   type: object
@@ -361,6 +441,10 @@ DomainYAMLs:
     gatewayYaml:
       type: string
     clientTrafficPolicyYaml:
+      type: string
+    backendTrafficPolicyYaml:
+      type: string
+    envoyExtensionPolicyYaml:
       type: string
 
 DomainSettingsPreviewInput:
@@ -378,6 +462,10 @@ DomainSettingsPreviewInput:
       $ref: '#/ClientIPDetectionConfig'
     mtls:
       $ref: '#/DomainMTLSConfig'
+    backendTrafficPolicy:
+      $ref: './btp.yaml#/BackendTrafficPolicyConfig'
+    extensionPolicy:
+      $ref: './extension.yaml#/EnvoyExtensionPolicyConfig'
     description:
       type: string
     includeAIReview:
@@ -392,6 +480,14 @@ DomainSettingsPreviewResult:
     currentClientTrafficPolicyYaml:
       type: string
     proposedClientTrafficPolicyYaml:
+      type: string
+    currentBackendTrafficPolicyYaml:
+      type: string
+    proposedBackendTrafficPolicyYaml:
+      type: string
+    currentEnvoyExtensionPolicyYaml:
+      type: string
+    proposedEnvoyExtensionPolicyYaml:
       type: string
     aiReview:
       $ref: './ai.yaml#/AIReviewResult'
@@ -409,8 +505,19 @@ DomainCreatePreviewInput:
       format: uuid
     tlsSecretName:
       type: string
+    tlsSecretNamespace:
+      type: string
+      description: Kubernetes namespace containing the TLS secret. Must be managed by the project unless it is the default FastGateway namespace.
+    namespace:
+      type: string
+      description: Kubernetes namespace to deploy the domain's gateway resources into. Defaults to the default FastGateway namespace; any other value must be registered for this project.
+    labels:
+      $ref: './common.yaml#/Labels'
     description:
       type: string
+    includeAIReview:
+      type: boolean
+      description: When true, triggers AI review of the proposed domain creation
 
 DomainCreatePreviewResult:
   type: object
@@ -419,3 +526,46 @@ DomainCreatePreviewResult:
       type: string
     aiReview:
       $ref: './ai.yaml#/AIReviewResult'
+
+TLSSecretInfo:
+  type: object
+  description: A kubernetes.io/tls Secret discovered in the cluster, available for use as a domain's TLS secret
+  properties:
+    name:
+      type: string
+    namespace:
+      type: string
+    managedByFastgateway:
+      type: boolean
+      description: True when the secret carries the app.kubernetes.io/managed-by=fastgateway label
+    labels:
+      $ref: './common.yaml#/Labels'
+    createdAt:
+      type: string
+      description: Secret creation timestamp (RFC3339), empty if unknown
+
+ListTLSSecretsResponse:
+  type: object
+  description: TLS secrets available in a namespace, plus the namespaces available to look up
+  properties:
+    namespace:
+      type: string
+      description: Namespace the secrets were listed from
+    secrets:
+      type: array
+      items:
+        $ref: '#/TLSSecretInfo'
+    availableNamespaces:
+      type: array
+      items:
+        type: string
+      description: Namespaces eligible for domain/TLS secret deployment in this project
+
+AvailableNamespacesResponse:
+  type: object
+  properties:
+    namespaces:
+      type: array
+      items:
+        type: string
+      description: Namespaces eligible for domain deployment in this project

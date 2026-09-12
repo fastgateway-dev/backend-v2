@@ -16,6 +16,8 @@ presets:
               type: array
               items:
                 $ref: '../schemas/preset.yaml#/PermissionPreset'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
 
   post:
     tags: [Permission Presets]
@@ -38,6 +40,8 @@ presets:
           application/json:
             schema:
               $ref: '../schemas/preset.yaml#/PermissionPreset'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
 
 presets_{presetId}:
   get:
@@ -61,6 +65,10 @@ presets_{presetId}:
           application/json:
             schema:
               $ref: '../schemas/preset.yaml#/PermissionPreset'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
 
   patch:
     tags: [Permission Presets]
@@ -89,6 +97,8 @@ presets_{presetId}:
           application/json:
             schema:
               $ref: '../schemas/preset.yaml#/PermissionPreset'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
 
   delete:
     tags: [Permission Presets]
@@ -107,3 +117,7 @@ presets_{presetId}:
     responses:
       '204':
         description: Preset deleted
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'

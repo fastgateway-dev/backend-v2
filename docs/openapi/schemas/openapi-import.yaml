@@ -1,0 +1,123 @@
+OpenAPIImportRequest:
+  type: object
+  required: [spec, defaultBackend]
+  description: Request body for importing routes from an OpenAPI spec
+  properties:
+    spec:
+      type: string
+      description: Raw OpenAPI 3.0/3.1 spec content (JSON or YAML)
+    defaultBackend:
+      $ref: '#/DefaultBackend'
+
+DefaultBackend:
+  type: object
+  required: [port]
+  description: |
+    Backend applied to every route parsed from the spec. Exactly one of
+    (service+namespace) or address must be provided.
+  properties:
+    service:
+      type: string
+      description: Kubernetes Service name (mutually exclusive with address; requires namespace)
+    namespace:
+      type: string
+      description: Kubernetes namespace of the service (required when service is set)
+    address:
+      type: string
+      description: External FQDN or IP address (mutually exclusive with service+namespace)
+    port:
+      type: integer
+      description: Backend port
+
+OpenAPIImportResponse:
+  type: object
+  required: [routes, warnings, renames, specInfo]
+  properties:
+    routes:
+      type: array
+      items:
+        $ref: '#/ParsedRoute'
+    warnings:
+      type: array
+      items:
+        $ref: '#/ImportWarning'
+    renames:
+      type: array
+      items:
+        $ref: '#/Rename'
+    specInfo:
+      $ref: '#/SpecInfo'
+
+ParsedRoute:
+  type: object
+  required: [name, protocol, securityMode, config]
+  description: A route generated from one OpenAPI operation, ready for review before creation
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+    protocol:
+      type: string
+      enum: [http]
+      description: Always "http" for v1 of the importer
+    securityMode:
+      type: string
+      enum: [general]
+      description: Always "general" for v1 of the importer
+    config:
+      $ref: './route.yaml#/RouteConfig'
+    tag:
+      type: string
+      description: OpenAPI tag the source operation belonged to, if any
+
+ImportWarning:
+  type: object
+  required: [level, source, message]
+  description: Parser-level info or a per-operation skip surfaced to the importing user
+  properties:
+    level:
+      type: string
+      enum: [info, warning]
+    source:
+      type: string
+      description: Where the warning originated, e.g. "POST /webhook" or "spec"
+    message:
+      type: string
+
+Rename:
+  type: object
+  required: [original, final, reason]
+  description: Records when a generated route name was changed from its source-derived form
+  properties:
+    original:
+      type: string
+    final:
+      type: string
+    reason:
+      type: string
+      enum: [duplicate, sanitized, truncated]
+
+SpecInfo:
+  type: object
+  required: [title, version, format]
+  description: Summary of the input spec for UI display
+  properties:
+    title:
+      type: string
+    version:
+      type: string
+    format:
+      type: string
+      enum: [openapi-3.0, openapi-3.1]
+
+ImportError:
+  type: object
+  required: [error, message]
+  description: Error response for the OpenAPI import endpoint
+  properties:
+    error:
+      type: string
+      enum: [invalid_request, openapi_parse_failed, spec_too_large]
+    message:
+      type: string

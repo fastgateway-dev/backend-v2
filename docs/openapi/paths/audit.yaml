@@ -14,12 +14,32 @@ audit:
         in: query
         schema:
           type: string
-          enum: [domain, domain_template, route, team, user, project_namespace]
+          enum:
+            [
+              domain,
+              domain_template,
+              route,
+              team,
+              user,
+              project_namespace,
+              approval,
+            ]
       - name: action
         in: query
         schema:
           type: string
-          enum: [create, update, delete, approve, reject, deploy]
+          enum:
+            [
+              create,
+              update,
+              delete,
+              approve,
+              reject,
+              deploy,
+              approve_stage,
+              reject_stage,
+              cancel_approval,
+            ]
       - name: userId
         in: query
         schema:
@@ -50,12 +70,32 @@ audit-export:
         in: query
         schema:
           type: string
-          enum: [domain, domain_template, route, team, user, project_namespace]
+          enum:
+            [
+              domain,
+              domain_template,
+              route,
+              team,
+              user,
+              project_namespace,
+              approval,
+            ]
       - name: action
         in: query
         schema:
           type: string
-          enum: [create, update, delete, approve, reject, deploy]
+          enum:
+            [
+              create,
+              update,
+              delete,
+              approve,
+              reject,
+              deploy,
+              approve_stage,
+              reject_stage,
+              cancel_approval,
+            ]
       - name: userId
         in: query
         schema:

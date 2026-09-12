@@ -21,6 +21,23 @@ routes:
         schema:
           type: string
           enum: [pending_create, pending_update, pending_delete, approved, pending_deploy, active, rejected]
+        description: Filter by a single status value (unlike listProjectRoutes, this does not accept a comma-separated list)
+      - name: search
+        in: query
+        schema:
+          type: string
+        description: Free-text search term
+      - name: searchField
+        in: query
+        schema:
+          type: string
+          enum: [all, name, path, owner]
+        description: Field to restrict the search term to (defaults to searching all fields)
+      - name: labels
+        in: query
+        schema:
+          type: string
+        description: Label filter expression (e.g. "key=value,key2=value2") matched against the route's labels
     responses:
       '200':
         description: List of routes
@@ -50,7 +67,7 @@ routes:
         content:
           application/json:
             schema:
-              $ref: '../schemas/route.yaml#/Route'
+              $ref: '../schemas/route.yaml#/RouteResponse'
 
 routes_{routeId}:
   get:
@@ -65,11 +82,11 @@ routes_{routeId}:
       - $ref: '../components/parameters.yaml#/routeId'
     responses:
       '200':
-        description: Route details
+        description: Route details, including its associated policies (if configured)
         content:
           application/json:
             schema:
-              $ref: '../schemas/route.yaml#/Route'
+              $ref: '../schemas/route.yaml#/RouteWithPolicies'
 
   put:
     tags: [Routes]
@@ -93,7 +110,7 @@ routes_{routeId}:
         content:
           application/json:
             schema:
-              $ref: '../schemas/route.yaml#/Route'
+              $ref: '../schemas/route.yaml#/RouteResponse'
 
   delete:
     tags: [Routes]
@@ -175,6 +192,36 @@ preview-create:
             schema:
               $ref: '../schemas/route.yaml#/PreviewCreateResponse'
 
+check-conflicts:
+  post:
+    tags: [Routes]
+    summary: Check whether a route matcher conflicts with existing routes in the domain
+    operationId: checkRouteConflicts
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/route.yaml#/CheckConflictsRequest'
+    responses:
+      '200':
+        description: Routes (if any) whose matcher conflicts with the given matcher
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/CheckConflictsResponse'
+      '400':
+        description: Invalid request body or domain ID
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
 preview-update:
   post:
     tags: [Routes]
@@ -243,6 +290,10 @@ deploy:
           application/json:
             schema:
               $ref: '../schemas/common.yaml#/Error'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
 
 route-versions:
   get:
@@ -384,3 +435,43 @@ project-routes:
           application/json:
             schema:
               $ref: '../schemas/common.yaml#/Error'
+
+openapi-import:
+  post:
+    tags: [Routes]
+    summary: Import routes from an OpenAPI spec
+    description: |
+      Parses an uploaded OpenAPI 3.0/3.1 spec and returns a list of candidate
+      routes (not yet created) for the caller to review and submit individually
+      via createRoute. The request body is capped at 5MB.
+    operationId: importOpenAPI
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/openapi-import.yaml#/OpenAPIImportRequest'
+    responses:
+      '200':
+        description: Parsed routes, warnings, renames, and spec metadata
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/openapi-import.yaml#/OpenAPIImportResponse'
+      '400':
+        description: Invalid request body, invalid defaultBackend, or the spec failed to parse
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/openapi-import.yaml#/ImportError'
+      '413':
+        description: Spec body exceeded the 5MB limit
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/openapi-import.yaml#/ImportError'

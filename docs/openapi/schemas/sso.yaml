@@ -34,6 +34,11 @@ SSOConfig:
       type: array
       items:
         type: string
+    allowedEmails:
+      type: array
+      items:
+        type: string
+        format: email
     autoRegister:
       type: boolean
     forceSSO:
@@ -71,6 +76,12 @@ SSOConfigInput:
       items:
         type: string
       description: Restrict SSO to these email domains
+    allowedEmails:
+      type: array
+      items:
+        type: string
+        format: email
+      description: Restrict SSO to these specific email addresses
     autoRegister:
       type: boolean
       description: Auto-create users on first SSO login

@@ -28,18 +28,22 @@ ApprovalPolicy:
 
 PolicyStageTemplate:
   type: object
+  description: >-
+    Stage definition as returned in ApprovalPolicy responses. The server
+    serializes these fields snake_case (unlike PolicyStageInput, the
+    request shape, which is camelCase).
   properties:
     order:
       type: integer
       description: Stage order (1-based)
-    requiredPermission:
+    required_permission:
       type: string
       description: Permission required to approve this stage (e.g., "route.approve")
-    teamScope:
+    team_scope:
       type: string
       enum: [any, other_team, submitter_team]
       description: Which team members can approve this stage
-    minApprovers:
+    min_approvers:
       type: integer
       description: Minimum number of approvers required for this stage
 

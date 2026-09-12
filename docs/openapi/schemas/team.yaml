@@ -67,7 +67,7 @@ AddMemberResult:
       type: string
       enum: [added, invited]
     user:
-      $ref: '#/Team'
+      $ref: './user.yaml#/User'
     invite:
       $ref: '#/TeamEmailInvite'
 

@@ -1,3 +1,31 @@
+Permission:
+  type: string
+  enum:
+    - route.view
+    - route.create
+    - route.edit
+    - route.delete
+    - route.deploy
+    - route.approve
+    - client.view
+    - client.create
+    - client.edit
+    - client.delete
+    - client.manage_ip
+    - client.manage_apikey
+    - client.manage_jwt
+    - client.attach
+    - client.detach
+    - client.approve
+    - domain.view
+    - domain.create
+    - domain.edit
+    - domain.delete
+    - project.settings
+    - project.teams
+    - project.approval_policy
+    - audit.view
+
 PermissionPreset:
   type: object
   properties:
@@ -14,7 +42,7 @@ PermissionPreset:
     permissions:
       type: array
       items:
-        type: string
+        $ref: '#/Permission'
     isBuiltin:
       type: boolean
     createdAt:
@@ -35,7 +63,7 @@ CreatePresetRequest:
     permissions:
       type: array
       items:
-        type: string
+        $ref: '#/Permission'
 
 UpdatePresetRequest:
   type: object
@@ -47,4 +75,4 @@ UpdatePresetRequest:
     permissions:
       type: array
       items:
-        type: string
+        $ref: '#/Permission'

@@ -10,7 +10,7 @@ openapi-spec:
       '200':
         description: OpenAPI specification in YAML format
         content:
-          application/yaml:
+          application/yaml; charset=utf-8:
             schema:
               type: string
       '401':

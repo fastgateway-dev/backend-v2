@@ -38,6 +38,12 @@ tags:
     description: Approval workflow
   - name: Kubernetes
     description: Kubernetes resource discovery
+  - name: Metrics
+    description: Route and domain observability metrics (Prometheus-backed)
+  - name: System Settings
+    description: Global system settings (owner only)
+  - name: Topology
+    description: Read-only project and domain topology views
   - name: Audit
     description: Audit logs
   - name: Client mTLS
@@ -98,6 +104,10 @@ paths:
   /settings/sso:
     $ref: 'paths/sso.yaml#/sso-settings'
 
+  # ============== SYSTEM SETTINGS ==============
+  /settings/system:
+    $ref: 'paths/system-settings.yaml#/system-settings'
+
   # ============== NOTIFICATIONS ==============
   /notifications:
     $ref: 'paths/notifications.yaml#/notifications'
@@ -139,8 +149,14 @@ paths:
     $ref: 'paths/projects.yaml#/projects_{projectId}'
   /projects/{projectId}/test-connection:
     $ref: 'paths/projects.yaml#/test-connection'
+  /projects/{projectId}/metrics/test-connection:
+    $ref: 'paths/metrics.yaml#/metrics-test-connection'
   /projects/{projectId}/capabilities:
     $ref: 'paths/projects.yaml#/capabilities'
+  /projects/{projectId}/versions:
+    $ref: 'paths/projects.yaml#/versions'
+  /projects/{projectId}/versions/refresh:
+    $ref: 'paths/projects.yaml#/versions-refresh'
   /projects/{projectId}/permissions:
     $ref: 'paths/projects.yaml#/permissions'
   /projects/{projectId}/admins:
@@ -153,10 +169,14 @@ paths:
     $ref: 'paths/projects.yaml#/my-teams'
 
   # ============== PROJECT TEAMS ==============
+  # Note: "current user's teams in a project" is documented above as
+  # /projects/{projectId}/my-teams (paths/projects.yaml#/my-teams), which is
+  # the route actually wired in main.go (teamHandler.ListMyTeamsInProject).
+  # A duplicate /projects/{projectId}/teams/my was previously documented here
+  # but was never registered as a route; removed rather than kept as a dead
+  # path.
   /projects/{projectId}/teams:
     $ref: 'paths/project-teams.yaml#/project-teams'
-  /projects/{projectId}/teams/my:
-    $ref: 'paths/project-teams.yaml#/my-project-teams'
   /projects/{projectId}/teams/{teamId}:
     $ref: 'paths/project-teams.yaml#/project-team_{teamId}'
 
@@ -191,6 +211,10 @@ paths:
   # ============== DOMAINS ==============
   /projects/{projectId}/domains:
     $ref: 'paths/domains.yaml#/domains'
+  /projects/{projectId}/domains/tls-secrets:
+    $ref: 'paths/domains.yaml#/domain-tls-secrets'
+  /projects/{projectId}/domains/available-namespaces:
+    $ref: 'paths/domains.yaml#/domain-available-namespaces'
   /projects/{projectId}/domains/{domainId}:
     $ref: 'paths/domains.yaml#/domains_{domainId}'
   /projects/{projectId}/domains/{domainId}/settings:
@@ -205,6 +229,12 @@ paths:
     $ref: 'paths/domains.yaml#/domain-settings-preview'
   /projects/{projectId}/domains/preview-create:
     $ref: 'paths/domains.yaml#/domain-preview-create'
+  /projects/{projectId}/domains/{domainId}/metrics:
+    $ref: 'paths/metrics.yaml#/domain-metrics'
+  /projects/{projectId}/domains/{domainId}/topology:
+    $ref: 'paths/topology.yaml#/domain-topology'
+  /projects/{projectId}/domains/{domainId}/import/openapi:
+    $ref: 'paths/routes.yaml#/openapi-import'
 
   # ============== ROUTES ==============
   /projects/{projectId}/domains/{domainId}/routes:
@@ -217,6 +247,8 @@ paths:
     $ref: 'paths/routes.yaml#/route-yamls'
   /projects/{projectId}/domains/{domainId}/routes/preview:
     $ref: 'paths/routes.yaml#/preview-create'
+  /projects/{projectId}/domains/{domainId}/routes/check-conflicts:
+    $ref: 'paths/routes.yaml#/check-conflicts'
   /projects/{projectId}/domains/{domainId}/routes/{routeId}/preview:
     $ref: 'paths/routes.yaml#/preview-update'
   /projects/{projectId}/domains/{domainId}/routes/{routeId}/preview-delete:
@@ -229,6 +261,8 @@ paths:
     $ref: 'paths/routes.yaml#/route-version'
   /projects/{projectId}/domains/{domainId}/routes/{routeId}/versions/{version}/rollback:
     $ref: 'paths/routes.yaml#/route-version-rollback'
+  /projects/{projectId}/domains/{domainId}/routes/{routeId}/metrics:
+    $ref: 'paths/metrics.yaml#/route-metrics'
   /projects/{projectId}/routes:
     $ref: 'paths/routes.yaml#/project-routes'
 
@@ -307,6 +341,10 @@ paths:
     $ref: 'paths/kubernetes.yaml#/gateway-classes'
   /projects/{projectId}/kubernetes/namespaces/{namespace}/services:
     $ref: 'paths/kubernetes.yaml#/services'
+
+  # ============== TOPOLOGY ==============
+  /projects/{projectId}/topology:
+    $ref: 'paths/topology.yaml#/project-topology'
 
   # ============== AUDIT ==============
   /projects/{projectId}/audit:
@@ -403,6 +441,8 @@ components:
     # ============== USER ==============
     User:
       $ref: 'schemas/user.yaml#/User'
+    CurrentUser:
+      $ref: 'schemas/user.yaml#/CurrentUser'
     UserList:
       $ref: 'schemas/user.yaml#/UserList'
     CreateUserRequest:
@@ -457,6 +497,8 @@ components:
       $ref: 'schemas/project-team.yaml#/UpdateTeamPresetsInput'
 
     # ============== PRESET ==============
+    Permission:
+      $ref: 'schemas/preset.yaml#/Permission'
     PermissionPreset:
       $ref: 'schemas/preset.yaml#/PermissionPreset'
     CreatePresetRequest:
@@ -483,6 +525,46 @@ components:
       $ref: 'schemas/domain-template.yaml#/DomainTemplatePreviewChangesRequest'
     DomainTemplatePreviewResult:
       $ref: 'schemas/domain-template.yaml#/DomainTemplatePreviewResult'
+    ContainerResourcesConfig:
+      $ref: 'schemas/domain-template.yaml#/ContainerResourcesConfig'
+    ResourceValues:
+      $ref: 'schemas/domain-template.yaml#/ResourceValues'
+    ScalingConfig:
+      $ref: 'schemas/domain-template.yaml#/ScalingConfig'
+    TelemetryAccessLogConfig:
+      $ref: 'schemas/domain-template.yaml#/TelemetryAccessLogConfig'
+    TelemetryAccessLogFormat:
+      $ref: 'schemas/domain-template.yaml#/TelemetryAccessLogFormat'
+    TelemetryAccessLogSink:
+      $ref: 'schemas/domain-template.yaml#/TelemetryAccessLogSink'
+    TelemetryAccessLogFileSink:
+      $ref: 'schemas/domain-template.yaml#/TelemetryAccessLogFileSink'
+    TelemetryAccessLogOTelSink:
+      $ref: 'schemas/domain-template.yaml#/TelemetryAccessLogOTelSink'
+    TelemetryTracingConfig:
+      $ref: 'schemas/domain-template.yaml#/TelemetryTracingConfig'
+    TelemetryServiceRef:
+      $ref: 'schemas/domain-template.yaml#/TelemetryServiceRef'
+    TelemetryTracingTag:
+      $ref: 'schemas/domain-template.yaml#/TelemetryTracingTag'
+    TelemetryMetricsConfig:
+      $ref: 'schemas/domain-template.yaml#/TelemetryMetricsConfig'
+    TelemetryPrometheusConfig:
+      $ref: 'schemas/domain-template.yaml#/TelemetryPrometheusConfig'
+    TelemetryMetricsSink:
+      $ref: 'schemas/domain-template.yaml#/TelemetryMetricsSink'
+    PodPlacementConfig:
+      $ref: 'schemas/domain-template.yaml#/PodPlacementConfig'
+    TolerationConfig:
+      $ref: 'schemas/domain-template.yaml#/TolerationConfig'
+    TopologySpreadConstraintConfig:
+      $ref: 'schemas/domain-template.yaml#/TopologySpreadConstraintConfig'
+    PDBConfig:
+      $ref: 'schemas/domain-template.yaml#/PDBConfig'
+    DeploymentStrategyConfig:
+      $ref: 'schemas/domain-template.yaml#/DeploymentStrategyConfig'
+    RollingUpdateConfig:
+      $ref: 'schemas/domain-template.yaml#/RollingUpdateConfig'
 
     # ============== NAMESPACE ==============
     ProjectNamespace:
@@ -501,6 +583,10 @@ components:
       $ref: 'schemas/domain.yaml#/UpdateDomainRequest'
     DomainSettings:
       $ref: 'schemas/domain.yaml#/DomainSettings'
+    DomainSettingsRecord:
+      $ref: 'schemas/domain.yaml#/DomainSettingsRecord'
+    UpdateDomainSettingsResponse:
+      $ref: 'schemas/domain.yaml#/UpdateDomainSettingsResponse'
     DomainSettingsConfig:
       $ref: 'schemas/domain.yaml#/DomainSettingsConfig'
     ClientConnectionConfig:
@@ -545,6 +631,12 @@ components:
       $ref: 'schemas/domain.yaml#/DomainCreatePreviewInput'
     DomainCreatePreviewResult:
       $ref: 'schemas/domain.yaml#/DomainCreatePreviewResult'
+    TLSSecretInfo:
+      $ref: 'schemas/domain.yaml#/TLSSecretInfo'
+    ListTLSSecretsResponse:
+      $ref: 'schemas/domain.yaml#/ListTLSSecretsResponse'
+    AvailableNamespacesResponse:
+      $ref: 'schemas/domain.yaml#/AvailableNamespacesResponse'
 
     # ============== ROUTE ==============
     Route:
@@ -795,6 +887,74 @@ components:
       $ref: 'schemas/kubernetes.yaml#/K8sNamespace'
     K8sService:
       $ref: 'schemas/kubernetes.yaml#/K8sService'
+
+    # ============== METRICS ==============
+    TestConnectionResult:
+      $ref: 'schemas/metrics.yaml#/TestConnectionResult'
+    PromPoint:
+      $ref: 'schemas/metrics.yaml#/PromPoint'
+    MetricsTimeRange:
+      $ref: 'schemas/metrics.yaml#/MetricsTimeRange'
+    RpsByClass:
+      $ref: 'schemas/metrics.yaml#/RpsByClass'
+    LatencyPercentiles:
+      $ref: 'schemas/metrics.yaml#/LatencyPercentiles'
+    RouteMetricsResult:
+      $ref: 'schemas/metrics.yaml#/RouteMetricsResult'
+    TopRouteEntry:
+      $ref: 'schemas/metrics.yaml#/TopRouteEntry'
+    DomainMetricsResult:
+      $ref: 'schemas/metrics.yaml#/DomainMetricsResult'
+
+    # ============== SYSTEM SETTINGS ==============
+    EffectiveSettings:
+      $ref: 'schemas/system-settings.yaml#/EffectiveSettings'
+    SystemSettingsResponse:
+      $ref: 'schemas/system-settings.yaml#/SystemSettingsResponse'
+    SystemSettingsInput:
+      $ref: 'schemas/system-settings.yaml#/SystemSettingsInput'
+
+    # ============== TOPOLOGY ==============
+    TopologyStatus:
+      $ref: 'schemas/topology.yaml#/TopologyStatus'
+    SecurityFeatureFlags:
+      $ref: 'schemas/topology.yaml#/SecurityFeatureFlags'
+    ClientCapabilities:
+      $ref: 'schemas/topology.yaml#/ClientCapabilities'
+    ProjectTopologyResponse:
+      $ref: 'schemas/topology.yaml#/ProjectTopologyResponse'
+    ProjectTopologyDomain:
+      $ref: 'schemas/topology.yaml#/ProjectTopologyDomain'
+    ProjectTopologyDomainCount:
+      $ref: 'schemas/topology.yaml#/ProjectTopologyDomainCount'
+    ProjectTopologyClient:
+      $ref: 'schemas/topology.yaml#/ProjectTopologyClient'
+    ProjectTopologyClientPerDomain:
+      $ref: 'schemas/topology.yaml#/ProjectTopologyClientPerDomain'
+    TopologyIPRow:
+      $ref: 'schemas/topology.yaml#/TopologyIPRow'
+    TopologyIPSourceRef:
+      $ref: 'schemas/topology.yaml#/TopologyIPSourceRef'
+    TopologyIPReach:
+      $ref: 'schemas/topology.yaml#/TopologyIPReach'
+    DomainTopologyResponse:
+      $ref: 'schemas/topology.yaml#/DomainTopologyResponse'
+    DomainTopologyDomain:
+      $ref: 'schemas/topology.yaml#/DomainTopologyDomain'
+    DomainTopologyGateway:
+      $ref: 'schemas/topology.yaml#/DomainTopologyGateway'
+    DomainTopologyGatewayTLS:
+      $ref: 'schemas/topology.yaml#/DomainTopologyGatewayTLS'
+    DomainTopologyRoute:
+      $ref: 'schemas/topology.yaml#/DomainTopologyRoute'
+    DomainTopologyBackendRole:
+      $ref: 'schemas/topology.yaml#/DomainTopologyBackendRole'
+    DomainTopologyBackend:
+      $ref: 'schemas/topology.yaml#/DomainTopologyBackend'
+    DomainTopologyClient:
+      $ref: 'schemas/topology.yaml#/DomainTopologyClient'
+    DomainTopologyAttachment:
+      $ref: 'schemas/topology.yaml#/DomainTopologyAttachment'
 
     # ============== AUDIT ==============
     AuditLog:

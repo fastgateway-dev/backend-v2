@@ -17,6 +17,8 @@ Client:
       type: string
     ipAddressCount:
       type: integer
+    headerCount:
+      type: integer
     attachmentCount:
       type: integer
     apiKeyEnabled:
@@ -114,11 +116,6 @@ Client:
         type: string
         enum: [GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS]
       description: Allowed HTTP methods for authorization
-    headers:
-      type: array
-      items:
-        $ref: '#/ClientHeader'
-      description: Header authorization rules
     createdBy:
       type: string
       format: uuid

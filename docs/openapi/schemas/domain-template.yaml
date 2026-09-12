@@ -35,6 +35,30 @@ DomainTemplate:
       type: object
       additionalProperties:
         type: string
+    podAnnotations:
+      type: object
+      additionalProperties:
+        type: string
+      description: Annotations applied to the Envoy proxy pods
+    containerResources:
+      $ref: '#/ContainerResourcesConfig'
+    scalingConfig:
+      $ref: '#/ScalingConfig'
+    mergeGateways:
+      type: boolean
+      description: Merge all Gateways using this template into a single Envoy Deployment/Service
+    telemetryAccessLog:
+      $ref: '#/TelemetryAccessLogConfig'
+    telemetryTracing:
+      $ref: '#/TelemetryTracingConfig'
+    telemetryMetrics:
+      $ref: '#/TelemetryMetricsConfig'
+    podPlacement:
+      $ref: '#/PodPlacementConfig'
+    pdbConfig:
+      $ref: '#/PDBConfig'
+    deploymentStrategy:
+      $ref: '#/DeploymentStrategyConfig'
     status:
       type: string
       enum: [pending, active, error]
@@ -44,6 +68,9 @@ DomainTemplate:
       type: string
     k8sEnvoyProxyName:
       type: string
+    createdBy:
+      type: string
+      format: uuid
     createdAt:
       type: string
       format: date-time
@@ -97,6 +124,30 @@ CreateDomainTemplateRequest:
       type: object
       additionalProperties:
         type: string
+    podAnnotations:
+      type: object
+      additionalProperties:
+        type: string
+      description: Annotations applied to the Envoy proxy pods
+    containerResources:
+      $ref: '#/ContainerResourcesConfig'
+    scalingConfig:
+      $ref: '#/ScalingConfig'
+    mergeGateways:
+      type: boolean
+      description: Merge all Gateways using this template into a single Envoy Deployment/Service
+    telemetryAccessLog:
+      $ref: '#/TelemetryAccessLogConfig'
+    telemetryTracing:
+      $ref: '#/TelemetryTracingConfig'
+    telemetryMetrics:
+      $ref: '#/TelemetryMetricsConfig'
+    podPlacement:
+      $ref: '#/PodPlacementConfig'
+    pdbConfig:
+      $ref: '#/PDBConfig'
+    deploymentStrategy:
+      $ref: '#/DeploymentStrategyConfig'
 
 UpdateDomainTemplateRequest:
   type: object
@@ -112,6 +163,45 @@ UpdateDomainTemplateRequest:
       type: object
       additionalProperties:
         type: string
+    podAnnotations:
+      type: object
+      additionalProperties:
+        type: string
+      description: Annotations applied to the Envoy proxy pods
+    containerResources:
+      $ref: '#/ContainerResourcesConfig'
+    scalingConfig:
+      $ref: '#/ScalingConfig'
+    telemetryAccessLog:
+      $ref: '#/TelemetryAccessLogConfig'
+    telemetryTracing:
+      $ref: '#/TelemetryTracingConfig'
+    telemetryMetrics:
+      $ref: '#/TelemetryMetricsConfig'
+    podPlacement:
+      $ref: '#/PodPlacementConfig'
+    pdbConfig:
+      $ref: '#/PDBConfig'
+    deploymentStrategy:
+      $ref: '#/DeploymentStrategyConfig'
+    clearTelemetryAccessLog:
+      type: boolean
+      description: When true, clears the stored telemetryAccessLog config (JSON null is indistinguishable from absent)
+    clearTelemetryTracing:
+      type: boolean
+      description: When true, clears the stored telemetryTracing config
+    clearTelemetryMetrics:
+      type: boolean
+      description: When true, clears the stored telemetryMetrics config
+    clearPodPlacement:
+      type: boolean
+      description: When true, clears the stored podPlacement config
+    clearPdbConfig:
+      type: boolean
+      description: When true, clears the stored pdbConfig config
+    clearDeploymentStrategy:
+      type: boolean
+      description: When true, clears the stored deploymentStrategy config
 
 DomainTemplateManifests:
   type: object
@@ -157,6 +247,25 @@ DomainTemplateCreatePreviewRequest:
       type: object
       additionalProperties:
         type: string
+    containerResources:
+      $ref: '#/ContainerResourcesConfig'
+    scalingConfig:
+      $ref: '#/ScalingConfig'
+    mergeGateways:
+      type: boolean
+      description: Merge all Gateways using this template into a single Envoy Deployment/Service
+    telemetryAccessLog:
+      $ref: '#/TelemetryAccessLogConfig'
+    telemetryTracing:
+      $ref: '#/TelemetryTracingConfig'
+    telemetryMetrics:
+      $ref: '#/TelemetryMetricsConfig'
+    podPlacement:
+      $ref: '#/PodPlacementConfig'
+    pdbConfig:
+      $ref: '#/PDBConfig'
+    deploymentStrategy:
+      $ref: '#/DeploymentStrategyConfig'
     includeAIReview:
       type: boolean
     changeDescription:
@@ -193,6 +302,40 @@ DomainTemplatePreviewChangesRequest:
       type: object
       additionalProperties:
         type: string
+    containerResources:
+      $ref: '#/ContainerResourcesConfig'
+    scalingConfig:
+      $ref: '#/ScalingConfig'
+    telemetryAccessLog:
+      $ref: '#/TelemetryAccessLogConfig'
+    telemetryTracing:
+      $ref: '#/TelemetryTracingConfig'
+    telemetryMetrics:
+      $ref: '#/TelemetryMetricsConfig'
+    podPlacement:
+      $ref: '#/PodPlacementConfig'
+    pdbConfig:
+      $ref: '#/PDBConfig'
+    deploymentStrategy:
+      $ref: '#/DeploymentStrategyConfig'
+    clearTelemetryAccessLog:
+      type: boolean
+      description: When true, clears the stored telemetryAccessLog config (JSON null is indistinguishable from absent)
+    clearTelemetryTracing:
+      type: boolean
+      description: When true, clears the stored telemetryTracing config
+    clearTelemetryMetrics:
+      type: boolean
+      description: When true, clears the stored telemetryMetrics config
+    clearPodPlacement:
+      type: boolean
+      description: When true, clears the stored podPlacement config
+    clearPdbConfig:
+      type: boolean
+      description: When true, clears the stored pdbConfig config
+    clearDeploymentStrategy:
+      type: boolean
+      description: When true, clears the stored deploymentStrategy config
     includeAIReview:
       type: boolean
     changeDescription:
@@ -207,3 +350,257 @@ DomainTemplatePreviewResult:
       type: string
     aiReview:
       $ref: './ai.yaml#/AIReviewResult'
+
+# ============== ADVANCED SETTINGS: compute/scaling ==============
+
+ContainerResourcesConfig:
+  type: object
+  description: Container resource requests and limits for the Envoy proxy container
+  properties:
+    requests:
+      $ref: '#/ResourceValues'
+    limits:
+      $ref: '#/ResourceValues'
+
+ResourceValues:
+  type: object
+  description: CPU and memory quantities (Kubernetes resource quantity strings, e.g. "500m", "256Mi")
+  properties:
+    cpu:
+      type: string
+    memory:
+      type: string
+
+ScalingConfig:
+  type: object
+  description: Scaling configuration - fixed replica count, or HPA-managed
+  properties:
+    type:
+      type: string
+      enum: [fixed, hpa]
+    replicas:
+      type: integer
+      format: int32
+      description: Replica count when type=fixed
+    minReplicas:
+      type: integer
+      format: int32
+      description: Minimum replicas when type=hpa
+    maxReplicas:
+      type: integer
+      format: int32
+      description: Maximum replicas when type=hpa
+
+# ============== ADVANCED SETTINGS: telemetry (spec.telemetry on the EnvoyProxy CRD) ==============
+
+TelemetryAccessLogConfig:
+  type: object
+  description: Access log configuration (spec.telemetry.accessLog)
+  properties:
+    format:
+      $ref: '#/TelemetryAccessLogFormat'
+    sink:
+      $ref: '#/TelemetryAccessLogSink'
+
+TelemetryAccessLogFormat:
+  type: object
+  description: Access log format - the type-specific body is populated based on "type"
+  properties:
+    type:
+      type: string
+      enum: [text, json, disabled]
+    text:
+      type: string
+      description: Log format text template (present when type=text)
+    json:
+      type: object
+      additionalProperties:
+        type: string
+      description: Log format JSON field map (present when type=json)
+
+TelemetryAccessLogSink:
+  type: object
+  description: Access log sink - the type-specific body is populated based on "type"
+  properties:
+    type:
+      type: string
+      enum: [file, otel]
+    file:
+      $ref: '#/TelemetryAccessLogFileSink'
+    otel:
+      $ref: '#/TelemetryAccessLogOTelSink'
+
+TelemetryAccessLogFileSink:
+  type: object
+  description: File sink body (present when sink type=file)
+  properties:
+    path:
+      type: string
+      description: Must be /dev/stdout or /dev/stderr
+
+TelemetryAccessLogOTelSink:
+  type: object
+  description: OpenTelemetry sink body referencing an in-cluster Service (present when sink type=otel)
+  properties:
+    namespace:
+      type: string
+    service:
+      type: string
+    port:
+      type: integer
+      format: int32
+
+TelemetryTracingConfig:
+  type: object
+  description: Tracing configuration (spec.telemetry.tracing)
+  properties:
+    samplingRate:
+      type: number
+      format: double
+    provider:
+      $ref: '#/TelemetryServiceRef'
+    customTags:
+      type: array
+      items:
+        $ref: '#/TelemetryTracingTag'
+
+TelemetryServiceRef:
+  type: object
+  description: Reference to an in-cluster Kubernetes Service
+  properties:
+    namespace:
+      type: string
+    service:
+      type: string
+    port:
+      type: integer
+      format: int32
+
+TelemetryTracingTag:
+  type: object
+  description: One custom tracing tag. "value" is populated when type=literal; "header" (and optional "defaultValue") when type=requestHeader.
+  properties:
+    type:
+      type: string
+      enum: [literal, requestHeader]
+    tag:
+      type: string
+    value:
+      type: string
+    header:
+      type: string
+    defaultValue:
+      type: string
+
+TelemetryMetricsConfig:
+  type: object
+  description: Metrics configuration (spec.telemetry.metrics)
+  properties:
+    prometheus:
+      $ref: '#/TelemetryPrometheusConfig'
+    enableVirtualHostStats:
+      type: boolean
+    enablePerEndpointStats:
+      type: boolean
+    sinks:
+      type: array
+      items:
+        $ref: '#/TelemetryMetricsSink'
+
+TelemetryPrometheusConfig:
+  type: object
+  properties:
+    disable:
+      type: boolean
+
+TelemetryMetricsSink:
+  type: object
+  description: An additional metrics sink. Currently only "openTelemetry" is supported, with at most one entry.
+  properties:
+    type:
+      type: string
+      enum: [openTelemetry]
+    namespace:
+      type: string
+    service:
+      type: string
+    port:
+      type: integer
+      format: int32
+
+# ============== ADVANCED SETTINGS: pod scheduling/PDB/deployment strategy (spec.provider.kubernetes on the EnvoyProxy CRD) ==============
+
+PodPlacementConfig:
+  type: object
+  properties:
+    nodeSelector:
+      type: object
+      additionalProperties:
+        type: string
+    tolerations:
+      type: array
+      items:
+        $ref: '#/TolerationConfig'
+    topologySpreadConstraints:
+      type: array
+      items:
+        $ref: '#/TopologySpreadConstraintConfig'
+    priorityClassName:
+      type: string
+
+TolerationConfig:
+  type: object
+  properties:
+    key:
+      type: string
+    operator:
+      type: string
+    value:
+      type: string
+    effect:
+      type: string
+    tolerationSeconds:
+      type: integer
+      format: int64
+
+TopologySpreadConstraintConfig:
+  type: object
+  properties:
+    maxSkew:
+      type: integer
+      format: int32
+    topologyKey:
+      type: string
+    whenUnsatisfiable:
+      type: string
+
+PDBConfig:
+  type: object
+  description: PodDisruptionBudget configuration - exactly one of minAvailable/maxUnavailable, selected by "kind"
+  properties:
+    kind:
+      type: string
+      enum: [minAvailable, maxUnavailable]
+    value:
+      type: string
+      description: Absolute number or percentage (e.g. "1", "50%")
+
+DeploymentStrategyConfig:
+  type: object
+  properties:
+    type:
+      type: string
+      enum: [RollingUpdate, Recreate]
+    rollingUpdate:
+      $ref: '#/RollingUpdateConfig'
+
+RollingUpdateConfig:
+  type: object
+  description: Present when type=RollingUpdate; omitted sub-fields let Kubernetes defaults apply
+  properties:
+    maxSurge:
+      type: string
+      description: Absolute number or percentage (e.g. "1", "25%")
+    maxUnavailable:
+      type: string
+      description: Absolute number or percentage (e.g. "1", "25%")

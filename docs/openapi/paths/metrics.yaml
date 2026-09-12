@@ -1,0 +1,109 @@
+metrics-test-connection:
+  post:
+    tags: [Metrics]
+    summary: Test connectivity to the project's configured Prometheus endpoint
+    operationId: testMetricsConnection
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: Connection test result (ok is false on failure; see error for details)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/metrics.yaml#/TestConnectionResult'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+
+route-metrics:
+  get:
+    tags: [Metrics]
+    summary: Get request-rate, error-rate, and latency panels for a single route
+    operationId: getRouteMetrics
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - $ref: '../components/parameters.yaml#/routeId'
+      - name: range
+        in: query
+        description: Lookback window for the query
+        schema:
+          type: string
+          enum: [15m, 1h, 6h, 24h, 7d]
+          default: 1h
+    responses:
+      '200':
+        description: Route metrics panels
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/metrics.yaml#/RouteMetricsResult'
+      '400':
+        description: Invalid range, or metrics endpoint not configured for the project
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '502':
+        description: Upstream Prometheus query failed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '504':
+        description: Upstream Prometheus query timed out
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+domain-metrics:
+  get:
+    tags: [Metrics]
+    summary: Get request-rate, error-rate, and latency panels for a domain, plus top-5 route tables
+    operationId: getDomainMetrics
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+      - name: range
+        in: query
+        description: Lookback window for the query
+        schema:
+          type: string
+          enum: [15m, 1h, 6h, 24h, 7d]
+          default: 1h
+    responses:
+      '200':
+        description: Domain metrics panels and top-routes tables
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/metrics.yaml#/DomainMetricsResult'
+      '400':
+        description: Invalid range, or metrics endpoint not configured for the project
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '502':
+        description: Upstream Prometheus query failed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '504':
+        description: Upstream Prometheus query timed out
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

@@ -114,7 +114,7 @@ approvals:
         in: query
         schema:
           type: string
-          enum: [pending, approved, rejected]
+          enum: [pending, approved, rejected, cancelled]
       - name: entityType
         in: query
         schema:
@@ -145,6 +145,8 @@ approval:
           application/json:
             schema:
               $ref: '../schemas/approval.yaml#/Approval'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
 
 approval-diff:
   get:
@@ -163,6 +165,8 @@ approval-diff:
           application/json:
             schema:
               $ref: '../schemas/approval.yaml#/ApprovalDiffResponse'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
 
 approve-stage:
   post:
@@ -182,6 +186,12 @@ approve-stage:
           application/json:
             schema:
               $ref: '../schemas/approval.yaml#/Approval'
+      '400':
+        description: Cannot approve (submitter, already approved, etc.)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
 
 reject-stage:
   post:
@@ -207,6 +217,12 @@ reject-stage:
           application/json:
             schema:
               $ref: '../schemas/approval.yaml#/Approval'
+      '400':
+        description: Cannot reject
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
 
 approval-comments:
   get:

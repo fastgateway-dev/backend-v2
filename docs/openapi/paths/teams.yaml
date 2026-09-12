@@ -5,16 +5,15 @@ teams:
     operationId: listTeams
     security:
       - bearerAuth: []
-    parameters:
-      - $ref: '../components/parameters.yaml#/page'
-      - $ref: '../components/parameters.yaml#/limit'
     responses:
       '200':
         description: List of teams
         content:
           application/json:
             schema:
-              $ref: '../schemas/team.yaml#/TeamList'
+              type: array
+              items:
+                $ref: '../schemas/team.yaml#/Team'
 
   post:
     tags: [Teams]

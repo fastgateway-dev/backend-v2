@@ -1,0 +1,60 @@
+project-topology:
+  get:
+    tags: [Topology]
+    summary: Get the project-wide topology view
+    description: |
+      Aggregates per-domain summary cards, per-client per-domain rollups, and
+      IP-allowlist reachability rows across every domain in the project.
+    operationId: getProjectTopology
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: Project topology
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/topology.yaml#/ProjectTopologyResponse'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '404':
+        description: |
+          Topology resource not found. Returned with a deliberately generic
+          body (no entity name/ID) to avoid leaking cross-project existence.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+domain-topology:
+  get:
+    tags: [Topology]
+    summary: Get the per-domain topology view
+    description: |
+      Returns the domain's gateway status, routes, backends, and (in client
+      security mode) attached clients and per-attachment enforcement flags.
+    operationId: getDomainTopology
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainId'
+    responses:
+      '200':
+        description: Domain topology
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/topology.yaml#/DomainTopologyResponse'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '404':
+        description: |
+          Topology resource not found. Returned with a deliberately generic
+          body (no entity name/ID) to avoid leaking cross-project existence.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

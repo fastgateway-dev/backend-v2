@@ -1,6 +1,6 @@
 .PHONY: help dev-backend build db-migrate db-migrate-down db-seed \
         test test-backend lint clean mocks mocks-check tools-mockery \
-        openapi protos build-multiarch build-multiarch-e2e build-multiarch-all
+        openapi openapi-check protos build-multiarch build-multiarch-e2e build-multiarch-all
 
 # Default target
 help:
@@ -22,6 +22,7 @@ help:
 	@echo ""
 	@echo "OpenAPI Commands:"
 	@echo "  make openapi         - Bundle docs/openapi/ into cmd/server/openapi.yaml"
+	@echo "  make openapi-check   - Fail if the checked-in bundle is stale"
 	@echo ""
 	@echo "Protobuf Commands:"
 	@echo "  make protos          - Regenerate Go gRPC stubs from e2e/testdata/protos"
@@ -125,6 +126,34 @@ lint:
 openapi:
 	npx @redocly/cli@latest bundle docs/openapi/openapi.yaml -o cmd/server/openapi.yaml
 	@echo "OpenAPI spec bundled from docs/openapi/ to cmd/server/openapi.yaml"
+
+# openapi-check is what CI runs: bundle docs/openapi/ to a throwaway file and
+# diff it against the committed cmd/server/openapi.yaml (which is
+# //go:embed-ed by cmd/server/main.go), failing on ANY difference. Same
+# shape as mocks-check above -- the committed bundle is generated output, and
+# without a guard it silently rots out of sync with docs/openapi/ the same
+# way internal/mocks rotted out of sync with its interfaces.
+#
+# Bundles to a temp file rather than overwriting cmd/server/openapi.yaml in
+# place: this target must be safe to run against a working tree with
+# uncommitted, intentional edits to the bundle (e.g. mid-reconciliation)
+# without clobbering them, and `diff` (not `git status --porcelain`) is the
+# right tool here because the committed file is a build artifact compared
+# against a fresh regeneration, not against git history.
+OPENAPI_BUNDLE := cmd/server/openapi.yaml
+
+openapi-check:
+	@tmp="$$(mktemp /tmp/openapi-check.XXXXXX.yaml)"; \
+	trap 'rm -f "$$tmp"' EXIT; \
+	npx @redocly/cli@latest bundle docs/openapi/openapi.yaml -o "$$tmp" >/dev/null; \
+	if ! diff -u "$(OPENAPI_BUNDLE)" "$$tmp" > /tmp/openapi-check.diff; then \
+		echo "$(OPENAPI_BUNDLE) is stale relative to docs/openapi/:"; \
+		cat /tmp/openapi-check.diff; \
+		rm -f /tmp/openapi-check.diff; \
+		echo "Run 'make openapi' and commit the result."; \
+		exit 1; \
+	fi; \
+	rm -f /tmp/openapi-check.diff
 
 # Protobuf/gRPC stub generation for the e2e test suite.
 #

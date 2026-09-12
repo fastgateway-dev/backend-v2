@@ -1,0 +1,326 @@
+TopologyStatus:
+  type: string
+  description: Visual status used by the topology views
+  enum: [deployed, pending, failed, draft]
+
+SecurityFeatureFlags:
+  type: object
+  properties:
+    ipAllowlist:
+      type: boolean
+    mtls:
+      type: boolean
+    apiKey:
+      type: boolean
+    jwt:
+      type: boolean
+    basicAuth:
+      type: boolean
+    headerAuth:
+      type: boolean
+    rateLimit:
+      type: boolean
+    extAuth:
+      type: boolean
+    oidc:
+      type: boolean
+    waf:
+      type: boolean
+
+ClientCapabilities:
+  type: object
+  properties:
+    apiKey:
+      type: boolean
+    jwt:
+      type: boolean
+    mtls:
+      type: boolean
+    ipAllowlistSize:
+      type: integer
+
+# --- Project topology ------------------------------------------------------
+
+ProjectTopologyResponse:
+  type: object
+  properties:
+    domains:
+      type: array
+      items:
+        $ref: '#/ProjectTopologyDomain'
+    clients:
+      type: array
+      items:
+        $ref: '#/ProjectTopologyClient'
+    ips:
+      type: array
+      items:
+        $ref: '#/TopologyIPRow'
+
+ProjectTopologyDomain:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    hostname:
+      type: string
+    securityMode:
+      type: string
+      enum: [general, client]
+    templateName:
+      type: string
+      nullable: true
+    gatewayStatus:
+      $ref: '#/TopologyStatus'
+    counts:
+      $ref: '#/ProjectTopologyDomainCount'
+
+ProjectTopologyDomainCount:
+  type: object
+  properties:
+    routes:
+      type: integer
+    clientsAttached:
+      type: integer
+    routesWithIpAllowlist:
+      type: integer
+    routesWithMtls:
+      type: integer
+
+ProjectTopologyClient:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    teamId:
+      type: string
+      format: uuid
+    teamName:
+      type: string
+    capabilities:
+      $ref: '#/ClientCapabilities'
+    perDomain:
+      type: object
+      description: Map keyed by domain ID
+      additionalProperties:
+        $ref: '#/ProjectTopologyClientPerDomain'
+
+ProjectTopologyClientPerDomain:
+  type: object
+  properties:
+    routeCount:
+      type: integer
+    aggregateStatus:
+      $ref: '#/TopologyStatus'
+
+TopologyIPRow:
+  type: object
+  properties:
+    cidr:
+      type: string
+    source:
+      type: string
+      enum: [route, client]
+    sourceRef:
+      $ref: '#/TopologyIPSourceRef'
+    reach:
+      $ref: '#/TopologyIPReach'
+    updatedAt:
+      type: string
+      format: date-time
+
+TopologyIPSourceRef:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+
+TopologyIPReach:
+  type: object
+  properties:
+    routeIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+    domainIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+
+# --- Domain topology --------------------------------------------------------
+
+DomainTopologyResponse:
+  type: object
+  properties:
+    domain:
+      $ref: '#/DomainTopologyDomain'
+    gateway:
+      $ref: '#/DomainTopologyGateway'
+    routes:
+      type: array
+      items:
+        $ref: '#/DomainTopologyRoute'
+    backends:
+      type: array
+      items:
+        $ref: '#/DomainTopologyBackend'
+    clients:
+      type: array
+      items:
+        $ref: '#/DomainTopologyClient'
+    attachments:
+      type: array
+      items:
+        $ref: '#/DomainTopologyAttachment'
+
+DomainTopologyDomain:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    hostname:
+      type: string
+    securityMode:
+      type: string
+      enum: [general, client]
+    templateName:
+      type: string
+      nullable: true
+
+DomainTopologyGateway:
+  type: object
+  properties:
+    status:
+      $ref: '#/TopologyStatus'
+    listenerPort:
+      type: integer
+    listenerProtocol:
+      type: string
+    tls:
+      $ref: '#/DomainTopologyGatewayTLS'
+    gatewayClass:
+      type: string
+
+DomainTopologyGatewayTLS:
+  type: object
+  nullable: true
+  properties:
+    secretName:
+      type: string
+    secretNamespace:
+      type: string
+
+DomainTopologyRoute:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    protocol:
+      type: string
+    matcherSummary:
+      type: string
+    method:
+      type: string
+      nullable: true
+    status:
+      $ref: '#/TopologyStatus'
+    routeLevelSecurity:
+      $ref: '#/SecurityFeatureFlags'
+    backendIds:
+      type: array
+      items:
+        type: string
+    backendRoles:
+      type: array
+      items:
+        $ref: '#/DomainTopologyBackendRole'
+
+DomainTopologyBackendRole:
+  type: object
+  properties:
+    backendId:
+      type: string
+    role:
+      type: string
+      enum: [primary, fallback, mirror]
+    weight:
+      type: integer
+      nullable: true
+
+DomainTopologyBackend:
+  type: object
+  properties:
+    id:
+      type: string
+    type:
+      type: string
+    service:
+      type: string
+      nullable: true
+    namespace:
+      type: string
+      nullable: true
+    address:
+      type: string
+      nullable: true
+    addressType:
+      type: string
+      nullable: true
+    port:
+      type: integer
+    hitCount:
+      type: integer
+
+DomainTopologyClient:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    teamId:
+      type: string
+      format: uuid
+    teamName:
+      type: string
+    capabilities:
+      $ref: '#/ClientCapabilities'
+
+DomainTopologyAttachment:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    clientId:
+      type: string
+      format: uuid
+    routeId:
+      type: string
+      format: uuid
+    status:
+      $ref: '#/TopologyStatus'
+    enforced:
+      $ref: '#/SecurityFeatureFlags'
+    hasRateLimit:
+      type: boolean
+    hasExtAuth:
+      type: boolean

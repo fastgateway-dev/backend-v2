@@ -5,7 +5,7 @@ AIStatus:
       type: boolean
     provider:
       type: string
-      enum: [anthropic, openai]
+      enum: [anthropic, openai, gemini, deepseek, openai_compatible]
 
 AIGenerateRequest:
   type: object
@@ -17,6 +17,10 @@ AIGenerateRequest:
     input:
       type: string
       description: User prompt or YAML manifest
+    formatHint:
+      type: string
+      enum: [ingress, istio, kong]
+      description: Source manifest dialect hint, used when mode is manifest_import
 
 AIYamlSet:
   type: object
@@ -81,6 +85,7 @@ AIChatMessage:
 AIReviewRequest:
   type: object
   required: [action]
+  description: At least one of proposedYaml or currentYaml is required.
   properties:
     action:
       type: string
