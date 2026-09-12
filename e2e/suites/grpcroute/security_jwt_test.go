@@ -90,15 +90,21 @@ func TestGRPCJWT(t *testing.T) {
 		t.Fatalf("jwt: with valid token got echoed body %q, want %q", okResp.GetBody(), "hello-authed")
 	}
 
-	// Now that the positive call has proven the JWT filter is genuinely
-	// enforcing (JWKS fetched, validation running), a request with no
-	// token reaching Unauthenticated proves it actually rejects a missing
-	// credential rather than accepting everything.
-	res, _, err := echoCall(ctx, "hello", callOpt)
-	if err != nil {
-		t.Fatalf("jwt: without a token: %v", err)
+	// A request with no token reaching Unauthenticated proves the filter
+	// actually rejects a missing credential rather than accepting everything.
+	//
+	// Poll rather than assert once: a valid-token OK does not by itself prove
+	// the JWT filter is attached. In the window after the route deploys but
+	// before its SecurityPolicy reconciles onto the listener, there is no jwt
+	// filter and BOTH a valid token and no token return OK -- so a single
+	// no-token check fired in that window races the attach and sees OK. The
+	// converged state is valid->OK held together with none->Unauthenticated;
+	// waiting for the denial to settle waits that window out.
+	denyCall := func(ctx context.Context) (*harness.GRPCResult, error) {
+		res, _, err := echoCall(ctx, "hello", callOpt)
+		return res, err
 	}
-	if res.Code != codes.Unauthenticated {
-		t.Fatalf("jwt: without a token got code %v, want %v", res.Code, codes.Unauthenticated)
+	if _, err := waitForGRPCCodeIn(ctx, denyCall, routeLiveTimeout, codes.Unauthenticated); err != nil {
+		t.Fatalf("jwt: without a token: %v", err)
 	}
 }
