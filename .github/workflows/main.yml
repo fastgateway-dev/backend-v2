@@ -118,11 +118,12 @@ jobs:
   # is orchestrated directly by this job (see docs/superpowers/specs/
   # 2026-08-29-backend-v2-design.md §5.3-5.4).
   #
-  # Version pinning: Envoy Gateway 1.6.2 and 1.7.0, both on Gateway API
-  # 1.4.1 -- the SupportedVersionPairs called out in the design spec. EG
-  # 1.8.0/Gateway API 1.5.1 is intentionally NOT run here; it runs only in
-  # the manual e2e.yml workflow until it has been verified against real
-  # infrastructure.
+  # Version pinning: this push/PR job runs the single newest supported pair
+  # -- Envoy Gateway 1.9.1 on Gateway API 1.6.1 -- as the representative
+  # smoke of the compatibility surface. The full matrix (EG 1.6.6 / 1.7.5 /
+  # 1.8.4 / 1.9.1) runs on demand in the manual e2e.yml workflow. Keep this
+  # pair in sync with the head of SupportedVersionPairs in
+  # internal/services/compatibility.go.
   e2e:
     name: E2E (Envoy Gateway ${{ matrix.envoy-gateway-version }})
     runs-on: ubuntu-latest
@@ -138,8 +139,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - envoy-gateway-version: "1.8.4"
-            gateway-api-version: "1.5.1"
+          - envoy-gateway-version: "1.9.1"
+            gateway-api-version: "1.6.1"
     services:
       # PostgreSQL as a GitHub Actions services: container -- no
       # docker-compose. Port 5432 is published to the runner's own
@@ -161,7 +162,7 @@ jobs:
       KIND_CLUSTER: fastgateway-e2e
       GATEWAY_API_VERSION: ${{ matrix.gateway-api-version }}
       ENVOY_GATEWAY_VERSION: ${{ matrix.envoy-gateway-version }}
-      KIND_VERSION: "v0.27.0"
+      KIND_VERSION: "v0.29.0"
       CLOUD_PROVIDER_KIND_VERSION: "0.11.1"
       STEP_CLI_VERSION: "0.28.7"
     steps:

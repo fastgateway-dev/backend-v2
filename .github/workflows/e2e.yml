@@ -1,11 +1,11 @@
 name: e2e
 
 # Manual only -- this is the full compatibility matrix across every
-# Envoy Gateway / Gateway API pair FastGateway is designed to support,
-# including EG 1.8.0 / Gateway API 1.5.1, which is not yet verified
-# against real infrastructure and therefore does not run on every push
-# (see main.yml's `e2e` job, which only runs today's SupportedVersionPairs:
-# EG 1.6.2 and 1.7.0, both on Gateway API 1.4.1).
+# Envoy Gateway / Gateway API pair FastGateway is designed to support:
+# EG 1.6.6 and 1.7.5 on Gateway API 1.4.1, EG 1.8.4 on 1.5.1, and EG 1.9.1
+# on 1.6.1. main.yml's `e2e` job runs only the newest pair (EG 1.9.1 /
+# Gateway API 1.6.1) on every push; this manual workflow runs the whole
+# matrix before a release.
 #
 # Retires the manual E2E_TEST-v1.6.2-v1.4.1.md process: run this before a
 # release instead of hand-testing against a cluster and writing up the
@@ -38,6 +38,8 @@ jobs:
             gateway-api-version: "1.4.1"
           - envoy-gateway-version: "1.8.4"
             gateway-api-version: "1.5.1"
+          - envoy-gateway-version: "1.9.1"
+            gateway-api-version: "1.6.1"
     services:
       postgres:
         image: postgres:15-alpine
@@ -56,7 +58,7 @@ jobs:
       KIND_CLUSTER: fastgateway-e2e
       GATEWAY_API_VERSION: ${{ matrix.gateway-api-version }}
       ENVOY_GATEWAY_VERSION: ${{ matrix.envoy-gateway-version }}
-      KIND_VERSION: "v0.27.0"
+      KIND_VERSION: "v0.29.0"
       CLOUD_PROVIDER_KIND_VERSION: "0.11.1"
       STEP_CLI_VERSION: "0.28.7"
     steps:
