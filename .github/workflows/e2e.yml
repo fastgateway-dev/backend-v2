@@ -128,7 +128,7 @@ jobs:
                 # versions enable Lua by default and don't need it. GitHub
                 # expands ${{ }} before this heredoc runs; an unset flag renders
                 # an empty line, which is valid YAML under extensionApis.
-                ${{ matrix.enable-lua == 'true' && 'enableLua: true' || '' }}
+                ${{ matrix['enable-lua'] == 'true' && 'enableLua: true' || '' }}
               rateLimit:
                 backend:
                   type: Redis
