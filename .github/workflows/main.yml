@@ -141,6 +141,7 @@ jobs:
         include:
           - envoy-gateway-version: "1.9.1"
             gateway-api-version: "1.6.1"
+            enable-lua: "true"
     services:
       # PostgreSQL as a GitHub Actions services: container -- no
       # docker-compose. Port 5432 is published to the runner's own
@@ -239,6 +240,14 @@ jobs:
               # distinct from a 503 carrying "upstream connect error".
               extensionApis:
                 enableBackend: true
+                # Lua EnvoyExtensionPolicy is disabled by default from Envoy
+                # Gateway 1.9 (advisory GHSA-xrwg-mqj6-6m22: a Lua script runs
+                # arbitrary code in the proxy and can read its certs/SA token).
+                # Opt in only on matrix legs that set enable-lua -- older EG
+                # versions enable Lua by default and don't need it. GitHub
+                # expands ${{ }} before this heredoc runs; an unset flag renders
+                # an empty line, which is valid YAML under extensionApis.
+                ${{ matrix.enable-lua == 'true' && 'enableLua: true' || '' }}
               rateLimit:
                 backend:
                   type: Redis
