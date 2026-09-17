@@ -244,9 +244,9 @@ jobs:
                 # Gateway 1.9 (advisory GHSA-xrwg-mqj6-6m22: a Lua script runs
                 # arbitrary code in the proxy and can read its certs/SA token).
                 # Opt in only on matrix legs that set enable-lua -- older EG
-                # versions enable Lua by default and don't need it. GitHub
-                # expands ${{ }} before this heredoc runs; an unset flag renders
-                # an empty line, which is valid YAML under extensionApis.
+                # versions enable Lua by default and don't need it. The
+                # expression below is rendered by the runner before the heredoc
+                # runs; an unset flag renders an empty line, valid YAML here.
                 ${{ matrix['enable-lua'] == 'true' && 'enableLua: true' || '' }}
               rateLimit:
                 backend:
