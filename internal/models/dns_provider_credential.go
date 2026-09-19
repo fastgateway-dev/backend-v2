@@ -44,14 +44,14 @@ func (d *DNSCredentialData) Scan(value interface{}) error {
 // DNSProviderCredential is a platform-global (owner-managed) DNS provider account.
 // Standalone by design so a future DNS-management feature can reuse it.
 type DNSProviderCredential struct {
-	ID           uuid.UUID         `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
-	Name         string            `gorm:"not null" json:"name"`
-	ProviderType string            `gorm:"column:provider_type;not null" json:"providerType"`
+	ID           uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
+	Name         string    `gorm:"not null" json:"name"`
+	ProviderType string    `gorm:"column:provider_type;not null" json:"providerType"`
 	// Values inside are individually encrypted by the service layer; never serialized.
-	Credentials  DNSCredentialData `gorm:"type:jsonb;not null;default:'{}'" json:"-"`
-	CreatedBy    uuid.UUID         `gorm:"type:uuid;not null" json:"createdBy"`
-	CreatedAt    time.Time         `gorm:"not null;default:now()" json:"createdAt"`
-	UpdatedAt    time.Time         `gorm:"not null;default:now()" json:"updatedAt"`
+	Credentials DNSCredentialData `gorm:"type:jsonb;not null;default:'{}'" json:"-"`
+	CreatedBy   uuid.UUID         `gorm:"type:uuid;not null" json:"createdBy"`
+	CreatedAt   time.Time         `gorm:"not null;default:now()" json:"createdAt"`
+	UpdatedAt   time.Time         `gorm:"not null;default:now()" json:"updatedAt"`
 }
 
 func (DNSProviderCredential) TableName() string { return "dns_provider_credentials" }
