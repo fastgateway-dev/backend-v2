@@ -57,6 +57,9 @@ type Config struct {
 	AIMaxTokens int
 	AIRateLimit int
 	AIBaseURL   string
+
+	// Control plane (the backend's own cluster, used for cert-manager resources)
+	ControlPlaneNamespace string
 }
 
 // Load loads configuration from environment variables
@@ -137,6 +140,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid AI_RATE_LIMIT: %w", err)
 	}
 	cfg.AIRateLimit = aiRateLimit
+
+	// Control plane
+	cfg.ControlPlaneNamespace = getEnv("CONTROL_PLANE_NAMESPACE", "fastgateway-system")
 
 	return cfg, nil
 }

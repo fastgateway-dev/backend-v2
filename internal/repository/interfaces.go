@@ -361,6 +361,35 @@ type ApprovalStageReviewRepositoryInterface interface {
 	ListByStageID(stageID uuid.UUID) ([]models.ApprovalStageReview, error)
 }
 
+// CertificateIssuerRepositoryInterface defines the interface for certificate issuer repository operations
+type CertificateIssuerRepositoryInterface interface {
+	Create(c *models.CertificateIssuer) error
+	GetByID(id uuid.UUID) (*models.CertificateIssuer, error)
+	List() ([]models.CertificateIssuer, error)
+	Update(c *models.CertificateIssuer) error
+	Delete(id uuid.UUID) error
+	CountByDNSCredential(dnsCredentialID uuid.UUID) (int64, error)
+}
+
+// IssuerProjectGrantRepositoryInterface defines the interface for
+// issuer-project grant repository operations.
+type IssuerProjectGrantRepositoryInterface interface {
+	Create(g *models.IssuerProjectGrant) error
+	ListByIssuer(issuerID uuid.UUID) ([]models.IssuerProjectGrant, error)
+	Delete(issuerID, projectID uuid.UUID) error
+	Exists(issuerID, projectID uuid.UUID) (bool, error)
+	ListProjectIDsForIssuer(issuerID uuid.UUID) ([]uuid.UUID, error)
+}
+
+// DNSProviderCredentialRepositoryInterface defines the interface for DNS provider credential repository operations
+type DNSProviderCredentialRepositoryInterface interface {
+	Create(c *models.DNSProviderCredential) error
+	GetByID(id uuid.UUID) (*models.DNSProviderCredential, error)
+	List() ([]models.DNSProviderCredential, error)
+	Update(c *models.DNSProviderCredential) error
+	Delete(id uuid.UUID) error
+}
+
 // Compile-time interface satisfaction checks
 var _ ApprovalStageReviewRepositoryInterface = (*ApprovalStageReviewRepository)(nil)
 var _ APITokenRepositoryInterface = (*APITokenRepository)(nil)
@@ -368,10 +397,13 @@ var _ ApprovalPolicyRepositoryInterface = (*ApprovalPolicyRepository)(nil)
 var _ UnifiedApprovalRepositoryInterface = (*UnifiedApprovalRepository)(nil)
 var _ AuditLogRepositoryInterface = (*AuditLogRepository)(nil)
 var _ BackendTrafficPolicyRepositoryInterface = (*BackendTrafficPolicyRepository)(nil)
+var _ CertificateIssuerRepositoryInterface = (*CertificateIssuerRepository)(nil)
 var _ ClientAttachmentRepositoryInterface = (*ClientAttachmentRepository)(nil)
 var _ ClientIPRepositoryInterface = (*ClientIPRepository)(nil)
 var _ ClientRepositoryInterface = (*ClientRepository)(nil)
 var _ CommentRepositoryInterface = (*CommentRepository)(nil)
+var _ DNSProviderCredentialRepositoryInterface = (*DNSProviderCredentialRepository)(nil)
+var _ IssuerProjectGrantRepositoryInterface = (*IssuerProjectGrantRepository)(nil)
 var _ DomainRepositoryInterface = (*DomainRepository)(nil)
 var _ DomainSettingsRepositoryInterface = (*DomainSettingsRepository)(nil)
 var _ DomainTemplateRepositoryInterface = (*DomainTemplateRepository)(nil)

@@ -57,6 +57,23 @@ type AuthServiceInterface interface {
 	GenerateTokensForUser(user *models.User) (accessToken, refreshToken string, err error)
 }
 
+// CertificateIssuerServiceInterface defines the public methods of
+// CertificateIssuerService that CertificateIssuerHandler uses.
+type CertificateIssuerServiceInterface interface {
+	Create(input *services.CreateIssuerInput, createdBy uuid.UUID) (*models.CertificateIssuer, error)
+	List() ([]models.CertificateIssuer, error)
+	GetByID(id uuid.UUID) (*models.CertificateIssuer, error)
+	Delete(id uuid.UUID) error
+}
+
+// IssuerGrantServiceInterface defines the public methods of
+// IssuerGrantService that IssuerGrantHandler uses.
+type IssuerGrantServiceInterface interface {
+	Grant(issuerID, projectID, by uuid.UUID) error
+	ListGrants(issuerID uuid.UUID) ([]models.IssuerProjectGrant, error)
+	Revoke(issuerID, projectID uuid.UUID) error
+}
+
 // ClientReader is the slice of ClientService that ClientAttachmentHandler
 // uses: it resolves a client by ID so the handler can authorize the caller
 // against that client's team before listing or attaching its routes. Named
@@ -72,6 +89,18 @@ type CommentServiceInterface interface {
 	Create(approvalID uuid.UUID, user *models.User, body string) (*models.ApprovalComment, error)
 	ListByApprovalID(approvalID uuid.UUID) ([]models.ApprovalComment, error)
 	CountByApprovalID(approvalID uuid.UUID) (int64, error)
+}
+
+// DNSCredentialServiceInterface defines the public methods of
+// DNSCredentialService that DNSCredentialHandler uses. DecryptedCredentials
+// is service-internal (used by the issuer service in a later task) and is
+// intentionally not part of this handler-facing slice.
+type DNSCredentialServiceInterface interface {
+	Create(input *services.CreateDNSCredentialInput, createdBy uuid.UUID) (*models.DNSProviderCredential, error)
+	List() ([]models.DNSProviderCredential, error)
+	GetByID(id uuid.UUID) (*models.DNSProviderCredential, error)
+	Update(id uuid.UUID, input *services.UpdateDNSCredentialInput) (*models.DNSProviderCredential, error)
+	Delete(id uuid.UUID) error
 }
 
 // DomainReader is the slice of DomainService that AIHandler uses: it resolves
@@ -334,7 +363,10 @@ var _ AIServiceInterface = (*services.AIService)(nil)
 var _ ApprovalServiceInterface = (*services.ApprovalService)(nil)
 var _ AuditServiceInterface = (*services.AuditService)(nil)
 var _ AuthServiceInterface = (*services.AuthService)(nil)
+var _ CertificateIssuerServiceInterface = (*services.CertificateIssuerService)(nil)
 var _ CommentServiceInterface = (*services.CommentService)(nil)
+var _ DNSCredentialServiceInterface = (*services.DNSCredentialService)(nil)
+var _ IssuerGrantServiceInterface = (*services.IssuerGrantService)(nil)
 var _ DomainServiceInterface = (*services.DomainService)(nil)
 var _ DomainReader = (*services.DomainService)(nil)
 var _ DomainPolicyReader = (*services.DomainService)(nil)

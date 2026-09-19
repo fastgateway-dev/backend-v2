@@ -58,6 +58,10 @@ tags:
     description: Client HTTP method authorization management
   - name: SSO
     description: Single Sign-On configuration
+  - name: DNS Credentials
+    description: Platform-global DNS provider credential management (owner only)
+  - name: Certificate Issuers
+    description: Platform-global certificate issuer and issuer-project grant management (owner only)
   - name: Notifications
     description: User notifications
   - name: Health
@@ -107,6 +111,24 @@ paths:
   # ============== SYSTEM SETTINGS ==============
   /settings/system:
     $ref: 'paths/system-settings.yaml#/system-settings'
+
+  # ============== DNS CREDENTIALS ==============
+  /dns/credentials:
+    $ref: 'paths/dns-credentials.yaml#/dns-credentials'
+  /dns/credentials/{dnsCredentialId}:
+    $ref: 'paths/dns-credentials.yaml#/dns-credentials_{dnsCredentialId}'
+
+  # ============== CERTIFICATE ISSUERS ==============
+  /certificates/issuers:
+    $ref: 'paths/certificates.yaml#/issuers'
+  /certificates/issuers/{issuerId}:
+    $ref: 'paths/certificates.yaml#/issuers_{issuerId}'
+  /certificates/issuers/{issuerId}/status:
+    $ref: 'paths/certificates.yaml#/issuer-status'
+  /certificates/issuers/{issuerId}/grants:
+    $ref: 'paths/certificates.yaml#/issuer-grants'
+  /certificates/issuers/{issuerId}/grants/{projectId}:
+    $ref: 'paths/certificates.yaml#/issuer-grants_{projectId}'
 
   # ============== NOTIFICATIONS ==============
   /notifications:
@@ -406,6 +428,10 @@ components:
       $ref: 'components/parameters.yaml#/policyId'
     tokenId:
       $ref: 'components/parameters.yaml#/tokenId'
+    dnsCredentialId:
+      $ref: 'components/parameters.yaml#/dnsCredentialId'
+    issuerId:
+      $ref: 'components/parameters.yaml#/issuerId'
   responses:
     Unauthorized:
       $ref: 'components/responses.yaml#/Unauthorized'
@@ -1019,6 +1045,34 @@ components:
       $ref: 'schemas/notification.yaml#/Notification'
     NotificationList:
       $ref: 'schemas/notification.yaml#/NotificationList'
+
+    # ============== DNS CREDENTIAL ==============
+    DNSProviderCredential:
+      $ref: 'schemas/dns-credential.yaml#/DNSProviderCredential'
+    DNSProviderCredentialList:
+      $ref: 'schemas/dns-credential.yaml#/DNSProviderCredentialList'
+    CreateDNSCredentialRequest:
+      $ref: 'schemas/dns-credential.yaml#/CreateDNSCredentialRequest'
+    UpdateDNSCredentialRequest:
+      $ref: 'schemas/dns-credential.yaml#/UpdateDNSCredentialRequest'
+
+    # ============== CERTIFICATE ISSUER ==============
+    IssuerConfig:
+      $ref: 'schemas/certificate-issuer.yaml#/IssuerConfig'
+    CertificateIssuer:
+      $ref: 'schemas/certificate-issuer.yaml#/CertificateIssuer'
+    CertificateIssuerList:
+      $ref: 'schemas/certificate-issuer.yaml#/CertificateIssuerList'
+    CertificateIssuerStatus:
+      $ref: 'schemas/certificate-issuer.yaml#/CertificateIssuerStatus'
+    CreateCertificateIssuerRequest:
+      $ref: 'schemas/certificate-issuer.yaml#/CreateCertificateIssuerRequest'
+    IssuerProjectGrant:
+      $ref: 'schemas/certificate-issuer.yaml#/IssuerProjectGrant'
+    IssuerProjectGrantList:
+      $ref: 'schemas/certificate-issuer.yaml#/IssuerProjectGrantList'
+    CreateIssuerProjectGrantRequest:
+      $ref: 'schemas/certificate-issuer.yaml#/CreateIssuerProjectGrantRequest'
 
     # ============== ROUTE VERSION ==============
     RouteVersion:

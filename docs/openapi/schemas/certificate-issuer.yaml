@@ -1,0 +1,155 @@
+IssuerConfig:
+  type: object
+  description: Polymorphic issuer configuration. The self_signed_ca fields apply only when `type` is `self_signed_ca`; the acme fields apply only when `type` is `acme`. Never includes key material -- private keys and ACME account/EAB secrets live in cert-manager-managed Kubernetes Secrets, not in this row.
+  properties:
+    commonName:
+      type: string
+    keyAlgorithm:
+      type: string
+    keySize:
+      type: integer
+    durationDays:
+      type: integer
+    caSecretName:
+      type: string
+      description: Name of the cert-manager-managed CA Secret in the control cluster.
+    server:
+      type: string
+      description: ACME server URL.
+    email:
+      type: string
+    eabKeyId:
+      type: string
+    dnsCredentialId:
+      type: string
+      format: uuid
+    clusterIssuerName:
+      type: string
+      description: Name of the resolved cert-manager ClusterIssuer.
+    accountSecretName:
+      type: string
+    solverSecretName:
+      type: string
+    eabSecretName:
+      type: string
+
+CertificateIssuer:
+  type: object
+  description: Platform-global certificate issuer (self-signed CA or ACME), owner-only. Never includes key material.
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    type:
+      type: string
+      enum: [self_signed_ca, acme]
+    status:
+      type: string
+      enum: [pending, ready, error]
+    statusMessage:
+      type: string
+    config:
+      $ref: '#/IssuerConfig'
+    createdBy:
+      type: string
+      format: uuid
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+CertificateIssuerList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/CertificateIssuer'
+
+CertificateIssuerStatus:
+  type: object
+  properties:
+    status:
+      type: string
+      enum: [pending, ready, error]
+    statusMessage:
+      type: string
+
+CreateCertificateIssuerRequest:
+  type: object
+  description: Discriminated by `type`. self_signed_ca requires `commonName`; acme requires `server`, `email`, and `dnsCredentialId`.
+  required: [type, name]
+  properties:
+    type:
+      type: string
+      enum: [self_signed_ca, acme]
+    name:
+      type: string
+    commonName:
+      type: string
+      description: Required when type is self_signed_ca.
+    keyAlgorithm:
+      type: string
+      description: Defaults to RSA when type is self_signed_ca.
+    keySize:
+      type: integer
+      description: Defaults to 4096 when type is self_signed_ca.
+    durationDays:
+      type: integer
+      description: Defaults to 3650 when type is self_signed_ca.
+    server:
+      type: string
+      description: ACME server URL. Required when type is acme.
+    email:
+      type: string
+      description: Required when type is acme.
+    eabKeyId:
+      type: string
+      description: ACME External Account Binding key ID, if the ACME server requires EAB (e.g. ZeroSSL).
+    eabHmacKey:
+      type: string
+      description: ACME External Account Binding HMAC key, plaintext in the request only -- stored as a cert-manager Secret, never persisted in this row or returned.
+    dnsCredentialId:
+      type: string
+      format: uuid
+      description: DNS provider credential used for the ACME DNS-01 solver. Required when type is acme.
+
+IssuerProjectGrant:
+  type: object
+  description: Records that a certificate issuer has been made visible to a project.
+  properties:
+    id:
+      type: string
+      format: uuid
+    issuerId:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    createdBy:
+      type: string
+      format: uuid
+    createdAt:
+      type: string
+      format: date-time
+
+IssuerProjectGrantList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/IssuerProjectGrant'
+
+CreateIssuerProjectGrantRequest:
+  type: object
+  required: [projectId]
+  properties:
+    projectId:
+      type: string
+      format: uuid

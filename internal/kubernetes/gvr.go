@@ -126,4 +126,15 @@ var (
 		Version:  "v1alpha1",
 		Resource: "httproutefilters",
 	}
+
+	// cert-manager
+	CertManagerCertificateGVR = schema.GroupVersionResource{
+		Group: "cert-manager.io", Version: "v1", Resource: "certificates",
+	}
+	CertManagerIssuerGVR = schema.GroupVersionResource{
+		Group: "cert-manager.io", Version: "v1", Resource: "issuers",
+	}
+	CertManagerClusterIssuerGVR = schema.GroupVersionResource{
+		Group: "cert-manager.io", Version: "v1", Resource: "clusterissuers",
+	}
 )

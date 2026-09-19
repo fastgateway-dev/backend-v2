@@ -79,6 +79,9 @@ func main() {
 	notificationRepo := repository.NewNotificationRepository(db)
 	routeVersionRepo := repository.NewRouteVersionRepository(db)
 	approvalStageReviewRepo := repository.NewApprovalStageReviewRepository(db)
+	dnsProviderCredentialRepo := repository.NewDNSProviderCredentialRepository(db)
+	certificateIssuerRepo := repository.NewCertificateIssuerRepository(db)
+	issuerProjectGrantRepo := repository.NewIssuerProjectGrantRepository(db)
 
 	// Initialize services.
 	//
@@ -302,6 +305,44 @@ func main() {
 	presetHandler := handlers.NewPresetHandler(presetService, auditService)
 	commentHandler := handlers.NewCommentHandler(commentService)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
+	dnsCredentialService := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{
+		Repo:       dnsProviderCredentialRepo,
+		IssuerRepo: certificateIssuerRepo,
+		Config:     cfg,
+	})
+	dnsCredentialHandler := handlers.NewDNSCredentialHandler(dnsCredentialService)
+
+	// Initialize certificate issuer service + handler. The control-plane
+	// client this depends on is only available when the API server is
+	// actually running in-cluster (it talks to the control-plane namespace
+	// via the in-cluster Kubernetes API), so outside a cluster the handler
+	// stays nil and setupRouter skips registering its routes rather than
+	// failing to boot.
+	var certificateIssuerHandler *handlers.CertificateIssuerHandler
+	if services.IsRunningInCluster() {
+		cpDyn, err := cluster.InClusterDynamicClient()
+		if err != nil {
+			log.Fatalf("Failed to build control-plane client: %v", err)
+		}
+		controlPlane := cluster.NewControlPlaneClient(cpDyn, cfg.ControlPlaneNamespace)
+		certificateIssuerService := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
+			Repo: certificateIssuerRepo, DNSCreds: dnsCredentialService, ControlPlane: controlPlane, Config: cfg,
+		})
+		certificateIssuerHandler = handlers.NewCertificateIssuerHandler(certificateIssuerService)
+	} else {
+		log.Printf("WARNING: not running in-cluster; certificate-issuer routes disabled (no control-plane client)")
+	}
+
+	// Initialize issuer-project grant service + handler. Unlike
+	// certificateIssuerHandler above, grants are pure DB (no control-plane
+	// dependency), so this is constructed unconditionally -- its routes are
+	// registered as /:issuerId/grants sub-routes inside the same nil-guarded
+	// /certificates/issuers group, so they only actually mount when that
+	// group does.
+	issuerGrantService := services.NewIssuerGrantService(services.IssuerGrantServiceDeps{
+		GrantRepo: issuerProjectGrantRepo, IssuerRepo: certificateIssuerRepo, ProjectRepo: projectRepo,
+	})
+	issuerGrantHandler := handlers.NewIssuerGrantHandler(issuerGrantService)
 
 	// Initialize SSO handler
 	frontendURL := ""
@@ -324,35 +365,38 @@ func main() {
 
 	// Setup router
 	router := setupRouter(RouterDeps{
-		AuthMiddleware:          authMiddleware,
-		PermChecker:             permChecker,
-		AuthHandler:             authHandler,
-		SSOHandler:              ssoHandler,
-		DocsHandler:             docsHandler,
-		UserHandler:             userHandler,
-		SystemSettingsHandler:   systemSettingsHandler,
-		TeamHandler:             teamHandler,
-		ClientHandler:           clientHandler,
-		ClientAttachmentHandler: clientAttachmentHandler,
-		AIHandler:               aiHandler,
-		ProjectHandler:          projectHandler,
-		MetricsHandler:          metricsHandler,
-		ProjectVersionHandler:   projectVersionHandler,
-		PermissionHandler:       permissionHandler,
-		PresetHandler:           presetHandler,
-		DomainTemplateHandler:   domainTemplateHandler,
-		ProjectNamespaceHandler: projectNamespaceHandler,
-		DomainHandler:           domainHandler,
-		TopologyHandler:         topologyHandler,
-		OpenAPIImportHandler:    openapiImportHandler,
-		RouteHandler:            routeHandler,
-		RouteVersionHandler:     routeVersionHandler,
-		ApprovalHandler:         approvalHandler,
-		CommentHandler:          commentHandler,
-		ApprovalPolicyHandler:   approvalPolicyHandler,
-		K8sHandler:              k8sHandler,
-		AuditHandler:            auditHandler,
-		NotificationHandler:     notificationHandler,
+		AuthMiddleware:           authMiddleware,
+		PermChecker:              permChecker,
+		AuthHandler:              authHandler,
+		SSOHandler:               ssoHandler,
+		DocsHandler:              docsHandler,
+		UserHandler:              userHandler,
+		SystemSettingsHandler:    systemSettingsHandler,
+		TeamHandler:              teamHandler,
+		ClientHandler:            clientHandler,
+		ClientAttachmentHandler:  clientAttachmentHandler,
+		AIHandler:                aiHandler,
+		ProjectHandler:           projectHandler,
+		MetricsHandler:           metricsHandler,
+		ProjectVersionHandler:    projectVersionHandler,
+		PermissionHandler:        permissionHandler,
+		PresetHandler:            presetHandler,
+		DomainTemplateHandler:    domainTemplateHandler,
+		ProjectNamespaceHandler:  projectNamespaceHandler,
+		DomainHandler:            domainHandler,
+		TopologyHandler:          topologyHandler,
+		OpenAPIImportHandler:     openapiImportHandler,
+		RouteHandler:             routeHandler,
+		RouteVersionHandler:      routeVersionHandler,
+		ApprovalHandler:          approvalHandler,
+		CommentHandler:           commentHandler,
+		ApprovalPolicyHandler:    approvalPolicyHandler,
+		K8sHandler:               k8sHandler,
+		AuditHandler:             auditHandler,
+		NotificationHandler:      notificationHandler,
+		DNSCredentialHandler:     dnsCredentialHandler,
+		CertificateIssuerHandler: certificateIssuerHandler,
+		IssuerGrantHandler:       issuerGrantHandler,
 	})
 
 	// Start server
@@ -381,33 +425,36 @@ type RouterDeps struct {
 	AuthMiddleware *middleware.AuthMiddleware
 	PermChecker    *middleware.PermissionChecker
 
-	AuthHandler             *handlers.AuthHandler
-	SSOHandler              *handlers.SSOHandler
-	DocsHandler             *handlers.DocsHandler
-	UserHandler             *handlers.UserHandler
-	SystemSettingsHandler   *handlers.SystemSettingsHandler
-	TeamHandler             *handlers.TeamHandler
-	ClientHandler           *handlers.ClientHandler
-	ClientAttachmentHandler *handlers.ClientAttachmentHandler
-	AIHandler               *handlers.AIHandler
-	ProjectHandler          *handlers.ProjectHandler
-	MetricsHandler          *handlers.MetricsHandler
-	ProjectVersionHandler   *handlers.ProjectVersionHandler
-	PermissionHandler       *handlers.PermissionHandler
-	PresetHandler           *handlers.PresetHandler
-	DomainTemplateHandler   *handlers.DomainTemplateHandler
-	ProjectNamespaceHandler *handlers.ProjectNamespaceHandler
-	DomainHandler           *handlers.DomainHandler
-	TopologyHandler         *handlers.TopologyHandler
-	OpenAPIImportHandler    *handlers.OpenAPIImportHandler
-	RouteHandler            *handlers.RouteHandler
-	RouteVersionHandler     *handlers.RouteVersionHandler
-	ApprovalHandler         *handlers.ApprovalHandler
-	CommentHandler          *handlers.CommentHandler
-	ApprovalPolicyHandler   *handlers.ApprovalPolicyHandler
-	K8sHandler              *handlers.KubernetesHandler
-	AuditHandler            *handlers.AuditHandler
-	NotificationHandler     *handlers.NotificationHandler
+	AuthHandler              *handlers.AuthHandler
+	SSOHandler               *handlers.SSOHandler
+	DocsHandler              *handlers.DocsHandler
+	UserHandler              *handlers.UserHandler
+	SystemSettingsHandler    *handlers.SystemSettingsHandler
+	TeamHandler              *handlers.TeamHandler
+	ClientHandler            *handlers.ClientHandler
+	ClientAttachmentHandler  *handlers.ClientAttachmentHandler
+	AIHandler                *handlers.AIHandler
+	ProjectHandler           *handlers.ProjectHandler
+	MetricsHandler           *handlers.MetricsHandler
+	ProjectVersionHandler    *handlers.ProjectVersionHandler
+	PermissionHandler        *handlers.PermissionHandler
+	PresetHandler            *handlers.PresetHandler
+	DomainTemplateHandler    *handlers.DomainTemplateHandler
+	ProjectNamespaceHandler  *handlers.ProjectNamespaceHandler
+	DomainHandler            *handlers.DomainHandler
+	TopologyHandler          *handlers.TopologyHandler
+	OpenAPIImportHandler     *handlers.OpenAPIImportHandler
+	RouteHandler             *handlers.RouteHandler
+	RouteVersionHandler      *handlers.RouteVersionHandler
+	ApprovalHandler          *handlers.ApprovalHandler
+	CommentHandler           *handlers.CommentHandler
+	ApprovalPolicyHandler    *handlers.ApprovalPolicyHandler
+	K8sHandler               *handlers.KubernetesHandler
+	AuditHandler             *handlers.AuditHandler
+	NotificationHandler      *handlers.NotificationHandler
+	DNSCredentialHandler     *handlers.DNSCredentialHandler
+	CertificateIssuerHandler *handlers.CertificateIssuerHandler
+	IssuerGrantHandler       *handlers.IssuerGrantHandler
 }
 
 // setupRouter registers every route on a fresh *gin.Engine. This is a pure
@@ -523,6 +570,43 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 				teams.POST("/:teamId/members/email", deps.TeamHandler.AddMemberByEmail)
 				teams.GET("/:teamId/invites", deps.TeamHandler.ListInvites)
 				teams.DELETE("/:teamId/invites/:inviteId", deps.TeamHandler.DeleteInvite)
+			}
+
+			// DNS provider credentials (Owner only). Platform-global, not
+			// project-scoped -- hence a top-level group rather than nested
+			// under /settings. Tasks 6 and 7 add sibling owner-only groups
+			// for /certificates/issuers and its /grants sub-routes.
+			dnsCreds := protected.Group("/dns/credentials")
+			dnsCreds.Use(deps.AuthMiddleware.RequireRole("owner"))
+			{
+				dnsCreds.GET("", deps.DNSCredentialHandler.List)
+				dnsCreds.POST("", deps.DNSCredentialHandler.Create)
+				dnsCreds.GET("/:dnsCredentialId", deps.DNSCredentialHandler.Get)
+				dnsCreds.PATCH("/:dnsCredentialId", deps.DNSCredentialHandler.Update)
+				dnsCreds.DELETE("/:dnsCredentialId", deps.DNSCredentialHandler.Delete)
+			}
+
+			// Certificate issuers (Owner only). Platform-global. Registered
+			// only when the control-plane client exists (in-cluster); absent
+			// in local/dev where cert-manager isn't reachable.
+			if deps.CertificateIssuerHandler != nil {
+				issuers := protected.Group("/certificates/issuers")
+				issuers.Use(deps.AuthMiddleware.RequireRole("owner"))
+				{
+					issuers.GET("", deps.CertificateIssuerHandler.List)
+					issuers.POST("", deps.CertificateIssuerHandler.Create)
+					issuers.GET("/:issuerId", deps.CertificateIssuerHandler.Get)
+					issuers.DELETE("/:issuerId", deps.CertificateIssuerHandler.Delete)
+					issuers.GET("/:issuerId/status", deps.CertificateIssuerHandler.Status)
+
+					// Issuer-project grants (Task 7): which projects an
+					// issuer is visible to. Pure DB, no control-plane
+					// dependency -- nested here only so the routes sit with
+					// the issuer they belong to.
+					issuers.GET("/:issuerId/grants", deps.IssuerGrantHandler.List)
+					issuers.POST("/:issuerId/grants", deps.IssuerGrantHandler.Grant)
+					issuers.DELETE("/:issuerId/grants/:projectId", deps.IssuerGrantHandler.Revoke)
+				}
 			}
 
 			// Global Clients (authenticated users)

@@ -1,0 +1,18 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: fastgateway
+  name: iss-acme
+spec:
+  acme:
+    email: ops@example.com
+    privateKeySecretRef:
+      name: iss-acme-account
+    server: https://acme-v02.api.letsencrypt.org/directory
+    solvers:
+    - dns01:
+        cloudflare:
+          apiTokenSecretRef:
+            key: apiToken
+            name: iss-acme-cf

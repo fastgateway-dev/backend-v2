@@ -118,3 +118,17 @@ tokenId:
   schema:
     type: string
     format: uuid
+dnsCredentialId:
+  name: dnsCredentialId
+  in: path
+  required: true
+  schema:
+    type: string
+    format: uuid
+issuerId:
+  name: issuerId
+  in: path
+  required: true
+  schema:
+    type: string
+    format: uuid

@@ -57,6 +57,10 @@ tags:
     description: Client HTTP method authorization management
   - name: SSO
     description: Single Sign-On configuration
+  - name: DNS Credentials
+    description: Platform-global DNS provider credential management (owner only)
+  - name: Certificate Issuers
+    description: Platform-global certificate issuer and issuer-project grant management (owner only)
   - name: Notifications
     description: User notifications
   - name: Health
@@ -465,6 +469,317 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /dns/credentials:
+    get:
+      tags:
+        - DNS Credentials
+      summary: List DNS provider credentials (Owner only)
+      description: Platform-global. Never includes credential material.
+      operationId: listDNSCredentials
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of DNS provider credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSProviderCredentialList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - DNS Credentials
+      summary: Create DNS provider credential (Owner only)
+      description: Credentials are encrypted at rest and never returned in any response.
+      operationId: createDNSCredential
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDNSCredentialRequest'
+      responses:
+        '201':
+          description: DNS provider credential created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSProviderCredential'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /dns/credentials/{dnsCredentialId}:
+    get:
+      tags:
+        - DNS Credentials
+      summary: Get DNS provider credential (Owner only)
+      description: Metadata only, never includes credential material.
+      operationId: getDNSCredential
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/dnsCredentialId'
+      responses:
+        '200':
+          description: DNS provider credential
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSProviderCredential'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - DNS Credentials
+      summary: Update DNS provider credential (Owner only)
+      description: Update the name and/or rotate the credential values. Omitting `credentials` leaves the existing encrypted values untouched.
+      operationId: updateDNSCredential
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/dnsCredentialId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDNSCredentialRequest'
+      responses:
+        '200':
+          description: DNS provider credential updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSProviderCredential'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - DNS Credentials
+      summary: Delete DNS provider credential (Owner only)
+      operationId: deleteDNSCredential
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/dnsCredentialId'
+      responses:
+        '204':
+          description: DNS provider credential deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: DNS provider credential is referenced by an ACME issuer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /certificates/issuers:
+    get:
+      tags:
+        - Certificate Issuers
+      summary: List certificate issuers (Owner only)
+      description: Platform-global. Never includes key material.
+      operationId: listCertificateIssuers
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of certificate issuers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateIssuerList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Certificate Issuers
+      summary: Create certificate issuer (Owner only)
+      description: Body discriminated by `type` (self_signed_ca or acme). Creates the corresponding cert-manager CRDs in the control cluster.
+      operationId: createCertificateIssuer
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCertificateIssuerRequest'
+      responses:
+        '201':
+          description: Certificate issuer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateIssuer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /certificates/issuers/{issuerId}:
+    get:
+      tags:
+        - Certificate Issuers
+      summary: Get certificate issuer (Owner only)
+      operationId: getCertificateIssuer
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/issuerId'
+      responses:
+        '200':
+          description: Certificate issuer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateIssuer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Certificate Issuers
+      summary: Delete certificate issuer (Owner only)
+      description: Removes the underlying cert-manager CRDs. 409 if referenced by any ManagedCertificate.
+      operationId: deleteCertificateIssuer
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/issuerId'
+      responses:
+        '204':
+          description: Certificate issuer deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Certificate issuer is referenced by a ManagedCertificate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /certificates/issuers/{issuerId}/status:
+    get:
+      tags:
+        - Certificate Issuers
+      summary: Get certificate issuer readiness (Owner only)
+      description: cert-manager readiness of the underlying Issuer/ClusterIssuer (Ready condition + message).
+      operationId: getCertificateIssuerStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/issuerId'
+      responses:
+        '200':
+          description: Certificate issuer status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateIssuerStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /certificates/issuers/{issuerId}/grants:
+    get:
+      tags:
+        - Certificate Issuers
+      summary: List projects an issuer is granted to (Owner only)
+      operationId: listIssuerGrants
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/issuerId'
+      responses:
+        '200':
+          description: List of issuer-project grants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssuerProjectGrantList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Certificate Issuers
+      summary: Grant an issuer to a project (Owner only)
+      operationId: createIssuerGrant
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/issuerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIssuerProjectGrantRequest'
+      responses:
+        '201':
+          description: Issuer granted to the project
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /certificates/issuers/{issuerId}/grants/{projectId}:
+    delete:
+      tags:
+        - Certificate Issuers
+      summary: Revoke an issuer's grant to a project (Owner only)
+      description: 409 if a certificate in that project still uses the issuer.
+      operationId: deleteIssuerGrant
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/issuerId'
+        - $ref: '#/components/parameters/projectId'
+      responses:
+        '204':
+          description: Grant revoked
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: A certificate in this project still uses the issuer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /notifications:
     get:
       tags:
@@ -4199,6 +4514,20 @@ components:
         format: uuid
     tokenId:
       name: tokenId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    dnsCredentialId:
+      name: dnsCredentialId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    issuerId:
+      name: issuerId
       in: path
       required: true
       schema:
@@ -9568,6 +9897,220 @@ components:
             $ref: '#/components/schemas/Notification'
         pagination:
           $ref: '#/components/schemas/Pagination'
+    DNSProviderCredential:
+      type: object
+      description: Platform-global DNS provider credential (owner-only). Never includes credential material.
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        providerType:
+          type: string
+          description: DNS provider identifier (e.g. cloudflare, route53).
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DNSProviderCredentialList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DNSProviderCredential'
+    CreateDNSCredentialRequest:
+      type: object
+      required:
+        - name
+        - providerType
+        - credentials
+      properties:
+        name:
+          type: string
+        providerType:
+          type: string
+          description: DNS provider identifier (e.g. cloudflare, route53).
+        credentials:
+          type: object
+          additionalProperties:
+            type: string
+          description: 'Provider-specific plaintext credential values (e.g. `{"apiToken": "..."}`). Encrypted at rest; never returned in any response.'
+    UpdateDNSCredentialRequest:
+      type: object
+      description: Both fields are optional. Omitting `credentials` leaves the existing encrypted values untouched.
+      properties:
+        name:
+          type: string
+        credentials:
+          type: object
+          additionalProperties:
+            type: string
+          description: Provider-specific plaintext credential values to rotate. Encrypted at rest; never returned in any response.
+    IssuerConfig:
+      type: object
+      description: Polymorphic issuer configuration. The self_signed_ca fields apply only when `type` is `self_signed_ca`; the acme fields apply only when `type` is `acme`. Never includes key material -- private keys and ACME account/EAB secrets live in cert-manager-managed Kubernetes Secrets, not in this row.
+      properties:
+        commonName:
+          type: string
+        keyAlgorithm:
+          type: string
+        keySize:
+          type: integer
+        durationDays:
+          type: integer
+        caSecretName:
+          type: string
+          description: Name of the cert-manager-managed CA Secret in the control cluster.
+        server:
+          type: string
+          description: ACME server URL.
+        email:
+          type: string
+        eabKeyId:
+          type: string
+        dnsCredentialId:
+          type: string
+          format: uuid
+        clusterIssuerName:
+          type: string
+          description: Name of the resolved cert-manager ClusterIssuer.
+        accountSecretName:
+          type: string
+        solverSecretName:
+          type: string
+        eabSecretName:
+          type: string
+    CertificateIssuer:
+      type: object
+      description: Platform-global certificate issuer (self-signed CA or ACME), owner-only. Never includes key material.
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          type: string
+          enum:
+            - self_signed_ca
+            - acme
+        status:
+          type: string
+          enum:
+            - pending
+            - ready
+            - error
+        statusMessage:
+          type: string
+        config:
+          $ref: '#/components/schemas/IssuerConfig'
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CertificateIssuerList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CertificateIssuer'
+    CertificateIssuerStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - pending
+            - ready
+            - error
+        statusMessage:
+          type: string
+    CreateCertificateIssuerRequest:
+      type: object
+      description: Discriminated by `type`. self_signed_ca requires `commonName`; acme requires `server`, `email`, and `dnsCredentialId`.
+      required:
+        - type
+        - name
+      properties:
+        type:
+          type: string
+          enum:
+            - self_signed_ca
+            - acme
+        name:
+          type: string
+        commonName:
+          type: string
+          description: Required when type is self_signed_ca.
+        keyAlgorithm:
+          type: string
+          description: Defaults to RSA when type is self_signed_ca.
+        keySize:
+          type: integer
+          description: Defaults to 4096 when type is self_signed_ca.
+        durationDays:
+          type: integer
+          description: Defaults to 3650 when type is self_signed_ca.
+        server:
+          type: string
+          description: ACME server URL. Required when type is acme.
+        email:
+          type: string
+          description: Required when type is acme.
+        eabKeyId:
+          type: string
+          description: ACME External Account Binding key ID, if the ACME server requires EAB (e.g. ZeroSSL).
+        eabHmacKey:
+          type: string
+          description: ACME External Account Binding HMAC key, plaintext in the request only -- stored as a cert-manager Secret, never persisted in this row or returned.
+        dnsCredentialId:
+          type: string
+          format: uuid
+          description: DNS provider credential used for the ACME DNS-01 solver. Required when type is acme.
+    IssuerProjectGrant:
+      type: object
+      description: Records that a certificate issuer has been made visible to a project.
+      properties:
+        id:
+          type: string
+          format: uuid
+        issuerId:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+    IssuerProjectGrantList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/IssuerProjectGrant'
+    CreateIssuerProjectGrantRequest:
+      type: object
+      required:
+        - projectId
+      properties:
+        projectId:
+          type: string
+          format: uuid
     RouteVersion:
       type: object
       properties:

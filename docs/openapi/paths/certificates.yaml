@@ -1,0 +1,186 @@
+issuers:
+  get:
+    tags: [Certificate Issuers]
+    summary: List certificate issuers (Owner only)
+    description: Platform-global. Never includes key material.
+    operationId: listCertificateIssuers
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: List of certificate issuers
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/certificate-issuer.yaml#/CertificateIssuerList'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+  post:
+    tags: [Certificate Issuers]
+    summary: Create certificate issuer (Owner only)
+    description: Body discriminated by `type` (self_signed_ca or acme). Creates the corresponding cert-manager CRDs in the control cluster.
+    operationId: createCertificateIssuer
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/certificate-issuer.yaml#/CreateCertificateIssuerRequest'
+    responses:
+      '201':
+        description: Certificate issuer created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/certificate-issuer.yaml#/CertificateIssuer'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+issuers_{issuerId}:
+  get:
+    tags: [Certificate Issuers]
+    summary: Get certificate issuer (Owner only)
+    operationId: getCertificateIssuer
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/issuerId'
+    responses:
+      '200':
+        description: Certificate issuer
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/certificate-issuer.yaml#/CertificateIssuer'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+  delete:
+    tags: [Certificate Issuers]
+    summary: Delete certificate issuer (Owner only)
+    description: Removes the underlying cert-manager CRDs. 409 if referenced by any ManagedCertificate.
+    operationId: deleteCertificateIssuer
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/issuerId'
+    responses:
+      '204':
+        description: Certificate issuer deleted
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '409':
+        description: Certificate issuer is referenced by a ManagedCertificate
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+issuer-status:
+  get:
+    tags: [Certificate Issuers]
+    summary: Get certificate issuer readiness (Owner only)
+    description: cert-manager readiness of the underlying Issuer/ClusterIssuer (Ready condition + message).
+    operationId: getCertificateIssuerStatus
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/issuerId'
+    responses:
+      '200':
+        description: Certificate issuer status
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/certificate-issuer.yaml#/CertificateIssuerStatus'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+issuer-grants:
+  get:
+    tags: [Certificate Issuers]
+    summary: List projects an issuer is granted to (Owner only)
+    operationId: listIssuerGrants
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/issuerId'
+    responses:
+      '200':
+        description: List of issuer-project grants
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/certificate-issuer.yaml#/IssuerProjectGrantList'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+  post:
+    tags: [Certificate Issuers]
+    summary: Grant an issuer to a project (Owner only)
+    operationId: createIssuerGrant
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/issuerId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/certificate-issuer.yaml#/CreateIssuerProjectGrantRequest'
+    responses:
+      '201':
+        description: Issuer granted to the project
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+issuer-grants_{projectId}:
+  delete:
+    tags: [Certificate Issuers]
+    summary: Revoke an issuer's grant to a project (Owner only)
+    description: 409 if a certificate in that project still uses the issuer.
+    operationId: deleteIssuerGrant
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/issuerId'
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '204':
+        description: Grant revoked
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '409':
+        description: A certificate in this project still uses the issuer
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
