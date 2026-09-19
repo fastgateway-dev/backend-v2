@@ -1,0 +1,155 @@
+certificates:
+  get:
+    tags: [Managed Certificates]
+    summary: List managed certificates in project
+    operationId: listManagedCertificates
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [pending, issuing, ready, error]
+        description: Filter by certificate status.
+    responses:
+      '200':
+        description: List of managed certificates
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/managed-certificate.yaml#/ManagedCertificateList'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+  post:
+    tags: [Managed Certificates]
+    summary: Create managed certificate (requires cert.create)
+    description: Issues a certificate from an issuer granted to this project. Opens an approval when the project has approvals enabled (returns 202 with the pending certificate + approvalId); otherwise issues immediately (201, approvalId null).
+    operationId: createManagedCertificate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/managed-certificate.yaml#/CreateManagedCertificateRequest'
+    responses:
+      '201':
+        description: Certificate issued immediately (approvals disabled for this project)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/managed-certificate.yaml#/CreateManagedCertificateResponse'
+      '202':
+        description: Certificate created and pending approval
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/managed-certificate.yaml#/CreateManagedCertificateResponse'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+certificate-issuers:
+  get:
+    tags: [Managed Certificates]
+    summary: List certificate issuers granted to this project (requires cert.view)
+    description: Populates a certificate-create form's issuer picker. Never includes key material.
+    operationId: listProjectCertificateIssuers
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: Certificate issuers granted to this project
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/certificate-issuer.yaml#/CertificateIssuerList'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+certificates_{certificateId}:
+  get:
+    tags: [Managed Certificates]
+    summary: Get managed certificate (requires cert.view)
+    operationId: getManagedCertificate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/certificateId'
+    responses:
+      '200':
+        description: Managed certificate
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/managed-certificate.yaml#/ManagedCertificate'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+  delete:
+    tags: [Managed Certificates]
+    summary: Delete managed certificate (requires cert.delete)
+    description: Removes the leaf `Certificate` CRD (and its Secret) from the control cluster.
+    operationId: deleteManagedCertificate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/certificateId'
+    responses:
+      '204':
+        description: Certificate deleted
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+certificate-status:
+  get:
+    tags: [Managed Certificates]
+    summary: Get managed certificate issuance status (requires cert.view)
+    description: Live cert-manager readiness of the underlying `Certificate` resource (Ready condition + message).
+    operationId: getManagedCertificateStatus
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/certificateId'
+    responses:
+      '200':
+        description: Managed certificate status
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/managed-certificate.yaml#/ManagedCertificateStatus'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'

@@ -1,0 +1,101 @@
+ManagedCertificate:
+  type: object
+  description: Project-scoped managed certificate issued from a granted certificate issuer. Metadata only -- never includes key or certificate material, which lives in a cert-manager-managed Kubernetes Secret, never in this row or response.
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    name:
+      type: string
+    issuerId:
+      type: string
+      format: uuid
+    usage:
+      type: string
+      enum: [server, client]
+    dnsNames:
+      type: array
+      items:
+        type: string
+    status:
+      type: string
+      enum: [pending, issuing, ready, error]
+    statusMessage:
+      type: string
+    fingerprint:
+      type: string
+    notAfter:
+      type: string
+      format: date-time
+    createdAt:
+      type: string
+      format: date-time
+
+ManagedCertificateList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/ManagedCertificate'
+    pagination:
+      $ref: './common.yaml#/Pagination'
+
+CreateManagedCertificateRequest:
+  type: object
+  description: DNSNames applies to server-usage certificates; subject applies to client-usage certificates.
+  required: [name, issuerId, usage]
+  properties:
+    name:
+      type: string
+    issuerId:
+      type: string
+      format: uuid
+    usage:
+      type: string
+      enum: [server, client]
+    dnsNames:
+      type: array
+      items:
+        type: string
+      description: Required when usage is server.
+    subject:
+      type: string
+      description: Required when usage is client.
+    keyAlgorithm:
+      type: string
+      description: Defaults to RSA.
+    keySize:
+      type: integer
+      description: Defaults to 2048.
+    durationDays:
+      type: integer
+      description: Defaults to 90.
+
+CreateManagedCertificateResponse:
+  type: object
+  description: Returned with 201 when the certificate was issued immediately (project has approvals disabled), or 202 when it opened an approval and is still pending.
+  properties:
+    certificate:
+      $ref: '#/ManagedCertificate'
+    approvalId:
+      type: string
+      format: uuid
+      nullable: true
+      description: Null when the certificate was issued via the fast path (no approval gate configured for this project).
+
+ManagedCertificateStatus:
+  type: object
+  description: Live cert-manager issuance status of a managed certificate, from the underlying `Certificate` resource's `Ready` condition.
+  properties:
+    status:
+      type: string
+      enum: [pending, issuing, ready, error]
+    message:
+      type: string
+    notAfter:
+      type: string
+      format: date-time

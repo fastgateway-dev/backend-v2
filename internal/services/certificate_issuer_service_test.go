@@ -26,7 +26,7 @@ func TestCertificateIssuerService_CreateSelfSignedCA_AppliesCRDs(t *testing.T) {
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
 	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: new(mocks.MockDNSProviderCredentialRepository), Config: cfg, IssuerRepo: repo})
 	svc := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
-		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg,
+		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg, ManagedCertRepo: new(mocks.MockManagedCertificateRepository),
 	})
 
 	applier.On("Namespace").Return("fastgateway-system")
@@ -58,7 +58,7 @@ func TestCertificateIssuerService_CreateACME_AppliesSolverAndIssuer(t *testing.T
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
 	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo})
 	svc := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
-		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg,
+		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg, ManagedCertRepo: new(mocks.MockManagedCertificateRepository),
 	})
 
 	credID := uuid.New()
@@ -108,7 +108,7 @@ func TestCertificateIssuerService_CreateACME_ApplyFailure_ConfigPopulatedForClea
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
 	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo})
 	svc := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
-		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg,
+		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg, ManagedCertRepo: new(mocks.MockManagedCertificateRepository),
 	})
 
 	credID := uuid.New()
@@ -157,8 +157,9 @@ func TestCertificateIssuerService_DeleteACME_RemovesSecrets(t *testing.T) {
 	applier := new(mocks.MockCertInfraApplier)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
 	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo})
+	managedCertRepo := new(mocks.MockManagedCertificateRepository)
 	svc := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
-		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg,
+		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg, ManagedCertRepo: managedCertRepo,
 	})
 
 	id := uuid.New()
@@ -172,6 +173,7 @@ func TestCertificateIssuerService_DeleteACME_RemovesSecrets(t *testing.T) {
 		},
 	}
 	repo.On("GetByID", id).Return(iss, nil)
+	managedCertRepo.On("CountByIssuer", id).Return(int64(0), nil)
 	applier.On("Delete", mock.Anything, kubernetes.CertManagerClusterIssuerGVR, iss.Config.ClusterIssuerName, false).Return(nil)
 	applier.On("Delete", mock.Anything, kubernetes.SecretGVR, iss.Config.SolverSecretName, true).Return(nil)
 	applier.On("Delete", mock.Anything, kubernetes.SecretGVR, iss.Config.AccountSecretName, true).Return(nil)
@@ -187,6 +189,29 @@ func TestCertificateIssuerService_DeleteACME_RemovesSecrets(t *testing.T) {
 	applier.AssertCalled(t, "Delete", mock.Anything, kubernetes.SecretGVR, iss.Config.AccountSecretName, true)
 	applier.AssertCalled(t, "Delete", mock.Anything, kubernetes.SecretGVR, iss.Config.EABSecretName, true)
 	repo.AssertExpectations(t)
+}
+
+func TestCertificateIssuerService_Delete_BlockedWhenCertReferences(t *testing.T) {
+	repo := new(mocks.MockCertificateIssuerRepository)
+	dnsRepo := new(mocks.MockDNSProviderCredentialRepository)
+	applier := new(mocks.MockCertInfraApplier)
+	managedCertRepo := new(mocks.MockManagedCertificateRepository)
+	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
+	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo})
+	svc := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
+		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg, ManagedCertRepo: managedCertRepo,
+	})
+
+	id := uuid.New()
+	iss := &models.CertificateIssuer{ID: id, Type: models.IssuerTypeACME, Status: models.IssuerStatusReady}
+	repo.On("GetByID", id).Return(iss, nil)
+	managedCertRepo.On("CountByIssuer", id).Return(int64(1), nil)
+
+	err := svc.Delete(id)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "in use")
+	applier.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "Delete", mock.Anything)
 }
 
 func TestDNSCredentialService_Delete_BlockedWhenReferenced(t *testing.T) {

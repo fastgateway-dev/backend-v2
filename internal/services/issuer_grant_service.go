@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/google/uuid"
@@ -15,18 +16,20 @@ import (
 // create flow will consult ListGrants (or ListProjectIDsForIssuer) to decide
 // which issuers a project may select.
 type IssuerGrantService struct {
-	grantRepo   repository.IssuerProjectGrantRepositoryInterface
-	issuerRepo  repository.CertificateIssuerRepositoryInterface
-	projectRepo repository.ProjectRepositoryInterface
+	grantRepo       repository.IssuerProjectGrantRepositoryInterface
+	issuerRepo      repository.CertificateIssuerRepositoryInterface
+	projectRepo     repository.ProjectRepositoryInterface
+	managedCertRepo repository.ManagedCertificateRepositoryInterface
 }
 
 // IssuerGrantServiceDeps are IssuerGrantService's required dependencies.
 // NewIssuerGrantService panics if any of them is nil, following the house
 // pattern for services with required constructor dependencies.
 type IssuerGrantServiceDeps struct {
-	GrantRepo   repository.IssuerProjectGrantRepositoryInterface
-	IssuerRepo  repository.CertificateIssuerRepositoryInterface
-	ProjectRepo repository.ProjectRepositoryInterface
+	GrantRepo       repository.IssuerProjectGrantRepositoryInterface
+	IssuerRepo      repository.CertificateIssuerRepositoryInterface
+	ProjectRepo     repository.ProjectRepositoryInterface
+	ManagedCertRepo repository.ManagedCertificateRepositoryInterface
 }
 
 func NewIssuerGrantService(deps IssuerGrantServiceDeps) *IssuerGrantService {
@@ -40,10 +43,13 @@ func NewIssuerGrantService(deps IssuerGrantServiceDeps) *IssuerGrantService {
 	if deps.ProjectRepo == nil {
 		missing = append(missing, "ProjectRepo")
 	}
+	if deps.ManagedCertRepo == nil {
+		missing = append(missing, "ManagedCertRepo")
+	}
 	if len(missing) > 0 {
 		panic("services.NewIssuerGrantService: missing required dependency: " + strings.Join(missing, ", "))
 	}
-	return &IssuerGrantService{grantRepo: deps.GrantRepo, issuerRepo: deps.IssuerRepo, projectRepo: deps.ProjectRepo}
+	return &IssuerGrantService{grantRepo: deps.GrantRepo, issuerRepo: deps.IssuerRepo, projectRepo: deps.ProjectRepo, managedCertRepo: deps.ManagedCertRepo}
 }
 
 // Grant makes issuerID visible to projectID. It validates both the issuer and
@@ -73,10 +79,17 @@ func (s *IssuerGrantService) ListGrants(issuerID uuid.UUID) ([]models.IssuerProj
 	return s.grantRepo.ListByIssuer(issuerID)
 }
 
-// Revoke removes the grant of issuerID from projectID.
-//
-// Phase 2: block revoke if a ManagedCertificate in projectID still uses
-// issuerID (409) -- deferred until the ManagedCertificate repo exists.
+// Revoke removes the grant of issuerID from projectID, first checking that
+// no ManagedCertificate in projectID still uses issuerID -- revoking would
+// otherwise leave that certificate pointing at an issuer its project can no
+// longer see.
 func (s *IssuerGrantService) Revoke(issuerID, projectID uuid.UUID) error {
+	n, err := s.managedCertRepo.CountByIssuerAndProject(issuerID, projectID)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return errors.New("issuer is in use by a managed certificate in this project")
+	}
 	return s.grantRepo.Delete(issuerID, projectID)
 }

@@ -45,6 +45,39 @@ func CACertificate(cfg CACertConfig) *unstructured.Unstructured {
 	}}
 }
 
+// LeafCertConfig configures the leaf Certificate built by LeafCertificate.
+type LeafCertConfig struct {
+	Name, Namespace, SecretName, IssuerClusterIssuerName, CommonName, KeyAlgorithm string
+	DNSNames                                                                       []string
+	KeySize, DurationDays                                                          int
+}
+
+// LeafCertificate builds a cert-manager Certificate for a leaf certificate,
+// issued by a ClusterIssuer (typically the CA ClusterIssuer or ACME ClusterIssuer).
+func LeafCertificate(cfg LeafCertConfig) *unstructured.Unstructured {
+	dnsNames := make([]interface{}, 0, len(cfg.DNSNames))
+	for _, n := range cfg.DNSNames {
+		dnsNames = append(dnsNames, n)
+	}
+	spec := map[string]interface{}{
+		"secretName": cfg.SecretName,
+		"dnsNames":   dnsNames,
+		"duration":   hoursDuration(cfg.DurationDays),
+		"privateKey": map[string]interface{}{"algorithm": cfg.KeyAlgorithm, "size": int64(cfg.KeySize)},
+		"issuerRef": map[string]interface{}{
+			"name": cfg.IssuerClusterIssuerName, "kind": "ClusterIssuer", "group": "cert-manager.io",
+		},
+	}
+	if cfg.CommonName != "" {
+		spec["commonName"] = cfg.CommonName
+	}
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "cert-manager.io/v1", "kind": "Certificate",
+		"metadata": map[string]interface{}{"name": cfg.Name, "namespace": cfg.Namespace, "labels": managedByLabels()},
+		"spec":     spec,
+	}}
+}
+
 // CAClusterIssuer builds a cert-manager ClusterIssuer of type "ca", signing
 // with the key material in caSecretName (produced by CACertificate).
 func CAClusterIssuer(name, caSecretName string) *unstructured.Unstructured {

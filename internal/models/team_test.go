@@ -128,3 +128,15 @@ func TestProjectTeamRole_HasPermission_Empty(t *testing.T) {
 	ptr := &ProjectTeamRole{}
 	assert.False(t, ptr.HasPermission(PermRouteView))
 }
+
+func TestPresets_IncludeCertificatePerms(t *testing.T) {
+	assert.Contains(t, PresetViewer, PermCertificateView)
+	assert.Contains(t, PresetEditor, PermCertificateCreate)
+	assert.Contains(t, PresetApprover, PermCertificateApprove)
+	for _, p := range []Permission{
+		PermCertificateView, PermCertificateCreate, PermCertificateEdit,
+		PermCertificateDelete, PermCertificateApprove,
+	} {
+		assert.True(t, IsValidPermission(string(p)), "%s should be valid", p)
+	}
+}

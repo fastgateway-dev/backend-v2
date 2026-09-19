@@ -390,6 +390,17 @@ type DNSProviderCredentialRepositoryInterface interface {
 	Delete(id uuid.UUID) error
 }
 
+// ManagedCertificateRepositoryInterface defines the interface for managed certificate repository operations
+type ManagedCertificateRepositoryInterface interface {
+	Create(c *models.ManagedCertificate) error
+	GetByID(id uuid.UUID) (*models.ManagedCertificate, error)
+	Update(c *models.ManagedCertificate) error
+	Delete(id uuid.UUID) error
+	ListByProject(projectID uuid.UUID, page, limit int, status string) ([]models.ManagedCertificate, int64, error)
+	CountByIssuer(issuerID uuid.UUID) (int64, error)
+	CountByIssuerAndProject(issuerID, projectID uuid.UUID) (int64, error)
+}
+
 // Compile-time interface satisfaction checks
 var _ ApprovalStageReviewRepositoryInterface = (*ApprovalStageReviewRepository)(nil)
 var _ APITokenRepositoryInterface = (*APITokenRepository)(nil)
@@ -404,6 +415,7 @@ var _ ClientRepositoryInterface = (*ClientRepository)(nil)
 var _ CommentRepositoryInterface = (*CommentRepository)(nil)
 var _ DNSProviderCredentialRepositoryInterface = (*DNSProviderCredentialRepository)(nil)
 var _ IssuerProjectGrantRepositoryInterface = (*IssuerProjectGrantRepository)(nil)
+var _ ManagedCertificateRepositoryInterface = (*ManagedCertificateRepository)(nil)
 var _ DomainRepositoryInterface = (*DomainRepository)(nil)
 var _ DomainSettingsRepositoryInterface = (*DomainSettingsRepository)(nil)
 var _ DomainTemplateRepositoryInterface = (*DomainTemplateRepository)(nil)

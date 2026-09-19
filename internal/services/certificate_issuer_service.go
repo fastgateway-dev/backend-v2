@@ -22,10 +22,11 @@ import (
 // records the resolved object names on the row so Delete and later phases can
 // find them again.
 type CertificateIssuerService struct {
-	repo         repository.CertificateIssuerRepositoryInterface
-	dnsCreds     *DNSCredentialService
-	controlPlane CertInfraApplier
-	config       *config.Config
+	repo            repository.CertificateIssuerRepositoryInterface
+	dnsCreds        *DNSCredentialService
+	controlPlane    CertInfraApplier
+	config          *config.Config
+	managedCertRepo repository.ManagedCertificateRepositoryInterface
 }
 
 // CertificateIssuerServiceDeps are CertificateIssuerService's required
@@ -33,10 +34,11 @@ type CertificateIssuerService struct {
 // following the house pattern for services with required constructor
 // dependencies.
 type CertificateIssuerServiceDeps struct {
-	Repo         repository.CertificateIssuerRepositoryInterface
-	DNSCreds     *DNSCredentialService
-	ControlPlane CertInfraApplier
-	Config       *config.Config
+	Repo            repository.CertificateIssuerRepositoryInterface
+	DNSCreds        *DNSCredentialService
+	ControlPlane    CertInfraApplier
+	Config          *config.Config
+	ManagedCertRepo repository.ManagedCertificateRepositoryInterface
 }
 
 func NewCertificateIssuerService(deps CertificateIssuerServiceDeps) *CertificateIssuerService {
@@ -53,10 +55,13 @@ func NewCertificateIssuerService(deps CertificateIssuerServiceDeps) *Certificate
 	if deps.Config == nil {
 		missing = append(missing, "Config")
 	}
+	if deps.ManagedCertRepo == nil {
+		missing = append(missing, "ManagedCertRepo")
+	}
 	if len(missing) > 0 {
 		panic("services.NewCertificateIssuerService: missing required dependency: " + strings.Join(missing, ", "))
 	}
-	return &CertificateIssuerService{repo: deps.Repo, dnsCreds: deps.DNSCreds, controlPlane: deps.ControlPlane, config: deps.Config}
+	return &CertificateIssuerService{repo: deps.Repo, dnsCreds: deps.DNSCreds, controlPlane: deps.ControlPlane, config: deps.Config, managedCertRepo: deps.ManagedCertRepo}
 }
 
 // CreateIssuerInput is the request body for creating a certificate issuer.
@@ -226,12 +231,20 @@ func (s *CertificateIssuerService) GetByID(id uuid.UUID) (*models.CertificateIss
 // secret holds a plaintext DNS provider API token, so leaving it behind after
 // Delete would be a credential leak.
 //
-// Phase 2: guard against deleting an issuer still referenced by a
-// ManagedCertificate (409), once the ManagedCertificate repo exists.
+// Delete first checks that no ManagedCertificate still references the
+// issuer, returning an "in use" error (mapped to 409 by the handler) rather
+// than orphaning certificates whose issuer disappeared out from under them.
 func (s *CertificateIssuerService) Delete(id uuid.UUID) error {
 	iss, err := s.repo.GetByID(id)
 	if err != nil {
 		return err
+	}
+	n, err := s.managedCertRepo.CountByIssuer(id)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return errors.New("certificate issuer is in use by one or more managed certificates")
 	}
 	ctx := context.Background()
 	if iss.Config.ClusterIssuerName != "" {

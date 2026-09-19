@@ -41,6 +41,18 @@ func TestCACertificate_Golden(t *testing.T) {
 	assertGolden(t, "ca-certificate", obj)
 }
 
+func TestLeafCertificate_Golden(t *testing.T) {
+	obj := kubernetes.LeafCertificate(kubernetes.LeafCertConfig{
+		Name: "cert-abc", Namespace: "fastgateway-system", SecretName: "cert-abc",
+		IssuerClusterIssuerName: "iss-1", DNSNames: []string{"api.example.com"},
+		KeyAlgorithm: "RSA", KeySize: 2048, DurationDays: 90,
+	})
+	assert.Equal(t, "Certificate", obj.Object["kind"])
+	spec := obj.Object["spec"].(map[string]interface{})
+	assert.NotContains(t, spec, "isCA")
+	assertGolden(t, "leaf-certificate", obj)
+}
+
 func TestACMEClusterIssuer_Golden(t *testing.T) {
 	obj := kubernetes.ACMEClusterIssuer(kubernetes.ACMEIssuerConfig{
 		Name: "iss-acme", Server: "https://acme-v02.api.letsencrypt.org/directory",

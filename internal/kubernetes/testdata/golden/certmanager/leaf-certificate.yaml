@@ -1,0 +1,19 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: fastgateway
+  name: cert-abc
+  namespace: fastgateway-system
+spec:
+  dnsNames:
+  - api.example.com
+  duration: 2160h
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: iss-1
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  secretName: cert-abc

@@ -45,6 +45,13 @@ const (
 
 	// Audit permissions
 	PermAuditView Permission = "audit.view"
+
+	// Certificate permissions (managed certificates, project-scoped)
+	PermCertificateView    Permission = "certificate.view"
+	PermCertificateCreate  Permission = "certificate.create"
+	PermCertificateEdit    Permission = "certificate.edit"
+	PermCertificateDelete  Permission = "certificate.delete"
+	PermCertificateApprove Permission = "certificate.approve"
 )
 
 // AllPermissions lists every valid permission string
@@ -54,21 +61,24 @@ var AllPermissions = []Permission{
 	PermDomainView, PermDomainCreate, PermDomainEdit, PermDomainDelete,
 	PermProjectSettings, PermProjectTeams, PermProjectApprovalPolicy,
 	PermAuditView,
+	PermCertificateView, PermCertificateCreate, PermCertificateEdit, PermCertificateDelete, PermCertificateApprove,
 }
 
 // Permission presets
-var PresetViewer = []Permission{PermRouteView, PermClientView, PermDomainView}
+var PresetViewer = []Permission{PermRouteView, PermClientView, PermDomainView, PermCertificateView}
 
 var PresetEditor = []Permission{
 	PermRouteView, PermRouteCreate, PermRouteEdit, PermRouteDelete, PermRouteDeploy,
 	PermClientView, PermClientCreate, PermClientEdit, PermClientManageIP, PermClientManageKey, PermClientManageJWT, PermClientAttach, PermClientDetach,
 	PermDomainView, PermDomainCreate, PermDomainEdit,
+	PermCertificateView, PermCertificateCreate, PermCertificateEdit, PermCertificateDelete,
 }
 
 var PresetApprover = []Permission{
 	PermRouteView, PermRouteApprove,
 	PermClientView, PermClientApprove,
 	PermDomainView,
+	PermCertificateView, PermCertificateApprove,
 }
 
 var PresetAdmin = AllPermissions

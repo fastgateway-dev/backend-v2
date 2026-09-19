@@ -132,3 +132,10 @@ issuerId:
   schema:
     type: string
     format: uuid
+certificateId:
+  name: certificateId
+  in: path
+  required: true
+  schema:
+    type: string
+    format: uuid

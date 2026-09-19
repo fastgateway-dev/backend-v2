@@ -30,6 +30,7 @@ type ApprovalEntityType string
 const (
 	ApprovalEntityRoute            ApprovalEntityType = "route"
 	ApprovalEntityClientAttachment ApprovalEntityType = "client_attachment"
+	ApprovalEntityCertificate      ApprovalEntityType = "certificate"
 )
 
 // ApprovalAction represents the action being requested

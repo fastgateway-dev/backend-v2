@@ -74,6 +74,20 @@ type IssuerGrantServiceInterface interface {
 	Revoke(issuerID, projectID uuid.UUID) error
 }
 
+// ManagedCertificateServiceInterface defines the public methods of
+// ManagedCertificateService that ManagedCertificateHandler uses.
+// OnApproved, OnRejected, and OnCancelled are the approval.Completer methods
+// the approval engine calls directly and are intentionally not part of this
+// handler-facing slice.
+type ManagedCertificateServiceInterface interface {
+	Create(projectID uuid.UUID, input *services.CreateCertificateInput, createdBy uuid.UUID) (*models.ManagedCertificate, *models.Approval, error)
+	GetByID(id uuid.UUID) (*models.ManagedCertificate, error)
+	ListByProject(projectID uuid.UUID, page, limit int, status string) ([]models.ManagedCertificate, int64, error)
+	Delete(id uuid.UUID) error
+	Status(id uuid.UUID) (*services.CertStatus, error)
+	IssuersForProject(projectID uuid.UUID) ([]models.CertificateIssuer, error)
+}
+
 // ClientReader is the slice of ClientService that ClientAttachmentHandler
 // uses: it resolves a client by ID so the handler can authorize the caller
 // against that client's team before listing or attaching its routes. Named
@@ -367,6 +381,7 @@ var _ CertificateIssuerServiceInterface = (*services.CertificateIssuerService)(n
 var _ CommentServiceInterface = (*services.CommentService)(nil)
 var _ DNSCredentialServiceInterface = (*services.DNSCredentialService)(nil)
 var _ IssuerGrantServiceInterface = (*services.IssuerGrantService)(nil)
+var _ ManagedCertificateServiceInterface = (*services.ManagedCertificateService)(nil)
 var _ DomainServiceInterface = (*services.DomainService)(nil)
 var _ DomainReader = (*services.DomainService)(nil)
 var _ DomainPolicyReader = (*services.DomainService)(nil)

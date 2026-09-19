@@ -126,6 +126,15 @@ func noPolicyFallback(entity models.ApprovalEntityType, policy *models.ApprovalP
 		return nil, errors.New("approval policy has no stages defined")
 	}
 
+	if entity == models.ApprovalEntityCertificate {
+		return []models.ApprovalStage{{
+			StageOrder:         1,
+			RequiredPermission: string(models.PermCertificateApprove),
+			MinApprovers:       1,
+			Status:             models.ApprovalStatusPending,
+		}}, nil
+	}
+
 	return []models.ApprovalStage{{
 		StageOrder:         1,
 		RequiredPermission: string(models.PermRouteApprove),

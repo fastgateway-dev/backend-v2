@@ -62,6 +62,8 @@ tags:
     description: Platform-global DNS provider credential management (owner only)
   - name: Certificate Issuers
     description: Platform-global certificate issuer and issuer-project grant management (owner only)
+  - name: Managed Certificates
+    description: Project-scoped certificate issuance from a granted issuer
   - name: Notifications
     description: User notifications
   - name: Health
@@ -363,6 +365,16 @@ paths:
     $ref: 'paths/kubernetes.yaml#/gateway-classes'
   /projects/{projectId}/kubernetes/namespaces/{namespace}/services:
     $ref: 'paths/kubernetes.yaml#/services'
+
+  # ============== MANAGED CERTIFICATES ==============
+  /projects/{projectId}/certificates:
+    $ref: 'paths/project-certificates.yaml#/certificates'
+  /projects/{projectId}/certificates/issuers:
+    $ref: 'paths/project-certificates.yaml#/certificate-issuers'
+  /projects/{projectId}/certificates/{certificateId}:
+    $ref: 'paths/project-certificates.yaml#/certificates_{certificateId}'
+  /projects/{projectId}/certificates/{certificateId}/status:
+    $ref: 'paths/project-certificates.yaml#/certificate-status'
 
   # ============== TOPOLOGY ==============
   /projects/{projectId}/topology:

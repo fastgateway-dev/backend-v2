@@ -61,6 +61,8 @@ tags:
     description: Platform-global DNS provider credential management (owner only)
   - name: Certificate Issuers
     description: Platform-global certificate issuer and issuer-project grant management (owner only)
+  - name: Managed Certificates
+    description: Project-scoped certificate issuance from a granted issuer
   - name: Notifications
     description: User notifications
   - name: Health
@@ -4078,6 +4080,166 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /projects/{projectId}/certificates:
+    get:
+      tags:
+        - Managed Certificates
+      summary: List managed certificates in project
+      operationId: listManagedCertificates
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - pending
+              - issuing
+              - ready
+              - error
+          description: Filter by certificate status.
+      responses:
+        '200':
+          description: List of managed certificates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedCertificateList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Managed Certificates
+      summary: Create managed certificate (requires cert.create)
+      description: Issues a certificate from an issuer granted to this project. Opens an approval when the project has approvals enabled (returns 202 with the pending certificate + approvalId); otherwise issues immediately (201, approvalId null).
+      operationId: createManagedCertificate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateManagedCertificateRequest'
+      responses:
+        '201':
+          description: Certificate issued immediately (approvals disabled for this project)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateManagedCertificateResponse'
+        '202':
+          description: Certificate created and pending approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateManagedCertificateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /projects/{projectId}/certificates/issuers:
+    get:
+      tags:
+        - Managed Certificates
+      summary: List certificate issuers granted to this project (requires cert.view)
+      description: Populates a certificate-create form's issuer picker. Never includes key material.
+      operationId: listProjectCertificateIssuers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      responses:
+        '200':
+          description: Certificate issuers granted to this project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateIssuerList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /projects/{projectId}/certificates/{certificateId}:
+    get:
+      tags:
+        - Managed Certificates
+      summary: Get managed certificate (requires cert.view)
+      operationId: getManagedCertificate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/certificateId'
+      responses:
+        '200':
+          description: Managed certificate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedCertificate'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Managed Certificates
+      summary: Delete managed certificate (requires cert.delete)
+      description: Removes the leaf `Certificate` CRD (and its Secret) from the control cluster.
+      operationId: deleteManagedCertificate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/certificateId'
+      responses:
+        '204':
+          description: Certificate deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/certificates/{certificateId}/status:
+    get:
+      tags:
+        - Managed Certificates
+      summary: Get managed certificate issuance status (requires cert.view)
+      description: Live cert-manager readiness of the underlying `Certificate` resource (Ready condition + message).
+      operationId: getManagedCertificateStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/certificateId'
+      responses:
+        '200':
+          description: Managed certificate status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedCertificateStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /projects/{projectId}/topology:
     get:
       tags:
@@ -4528,6 +4690,13 @@ components:
         format: uuid
     issuerId:
       name: issuerId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    certificateId:
+      name: certificateId
       in: path
       required: true
       schema:
@@ -10641,3 +10810,115 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ConflictResult'
+    ManagedCertificate:
+      type: object
+      description: Project-scoped managed certificate issued from a granted certificate issuer. Metadata only -- never includes key or certificate material, which lives in a cert-manager-managed Kubernetes Secret, never in this row or response.
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        issuerId:
+          type: string
+          format: uuid
+        usage:
+          type: string
+          enum:
+            - server
+            - client
+        dnsNames:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - issuing
+            - ready
+            - error
+        statusMessage:
+          type: string
+        fingerprint:
+          type: string
+        notAfter:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    ManagedCertificateList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagedCertificate'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    CreateManagedCertificateRequest:
+      type: object
+      description: DNSNames applies to server-usage certificates; subject applies to client-usage certificates.
+      required:
+        - name
+        - issuerId
+        - usage
+      properties:
+        name:
+          type: string
+        issuerId:
+          type: string
+          format: uuid
+        usage:
+          type: string
+          enum:
+            - server
+            - client
+        dnsNames:
+          type: array
+          items:
+            type: string
+          description: Required when usage is server.
+        subject:
+          type: string
+          description: Required when usage is client.
+        keyAlgorithm:
+          type: string
+          description: Defaults to RSA.
+        keySize:
+          type: integer
+          description: Defaults to 2048.
+        durationDays:
+          type: integer
+          description: Defaults to 90.
+    CreateManagedCertificateResponse:
+      type: object
+      description: Returned with 201 when the certificate was issued immediately (project has approvals disabled), or 202 when it opened an approval and is still pending.
+      properties:
+        certificate:
+          $ref: '#/components/schemas/ManagedCertificate'
+        approvalId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null when the certificate was issued via the fast path (no approval gate configured for this project).
+    ManagedCertificateStatus:
+      type: object
+      description: Live cert-manager issuance status of a managed certificate, from the underlying `Certificate` resource's `Ready` condition.
+      properties:
+        status:
+          type: string
+          enum:
+            - pending
+            - issuing
+            - ready
+            - error
+        message:
+          type: string
+        notAfter:
+          type: string
+          format: date-time

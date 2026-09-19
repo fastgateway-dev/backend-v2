@@ -201,6 +201,24 @@ func (p *PermissionChecker) CanViewAudit(projectID uuid.UUID, user *models.User)
 	return p.HasPermission(projectID, user, models.PermAuditView)
 }
 
+// CanCreateCertificates checks if user can create certificates
+// Owner, Project Admin, or user with certificate.create permission
+func (p *PermissionChecker) CanCreateCertificates(projectID uuid.UUID, user *models.User) bool {
+	if IsOwner(user) || p.IsProjectAdmin(projectID, user.ID) {
+		return true
+	}
+	return p.HasPermission(projectID, user, models.PermCertificateCreate)
+}
+
+// CanManageCertificates checks if user can manage certificates
+// Owner, Project Admin, or user with certificate.delete permission
+func (p *PermissionChecker) CanManageCertificates(projectID uuid.UUID, user *models.User) bool {
+	if IsOwner(user) || p.IsProjectAdmin(projectID, user.ID) {
+		return true
+	}
+	return p.HasPermission(projectID, user, models.PermCertificateDelete)
+}
+
 // GetProjectPermissions returns all permissions for a user in a project
 func (p *PermissionChecker) GetProjectPermissions(projectID uuid.UUID, user *models.User) *ProjectPermissions {
 	isOwner := IsOwner(user)

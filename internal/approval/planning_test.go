@@ -205,6 +205,27 @@ func TestPlanStages_NoPolicyFallsBackToSingleStage(t *testing.T) {
 	assert.Equal(t, models.ApprovalStatusPending, stages[0].Status)
 }
 
+func TestPlanStages_CertificateNoPolicyFallsBackToSingleStage(t *testing.T) {
+	// certificate mirrors route's fallback behaviour (see noPolicyFallback):
+	// an absent policy is "no policy configured", not a failure, so a single
+	// certificate.approve stage is synthesised.
+	e := &Engine{
+		policies: stubPolicies{byAction: map[string]*models.ApprovalPolicy{}},
+		teams:    &stubTeams{},
+	}
+
+	stages, err := e.PlanStages(uuid.New(), uuid.New(),
+		models.ApprovalEntityCertificate, models.ApprovalActionCreate)
+
+	require.NoError(t, err)
+	require.Len(t, stages, 1)
+	assert.Equal(t, 1, stages[0].StageOrder)
+	assert.Equal(t, string(models.PermCertificateApprove), stages[0].RequiredPermission)
+	assert.Nil(t, stages[0].RequiredTeamID)
+	assert.Equal(t, 1, stages[0].MinApprovers)
+	assert.Equal(t, models.ApprovalStatusPending, stages[0].Status)
+}
+
 func TestPlanStages_ClientAttachmentNoPolicyErrors(t *testing.T) {
 	// Unlike route, client_attachment must NOT synthesise a fallback stage
 	// when no policy exists. ApprovalPolicyRepository.SeedDefaults seeds
