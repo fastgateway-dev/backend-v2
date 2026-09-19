@@ -58,6 +58,3 @@ vendor/
 
 # Temporary files
 tmp/
-
-# Internal planning docs (specs/plans) -- kept on disk, not published.
-docs/superpowers/
