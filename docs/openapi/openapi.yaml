@@ -375,6 +375,10 @@ paths:
     $ref: 'paths/project-certificates.yaml#/certificates_{certificateId}'
   /projects/{projectId}/certificates/{certificateId}/status:
     $ref: 'paths/project-certificates.yaml#/certificate-status'
+  /projects/{projectId}/certificates/{certificateId}/distribution:
+    $ref: 'paths/project-certificates.yaml#/certificate-distribution'
+  /projects/{projectId}/certificates/{certificateId}/resync:
+    $ref: 'paths/project-certificates.yaml#/certificate-resync'
 
   # ============== TOPOLOGY ==============
   /projects/{projectId}/topology:

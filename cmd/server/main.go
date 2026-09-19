@@ -1,17 +1,20 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"log"
-	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
+	"github.com/fastgateway-dev/backend-v2/internal/certdist"
 	"github.com/fastgateway-dev/backend-v2/internal/cluster"
 	"github.com/fastgateway-dev/backend-v2/internal/config"
 	"github.com/fastgateway-dev/backend-v2/internal/database"
 	"github.com/fastgateway-dev/backend-v2/internal/handlers"
+	"github.com/fastgateway-dev/backend-v2/internal/leaderlock"
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
@@ -31,6 +34,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
+
+	// Shutdown context: cancelled on SIGINT/SIGTERM. Threaded through to
+	// every background controller goroutine started below (the leader-lock
+	// gate and the certificate distributor) so they stop cleanly on shutdown
+	// instead of being killed mid-reconcile; main() itself blocks on
+	// <-ctx.Done() at the very end in place of the old signal-channel wait.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// Set Gin mode
 	if cfg.LogLevel == "debug" {
@@ -333,6 +344,11 @@ func main() {
 		})
 		certificateIssuerHandler = handlers.NewCertificateIssuerHandler(certificateIssuerService)
 
+		// certDistRepo is constructed here (before managedCertService) so it
+		// can be passed to ManagedCertificateService as its DistRepo dep
+		// (Task 6: distribution status + resync) as well as to the certdist
+		// distributor below.
+		certDistRepo := repository.NewCertificateDistributionRepository(db)
 		managedCertService := services.NewManagedCertificateService(services.ManagedCertificateServiceDeps{
 			Repo:         managedCertRepo,
 			IssuerRepo:   certificateIssuerRepo,
@@ -341,9 +357,39 @@ func main() {
 			ControlPlane: controlPlane,
 			Approvals:    approvalEngine,
 			Config:       cfg,
+			DistRepo:     certDistRepo,
 		})
 		managedCertHandler = handlers.NewManagedCertificateHandler(managedCertService, permChecker, auditService)
 		approvalEngine.Register(models.ApprovalEntityCertificate, managedCertService)
+
+		// Phase 3a certificate distribution controller: pushes each
+		// project's issued leaf certificates into its own tenant cluster on
+		// a recurring basis and self-heals drift. It must run on exactly one
+		// replica at a time; leaderlock.PostgresGate decides that with a
+		// Postgres session-level advisory lock rather than
+		// client-go/leaderelection, since nothing else here needs a
+		// Kubernetes Lease object. notifyCh is nil -- this ships the ticker
+		// path only (Task 5 Step 3); LISTEN/NOTIFY is a latency
+		// optimization on top of it, not required for correctness, and
+		// wiring it up would mean threading a new dependency into
+		// ManagedCertificateService purely to emit NOTIFY, which isn't a
+		// small change. See task-5-report.md.
+		sqlDB, err := db.DB()
+		if err != nil {
+			log.Fatalf("Failed to get underlying sql.DB for cert distributor leader lock: %v", err)
+		}
+		certDistGate := leaderlock.New(sqlDB, leaderlock.CertDistributorLockKey, 10*time.Second)
+		distributor := certdist.New(certdist.Deps{
+			Gate:         certDistGate,
+			Lister:       managedCertRepo,
+			DistRepo:     certDistRepo,
+			Source:       &certdist.ControlPlaneSourceReader{ControlPlane: controlPlane},
+			TenantWriter: k8sService,
+			CertUpdater:  &certdist.ManagedCertUpdater{Repo: managedCertRepo},
+			Config:       cfg,
+		})
+		go certDistGate.Run(ctx)
+		go distributor.Run(ctx, cfg.CertDistributorInterval, nil)
 	} else {
 		log.Printf("WARNING: not running in-cluster; certificate-issuer and managed-certificate routes disabled (no control-plane client)")
 	}
@@ -423,10 +469,12 @@ func main() {
 		}
 	}()
 
-	// Graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	// Graceful shutdown: block until SIGINT/SIGTERM cancels ctx (see the
+	// signal.NotifyContext call above). Graceful HTTP shutdown of the
+	// router.Run goroutine above is out of scope here; this only ensures
+	// main() -- and every goroutine sharing ctx -- exits cleanly instead of
+	// the process just dying.
+	<-ctx.Done()
 
 	log.Println("Shutting down server...")
 }
@@ -869,6 +917,8 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 						certs.GET("/:certificateId", deps.ManagedCertificateHandler.Get)
 						certs.DELETE("/:certificateId", deps.ManagedCertificateHandler.Delete)
 						certs.GET("/:certificateId/status", deps.ManagedCertificateHandler.Status)
+						certs.GET("/:certificateId/distribution", deps.ManagedCertificateHandler.Distribution)
+						certs.POST("/:certificateId/resync", deps.ManagedCertificateHandler.Resync)
 					}
 				}
 

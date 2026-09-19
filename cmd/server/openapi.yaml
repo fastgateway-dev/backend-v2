@@ -4240,6 +4240,52 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/certificates/{certificateId}/distribution:
+    get:
+      tags:
+        - Managed Certificates
+      summary: Get managed certificate distribution status (requires cert.view)
+      description: Phase 3a distribution state -- how far the certdist controller has gotten pushing this certificate's Secret into the project's tenant cluster. Returns a pending placeholder (not a 404) when the controller has not pushed it yet.
+      operationId: getManagedCertificateDistribution
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/certificateId'
+      responses:
+        '200':
+          description: Certificate distribution status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateDistribution'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/certificates/{certificateId}/resync:
+    post:
+      tags:
+        - Managed Certificates
+      summary: Force a certificate distribution resync (requires cert.edit)
+      description: Flips the distribution row back to pending so the certdist controller re-pushes the certificate's Secret on its next tick. NOTIFY is not wired up, so this is a ticker-driven nudge rather than an immediate push.
+      operationId: resyncManagedCertificateDistribution
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/certificateId'
+      responses:
+        '202':
+          description: Resync accepted; the certdist controller will re-push on its next tick.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /projects/{projectId}/topology:
     get:
       tags:
@@ -10920,5 +10966,22 @@ components:
         message:
           type: string
         notAfter:
+          type: string
+          format: date-time
+    CertificateDistribution:
+      type: object
+      description: Phase 3a distribution state of a managed certificate's Secret into the project's tenant cluster. Carries only a fingerprint hash -- never key or certificate material.
+      properties:
+        status:
+          type: string
+          enum:
+            - pending
+            - synced
+            - error
+        lastPushedFingerprint:
+          type: string
+        message:
+          type: string
+        lastSyncedAt:
           type: string
           format: date-time

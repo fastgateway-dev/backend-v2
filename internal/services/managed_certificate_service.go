@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
@@ -41,6 +43,7 @@ type ManagedCertificateService struct {
 	controlPlane CertInfraApplier
 	approvals    CertApprovalSubmitter
 	config       *config.Config
+	distRepo     repository.CertificateDistributionRepositoryInterface
 }
 
 // ManagedCertificateServiceDeps are ManagedCertificateService's required
@@ -54,6 +57,7 @@ type ManagedCertificateServiceDeps struct {
 	ControlPlane CertInfraApplier
 	Approvals    CertApprovalSubmitter
 	Config       *config.Config
+	DistRepo     repository.CertificateDistributionRepositoryInterface
 }
 
 func NewManagedCertificateService(deps ManagedCertificateServiceDeps) *ManagedCertificateService {
@@ -79,6 +83,9 @@ func NewManagedCertificateService(deps ManagedCertificateServiceDeps) *ManagedCe
 	if deps.Config == nil {
 		missing = append(missing, "Config")
 	}
+	if deps.DistRepo == nil {
+		missing = append(missing, "DistRepo")
+	}
 	if len(missing) > 0 {
 		panic("services.NewManagedCertificateService: missing required dependency: " + strings.Join(missing, ", "))
 	}
@@ -90,6 +97,7 @@ func NewManagedCertificateService(deps ManagedCertificateServiceDeps) *ManagedCe
 		controlPlane: deps.ControlPlane,
 		approvals:    deps.Approvals,
 		config:       deps.Config,
+		distRepo:     deps.DistRepo,
 	}
 }
 
@@ -359,6 +367,12 @@ func (s *ManagedCertificateService) Status(id uuid.UUID) (*CertStatus, error) {
 		cert.StatusMessage = ""
 		if notAfter, ok := nestedString(obj, "status", "notAfter"); ok {
 			result.NotAfter = &notAfter
+			// Only persist a successfully-parsed expiry -- a bad or
+			// unparseable value from cert-manager must not clobber a
+			// previously-stored good NotAfter on the row.
+			if parsed, parseErr := time.Parse(time.RFC3339, notAfter); parseErr == nil {
+				cert.NotAfter = &parsed
+			}
 		}
 		if fingerprint, ok := nestedString(obj, "status", "fingerprint"); ok {
 			cert.Fingerprint = fingerprint
@@ -377,6 +391,57 @@ func (s *ManagedCertificateService) Status(id uuid.UUID) (*CertStatus, error) {
 
 	_ = s.repo.Update(cert)
 	return result, nil
+}
+
+// DistributionStatus reads the Phase 3a distribution row for certID,
+// reporting how far the certdist controller has gotten pushing this
+// certificate's Secret into the project's tenant cluster. The caller (the
+// handler) is responsible for the cross-project 404 check via GetByID
+// before calling this -- a missing distribution row here just means the
+// ticker hasn't pushed this certificate yet, which is reported as a
+// pending placeholder rather than an error.
+func (s *ManagedCertificateService) DistributionStatus(certID uuid.UUID) (*models.CertificateDistribution, error) {
+	dist, err := s.distRepo.GetByCertificateID(certID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &models.CertificateDistribution{
+				ManagedCertificateID: certID,
+				Status:               models.CertDistStatusPending,
+				Message:              "distribution not yet started",
+			}, nil
+		}
+		return nil, err
+	}
+	return dist, nil
+}
+
+// Resync forces the certdist controller to re-push certID's Secret on its
+// next tick. NOTIFY is not wired up (Task 5 shipped the ticker path only),
+// so this works by flipping the distribution row's Status to pending --
+// certdist's needsPush treats any non-synced status as due for a push.
+// LastPushedFingerprint and LastSyncedAt are preserved from the existing
+// row (rather than left zero) because Upsert is an UpdateAll-on-conflict
+// write: a blind minimal Upsert would wipe them.
+func (s *ManagedCertificateService) Resync(certID uuid.UUID) error {
+	cert, err := s.repo.GetByID(certID)
+	if err != nil {
+		return err
+	}
+
+	existing, err := s.distRepo.GetByCertificateID(certID)
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		return s.distRepo.Upsert(&models.CertificateDistribution{
+			ManagedCertificateID: certID,
+			ProjectID:            cert.ProjectID,
+			Status:               models.CertDistStatusPending,
+		})
+	}
+
+	existing.Status = models.CertDistStatusPending
+	return s.distRepo.Upsert(existing)
 }
 
 // IssuersForProject returns the certificate issuers granted to projectID.

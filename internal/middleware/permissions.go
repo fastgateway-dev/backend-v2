@@ -219,6 +219,15 @@ func (p *PermissionChecker) CanManageCertificates(projectID uuid.UUID, user *mod
 	return p.HasPermission(projectID, user, models.PermCertificateDelete)
 }
 
+// CanEditCertificates checks if user can edit / re-issue / resync certificates.
+// Owner, Project Admin, or user with certificate.edit permission.
+func (p *PermissionChecker) CanEditCertificates(projectID uuid.UUID, user *models.User) bool {
+	if IsOwner(user) || p.IsProjectAdmin(projectID, user.ID) {
+		return true
+	}
+	return p.HasPermission(projectID, user, models.PermCertificateEdit)
+}
+
 // GetProjectPermissions returns all permissions for a user in a project
 func (p *PermissionChecker) GetProjectPermissions(projectID uuid.UUID, user *models.User) *ProjectPermissions {
 	isOwner := IsOwner(user)

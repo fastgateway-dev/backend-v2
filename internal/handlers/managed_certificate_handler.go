@@ -302,6 +302,124 @@ func (h *ManagedCertificateHandler) Status(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
+// certificateDistributionResponse carries only the Phase 3a distribution
+// state -- status, the (already-public) fingerprint hash, a human-readable
+// message, and when it last synced. Never key or certificate material.
+type certificateDistributionResponse struct {
+	Status                models.CertDistStatus `json:"status"`
+	LastPushedFingerprint string                `json:"lastPushedFingerprint,omitempty"`
+	Message               string                `json:"message,omitempty"`
+	LastSyncedAt          *time.Time            `json:"lastSyncedAt,omitempty"`
+}
+
+func toCertificateDistributionResponse(d *models.CertificateDistribution) certificateDistributionResponse {
+	return certificateDistributionResponse{
+		Status:                d.Status,
+		LastPushedFingerprint: d.LastPushedFingerprint,
+		Message:               d.Message,
+		LastSyncedAt:          d.LastSyncedAt,
+	}
+}
+
+// Distribution reports the certificate's Phase 3a distribution state --
+// how far the certdist controller has gotten pushing this certificate's
+// Secret into the project's tenant cluster.
+func (h *ManagedCertificateHandler) Distribution(c *gin.Context) {
+	projectID, err := uuid.Parse(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("certificateId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid certificate ID"})
+		return
+	}
+
+	// DistributionStatus only takes an id, so the ownership check needs its
+	// own lookup first -- see Get's comment on why this 404s rather than
+	// proceeding or 403ing.
+	cert, err := h.service.GetByID(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if cert.ProjectID != projectID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
+		return
+	}
+
+	dist, err := h.service.DistributionStatus(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, toCertificateDistributionResponse(dist))
+}
+
+// Resync forces the certdist controller to re-push the certificate's Secret
+// on its next tick.
+func (h *ManagedCertificateHandler) Resync(c *gin.Context) {
+	user := middleware.GetCurrentUser(c)
+	projectID, err := uuid.Parse(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+
+	if !h.permChecker.CanEditCertificates(projectID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: only editors can resync certificates"})
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("certificateId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid certificate ID"})
+		return
+	}
+
+	cert, err := h.service.GetByID(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// See Get's comment: a cross-project resync must 404, not proceed.
+	if cert.ProjectID != projectID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
+		return
+	}
+
+	if err := h.service.Resync(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.auditService.LogAction(
+		&projectID,
+		user,
+		"resync",
+		"certificate",
+		&id,
+		cert.Name,
+		middleware.AuditDetails(c),
+		c.ClientIP(),
+		c.Request.UserAgent(),
+	)
+
+	c.Status(http.StatusAccepted)
+}
+
 // IssuersForProject lists the certificate issuers granted to a project, for
 // populating a certificate-create form's issuer picker.
 func (h *ManagedCertificateHandler) IssuersForProject(c *gin.Context) {

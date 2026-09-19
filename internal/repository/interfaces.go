@@ -399,6 +399,14 @@ type ManagedCertificateRepositoryInterface interface {
 	ListByProject(projectID uuid.UUID, page, limit int, status string) ([]models.ManagedCertificate, int64, error)
 	CountByIssuer(issuerID uuid.UUID) (int64, error)
 	CountByIssuerAndProject(issuerID, projectID uuid.UUID) (int64, error)
+	ListByStatuses(statuses []models.ManagedCertStatus) ([]models.ManagedCertificate, error)
+}
+
+// CertificateDistributionRepositoryInterface defines the interface for certificate distribution repository operations
+type CertificateDistributionRepositoryInterface interface {
+	Upsert(cd *models.CertificateDistribution) error
+	GetByCertificateID(certID uuid.UUID) (*models.CertificateDistribution, error)
+	DeleteByCertificateID(certID uuid.UUID) error
 }
 
 // Compile-time interface satisfaction checks
@@ -409,6 +417,7 @@ var _ UnifiedApprovalRepositoryInterface = (*UnifiedApprovalRepository)(nil)
 var _ AuditLogRepositoryInterface = (*AuditLogRepository)(nil)
 var _ BackendTrafficPolicyRepositoryInterface = (*BackendTrafficPolicyRepository)(nil)
 var _ CertificateIssuerRepositoryInterface = (*CertificateIssuerRepository)(nil)
+var _ CertificateDistributionRepositoryInterface = (*CertificateDistributionRepository)(nil)
 var _ ClientAttachmentRepositoryInterface = (*ClientAttachmentRepository)(nil)
 var _ ClientIPRepositoryInterface = (*ClientIPRepository)(nil)
 var _ ClientRepositoryInterface = (*ClientRepository)(nil)

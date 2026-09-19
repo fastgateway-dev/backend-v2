@@ -60,6 +60,13 @@ type Config struct {
 
 	// Control plane (the backend's own cluster, used for cert-manager resources)
 	ControlPlaneNamespace string
+
+	// CertDistributorInterval is how often the Phase 3a certificate
+	// distribution controller (internal/certdist) reconciles: pushes
+	// newly-issued or renewed leaf certificates into tenant clusters and
+	// self-heals any drift it finds. This tick is the controller's sole
+	// periodic pass -- Phase 3a has no separate "full resync" interval.
+	CertDistributorInterval time.Duration
 }
 
 // Load loads configuration from environment variables
@@ -143,6 +150,15 @@ func Load() (*Config, error) {
 
 	// Control plane
 	cfg.ControlPlaneNamespace = getEnv("CONTROL_PLANE_NAMESPACE", "fastgateway-system")
+
+	certDistributorInterval, err := time.ParseDuration(getEnv("CERT_DISTRIBUTOR_INTERVAL", "60s"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid CERT_DISTRIBUTOR_INTERVAL: %w", err)
+	}
+	if certDistributorInterval <= 0 {
+		return nil, fmt.Errorf("CERT_DISTRIBUTOR_INTERVAL must be positive, got %s", certDistributorInterval)
+	}
+	cfg.CertDistributorInterval = certDistributorInterval
 
 	return cfg, nil
 }

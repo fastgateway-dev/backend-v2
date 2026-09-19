@@ -66,3 +66,16 @@ func (r *ManagedCertificateRepository) CountByIssuerAndProject(issuerID, project
 		Where("issuer_id = ? AND project_id = ?", issuerID, projectID).Count(&n).Error
 	return n, err
 }
+
+// ListByStatuses returns every ManagedCertificate whose status is one of the
+// given statuses, across ALL projects. Unlike ListByProject, this is
+// intentionally cross-project: the distribution controller reconciles every
+// pending/issuing/ready certificate cluster-wide on each pass, not one
+// project's certificates at a time.
+func (r *ManagedCertificateRepository) ListByStatuses(statuses []models.ManagedCertStatus) ([]models.ManagedCertificate, error) {
+	var out []models.ManagedCertificate
+	if err := r.db.Where("status IN ?", statuses).Find(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}

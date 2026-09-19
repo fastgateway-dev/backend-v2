@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"gorm.io/gorm"
 
 	"github.com/fastgateway-dev/backend-v2/internal/handlers"
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
@@ -309,4 +310,214 @@ func TestManagedCertificateHandler_Delete_DeniedWithoutPermission(t *testing.T) 
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	mockCert.AssertNotCalled(t, "Delete")
+}
+
+func TestManagedCertificateHandler_Distribution_Success(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	projectID := uuid.New()
+	certID := uuid.New()
+	cert := &models.ManagedCertificate{ID: certID, ProjectID: projectID, Name: "example"}
+	dist := &models.CertificateDistribution{
+		ManagedCertificateID:  certID,
+		Status:                models.CertDistStatusSynced,
+		LastPushedFingerprint: "sha256:abc",
+	}
+
+	mockCert.On("GetByID", certID).Return(cert, nil)
+	mockCert.On("DistributionStatus", certID).Return(dist, nil)
+
+	router := gin.New()
+	router.GET("/projects/:projectId/certificates/:certificateId/distribution", h.Distribution)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/"+projectID.String()+"/certificates/"+certID.String()+"/distribution", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require := assert.New(t)
+	require.NoError(json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(string(models.CertDistStatusSynced), resp["status"])
+	require.Equal("sha256:abc", resp["lastPushedFingerprint"])
+	require.NotContains(w.Body.String(), "secretName")
+	mockCert.AssertExpectations(t)
+}
+
+func TestManagedCertificateHandler_Distribution_ProjectMismatch_NotFound(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	urlProjectID := uuid.New()
+	otherProjectID := uuid.New()
+	certID := uuid.New()
+	cert := &models.ManagedCertificate{ID: certID, ProjectID: otherProjectID, Name: "other-project-cert"}
+
+	mockCert.On("GetByID", certID).Return(cert, nil)
+
+	router := gin.New()
+	router.GET("/projects/:projectId/certificates/:certificateId/distribution", h.Distribution)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/"+urlProjectID.String()+"/certificates/"+certID.String()+"/distribution", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	mockCert.AssertNotCalled(t, "DistributionStatus")
+	mockCert.AssertExpectations(t)
+}
+
+func TestManagedCertificateHandler_Distribution_CertNotFound(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	projectID := uuid.New()
+	certID := uuid.New()
+
+	mockCert.On("GetByID", certID).Return(nil, gorm.ErrRecordNotFound)
+
+	router := gin.New()
+	router.GET("/projects/:projectId/certificates/:certificateId/distribution", h.Distribution)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/"+projectID.String()+"/certificates/"+certID.String()+"/distribution", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	mockCert.AssertNotCalled(t, "DistributionStatus")
+	mockCert.AssertExpectations(t)
+}
+
+func TestManagedCertificateHandler_Resync_Success_Returns202(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	user := testUser() // Owner role bypasses permission checks
+	projectID := uuid.New()
+	certID := uuid.New()
+	cert := &models.ManagedCertificate{ID: certID, ProjectID: projectID, Name: "example"}
+
+	mockCert.On("GetByID", certID).Return(cert, nil)
+	mockCert.On("Resync", certID).Return(nil)
+	mockAudit.On("LogAction", &projectID, user, "resync", "certificate", &certID, cert.Name, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	router := gin.New()
+	router.POST("/projects/:projectId/certificates/:certificateId/resync", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Resync(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/certificates/"+certID.String()+"/resync", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusAccepted, w.Code)
+	mockCert.AssertExpectations(t)
+	mockAudit.AssertExpectations(t)
+}
+
+func TestManagedCertificateHandler_Resync_ProjectMismatch_NotFound(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	user := testUser() // Owner role bypasses permission checks, isolating the project-mismatch check
+	urlProjectID := uuid.New()
+	otherProjectID := uuid.New()
+	certID := uuid.New()
+	cert := &models.ManagedCertificate{ID: certID, ProjectID: otherProjectID, Name: "other-project-cert"}
+
+	mockCert.On("GetByID", certID).Return(cert, nil)
+
+	router := gin.New()
+	router.POST("/projects/:projectId/certificates/:certificateId/resync", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Resync(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/projects/"+urlProjectID.String()+"/certificates/"+certID.String()+"/resync", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	mockCert.AssertNotCalled(t, "Resync")
+	mockCert.AssertExpectations(t)
+}
+
+func TestManagedCertificateHandler_Resync_DeniedWithoutPermission(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	mockProject := new(mocks.MockProjectRepository)
+	mockTeam := new(mocks.MockTeamRepository)
+	pc := middleware.NewPermissionChecker(mockProject, mockTeam)
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	user := &models.User{ID: uuid.New(), Username: "dev1", Role: models.UserRoleUser, IsActive: true}
+	projectID := uuid.New()
+	certID := uuid.New()
+
+	mockProject.On("IsAdmin", projectID, user.ID).Return(false, nil)
+	mockTeam.On("HasPermissionInProject", projectID, user.ID, models.PermCertificateEdit).Return(false, nil)
+
+	router := gin.New()
+	router.POST("/projects/:projectId/certificates/:certificateId/resync", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Resync(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/certificates/"+certID.String()+"/resync", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	mockCert.AssertNotCalled(t, "GetByID")
+	mockCert.AssertNotCalled(t, "Resync")
+}
+
+func TestManagedCertificateHandler_Resync_AllowedWithEditPermission(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	mockProject := new(mocks.MockProjectRepository)
+	mockTeam := new(mocks.MockTeamRepository)
+	pc := middleware.NewPermissionChecker(mockProject, mockTeam)
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	// A non-owner, non-project-admin user with team-granted
+	// certificate.edit is sufficient for Resync -- it is strictly less
+	// dangerous than Delete (certificate.delete) and must not require
+	// delete-level access.
+	user := &models.User{ID: uuid.New(), Username: "editor1", Role: models.UserRoleUser, IsActive: true}
+	projectID := uuid.New()
+	certID := uuid.New()
+	cert := &models.ManagedCertificate{ID: certID, ProjectID: projectID, Name: "example"}
+
+	mockProject.On("IsAdmin", projectID, user.ID).Return(false, nil)
+	mockTeam.On("HasPermissionInProject", projectID, user.ID, models.PermCertificateEdit).Return(true, nil)
+	mockCert.On("GetByID", certID).Return(cert, nil)
+	mockCert.On("Resync", certID).Return(nil)
+	mockAudit.On("LogAction", &projectID, user, "resync", "certificate", &certID, cert.Name, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	router := gin.New()
+	router.POST("/projects/:projectId/certificates/:certificateId/resync", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Resync(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/certificates/"+certID.String()+"/resync", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusAccepted, w.Code)
+	mockCert.AssertExpectations(t)
+	mockAudit.AssertExpectations(t)
 }

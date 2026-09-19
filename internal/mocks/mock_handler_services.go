@@ -4713,6 +4713,68 @@ func (_c *MockManagedCertificateService_Delete_Call) RunAndReturn(run func(id uu
 	return _c
 }
 
+// DistributionStatus provides a mock function for the type MockManagedCertificateService
+func (_mock *MockManagedCertificateService) DistributionStatus(certID uuid.UUID) (*models.CertificateDistribution, error) {
+	ret := _mock.Called(certID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DistributionStatus")
+	}
+
+	var r0 *models.CertificateDistribution
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) (*models.CertificateDistribution, error)); ok {
+		return returnFunc(certID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) *models.CertificateDistribution); ok {
+		r0 = returnFunc(certID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.CertificateDistribution)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(certID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockManagedCertificateService_DistributionStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DistributionStatus'
+type MockManagedCertificateService_DistributionStatus_Call struct {
+	*mock.Call
+}
+
+// DistributionStatus is a helper method to define mock.On call
+//   - certID uuid.UUID
+func (_e *MockManagedCertificateService_Expecter) DistributionStatus(certID any) *MockManagedCertificateService_DistributionStatus_Call {
+	return &MockManagedCertificateService_DistributionStatus_Call{Call: _e.mock.On("DistributionStatus", certID)}
+}
+
+func (_c *MockManagedCertificateService_DistributionStatus_Call) Run(run func(certID uuid.UUID)) *MockManagedCertificateService_DistributionStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockManagedCertificateService_DistributionStatus_Call) Return(certificateDistribution *models.CertificateDistribution, err error) *MockManagedCertificateService_DistributionStatus_Call {
+	_c.Call.Return(certificateDistribution, err)
+	return _c
+}
+
+func (_c *MockManagedCertificateService_DistributionStatus_Call) RunAndReturn(run func(certID uuid.UUID) (*models.CertificateDistribution, error)) *MockManagedCertificateService_DistributionStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetByID provides a mock function for the type MockManagedCertificateService
 func (_mock *MockManagedCertificateService) GetByID(id uuid.UUID) (*models.ManagedCertificate, error) {
 	ret := _mock.Called(id)
@@ -4919,6 +4981,57 @@ func (_c *MockManagedCertificateService_ListByProject_Call) Return(managedCertif
 }
 
 func (_c *MockManagedCertificateService_ListByProject_Call) RunAndReturn(run func(projectID uuid.UUID, page int, limit int, status string) ([]models.ManagedCertificate, int64, error)) *MockManagedCertificateService_ListByProject_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Resync provides a mock function for the type MockManagedCertificateService
+func (_mock *MockManagedCertificateService) Resync(certID uuid.UUID) error {
+	ret := _mock.Called(certID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Resync")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) error); ok {
+		r0 = returnFunc(certID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockManagedCertificateService_Resync_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Resync'
+type MockManagedCertificateService_Resync_Call struct {
+	*mock.Call
+}
+
+// Resync is a helper method to define mock.On call
+//   - certID uuid.UUID
+func (_e *MockManagedCertificateService_Expecter) Resync(certID any) *MockManagedCertificateService_Resync_Call {
+	return &MockManagedCertificateService_Resync_Call{Call: _e.mock.On("Resync", certID)}
+}
+
+func (_c *MockManagedCertificateService_Resync_Call) Run(run func(certID uuid.UUID)) *MockManagedCertificateService_Resync_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockManagedCertificateService_Resync_Call) Return(err error) *MockManagedCertificateService_Resync_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockManagedCertificateService_Resync_Call) RunAndReturn(run func(certID uuid.UUID) error) *MockManagedCertificateService_Resync_Call {
 	_c.Call.Return(run)
 	return _c
 }

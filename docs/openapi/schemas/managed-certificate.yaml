@@ -99,3 +99,18 @@ ManagedCertificateStatus:
     notAfter:
       type: string
       format: date-time
+
+CertificateDistribution:
+  type: object
+  description: Phase 3a distribution state of a managed certificate's Secret into the project's tenant cluster. Carries only a fingerprint hash -- never key or certificate material.
+  properties:
+    status:
+      type: string
+      enum: [pending, synced, error]
+    lastPushedFingerprint:
+      type: string
+    message:
+      type: string
+    lastSyncedAt:
+      type: string
+      format: date-time

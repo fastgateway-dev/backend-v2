@@ -86,6 +86,8 @@ type ManagedCertificateServiceInterface interface {
 	Delete(id uuid.UUID) error
 	Status(id uuid.UUID) (*services.CertStatus, error)
 	IssuersForProject(projectID uuid.UUID) ([]models.CertificateIssuer, error)
+	DistributionStatus(certID uuid.UUID) (*models.CertificateDistribution, error)
+	Resync(certID uuid.UUID) error
 }
 
 // ClientReader is the slice of ClientService that ClientAttachmentHandler

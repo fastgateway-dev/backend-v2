@@ -11,7 +11,6 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // =============================================================================
@@ -30,11 +29,7 @@ func (s *Client) CreateAPIKeySecret(ctx context.Context, projectID uuid.UUID, cl
 		return err
 	}
 
-	gvr := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "secrets",
-	}
+	gvr := kubernetes.CoreSecretGVR
 
 	secretName := s.GetAPIKeySecretName(clientID)
 	namespace := "fastgateway-system"
@@ -81,11 +76,7 @@ func (s *Client) GetAPIKeyFromSecret(ctx context.Context, projectID uuid.UUID, c
 		return "", err
 	}
 
-	gvr := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "secrets",
-	}
+	gvr := kubernetes.CoreSecretGVR
 
 	secretName := s.GetAPIKeySecretName(clientID)
 	namespace := "fastgateway-system"
@@ -123,11 +114,7 @@ func (s *Client) DeleteAPIKeySecret(ctx context.Context, projectID uuid.UUID, cl
 		return err
 	}
 
-	gvr := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "secrets",
-	}
+	gvr := kubernetes.CoreSecretGVR
 
 	secretName := s.GetAPIKeySecretName(clientID)
 	namespace := "fastgateway-system"
@@ -154,11 +141,7 @@ func (s *Client) CreateOrUpdateSecret(ctx context.Context, projectID uuid.UUID, 
 		return err
 	}
 
-	gvr := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "secrets",
-	}
+	gvr := kubernetes.CoreSecretGVR
 
 	// Convert data to base64
 	secretData := make(map[string]interface{})
@@ -208,11 +191,7 @@ func (s *Client) DeleteSecret(ctx context.Context, projectID uuid.UUID, namespac
 		return err
 	}
 
-	gvr := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "secrets",
-	}
+	gvr := kubernetes.CoreSecretGVR
 
 	err = client.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil && !k8serrors.IsNotFound(err) && !strings.Contains(err.Error(), "not found") {
@@ -228,11 +207,7 @@ func (s *Client) GetSecretData(ctx context.Context, projectID uuid.UUID, namespa
 		return nil, err
 	}
 
-	gvr := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "secrets",
-	}
+	gvr := kubernetes.CoreSecretGVR
 
 	secret, err := client.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {

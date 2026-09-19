@@ -20,6 +20,16 @@ var (
 		Resource: "secrets",
 	}
 
+	// CoreSecretGVR represents the core Secret resource. Same value as
+	// SecretGVR; kept as a distinct, explicitly-named constant for the
+	// managed-certificate distribution controller, which reads a project's
+	// source Secret (holding a managed cert's crt/key) via this GVR.
+	CoreSecretGVR = schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "secrets",
+	}
+
 	// ServiceGVR represents the core Service resource
 	ServiceGVR = schema.GroupVersionResource{
 		Group:    "",

@@ -20,6 +20,7 @@ func clearConfigEnv(t *testing.T) {
 		"CORS_ALLOWED_ORIGINS", "ADMIN_USERNAME", "ADMIN_PASSWORD", "ADMIN_EMAIL",
 		"WAF_IMAGE", "WAF_TAG", "WAF_SHA256",
 		"AI_PROVIDER", "AI_API_KEY", "AI_MODEL", "AI_MAX_TOKENS", "AI_RATE_LIMIT", "AI_BASE_URL",
+		"CONTROL_PLANE_NAMESPACE", "CERT_DISTRIBUTOR_INTERVAL",
 	}
 	for _, key := range envVars {
 		os.Unsetenv(key)
@@ -80,6 +81,55 @@ func TestLoad_AllDefaults(t *testing.T) {
 	assert.Equal(t, "ghcr.io/corazawaf/coraza-proxy-wasm", cfg.WAFImage)
 	assert.Equal(t, "0.6.0", cfg.WAFTag)
 	assert.Empty(t, cfg.WAFSHA256)
+
+	// Control plane / cert distributor defaults
+	assert.Equal(t, "fastgateway-system", cfg.ControlPlaneNamespace)
+	assert.Equal(t, 60*time.Second, cfg.CertDistributorInterval)
+}
+
+func TestLoad_CustomCertDistributorInterval(t *testing.T) {
+	clearConfigEnv(t)
+	setRequiredEnv(t)
+	t.Setenv("CERT_DISTRIBUTOR_INTERVAL", "30s")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Second, cfg.CertDistributorInterval)
+}
+
+func TestLoad_InvalidCertDistributorInterval(t *testing.T) {
+	clearConfigEnv(t)
+	setRequiredEnv(t)
+	t.Setenv("CERT_DISTRIBUTOR_INTERVAL", "not-a-duration")
+
+	_, err := Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CERT_DISTRIBUTOR_INTERVAL")
+}
+
+// TestLoad_ZeroCertDistributorInterval guards against time.NewTicker
+// panicking at distributor startup: a zero duration parses fine but must
+// be rejected by Load() before it ever reaches the ticker.
+func TestLoad_ZeroCertDistributorInterval(t *testing.T) {
+	clearConfigEnv(t)
+	setRequiredEnv(t)
+	t.Setenv("CERT_DISTRIBUTOR_INTERVAL", "0s")
+
+	_, err := Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CERT_DISTRIBUTOR_INTERVAL")
+}
+
+// TestLoad_NegativeCertDistributorInterval covers the same ticker-panic
+// guard for a negative duration.
+func TestLoad_NegativeCertDistributorInterval(t *testing.T) {
+	clearConfigEnv(t)
+	setRequiredEnv(t)
+	t.Setenv("CERT_DISTRIBUTOR_INTERVAL", "-5s")
+
+	_, err := Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CERT_DISTRIBUTOR_INTERVAL")
 }
 
 func TestLoad_MissingJWTSecret(t *testing.T) {
