@@ -42,6 +42,12 @@ const (
 	ApprovalActionDelete ApprovalAction = "delete"
 	ApprovalActionAttach ApprovalAction = "attach"
 	ApprovalActionDetach ApprovalAction = "detach"
+	// ApprovalActionExport gates a one-time export of a managed
+	// certificate's private key material. Approving it does not issue or
+	// mutate the certificate -- it grants the requester a short-lived,
+	// user-bound, single-use export via CertificateExportGrant (see
+	// ManagedCertificateService.OnApproved).
+	ApprovalActionExport ApprovalAction = "export"
 )
 
 // Approval represents a unified approval request

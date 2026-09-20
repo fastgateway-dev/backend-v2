@@ -334,6 +334,7 @@ func main() {
 	// their routes rather than failing to boot.
 	var certificateIssuerHandler *handlers.CertificateIssuerHandler
 	var managedCertHandler *handlers.ManagedCertificateHandler
+	var clientCertificateHandler *handlers.ClientCertificateHandler
 	if services.IsRunningInCluster() {
 		cpDyn, err := cluster.InClusterDynamicClient()
 		if err != nil {
@@ -350,20 +351,43 @@ func main() {
 		// (Task 6: distribution status + resync) as well as to the certdist
 		// distributor below.
 		certDistRepo := repository.NewCertificateDistributionRepository(db)
+		certExportGrantRepo := repository.NewCertificateExportGrantRepository(db)
 		managedCertService := services.NewManagedCertificateService(services.ManagedCertificateServiceDeps{
-			Repo:          managedCertRepo,
-			IssuerRepo:    certificateIssuerRepo,
-			GrantRepo:     issuerProjectGrantRepo,
-			ProjectRepo:   projectRepo,
-			ControlPlane:  controlPlane,
-			Approvals:     approvalEngine,
-			Config:        cfg,
-			DistRepo:      certDistRepo,
-			DomainRepo:    domainRepo,
-			TenantSecrets: k8sService,
+			Repo:            managedCertRepo,
+			IssuerRepo:      certificateIssuerRepo,
+			GrantRepo:       issuerProjectGrantRepo,
+			ProjectRepo:     projectRepo,
+			ControlPlane:    controlPlane,
+			Approvals:       approvalEngine,
+			Config:          cfg,
+			DistRepo:        certDistRepo,
+			DomainRepo:      domainRepo,
+			ClientRepo:      clientRepo,
+			TenantSecrets:   k8sService,
+			ExportGrantRepo: certExportGrantRepo,
 		})
 		managedCertHandler = handlers.NewManagedCertificateHandler(managedCertService, permChecker, auditService)
 		approvalEngine.Register(models.ApprovalEntityCertificate, managedCertService)
+
+		// ClientCertificateService (Task 8: attach/detach a managed client
+		// certificate onto a Client's mTLS config) needs the same
+		// control-plane client as managedCertService above -- it reads the
+		// issuer's CA Secret to derive the client's MTLSCAPem. It is its own
+		// service (not another ClientService method) precisely so this
+		// in-cluster dependency stays contained here instead of leaking into
+		// ClientService's constructor. It does NOT re-apply anything to the
+		// cluster itself: AttachCertificate/DetachCertificate only write the
+		// client row, and the CA Secret + ClientTrafficPolicy materialize at
+		// the next domain deploy (route_deploy_clients.go), exactly like the
+		// existing UpdateClientMTLS.
+		clientCertificateService := clients.NewClientCertificateService(clients.ClientCertificateServiceDeps{
+			ClientRepo: clientRepo,
+			CertRepo:   managedCertRepo,
+			IssuerRepo: certificateIssuerRepo,
+			TeamRepo:   teamRepo,
+			CAReader:   controlPlane,
+		})
+		clientCertificateHandler = handlers.NewClientCertificateHandler(clientCertificateService, clientService, auditService, permChecker)
 
 		// Phase 3a certificate distribution controller: pushes each
 		// project's issued leaf certificates into its own tenant cluster on
@@ -462,6 +486,7 @@ func main() {
 		CertificateIssuerHandler:  certificateIssuerHandler,
 		IssuerGrantHandler:        issuerGrantHandler,
 		ManagedCertificateHandler: managedCertHandler,
+		ClientCertificateHandler:  clientCertificateHandler,
 	})
 
 	// Start server
@@ -523,6 +548,7 @@ type RouterDeps struct {
 	CertificateIssuerHandler  *handlers.CertificateIssuerHandler
 	IssuerGrantHandler        *handlers.IssuerGrantHandler
 	ManagedCertificateHandler *handlers.ManagedCertificateHandler
+	ClientCertificateHandler  *handlers.ClientCertificateHandler
 }
 
 // setupRouter registers every route on a fresh *gin.Engine. This is a pure
@@ -718,6 +744,17 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 				// mTLS routes
 				clients.PUT("/:clientId/mtls", deps.ClientHandler.UpdateClientMTLS)
 				clients.DELETE("/:clientId/mtls", deps.ClientHandler.DeleteClientMTLS)
+				// Managed client certificate attach/detach. Nil-guarded like
+				// the fleet-certs and issuers groups above: the handler only
+				// exists when running in-cluster (its service needs a
+				// control-plane client), so outside a cluster these two
+				// routes simply aren't registered rather than panicking on a
+				// nil handler.
+				if deps.ClientCertificateHandler != nil {
+					clients.PUT("/:clientId/certificate", deps.ClientCertificateHandler.AttachCertificate)
+					clients.DELETE("/:clientId/certificate", deps.ClientCertificateHandler.DetachCertificate)
+					clients.GET("/:clientId/attachable-certificates", deps.ClientCertificateHandler.AttachableCertificates)
+				}
 				// Client-side attachment routes
 				clients.GET("/:clientId/routes", deps.ClientAttachmentHandler.ListClientRoutes)
 				clients.POST("/:clientId/routes/attach", deps.ClientAttachmentHandler.AttachFromClient)
@@ -941,6 +978,8 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 						certs.GET("/:certificateId/status", deps.ManagedCertificateHandler.Status)
 						certs.GET("/:certificateId/distribution", deps.ManagedCertificateHandler.Distribution)
 						certs.POST("/:certificateId/resync", deps.ManagedCertificateHandler.Resync)
+						certs.POST("/:certificateId/export", deps.ManagedCertificateHandler.RequestExport)
+						certs.GET("/:certificateId/export/download", deps.ManagedCertificateHandler.ExportDownload)
 					}
 				}
 

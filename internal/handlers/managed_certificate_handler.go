@@ -41,17 +41,28 @@ func NewManagedCertificateHandler(service ManagedCertificateServiceInterface, pe
 // managedCertificateResponse carries only certificate metadata -- never key
 // or certificate material.
 type managedCertificateResponse struct {
-	ID            uuid.UUID                `json:"id"`
-	ProjectID     uuid.UUID                `json:"projectId"`
-	Name          string                   `json:"name"`
-	IssuerID      uuid.UUID                `json:"issuerId"`
-	Usage         models.ManagedCertUsage  `json:"usage"`
-	DNSNames      []string                 `json:"dnsNames,omitempty"`
-	Status        models.ManagedCertStatus `json:"status"`
-	StatusMessage string                   `json:"statusMessage,omitempty"`
-	Fingerprint   string                   `json:"fingerprint,omitempty"`
-	NotAfter      *time.Time               `json:"notAfter,omitempty"`
-	CreatedAt     time.Time                `json:"createdAt"`
+	ID            uuid.UUID                 `json:"id"`
+	ProjectID     uuid.UUID                 `json:"projectId"`
+	Name          string                    `json:"name"`
+	IssuerID      uuid.UUID                 `json:"issuerId"`
+	Usage         models.ManagedCertUsage   `json:"usage"`
+	DNSNames      []string                  `json:"dnsNames,omitempty"`
+	Status        models.ManagedCertStatus  `json:"status"`
+	StatusMessage string                    `json:"statusMessage,omitempty"`
+	Fingerprint   string                    `json:"fingerprint,omitempty"`
+	NotAfter      *time.Time                `json:"notAfter,omitempty"`
+	CreatedAt     time.Time                 `json:"createdAt"`
+	KeyMode       models.ManagedCertKeyMode `json:"keyMode,omitempty"`
+	Subject       string                    `json:"subject,omitempty"`
+	URISANs       []string                  `json:"uriSans,omitempty"`
+
+	// ExportAvailable reports whether the CURRENT caller has an approved,
+	// unconsumed, unexpired export grant for this certificate -- per-cert
+	// AND per-user, so the frontend can show Download instead of
+	// Request-export. Create leaves this false (a freshly created
+	// certificate has no grant yet); List/ListFleet/Get populate it from the
+	// service.
+	ExportAvailable bool `json:"exportAvailable"`
 }
 
 func toManagedCertificateResponse(c *models.ManagedCertificate) managedCertificateResponse {
@@ -67,6 +78,9 @@ func toManagedCertificateResponse(c *models.ManagedCertificate) managedCertifica
 		Fingerprint:   c.Fingerprint,
 		NotAfter:      c.NotAfter,
 		CreatedAt:     c.CreatedAt,
+		KeyMode:       c.Config.KeyMode,
+		Subject:       c.Config.Subject,
+		URISANs:       c.Config.URISANs,
 	}
 }
 
@@ -104,13 +118,15 @@ func toEnrichedCertificateResponse(e *services.EnrichedCertificate) enrichedCert
 		dist = &converted
 	}
 
-	return enrichedCertificateResponse{
+	resp := enrichedCertificateResponse{
 		managedCertificateResponse: toManagedCertificateResponse(&e.Certificate),
 		IssuerName:                 e.IssuerName,
 		IssuerType:                 e.IssuerType,
 		Distribution:               dist,
 		Domains:                    domains,
 	}
+	resp.ExportAvailable = e.ExportAvailable
+	return resp
 }
 
 // List lists managed certificates for a project, enriched with each
@@ -165,7 +181,7 @@ func (h *ManagedCertificateHandler) List(c *gin.Context) {
 		filter.ExpiresBefore = &expiresBefore
 	}
 
-	enriched, total, err := h.service.ListProjectCertificatesEnriched(projectID, page, limit, filter)
+	enriched, total, err := h.service.ListProjectCertificatesEnriched(projectID, page, limit, filter, user.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -197,6 +213,7 @@ func (h *ManagedCertificateHandler) List(c *gin.Context) {
 // query string (rather than fixed by a path param) so an owner can narrow
 // the fleet view to one project.
 func (h *ManagedCertificateHandler) ListFleet(c *gin.Context) {
+	user := middleware.GetCurrentUser(c)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	if page < 1 {
@@ -238,7 +255,7 @@ func (h *ManagedCertificateHandler) ListFleet(c *gin.Context) {
 		filter.ExpiresBefore = &expiresBefore
 	}
 
-	enriched, total, err := h.service.ListFleetCertificates(page, limit, filter)
+	enriched, total, err := h.service.ListFleetCertificates(page, limit, filter, user.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -350,7 +367,19 @@ func (h *ManagedCertificateHandler) Get(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toManagedCertificateResponse(cert))
+	resp := toManagedCertificateResponse(cert)
+
+	user := middleware.GetCurrentUser(c)
+	if user != nil {
+		exportAvailable, err := h.service.HasUsableExportGrant(cert.ID, user.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		resp.ExportAvailable = exportAvailable
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // Delete deletes a managed certificate.
@@ -391,7 +420,7 @@ func (h *ManagedCertificateHandler) Delete(c *gin.Context) {
 
 	if err := h.service.Delete(id); err != nil {
 		if errors.Is(err, services.ErrCertificateInUse) {
-			c.JSON(http.StatusConflict, gin.H{"error": "certificate is attached to one or more domains; detach it first"})
+			c.JSON(http.StatusConflict, gin.H{"error": "certificate is attached to one or more domains or clients; detach it first"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -573,6 +602,171 @@ func (h *ManagedCertificateHandler) Resync(c *gin.Context) {
 	)
 
 	c.Status(http.StatusAccepted)
+}
+
+// RequestExport opens an export approval for a managed certificate: once
+// approved, the requesting user gets a short-lived, single-use grant to
+// download the certificate's private key material via ExportDownload. Only
+// the export request is gated by permission here -- the real gate is the
+// approval itself (and, once approved, the grant being bound to this one
+// user). Gated by certificate.edit (CanEditCertificates): exporting key
+// material is at least as sensitive as the resync/reissue actions that gate
+// already covers, and reusing it avoids introducing a new permission for a
+// single endpoint.
+func (h *ManagedCertificateHandler) RequestExport(c *gin.Context) {
+	user := middleware.GetCurrentUser(c)
+	projectID, err := uuid.Parse(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+
+	if !h.permChecker.CanEditCertificates(projectID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: only editors can request a certificate export"})
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("certificateId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid certificate ID"})
+		return
+	}
+
+	cert, err := h.service.GetByID(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// See Get's comment: a cross-project export request must 404, not
+	// proceed.
+	if cert.ProjectID != projectID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
+		return
+	}
+
+	approval, err := h.service.RequestExport(id, user.ID)
+	if err != nil {
+		if errors.Is(err, services.ErrExportNotApplicable) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, services.ErrCertificateNotReadyForExport) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	details := middleware.AuditDetails(c)
+	details["approvalEntityType"] = "certificate"
+	var approvalID *uuid.UUID
+	if approval != nil {
+		aid := approval.ID
+		approvalID = &aid
+		details["approvalId"] = approval.ID
+	}
+
+	h.auditService.LogAction(
+		&projectID,
+		user,
+		"export_request",
+		"certificate",
+		&id,
+		cert.Name,
+		details,
+		c.ClientIP(),
+		c.Request.UserAgent(),
+	)
+
+	c.JSON(http.StatusAccepted, gin.H{"approvalId": approvalID})
+}
+
+// ExportDownload streams a certificate's private key material once, if (and
+// only if) the calling user holds an approved, unconsumed, unexpired export
+// grant for this certificate -- ExportBundle consumes it atomically before
+// reading anything. Deliberately user-bound rather than a `?token=` query
+// parameter: every call here is already authenticated, so putting a bearer
+// secret in the URL (where it lands in server logs, browser history, and
+// Referer headers) would only add risk with no offsetting benefit. A second
+// download attempt (grant already consumed) 410s rather than 403/404 --
+// distinct from "you never had access" -- so a legitimate caller knows to
+// request a fresh export rather than re-authenticating.
+func (h *ManagedCertificateHandler) ExportDownload(c *gin.Context) {
+	user := middleware.GetCurrentUser(c)
+	projectID, err := uuid.Parse(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("certificateId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid certificate ID"})
+		return
+	}
+
+	cert, err := h.service.GetByID(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// See Get's comment: a cross-project download must 404, not proceed --
+	// and critically must not even reach ExportBundle, which would consume
+	// the caller's grant (if they somehow held one) against the wrong
+	// certificate's response.
+	if cert.ProjectID != projectID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
+		return
+	}
+
+	leafPEM, keyPEM, caChainPEM, err := h.service.ExportBundle(id, user.ID)
+	if err != nil {
+		if errors.Is(err, repository.ErrExportGrantUnavailable) {
+			c.JSON(http.StatusGone, gin.H{"error": "no approved export available; request export and get it approved"})
+			return
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.auditService.LogAction(
+		&projectID,
+		user,
+		"export_download",
+		"certificate",
+		&id,
+		cert.Name,
+		middleware.AuditDetails(c),
+		c.ClientIP(),
+		c.Request.UserAgent(),
+	)
+
+	body := make([]byte, 0, len(keyPEM)+len(leafPEM)+len(caChainPEM))
+	body = append(body, keyPEM...)
+	body = append(body, leafPEM...)
+	body = append(body, caChainPEM...)
+
+	c.Header("Content-Disposition", `attachment; filename="`+cert.Name+`.pem"`)
+	c.Data(http.StatusOK, "application/x-pem-file", body)
 }
 
 // IssuersForProject lists the certificate issuers granted to a project, for

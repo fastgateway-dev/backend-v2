@@ -317,6 +317,10 @@ paths:
     $ref: 'paths/clients.yaml#/client-methods'
   /clients/{clientId}/mtls:
     $ref: 'paths/clients.yaml#/client-mtls'
+  /clients/{clientId}/certificate:
+    $ref: 'paths/clients.yaml#/client-certificate'
+  /clients/{clientId}/attachable-certificates:
+    $ref: 'paths/clients.yaml#/client-attachable-certificates'
 
   # ============== CLIENT ATTACHMENTS ==============
   /clients/{clientId}/routes:
@@ -385,6 +389,10 @@ paths:
     $ref: 'paths/project-certificates.yaml#/certificate-distribution'
   /projects/{projectId}/certificates/{certificateId}/resync:
     $ref: 'paths/project-certificates.yaml#/certificate-resync'
+  /projects/{projectId}/certificates/{certificateId}/export:
+    $ref: 'paths/project-certificates.yaml#/certificate-export'
+  /projects/{projectId}/certificates/{certificateId}/export/download:
+    $ref: 'paths/project-certificates.yaml#/certificate-export-download'
 
   # ============== TOPOLOGY ==============
   /projects/{projectId}/topology:

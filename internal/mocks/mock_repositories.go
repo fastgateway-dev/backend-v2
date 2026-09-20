@@ -4859,6 +4859,68 @@ func (_c *MockClientRepository_GetByID_Call) RunAndReturn(run func(id uuid.UUID)
 	return _c
 }
 
+// GetByManagedCertificateID provides a mock function for the type MockClientRepository
+func (_mock *MockClientRepository) GetByManagedCertificateID(certID uuid.UUID) (*models.Client, error) {
+	ret := _mock.Called(certID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByManagedCertificateID")
+	}
+
+	var r0 *models.Client
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) (*models.Client, error)); ok {
+		return returnFunc(certID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) *models.Client); ok {
+		r0 = returnFunc(certID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.Client)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(certID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockClientRepository_GetByManagedCertificateID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByManagedCertificateID'
+type MockClientRepository_GetByManagedCertificateID_Call struct {
+	*mock.Call
+}
+
+// GetByManagedCertificateID is a helper method to define mock.On call
+//   - certID uuid.UUID
+func (_e *MockClientRepository_Expecter) GetByManagedCertificateID(certID any) *MockClientRepository_GetByManagedCertificateID_Call {
+	return &MockClientRepository_GetByManagedCertificateID_Call{Call: _e.mock.On("GetByManagedCertificateID", certID)}
+}
+
+func (_c *MockClientRepository_GetByManagedCertificateID_Call) Run(run func(certID uuid.UUID)) *MockClientRepository_GetByManagedCertificateID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockClientRepository_GetByManagedCertificateID_Call) Return(client *models.Client, err error) *MockClientRepository_GetByManagedCertificateID_Call {
+	_c.Call.Return(client, err)
+	return _c
+}
+
+func (_c *MockClientRepository_GetByManagedCertificateID_Call) RunAndReturn(run func(certID uuid.UUID) (*models.Client, error)) *MockClientRepository_GetByManagedCertificateID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // List provides a mock function for the type MockClientRepository
 func (_mock *MockClientRepository) List(page int, limit int, teamID *uuid.UUID) ([]models.Client, int64, error) {
 	ret := _mock.Called(page, limit, teamID)
@@ -15969,6 +16031,68 @@ func (_c *MockManagedCertificateRepository_GetByID_Call) RunAndReturn(run func(i
 	return _c
 }
 
+// ListAttachableClientCerts provides a mock function for the type MockManagedCertificateRepository
+func (_mock *MockManagedCertificateRepository) ListAttachableClientCerts(projectIDs []uuid.UUID) ([]models.ManagedCertificate, error) {
+	ret := _mock.Called(projectIDs)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListAttachableClientCerts")
+	}
+
+	var r0 []models.ManagedCertificate
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func([]uuid.UUID) ([]models.ManagedCertificate, error)); ok {
+		return returnFunc(projectIDs)
+	}
+	if returnFunc, ok := ret.Get(0).(func([]uuid.UUID) []models.ManagedCertificate); ok {
+		r0 = returnFunc(projectIDs)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.ManagedCertificate)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func([]uuid.UUID) error); ok {
+		r1 = returnFunc(projectIDs)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockManagedCertificateRepository_ListAttachableClientCerts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListAttachableClientCerts'
+type MockManagedCertificateRepository_ListAttachableClientCerts_Call struct {
+	*mock.Call
+}
+
+// ListAttachableClientCerts is a helper method to define mock.On call
+//   - projectIDs []uuid.UUID
+func (_e *MockManagedCertificateRepository_Expecter) ListAttachableClientCerts(projectIDs any) *MockManagedCertificateRepository_ListAttachableClientCerts_Call {
+	return &MockManagedCertificateRepository_ListAttachableClientCerts_Call{Call: _e.mock.On("ListAttachableClientCerts", projectIDs)}
+}
+
+func (_c *MockManagedCertificateRepository_ListAttachableClientCerts_Call) Run(run func(projectIDs []uuid.UUID)) *MockManagedCertificateRepository_ListAttachableClientCerts_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 []uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].([]uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockManagedCertificateRepository_ListAttachableClientCerts_Call) Return(managedCertificates []models.ManagedCertificate, err error) *MockManagedCertificateRepository_ListAttachableClientCerts_Call {
+	_c.Call.Return(managedCertificates, err)
+	return _c
+}
+
+func (_c *MockManagedCertificateRepository_ListAttachableClientCerts_Call) RunAndReturn(run func(projectIDs []uuid.UUID) ([]models.ManagedCertificate, error)) *MockManagedCertificateRepository_ListAttachableClientCerts_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListByProjectFiltered provides a mock function for the type MockManagedCertificateRepository
 func (_mock *MockManagedCertificateRepository) ListByProjectFiltered(projectID uuid.UUID, page int, limit int, f repository.CertificateListFilter) ([]models.ManagedCertificate, int64, error) {
 	ret := _mock.Called(projectID, page, limit, f)
@@ -16446,6 +16570,286 @@ func (_c *MockCertificateDistributionRepository_Upsert_Call) Return(err error) *
 }
 
 func (_c *MockCertificateDistributionRepository_Upsert_Call) RunAndReturn(run func(cd *models.CertificateDistribution) error) *MockCertificateDistributionRepository_Upsert_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// NewMockCertificateExportGrantRepository creates a new instance of MockCertificateExportGrantRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewMockCertificateExportGrantRepository(t interface {
+	mock.TestingT
+	Cleanup(func())
+}) *MockCertificateExportGrantRepository {
+	mock := &MockCertificateExportGrantRepository{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// MockCertificateExportGrantRepository is an autogenerated mock type for the CertificateExportGrantRepositoryInterface type
+type MockCertificateExportGrantRepository struct {
+	mock.Mock
+}
+
+type MockCertificateExportGrantRepository_Expecter struct {
+	mock *mock.Mock
+}
+
+func (_m *MockCertificateExportGrantRepository) EXPECT() *MockCertificateExportGrantRepository_Expecter {
+	return &MockCertificateExportGrantRepository_Expecter{mock: &_m.Mock}
+}
+
+// ConsumeForCert provides a mock function for the type MockCertificateExportGrantRepository
+func (_mock *MockCertificateExportGrantRepository) ConsumeForCert(certID uuid.UUID, userID uuid.UUID) (*models.CertificateExportGrant, error) {
+	ret := _mock.Called(certID, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ConsumeForCert")
+	}
+
+	var r0 *models.CertificateExportGrant
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID) (*models.CertificateExportGrant, error)); ok {
+		return returnFunc(certID, userID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID) *models.CertificateExportGrant); ok {
+		r0 = returnFunc(certID, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.CertificateExportGrant)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID) error); ok {
+		r1 = returnFunc(certID, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockCertificateExportGrantRepository_ConsumeForCert_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ConsumeForCert'
+type MockCertificateExportGrantRepository_ConsumeForCert_Call struct {
+	*mock.Call
+}
+
+// ConsumeForCert is a helper method to define mock.On call
+//   - certID uuid.UUID
+//   - userID uuid.UUID
+func (_e *MockCertificateExportGrantRepository_Expecter) ConsumeForCert(certID any, userID any) *MockCertificateExportGrantRepository_ConsumeForCert_Call {
+	return &MockCertificateExportGrantRepository_ConsumeForCert_Call{Call: _e.mock.On("ConsumeForCert", certID, userID)}
+}
+
+func (_c *MockCertificateExportGrantRepository_ConsumeForCert_Call) Run(run func(certID uuid.UUID, userID uuid.UUID)) *MockCertificateExportGrantRepository_ConsumeForCert_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockCertificateExportGrantRepository_ConsumeForCert_Call) Return(certificateExportGrant *models.CertificateExportGrant, err error) *MockCertificateExportGrantRepository_ConsumeForCert_Call {
+	_c.Call.Return(certificateExportGrant, err)
+	return _c
+}
+
+func (_c *MockCertificateExportGrantRepository_ConsumeForCert_Call) RunAndReturn(run func(certID uuid.UUID, userID uuid.UUID) (*models.CertificateExportGrant, error)) *MockCertificateExportGrantRepository_ConsumeForCert_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Create provides a mock function for the type MockCertificateExportGrantRepository
+func (_mock *MockCertificateExportGrantRepository) Create(g *models.CertificateExportGrant) error {
+	ret := _mock.Called(g)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Create")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(*models.CertificateExportGrant) error); ok {
+		r0 = returnFunc(g)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockCertificateExportGrantRepository_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
+type MockCertificateExportGrantRepository_Create_Call struct {
+	*mock.Call
+}
+
+// Create is a helper method to define mock.On call
+//   - g *models.CertificateExportGrant
+func (_e *MockCertificateExportGrantRepository_Expecter) Create(g any) *MockCertificateExportGrantRepository_Create_Call {
+	return &MockCertificateExportGrantRepository_Create_Call{Call: _e.mock.On("Create", g)}
+}
+
+func (_c *MockCertificateExportGrantRepository_Create_Call) Run(run func(g *models.CertificateExportGrant)) *MockCertificateExportGrantRepository_Create_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 *models.CertificateExportGrant
+		if args[0] != nil {
+			arg0 = args[0].(*models.CertificateExportGrant)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockCertificateExportGrantRepository_Create_Call) Return(err error) *MockCertificateExportGrantRepository_Create_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockCertificateExportGrantRepository_Create_Call) RunAndReturn(run func(g *models.CertificateExportGrant) error) *MockCertificateExportGrantRepository_Create_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// HasUsableGrant provides a mock function for the type MockCertificateExportGrantRepository
+func (_mock *MockCertificateExportGrantRepository) HasUsableGrant(certID uuid.UUID, userID uuid.UUID) (bool, error) {
+	ret := _mock.Called(certID, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for HasUsableGrant")
+	}
+
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID) (bool, error)); ok {
+		return returnFunc(certID, userID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID) bool); ok {
+		r0 = returnFunc(certID, userID)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID) error); ok {
+		r1 = returnFunc(certID, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockCertificateExportGrantRepository_HasUsableGrant_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasUsableGrant'
+type MockCertificateExportGrantRepository_HasUsableGrant_Call struct {
+	*mock.Call
+}
+
+// HasUsableGrant is a helper method to define mock.On call
+//   - certID uuid.UUID
+//   - userID uuid.UUID
+func (_e *MockCertificateExportGrantRepository_Expecter) HasUsableGrant(certID any, userID any) *MockCertificateExportGrantRepository_HasUsableGrant_Call {
+	return &MockCertificateExportGrantRepository_HasUsableGrant_Call{Call: _e.mock.On("HasUsableGrant", certID, userID)}
+}
+
+func (_c *MockCertificateExportGrantRepository_HasUsableGrant_Call) Run(run func(certID uuid.UUID, userID uuid.UUID)) *MockCertificateExportGrantRepository_HasUsableGrant_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockCertificateExportGrantRepository_HasUsableGrant_Call) Return(b bool, err error) *MockCertificateExportGrantRepository_HasUsableGrant_Call {
+	_c.Call.Return(b, err)
+	return _c
+}
+
+func (_c *MockCertificateExportGrantRepository_HasUsableGrant_Call) RunAndReturn(run func(certID uuid.UUID, userID uuid.UUID) (bool, error)) *MockCertificateExportGrantRepository_HasUsableGrant_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListUsableGrantCertIDs provides a mock function for the type MockCertificateExportGrantRepository
+func (_mock *MockCertificateExportGrantRepository) ListUsableGrantCertIDs(userID uuid.UUID, certIDs []uuid.UUID) ([]uuid.UUID, error) {
+	ret := _mock.Called(userID, certIDs)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListUsableGrantCertIDs")
+	}
+
+	var r0 []uuid.UUID
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, []uuid.UUID) ([]uuid.UUID, error)); ok {
+		return returnFunc(userID, certIDs)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, []uuid.UUID) []uuid.UUID); ok {
+		r0 = returnFunc(userID, certIDs)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]uuid.UUID)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, []uuid.UUID) error); ok {
+		r1 = returnFunc(userID, certIDs)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockCertificateExportGrantRepository_ListUsableGrantCertIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListUsableGrantCertIDs'
+type MockCertificateExportGrantRepository_ListUsableGrantCertIDs_Call struct {
+	*mock.Call
+}
+
+// ListUsableGrantCertIDs is a helper method to define mock.On call
+//   - userID uuid.UUID
+//   - certIDs []uuid.UUID
+func (_e *MockCertificateExportGrantRepository_Expecter) ListUsableGrantCertIDs(userID any, certIDs any) *MockCertificateExportGrantRepository_ListUsableGrantCertIDs_Call {
+	return &MockCertificateExportGrantRepository_ListUsableGrantCertIDs_Call{Call: _e.mock.On("ListUsableGrantCertIDs", userID, certIDs)}
+}
+
+func (_c *MockCertificateExportGrantRepository_ListUsableGrantCertIDs_Call) Run(run func(userID uuid.UUID, certIDs []uuid.UUID)) *MockCertificateExportGrantRepository_ListUsableGrantCertIDs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 []uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].([]uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockCertificateExportGrantRepository_ListUsableGrantCertIDs_Call) Return(uUIDs []uuid.UUID, err error) *MockCertificateExportGrantRepository_ListUsableGrantCertIDs_Call {
+	_c.Call.Return(uUIDs, err)
+	return _c
+}
+
+func (_c *MockCertificateExportGrantRepository_ListUsableGrantCertIDs_Call) RunAndReturn(run func(userID uuid.UUID, certIDs []uuid.UUID) ([]uuid.UUID, error)) *MockCertificateExportGrantRepository_ListUsableGrantCertIDs_Call {
 	_c.Call.Return(run)
 	return _c
 }

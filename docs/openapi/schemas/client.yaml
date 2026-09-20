@@ -109,6 +109,11 @@ Client:
       description: User who configured mTLS
     mtlsCreator:
       $ref: './user.yaml#/User'
+    # Managed Certificate (mTLS client certificate)
+    managedCertificateId:
+      type: string
+      format: uuid
+      description: Set when a managed client-usage certificate (see PUT .../certificate) is attached. Its CA Secret and ClientTrafficPolicy materialize at the next domain deploy.
     # Header & Method Authorization
     allowedMethods:
       type: array
@@ -374,6 +379,24 @@ SetAllowedMethodsRequest:
         type: string
         enum: [GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS]
       description: Allowed HTTP methods for this client
+
+AttachClientCertificateRequest:
+  type: object
+  required: [certificateId]
+  properties:
+    certificateId:
+      type: string
+      format: uuid
+      description: A managed, usage=client certificate (see POST /projects/{projectId}/certificates) in a project the client's team has access to.
+
+AttachableCertificateList:
+  type: object
+  description: Managed client-usage certificates a given client could attach -- usage=client, status=ready, in a project the client's team has a role in, and not already attached to any client.
+  properties:
+    data:
+      type: array
+      items:
+        $ref: './managed-certificate.yaml#/ManagedCertificate'
 
 UpdateClientMTLSRequest:
   type: object

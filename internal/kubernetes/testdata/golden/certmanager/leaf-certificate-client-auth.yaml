@@ -3,11 +3,10 @@ kind: Certificate
 metadata:
   labels:
     app.kubernetes.io/managed-by: fastgateway
-  name: cert-abc
+  name: cert-client-abc
   namespace: fastgateway-system
 spec:
-  dnsNames:
-  - api.example.com
+  dnsNames: []
   duration: 2160h
   issuerRef:
     group: cert-manager.io
@@ -16,8 +15,10 @@ spec:
   privateKey:
     algorithm: RSA
     size: 2048
-  secretName: cert-abc
+  secretName: cert-client-abc
+  uris:
+  - spiffe://fastgateway/proj/client-1
   usages:
-  - server auth
+  - client auth
   - digital signature
   - key encipherment

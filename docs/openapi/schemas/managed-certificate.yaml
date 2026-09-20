@@ -33,6 +33,21 @@ ManagedCertificate:
     createdAt:
       type: string
       format: date-time
+    keyMode:
+      type: string
+      enum: [managed, csr]
+      description: managed (cert-manager generates and holds the leaf private key, default) or csr (the caller supplied a CSR and holds the private key itself -- export is not applicable).
+    subject:
+      type: string
+      description: Set for client-usage certificates.
+    uriSans:
+      type: array
+      items:
+        type: string
+      description: URI Subject Alternative Names, applicable to client-usage certificates.
+    exportAvailable:
+      type: boolean
+      description: Whether the CURRENT caller has an approved, unconsumed, unexpired export grant for this certificate (per-cert AND per-user). Always false on the Create response.
 
 ManagedCertificateList:
   type: object
@@ -79,6 +94,21 @@ EnrichedManagedCertificate:
     createdAt:
       type: string
       format: date-time
+    keyMode:
+      type: string
+      enum: [managed, csr]
+      description: managed (cert-manager generates and holds the leaf private key, default) or csr (the caller supplied a CSR and holds the private key itself -- export is not applicable).
+    subject:
+      type: string
+      description: Set for client-usage certificates.
+    uriSans:
+      type: array
+      items:
+        type: string
+      description: URI Subject Alternative Names, applicable to client-usage certificates.
+    exportAvailable:
+      type: boolean
+      description: Whether the CURRENT caller has an approved, unconsumed, unexpired export grant for this certificate (per-cert AND per-user).
     issuerName:
       type: string
     issuerType:
@@ -149,6 +179,28 @@ CreateManagedCertificateRequest:
     durationDays:
       type: integer
       description: Defaults to 90.
+    keyMode:
+      type: string
+      enum: [managed, csr]
+      description: Defaults to managed (cert-manager generates and holds the leaf private key). Set to csr to have cert-manager only sign a caller-supplied CSR, in which case csr is required and the private key never exists server-side (so export is not applicable to the resulting certificate).
+    uriSans:
+      type: array
+      items:
+        type: string
+      description: URI Subject Alternative Names, applicable to client-usage certificates.
+    csr:
+      type: string
+      description: Caller-supplied PEM-encoded certificate signing request. Required when keyMode is csr; ignored otherwise.
+
+RequestExportResponse:
+  type: object
+  description: Returned by POST .../export with 202, whether the export was submitted for approval or (approvals disabled for this project) the grant was minted immediately.
+  properties:
+    approvalId:
+      type: string
+      format: uuid
+      nullable: true
+      description: Null when the export grant was minted immediately (no approval gate configured for this project).
 
 CreateManagedCertificateResponse:
   type: object

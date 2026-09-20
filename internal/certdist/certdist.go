@@ -189,6 +189,14 @@ func (d *Distributor) reconcileOneSafely(ctx context.Context, cert models.Manage
 // for callers/tests to observe -- reconcileOneSafely already logs it and
 // treats it as non-fatal for the overall pass.
 func (d *Distributor) reconcileOne(ctx context.Context, cert models.ManagedCertificate) error {
+	// Client certificates are identities presented BY callers, not gateway
+	// listener secrets -- they are never distributed to tenant clusters
+	// (the managed key stays in the control cluster as the export source;
+	// CSR-mode client certs have no key). Only server certs are pushed.
+	if cert.Usage != models.ManagedCertUsageServer {
+		return nil
+	}
+
 	// Load whatever we already know about this certificate's distribution
 	// state up front, so error paths below can preserve fields (like
 	// LastSyncedAt) that this pass doesn't otherwise touch instead of

@@ -121,3 +121,12 @@ func (r *ClientRepository) ListByTeamIDs(teamIDs []uuid.UUID) ([]models.Client, 
 		Find(&clients).Error
 	return clients, err
 }
+
+// GetByManagedCertificateID returns the client attached to the given managed certificate, if any
+func (r *ClientRepository) GetByManagedCertificateID(certID uuid.UUID) (*models.Client, error) {
+	var c models.Client
+	if err := r.db.Where("managed_certificate_id = ?", certID).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}

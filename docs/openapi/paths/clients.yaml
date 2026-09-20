@@ -440,3 +440,109 @@ client-mtls:
         description: mTLS removed successfully
       '403':
         $ref: '../components/responses.yaml#/Forbidden'
+
+client-certificate:
+  put:
+    tags: [Client mTLS]
+    summary: Attach a managed client certificate to a client (team member)
+    description: |
+      Attaches a managed, usage=client certificate (issued via
+      POST /projects/{projectId}/certificates) to this client's mTLS
+      configuration. Writes only the client row -- the CA Secret and
+      ClientTrafficPolicy it implies materialize at the next domain deploy,
+      exactly like PUT .../mtls. Requires the caller to be a member of the
+      client's team, and the certificate to be usage=client, status=ready,
+      in a project the client's team has access to, and not already
+      attached elsewhere.
+    operationId: attachClientCertificate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/client.yaml#/AttachClientCertificateRequest'
+    responses:
+      '200':
+        description: Certificate attached; returns the updated client
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/Client'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        description: Client or certificate not found
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '409':
+        description: The certificate is already attached to another client, or this client already has a managed certificate attached.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '422':
+        description: The certificate is not usage=client, or is not yet ready.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+  delete:
+    tags: [Client mTLS]
+    summary: Detach the managed certificate from a client (team member)
+    description: |
+      Clears the client's managed certificate and its derived mTLS fields,
+      reverting the client to no mTLS. A previously-configured BYO mTLS
+      configuration is not restored automatically -- re-add it via
+      PUT .../mtls if wanted.
+    operationId: detachClientCertificate
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    responses:
+      '200':
+        description: Certificate detached; returns the updated client
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/Client'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+client-attachable-certificates:
+  get:
+    tags: [Client mTLS]
+    summary: List managed certificates this client could attach (team member)
+    description: |
+      Lists managed client-usage certificates that are ready, in a project
+      the client's team has a role in, and not already attached to any
+      client -- scoping the attach picker to what this client could
+      actually attach, rather than every certificate the caller can see.
+      Responses carry certificate metadata only, never key material.
+    operationId: listClientAttachableCertificates
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/clientId'
+    responses:
+      '200':
+        description: Attachable managed certificates
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/client.yaml#/AttachableCertificateList'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'

@@ -1,9 +1,12 @@
 package kubernetes
 
 import (
+	"encoding/base64"
 	"strconv"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/fastgateway-dev/backend-v2/internal/models"
 )
 
 func managedByLabels() map[string]interface{} {
@@ -48,8 +51,9 @@ func CACertificate(cfg CACertConfig) *unstructured.Unstructured {
 // LeafCertConfig configures the leaf Certificate built by LeafCertificate.
 type LeafCertConfig struct {
 	Name, Namespace, SecretName, IssuerClusterIssuerName, CommonName, KeyAlgorithm string
-	DNSNames                                                                       []string
+	DNSNames, URISANs                                                              []string
 	KeySize, DurationDays                                                          int
+	Usage                                                                          models.ManagedCertUsage
 }
 
 // LeafCertificate builds a cert-manager Certificate for a leaf certificate,
@@ -71,9 +75,54 @@ func LeafCertificate(cfg LeafCertConfig) *unstructured.Unstructured {
 	if cfg.CommonName != "" {
 		spec["commonName"] = cfg.CommonName
 	}
+	if len(cfg.URISANs) > 0 {
+		uris := make([]interface{}, 0, len(cfg.URISANs))
+		for _, u := range cfg.URISANs {
+			uris = append(uris, u)
+		}
+		spec["uris"] = uris
+	}
+	switch cfg.Usage {
+	case models.ManagedCertUsageClient:
+		spec["usages"] = []interface{}{"client auth", "digital signature", "key encipherment"}
+	default:
+		spec["usages"] = []interface{}{"server auth", "digital signature", "key encipherment"}
+	}
 	return &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "cert-manager.io/v1", "kind": "Certificate",
 		"metadata": map[string]interface{}{"name": cfg.Name, "namespace": cfg.Namespace, "labels": managedByLabels()},
+		"spec":     spec,
+	}}
+}
+
+// CertificateRequestConfig configures the CertificateRequest built by
+// CertificateRequestObject.
+type CertificateRequestConfig struct {
+	Name                    string
+	Namespace               string
+	IssuerClusterIssuerName string
+	Request                 []byte // PEM-encoded CSR bytes
+	DurationDays            int
+}
+
+// CertificateRequestObject builds a cert-manager CertificateRequest for
+// CSR-mode issuance, where the caller generates the key and CSR and
+// cert-manager only signs it. Used as the client-auth-only counterpart to
+// LeafCertificate for callers that keep their own private key.
+func CertificateRequestObject(config CertificateRequestConfig) *unstructured.Unstructured {
+	spec := map[string]interface{}{
+		"request": base64.StdEncoding.EncodeToString(config.Request),
+		"issuerRef": map[string]interface{}{
+			"name": config.IssuerClusterIssuerName, "kind": "ClusterIssuer", "group": "cert-manager.io",
+		},
+		"usages": []interface{}{"client auth", "digital signature", "key encipherment"},
+	}
+	if config.DurationDays > 0 {
+		spec["duration"] = hoursDuration(config.DurationDays)
+	}
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "cert-manager.io/v1", "kind": "CertificateRequest",
+		"metadata": map[string]interface{}{"name": config.Name, "namespace": config.Namespace, "labels": managedByLabels()},
 		"spec":     spec,
 	}}
 }

@@ -122,6 +122,7 @@ type ClientRepositoryInterface interface {
 	ExistsByName(name string) (bool, error)
 	ExistsByNameExcluding(name string, excludeID uuid.UUID) (bool, error)
 	ListByTeamIDs(teamIDs []uuid.UUID) ([]models.Client, error)
+	GetByManagedCertificateID(certID uuid.UUID) (*models.Client, error)
 }
 
 // CommentRepositoryInterface defines the interface for comment repository operations
@@ -403,6 +404,10 @@ type ManagedCertificateRepositoryInterface interface {
 	CountByIssuer(issuerID uuid.UUID) (int64, error)
 	CountByIssuerAndProject(issuerID, projectID uuid.UUID) (int64, error)
 	ListByStatuses(statuses []models.ManagedCertStatus) ([]models.ManagedCertificate, error)
+	// ListAttachableClientCerts returns usage=client, status=ready
+	// certificates in the given projects that are NOT already bound to any
+	// client (client 1:1). Empty projectIDs -> empty slice, no query.
+	ListAttachableClientCerts(projectIDs []uuid.UUID) ([]models.ManagedCertificate, error)
 }
 
 // CertificateDistributionRepositoryInterface defines the interface for certificate distribution repository operations
@@ -410,6 +415,25 @@ type CertificateDistributionRepositoryInterface interface {
 	Upsert(cd *models.CertificateDistribution) error
 	GetByCertificateID(certID uuid.UUID) (*models.CertificateDistribution, error)
 	ListByCertificateIDs(certIDs []uuid.UUID) ([]models.CertificateDistribution, error)
+}
+
+// CertificateExportGrantRepositoryInterface defines the interface for
+// certificate export grant repository operations.
+type CertificateExportGrantRepositoryInterface interface {
+	Create(g *models.CertificateExportGrant) error
+	// ConsumeForCert atomically finds the caller's unconsumed, unexpired
+	// grant for certID and marks it consumed, returning it. Returns
+	// ErrExportGrantUnavailable when none is usable. Single-use.
+	ConsumeForCert(certID, userID uuid.UUID) (*models.CertificateExportGrant, error)
+	// HasUsableGrant reports whether userID has an unconsumed, unexpired
+	// export grant for certID. Read-only -- unlike ConsumeForCert, it never
+	// marks anything consumed, so callers can check "should I show
+	// Download?" without spending the single-use grant.
+	HasUsableGrant(certID, userID uuid.UUID) (bool, error)
+	// ListUsableGrantCertIDs returns the subset of certIDs for which userID
+	// has an unconsumed, unexpired grant -- one query for the whole page, no
+	// per-cert N+1. Empty input returns an empty result with no query.
+	ListUsableGrantCertIDs(userID uuid.UUID, certIDs []uuid.UUID) ([]uuid.UUID, error)
 }
 
 // Compile-time interface satisfaction checks
@@ -421,6 +445,7 @@ var _ AuditLogRepositoryInterface = (*AuditLogRepository)(nil)
 var _ BackendTrafficPolicyRepositoryInterface = (*BackendTrafficPolicyRepository)(nil)
 var _ CertificateIssuerRepositoryInterface = (*CertificateIssuerRepository)(nil)
 var _ CertificateDistributionRepositoryInterface = (*CertificateDistributionRepository)(nil)
+var _ CertificateExportGrantRepositoryInterface = (*CertificateExportGrantRepository)(nil)
 var _ ClientAttachmentRepositoryInterface = (*ClientAttachmentRepository)(nil)
 var _ ClientIPRepositoryInterface = (*ClientIPRepository)(nil)
 var _ ClientRepositoryInterface = (*ClientRepository)(nil)

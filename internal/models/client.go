@@ -221,12 +221,16 @@ type Client struct {
 	MTLSCreatedAt   *time.Time  `gorm:"column:mtls_created_at" json:"mtlsCreatedAt,omitempty"`
 	MTLSCreatedBy   *uuid.UUID  `gorm:"column:mtls_created_by;type:uuid" json:"mtlsCreatedBy,omitempty"`
 
+	// Managed Certificate (mTLS client certificate)
+	ManagedCertificateID *uuid.UUID `gorm:"type:uuid;column:managed_certificate_id" json:"managedCertificateId,omitempty"`
+
 	// Relationships
-	Team          *Team `gorm:"foreignKey:TeamID" json:"team,omitempty"`
-	Creator       *User `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
-	APIKeyCreator *User `gorm:"foreignKey:APIKeyCreatedBy" json:"apiKeyCreator,omitempty"`
-	JWTCreator    *User `gorm:"foreignKey:JWTCreatedBy" json:"jwtCreator,omitempty"`
-	MTLSCreator   *User `gorm:"foreignKey:MTLSCreatedBy" json:"mtlsCreator,omitempty"`
+	Team               *Team               `gorm:"foreignKey:TeamID" json:"team,omitempty"`
+	Creator            *User               `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
+	APIKeyCreator      *User               `gorm:"foreignKey:APIKeyCreatedBy" json:"apiKeyCreator,omitempty"`
+	JWTCreator         *User               `gorm:"foreignKey:JWTCreatedBy" json:"jwtCreator,omitempty"`
+	MTLSCreator        *User               `gorm:"foreignKey:MTLSCreatedBy" json:"mtlsCreator,omitempty"`
+	ManagedCertificate *ManagedCertificate `gorm:"foreignKey:ManagedCertificateID" json:"-"`
 
 	// Header & Method Authorization
 	AllowedMethods StringList `gorm:"column:allowed_methods;type:jsonb" json:"allowedMethods,omitempty"`

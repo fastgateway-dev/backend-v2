@@ -108,6 +108,9 @@ func (r *failopenClientRepo) ExistsByNameExcluding(string, uuid.UUID) (bool, err
 func (r *failopenClientRepo) ListByTeamIDs([]uuid.UUID) ([]models.Client, error) {
 	panic("unexpected call: ListByTeamIDs")
 }
+func (r *failopenClientRepo) GetByManagedCertificateID(uuid.UUID) (*models.Client, error) {
+	panic("unexpected call: GetByManagedCertificateID")
+}
 
 // failopenClientIPRepo answers ListByClientID with a fixed (ips, err) pair.
 var _ repository.ClientIPRepositoryInterface = (*failopenClientIPRepo)(nil)

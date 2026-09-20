@@ -77,6 +77,7 @@ func TestRouteSpecParity(t *testing.T) {
 		CertificateIssuerHandler:  &handlers.CertificateIssuerHandler{},
 		IssuerGrantHandler:        &handlers.IssuerGrantHandler{},
 		ManagedCertificateHandler: &handlers.ManagedCertificateHandler{},
+		ClientCertificateHandler:  &handlers.ClientCertificateHandler{},
 	}
 
 	router := setupRouter(deps)

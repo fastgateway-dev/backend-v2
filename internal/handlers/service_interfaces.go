@@ -83,13 +83,16 @@ type IssuerGrantServiceInterface interface {
 type ManagedCertificateServiceInterface interface {
 	Create(projectID uuid.UUID, input *services.CreateCertificateInput, createdBy uuid.UUID) (*models.ManagedCertificate, *models.Approval, error)
 	GetByID(id uuid.UUID) (*models.ManagedCertificate, error)
-	ListProjectCertificatesEnriched(projectID uuid.UUID, page, limit int, f repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error)
-	ListFleetCertificates(page, limit int, f repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error)
+	ListProjectCertificatesEnriched(projectID uuid.UUID, page, limit int, f repository.CertificateListFilter, viewerID uuid.UUID) ([]services.EnrichedCertificate, int64, error)
+	ListFleetCertificates(page, limit int, f repository.CertificateListFilter, viewerID uuid.UUID) ([]services.EnrichedCertificate, int64, error)
 	Delete(id uuid.UUID) error
 	Status(id uuid.UUID) (*services.CertStatus, error)
 	IssuersForProject(projectID uuid.UUID) ([]models.CertificateIssuer, error)
 	DistributionStatus(certID uuid.UUID) (*models.CertificateDistribution, error)
 	Resync(certID uuid.UUID) error
+	RequestExport(certID, requestedBy uuid.UUID) (*models.Approval, error)
+	ExportBundle(certID, userID uuid.UUID) (leafPEM, keyPEM, caChainPEM []byte, err error)
+	HasUsableExportGrant(certID, userID uuid.UUID) (bool, error)
 }
 
 // ClientReader is the slice of ClientService that ClientAttachmentHandler

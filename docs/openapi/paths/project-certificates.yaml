@@ -221,3 +221,77 @@ certificate-resync:
         $ref: '../components/responses.yaml#/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
+
+certificate-export:
+  post:
+    tags: [Managed Certificates]
+    summary: Request a certificate export (requires cert.edit)
+    description: |
+      Opens an approval to export a managed-key certificate's private key material.
+      Once approved -- immediately, if the project has approvals disabled -- the
+      requesting user gets a short-lived, single-use grant redeemable via
+      GET .../export/download. Only applicable to managed-key certificates
+      (keyMode: managed): a csr-key-mode certificate's private key never existed
+      server-side (only its CSR was handed to cert-manager), so there is nothing
+      to export and this returns 409.
+    operationId: requestManagedCertificateExport
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/certificateId'
+    responses:
+      '202':
+        description: Export approval opened, or (approvals disabled for this project) the grant was minted immediately.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/managed-certificate.yaml#/RequestExportResponse'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Export is not applicable to this certificate (keyMode is csr -- the caller already holds the private key).
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+certificate-export-download:
+  get:
+    tags: [Managed Certificates]
+    summary: Download the exported certificate + private key bundle (one-time)
+    description: |
+      Streams the certificate's leaf certificate, private key, and issuer CA chain
+      as a single concatenated `application/x-pem-file` attachment. This is the
+      ONLY endpoint in the API that ever returns private key material, and only
+      when the calling user holds an approved, unconsumed, unexpired export grant
+      for this certificate (see POST .../export) -- the grant is consumed
+      atomically on this call, so it can be downloaded exactly once.
+    operationId: downloadManagedCertificateExport
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/certificateId'
+    responses:
+      '200':
+        description: PEM bundle containing the private key, leaf certificate, and CA chain, as an attachment download.
+        content:
+          application/x-pem-file:
+            schema:
+              type: string
+              format: binary
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '410':
+        description: No approved, unconsumed export grant is available for this user and certificate; request a new export and get it approved.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

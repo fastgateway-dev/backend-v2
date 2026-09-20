@@ -281,3 +281,81 @@ func certIDSet(certs []models.ManagedCertificate) map[uuid.UUID]bool {
 	}
 	return set
 }
+
+// seedClientAttachedTo inserts a minimal Client row, optionally bound to
+// certID via managed_certificate_id (pass uuid.Nil for none), and registers
+// cleanup. Returns the client ID.
+func seedClientAttachedTo(t *testing.T, db *gorm.DB, teamID, createdByUserID, certID uuid.UUID) uuid.UUID {
+	t.Helper()
+	clientID := uuid.New()
+	var managedCertID *uuid.UUID
+	if certID != uuid.Nil {
+		managedCertID = &certID
+	}
+	require.NoError(t, db.Exec(`
+		INSERT INTO clients (id, team_id, name, api_key_enabled, jwt_enabled, mtls_enabled, managed_certificate_id, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, true, false, false, ?, ?, NOW(), NOW())`,
+		clientID, teamID, "test-client-"+clientID.String(), managedCertID, createdByUserID).Error)
+
+	t.Cleanup(func() {
+		_ = db.Exec(`DELETE FROM clients WHERE id = ?`, clientID).Error
+	})
+
+	return clientID
+}
+
+// Verifies ListAttachableClientCerts returns only ready+client+unattached
+// certificates scoped to the given projects, excluding pending certs, server
+// certs, certs already attached to a client, and certs from other projects.
+// Empty projectIDs returns an empty slice without querying.
+func TestManagedCertificateRepository_ListAttachableClientCerts(t *testing.T) {
+	db := requirePostgres(t)
+	repo := repository.NewManagedCertificateRepository(db)
+
+	projectA, _, teamA, userA := seedProject(t, db)
+	projectB, _, _, userB := seedProject(t, db)
+
+	issuerA := seedIssuer(t, db, userA)
+	issuerB := seedIssuer(t, db, userB)
+
+	// Ready, client-usage, unattached -- the one that should come back.
+	readyClientA := seedManagedCertificate(t, repo, projectA, issuerA, userA, "ready-client-a", models.ManagedCertStatusReady)
+	setCertUsageAndNotAfter(t, db, readyClientA, models.ManagedCertUsageClient, nil)
+
+	// Pending client-usage cert in the same project -- wrong status.
+	pendingClientA := seedManagedCertificate(t, repo, projectA, issuerA, userA, "pending-client-a", models.ManagedCertStatusPending)
+	setCertUsageAndNotAfter(t, db, pendingClientA, models.ManagedCertUsageClient, nil)
+
+	// Ready server-usage cert in the same project -- wrong usage.
+	readyServerA := seedManagedCertificate(t, repo, projectA, issuerA, userA, "ready-server-a", models.ManagedCertStatusReady)
+	setCertUsageAndNotAfter(t, db, readyServerA, models.ManagedCertUsageServer, nil)
+
+	// Ready, client-usage cert in the same project, but already attached to
+	// a client -- must be excluded by the 1:1 NOT IN subquery.
+	attachedClientA := seedManagedCertificate(t, repo, projectA, issuerA, userA, "attached-client-a", models.ManagedCertStatusReady)
+	setCertUsageAndNotAfter(t, db, attachedClientA, models.ManagedCertUsageClient, nil)
+	seedClientAttachedTo(t, db, teamA, userA, attachedClientA)
+
+	// Ready, client-usage, unattached cert in a DIFFERENT project -- must not
+	// leak into projectA's result.
+	readyClientB := seedManagedCertificate(t, repo, projectB, issuerB, userB, "ready-client-b", models.ManagedCertStatusReady)
+	setCertUsageAndNotAfter(t, db, readyClientB, models.ManagedCertUsageClient, nil)
+
+	t.Cleanup(func() {
+		_ = db.Exec(`DELETE FROM managed_certificates WHERE project_id IN (?, ?)`, projectA, projectB).Error
+	})
+
+	got, err := repo.ListAttachableClientCerts([]uuid.UUID{projectA})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, readyClientA, got[0].ID)
+
+	empty, err := repo.ListAttachableClientCerts([]uuid.UUID{})
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+
+	var nilProjectIDs []uuid.UUID
+	nilResult, err := repo.ListAttachableClientCerts(nilProjectIDs)
+	require.NoError(t, err)
+	assert.Empty(t, nilResult)
+}

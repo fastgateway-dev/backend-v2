@@ -238,6 +238,7 @@ func testCert(secretName string) models.ManagedCertificate {
 		ID:        uuid.New(),
 		ProjectID: uuid.New(),
 		Status:    models.ManagedCertStatusReady,
+		Usage:     models.ManagedCertUsageServer,
 		Config:    models.ManagedCertConfig{SecretName: secretName},
 	}
 }
@@ -560,6 +561,52 @@ func TestReconcile_PerCertificateIsolation(t *testing.T) {
 
 	require.Len(t, d.tenant.createCalls, 1, "the healthy certificate must still be pushed")
 	assert.Equal(t, "cert-healthy", d.tenant.createCalls[0].name)
+}
+
+// TestReconcileOne_SkipsClientCerts proves that reconcileOne skips client
+// certificates entirely -- they are identities (presented BY callers), not
+// gateway listener secrets, so they are never distributed to tenant clusters.
+// The managed key stays in the control cluster as the export source, and
+// CSR-mode client certs have no key at all. Only server certs are pushed.
+func TestReconcileOne_SkipsClientCerts(t *testing.T) {
+	clientCert := testCert("cert-client")
+	clientCert.Usage = models.ManagedCertUsageClient
+
+	d := newDeps()
+	// Even with a valid source and no existing distribution row, a client
+	// cert must be skipped.
+	d.source.crt, d.source.key, d.source.found = []byte("crt"), []byte("key"), true
+
+	err := d.distributor().reconcileOne(context.Background(), clientCert)
+	require.NoError(t, err)
+
+	// No source read, no tenant push, no distribution upsert.
+	assert.False(t, d.source.touched, "client cert must not read source secret")
+	assert.Empty(t, d.tenant.createCalls, "client cert must not push to tenant cluster")
+	assert.Empty(t, d.dist.upserts, "client cert must not touch distribution row")
+}
+
+// TestReconcileOne_ServerCertStillPushes confirms that a usage=server cert
+// still proceeds with the normal read/push flow after the client-skip guard.
+func TestReconcileOne_ServerCertStillPushes(t *testing.T) {
+	crt, key := generateTestCert(t, time.Now().Add(90*24*time.Hour))
+	serverCert := testCert("cert-server")
+	serverCert.Usage = models.ManagedCertUsageServer
+	fp := cluster.CertFingerprint(crt)
+
+	d := newDeps()
+	d.source.crt, d.source.key, d.source.found = crt, key, true
+
+	err := d.distributor().reconcileOne(context.Background(), serverCert)
+	require.NoError(t, err)
+
+	// Server cert must proceed normally.
+	require.Len(t, d.tenant.createCalls, 1, "server cert must push to tenant cluster")
+	assert.Equal(t, crt, d.tenant.createCalls[0].crt)
+	require.NotEmpty(t, d.dist.upserts, "server cert must record distribution status")
+	last := d.dist.upserts[len(d.dist.upserts)-1]
+	assert.Equal(t, models.CertDistStatusSynced, last.Status)
+	assert.Equal(t, fp, last.LastPushedFingerprint)
 }
 
 // panicSource is a SourceReader that panics for any secret name other than

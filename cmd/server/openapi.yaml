@@ -3539,6 +3539,112 @@ paths:
           description: mTLS removed successfully
         '403':
           $ref: '#/components/responses/Forbidden'
+  /clients/{clientId}/certificate:
+    put:
+      tags:
+        - Client mTLS
+      summary: Attach a managed client certificate to a client (team member)
+      description: |
+        Attaches a managed, usage=client certificate (issued via
+        POST /projects/{projectId}/certificates) to this client's mTLS
+        configuration. Writes only the client row -- the CA Secret and
+        ClientTrafficPolicy it implies materialize at the next domain deploy,
+        exactly like PUT .../mtls. Requires the caller to be a member of the
+        client's team, and the certificate to be usage=client, status=ready,
+        in a project the client's team has access to, and not already
+        attached elsewhere.
+      operationId: attachClientCertificate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/clientId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachClientCertificateRequest'
+      responses:
+        '200':
+          description: Certificate attached; returns the updated client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Client or certificate not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The certificate is already attached to another client, or this client already has a managed certificate attached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: The certificate is not usage=client, or is not yet ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - Client mTLS
+      summary: Detach the managed certificate from a client (team member)
+      description: |
+        Clears the client's managed certificate and its derived mTLS fields,
+        reverting the client to no mTLS. A previously-configured BYO mTLS
+        configuration is not restored automatically -- re-add it via
+        PUT .../mtls if wanted.
+      operationId: detachClientCertificate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/clientId'
+      responses:
+        '200':
+          description: Certificate detached; returns the updated client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /clients/{clientId}/attachable-certificates:
+    get:
+      tags:
+        - Client mTLS
+      summary: List managed certificates this client could attach (team member)
+      description: |
+        Lists managed client-usage certificates that are ready, in a project
+        the client's team has a role in, and not already attached to any
+        client -- scoping the attach picker to what this client could
+        actually attach, rather than every certificate the caller can see.
+        Responses carry certificate metadata only, never key material.
+      operationId: listClientAttachableCertificates
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/clientId'
+      responses:
+        '200':
+          description: Attachable managed certificates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachableCertificateList'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /clients/{clientId}/routes:
     get:
       tags:
@@ -4449,6 +4555,80 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/certificates/{certificateId}/export:
+    post:
+      tags:
+        - Managed Certificates
+      summary: Request a certificate export (requires cert.edit)
+      description: |
+        Opens an approval to export a managed-key certificate's private key material.
+        Once approved -- immediately, if the project has approvals disabled -- the
+        requesting user gets a short-lived, single-use grant redeemable via
+        GET .../export/download. Only applicable to managed-key certificates
+        (keyMode: managed): a csr-key-mode certificate's private key never existed
+        server-side (only its CSR was handed to cert-manager), so there is nothing
+        to export and this returns 409.
+      operationId: requestManagedCertificateExport
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/certificateId'
+      responses:
+        '202':
+          description: Export approval opened, or (approvals disabled for this project) the grant was minted immediately.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestExportResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Export is not applicable to this certificate (keyMode is csr -- the caller already holds the private key).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /projects/{projectId}/certificates/{certificateId}/export/download:
+    get:
+      tags:
+        - Managed Certificates
+      summary: Download the exported certificate + private key bundle (one-time)
+      description: |
+        Streams the certificate's leaf certificate, private key, and issuer CA chain
+        as a single concatenated `application/x-pem-file` attachment. This is the
+        ONLY endpoint in the API that ever returns private key material, and only
+        when the calling user holds an approved, unconsumed, unexpired export grant
+        for this certificate (see POST .../export) -- the grant is consumed
+        atomically on this call, so it can be downloaded exactly once.
+      operationId: downloadManagedCertificateExport
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/certificateId'
+      responses:
+        '200':
+          description: PEM bundle containing the private key, leaf certificate, and CA chain, as an attachment download.
+          content:
+            application/x-pem-file:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: No approved, unconsumed export grant is available for this user and certificate; request a new export and get it approved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/topology:
     get:
       tags:
@@ -8581,6 +8761,10 @@ components:
           description: User who configured mTLS
         mtlsCreator:
           $ref: '#/components/schemas/User'
+        managedCertificateId:
+          type: string
+          format: uuid
+          description: Set when a managed client-usage certificate (see PUT .../certificate) is attached. Its CA Secret and ClientTrafficPolicy materialize at the next domain deploy.
         allowedMethods:
           type: array
           items:
@@ -10618,6 +10802,23 @@ components:
         createdAt:
           type: string
           format: date-time
+        keyMode:
+          type: string
+          enum:
+            - managed
+            - csr
+          description: managed (cert-manager generates and holds the leaf private key, default) or csr (the caller supplied a CSR and holds the private key itself -- export is not applicable).
+        subject:
+          type: string
+          description: Set for client-usage certificates.
+        uriSans:
+          type: array
+          items:
+            type: string
+          description: URI Subject Alternative Names, applicable to client-usage certificates.
+        exportAvailable:
+          type: boolean
+          description: Whether the CURRENT caller has an approved, unconsumed, unexpired export grant for this certificate (per-cert AND per-user).
         issuerName:
           type: string
         issuerType:
@@ -11101,41 +11302,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ConflictResult'
-    CreateManagedCertificateRequest:
+    AttachClientCertificateRequest:
       type: object
-      description: DNSNames applies to server-usage certificates; subject applies to client-usage certificates.
       required:
-        - name
-        - issuerId
-        - usage
+        - certificateId
       properties:
-        name:
-          type: string
-        issuerId:
+        certificateId:
           type: string
           format: uuid
-        usage:
-          type: string
-          enum:
-            - server
-            - client
-        dnsNames:
-          type: array
-          items:
-            type: string
-          description: Required when usage is server.
-        subject:
-          type: string
-          description: Required when usage is client.
-        keyAlgorithm:
-          type: string
-          description: Defaults to RSA.
-        keySize:
-          type: integer
-          description: Defaults to 2048.
-        durationDays:
-          type: integer
-          description: Defaults to 90.
+          description: A managed, usage=client certificate (see POST /projects/{projectId}/certificates) in a project the client's team has access to.
     ManagedCertificate:
       type: object
       description: Project-scoped managed certificate issued from a granted certificate issuer. Metadata only -- never includes key or certificate material, which lives in a cert-manager-managed Kubernetes Secret, never in this row or response.
@@ -11177,6 +11352,80 @@ components:
         createdAt:
           type: string
           format: date-time
+        keyMode:
+          type: string
+          enum:
+            - managed
+            - csr
+          description: managed (cert-manager generates and holds the leaf private key, default) or csr (the caller supplied a CSR and holds the private key itself -- export is not applicable).
+        subject:
+          type: string
+          description: Set for client-usage certificates.
+        uriSans:
+          type: array
+          items:
+            type: string
+          description: URI Subject Alternative Names, applicable to client-usage certificates.
+        exportAvailable:
+          type: boolean
+          description: Whether the CURRENT caller has an approved, unconsumed, unexpired export grant for this certificate (per-cert AND per-user). Always false on the Create response.
+    AttachableCertificateList:
+      type: object
+      description: Managed client-usage certificates a given client could attach -- usage=client, status=ready, in a project the client's team has a role in, and not already attached to any client.
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagedCertificate'
+    CreateManagedCertificateRequest:
+      type: object
+      description: DNSNames applies to server-usage certificates; subject applies to client-usage certificates.
+      required:
+        - name
+        - issuerId
+        - usage
+      properties:
+        name:
+          type: string
+        issuerId:
+          type: string
+          format: uuid
+        usage:
+          type: string
+          enum:
+            - server
+            - client
+        dnsNames:
+          type: array
+          items:
+            type: string
+          description: Required when usage is server.
+        subject:
+          type: string
+          description: Required when usage is client.
+        keyAlgorithm:
+          type: string
+          description: Defaults to RSA.
+        keySize:
+          type: integer
+          description: Defaults to 2048.
+        durationDays:
+          type: integer
+          description: Defaults to 90.
+        keyMode:
+          type: string
+          enum:
+            - managed
+            - csr
+          description: Defaults to managed (cert-manager generates and holds the leaf private key). Set to csr to have cert-manager only sign a caller-supplied CSR, in which case csr is required and the private key never exists server-side (so export is not applicable to the resulting certificate).
+        uriSans:
+          type: array
+          items:
+            type: string
+          description: URI Subject Alternative Names, applicable to client-usage certificates.
+        csr:
+          type: string
+          description: Caller-supplied PEM-encoded certificate signing request. Required when keyMode is csr; ignored otherwise.
     CreateManagedCertificateResponse:
       type: object
       description: Returned with 201 when the certificate was issued immediately (project has approvals disabled), or 202 when it opened an approval and is still pending.
@@ -11221,3 +11470,12 @@ components:
         lastSyncedAt:
           type: string
           format: date-time
+    RequestExportResponse:
+      type: object
+      description: Returned by POST .../export with 202, whether the export was submitted for approval or (approvals disabled for this project) the grant was minted immediately.
+      properties:
+        approvalId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null when the export grant was minted immediately (no approval gate configured for this project).

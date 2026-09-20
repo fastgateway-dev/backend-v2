@@ -16,6 +16,13 @@ const (
 	ManagedCertUsageClient ManagedCertUsage = "client"
 )
 
+type ManagedCertKeyMode string
+
+const (
+	ManagedCertKeyModeManaged ManagedCertKeyMode = "managed"
+	ManagedCertKeyModeCSR     ManagedCertKeyMode = "csr"
+)
+
 type ManagedCertStatus string
 
 const (
@@ -26,13 +33,25 @@ const (
 )
 
 type ManagedCertConfig struct {
-	DNSNames        []string `json:"dnsNames,omitempty"`
-	Subject         string   `json:"subject,omitempty"`
-	SecretName      string   `json:"secretName,omitempty"`
-	CertificateName string   `json:"certificateName,omitempty"`
-	KeyAlgorithm    string   `json:"keyAlgorithm,omitempty"`
-	KeySize         int      `json:"keySize,omitempty"`
-	DurationDays    int      `json:"durationDays,omitempty"`
+	DNSNames        []string           `json:"dnsNames,omitempty"`
+	Subject         string             `json:"subject,omitempty"`
+	SecretName      string             `json:"secretName,omitempty"`
+	CertificateName string             `json:"certificateName,omitempty"`
+	KeyAlgorithm    string             `json:"keyAlgorithm,omitempty"`
+	KeySize         int                `json:"keySize,omitempty"`
+	DurationDays    int                `json:"durationDays,omitempty"`
+	KeyMode         ManagedCertKeyMode `json:"keyMode,omitempty"`
+	URISANs         []string           `json:"uriSans,omitempty"`
+	// CSRPEM holds the caller-supplied PEM-encoded CSR for csr-key-mode
+	// certificates, so OnApproved (a fresh row load) can read it back to
+	// build the CertificateRequest. Config is stored as a jsonb column via
+	// Value()/Scan() below (json.Marshal/Unmarshal) -- NOT just serialized
+	// for API responses -- so this field must carry a normal json tag or it
+	// silently never reaches the database and every CSR-mode cert breaks on
+	// the first fresh load. It's fine to expose: a CSR is public material
+	// (public key + subject, no private key), and the handler's response
+	// DTO doesn't include Config anyway.
+	CSRPEM string `json:"csrPem,omitempty"`
 }
 
 func (c ManagedCertConfig) Value() (driver.Value, error) { return json.Marshal(c) }

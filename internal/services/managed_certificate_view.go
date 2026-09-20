@@ -15,6 +15,14 @@ type EnrichedCertificate struct {
 	IssuerType   string
 	Distribution *models.CertificateDistribution // nil if never distributed
 	Domains      []models.Domain                 // referencing domains (empty if none)
+
+	// ExportAvailable reports whether the CURRENT viewer (not just any
+	// user) has an approved, unconsumed, unexpired export grant for this
+	// certificate -- per-cert AND per-user. buildEnrichedCertificates is
+	// user-agnostic and always leaves this false; the service methods that
+	// call it (ListProjectCertificatesEnriched, ListFleetCertificates) fill
+	// it in afterwards via one batch grant lookup for the whole page.
+	ExportAvailable bool
 }
 
 // buildEnrichedCertificates joins a page of certs with their distribution rows,

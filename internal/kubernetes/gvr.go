@@ -141,6 +141,9 @@ var (
 	CertManagerCertificateGVR = schema.GroupVersionResource{
 		Group: "cert-manager.io", Version: "v1", Resource: "certificates",
 	}
+	CertManagerCertificateRequestGVR = schema.GroupVersionResource{
+		Group: "cert-manager.io", Version: "v1", Resource: "certificaterequests",
+	}
 	CertManagerIssuerGVR = schema.GroupVersionResource{
 		Group: "cert-manager.io", Version: "v1", Resource: "issuers",
 	}

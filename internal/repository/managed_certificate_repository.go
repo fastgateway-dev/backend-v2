@@ -135,3 +135,26 @@ func (r *ManagedCertificateRepository) ListByStatuses(statuses []models.ManagedC
 	}
 	return out, nil
 }
+
+// ListAttachableClientCerts returns usage=client, status=ready certificates
+// in the given projects that are NOT already bound to any client (the
+// client<->certificate relationship is 1:1). It lets the attach picker be
+// pre-scoped to the requesting client's team's projects. Empty projectIDs
+// means the team has no project access, so this returns an empty slice
+// without querying.
+func (r *ManagedCertificateRepository) ListAttachableClientCerts(projectIDs []uuid.UUID) ([]models.ManagedCertificate, error) {
+	if len(projectIDs) == 0 {
+		return nil, nil
+	}
+
+	var out []models.ManagedCertificate
+	err := r.db.Where("project_id IN ?", projectIDs).
+		Where("usage = ?", models.ManagedCertUsageClient).
+		Where("status = ?", models.ManagedCertStatusReady).
+		Where("id NOT IN (?)", r.db.Model(&models.Client{}).Select("managed_certificate_id").Where("managed_certificate_id IS NOT NULL")).
+		Order("created_at DESC").Find(&out).Error
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
