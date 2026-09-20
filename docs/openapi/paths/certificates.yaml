@@ -1,3 +1,61 @@
+fleet:
+  get:
+    tags: [Managed Certificates]
+    summary: List managed certificates across all projects (Owner only)
+    description: Owner-only fleet view of managed certificates across ALL projects, enriched with each certificate's resolved issuer name/type, Phase 3a distribution sync state, and referencing domains. Filterable by projectId to narrow to a single project.
+    operationId: listFleetCertificates
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [pending, issuing, ready, error]
+        description: Filter by certificate status.
+      - name: usage
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [server, client]
+        description: Filter by certificate usage.
+      - name: issuerId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Filter by issuer.
+      - name: projectId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Filter to a single project.
+      - name: expiresBefore
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+        description: Filter to certificates expiring before this RFC3339 timestamp.
+    responses:
+      '200':
+        description: List of managed certificates across all projects, enriched with issuer, distribution, and domain info
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/managed-certificate.yaml#/EnrichedManagedCertificateList'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
 issuers:
   get:
     tags: [Certificate Issuers]

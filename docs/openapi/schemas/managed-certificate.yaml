@@ -44,6 +44,81 @@ ManagedCertificateList:
     pagination:
       $ref: './common.yaml#/Pagination'
 
+EnrichedManagedCertificate:
+  type: object
+  description: ManagedCertificate plus resolved issuer name/type, Phase 3a distribution sync state, and the domains referencing this certificate. Metadata only -- distribution carries a fingerprint hash (never key/certificate material), and domains carry id+hostname only (no TLS config or gateway wiring).
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    name:
+      type: string
+    issuerId:
+      type: string
+      format: uuid
+    usage:
+      type: string
+      enum: [server, client]
+    dnsNames:
+      type: array
+      items:
+        type: string
+    status:
+      type: string
+      enum: [pending, issuing, ready, error]
+    statusMessage:
+      type: string
+    fingerprint:
+      type: string
+    notAfter:
+      type: string
+      format: date-time
+    createdAt:
+      type: string
+      format: date-time
+    issuerName:
+      type: string
+    issuerType:
+      type: string
+    distribution:
+      nullable: true
+      type: object
+      description: Null when the certdist controller has never pushed this certificate's Secret.
+      properties:
+        status:
+          type: string
+          enum: [pending, synced, error]
+        lastPushedFingerprint:
+          type: string
+        message:
+          type: string
+        lastSyncedAt:
+          type: string
+          format: date-time
+    domains:
+      type: array
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+            format: uuid
+          hostname:
+            type: string
+
+EnrichedManagedCertificateList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/EnrichedManagedCertificate'
+    pagination:
+      $ref: './common.yaml#/Pagination'
+
 CreateManagedCertificateRequest:
   type: object
   description: DNSNames applies to server-usage certificates; subject applies to client-usage certificates.

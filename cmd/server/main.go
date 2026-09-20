@@ -677,6 +677,21 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 				}
 			}
 
+			// Owner-only fleet certificate view: managed certificates across
+			// ALL projects, filterable by projectId. A SIBLING to
+			// /certificates/issuers above -- gin routes "/certificates" and
+			// "/certificates/issuers" distinctly, so this does not nest
+			// under or conflict with the issuers group. Nil-guarded like the
+			// project-scoped certs group: the handler only exists when the
+			// control-plane client is present (in-cluster).
+			if deps.ManagedCertificateHandler != nil {
+				fleetCerts := protected.Group("/certificates")
+				fleetCerts.Use(deps.AuthMiddleware.RequireRole("owner"))
+				{
+					fleetCerts.GET("", deps.ManagedCertificateHandler.ListFleet)
+				}
+			}
+
 			// Global Clients (authenticated users)
 			clients := protected.Group("/clients")
 			{

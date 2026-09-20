@@ -1,7 +1,8 @@
 certificates:
   get:
     tags: [Managed Certificates]
-    summary: List managed certificates in project
+    summary: List managed certificates in project (requires cert.view)
+    description: Each item is enriched with its resolved issuer name/type, Phase 3a distribution sync state, and the domains referencing it.
     operationId: listManagedCertificates
     security:
       - bearerAuth: []
@@ -16,13 +17,34 @@ certificates:
           type: string
           enum: [pending, issuing, ready, error]
         description: Filter by certificate status.
+      - name: issuerId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Filter by issuer.
+      - name: usage
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [server, client]
+        description: Filter by certificate usage.
+      - name: expiresBefore
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+        description: Filter to certificates expiring before this RFC3339 timestamp.
     responses:
       '200':
-        description: List of managed certificates
+        description: List of managed certificates, enriched with issuer, distribution, and domain info
         content:
           application/json:
             schema:
-              $ref: '../schemas/managed-certificate.yaml#/ManagedCertificateList'
+              $ref: '../schemas/managed-certificate.yaml#/EnrichedManagedCertificateList'
       '401':
         $ref: '../components/responses.yaml#/Unauthorized'
       '403':

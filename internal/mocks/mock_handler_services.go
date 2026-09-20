@@ -10,6 +10,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/fastgateway-dev/backend-v2/internal/services/clients"
 	"github.com/google/uuid"
@@ -4981,6 +4982,172 @@ func (_c *MockManagedCertificateService_ListByProject_Call) Return(managedCertif
 }
 
 func (_c *MockManagedCertificateService_ListByProject_Call) RunAndReturn(run func(projectID uuid.UUID, page int, limit int, status string) ([]models.ManagedCertificate, int64, error)) *MockManagedCertificateService_ListByProject_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListFleetCertificates provides a mock function for the type MockManagedCertificateService
+func (_mock *MockManagedCertificateService) ListFleetCertificates(page int, limit int, f repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error) {
+	ret := _mock.Called(page, limit, f)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListFleetCertificates")
+	}
+
+	var r0 []services.EnrichedCertificate
+	var r1 int64
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(int, int, repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error)); ok {
+		return returnFunc(page, limit, f)
+	}
+	if returnFunc, ok := ret.Get(0).(func(int, int, repository.CertificateListFilter) []services.EnrichedCertificate); ok {
+		r0 = returnFunc(page, limit, f)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]services.EnrichedCertificate)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(int, int, repository.CertificateListFilter) int64); ok {
+		r1 = returnFunc(page, limit, f)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+	if returnFunc, ok := ret.Get(2).(func(int, int, repository.CertificateListFilter) error); ok {
+		r2 = returnFunc(page, limit, f)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+// MockManagedCertificateService_ListFleetCertificates_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListFleetCertificates'
+type MockManagedCertificateService_ListFleetCertificates_Call struct {
+	*mock.Call
+}
+
+// ListFleetCertificates is a helper method to define mock.On call
+//   - page int
+//   - limit int
+//   - f repository.CertificateListFilter
+func (_e *MockManagedCertificateService_Expecter) ListFleetCertificates(page any, limit any, f any) *MockManagedCertificateService_ListFleetCertificates_Call {
+	return &MockManagedCertificateService_ListFleetCertificates_Call{Call: _e.mock.On("ListFleetCertificates", page, limit, f)}
+}
+
+func (_c *MockManagedCertificateService_ListFleetCertificates_Call) Run(run func(page int, limit int, f repository.CertificateListFilter)) *MockManagedCertificateService_ListFleetCertificates_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 int
+		if args[0] != nil {
+			arg0 = args[0].(int)
+		}
+		var arg1 int
+		if args[1] != nil {
+			arg1 = args[1].(int)
+		}
+		var arg2 repository.CertificateListFilter
+		if args[2] != nil {
+			arg2 = args[2].(repository.CertificateListFilter)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockManagedCertificateService_ListFleetCertificates_Call) Return(enrichedCertificates []services.EnrichedCertificate, n int64, err error) *MockManagedCertificateService_ListFleetCertificates_Call {
+	_c.Call.Return(enrichedCertificates, n, err)
+	return _c
+}
+
+func (_c *MockManagedCertificateService_ListFleetCertificates_Call) RunAndReturn(run func(page int, limit int, f repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error)) *MockManagedCertificateService_ListFleetCertificates_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListProjectCertificatesEnriched provides a mock function for the type MockManagedCertificateService
+func (_mock *MockManagedCertificateService) ListProjectCertificatesEnriched(projectID uuid.UUID, page int, limit int, f repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error) {
+	ret := _mock.Called(projectID, page, limit, f)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListProjectCertificatesEnriched")
+	}
+
+	var r0 []services.EnrichedCertificate
+	var r1 int64
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int, repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error)); ok {
+		return returnFunc(projectID, page, limit, f)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int, repository.CertificateListFilter) []services.EnrichedCertificate); ok {
+		r0 = returnFunc(projectID, page, limit, f)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]services.EnrichedCertificate)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, int, int, repository.CertificateListFilter) int64); ok {
+		r1 = returnFunc(projectID, page, limit, f)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+	if returnFunc, ok := ret.Get(2).(func(uuid.UUID, int, int, repository.CertificateListFilter) error); ok {
+		r2 = returnFunc(projectID, page, limit, f)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+// MockManagedCertificateService_ListProjectCertificatesEnriched_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListProjectCertificatesEnriched'
+type MockManagedCertificateService_ListProjectCertificatesEnriched_Call struct {
+	*mock.Call
+}
+
+// ListProjectCertificatesEnriched is a helper method to define mock.On call
+//   - projectID uuid.UUID
+//   - page int
+//   - limit int
+//   - f repository.CertificateListFilter
+func (_e *MockManagedCertificateService_Expecter) ListProjectCertificatesEnriched(projectID any, page any, limit any, f any) *MockManagedCertificateService_ListProjectCertificatesEnriched_Call {
+	return &MockManagedCertificateService_ListProjectCertificatesEnriched_Call{Call: _e.mock.On("ListProjectCertificatesEnriched", projectID, page, limit, f)}
+}
+
+func (_c *MockManagedCertificateService_ListProjectCertificatesEnriched_Call) Run(run func(projectID uuid.UUID, page int, limit int, f repository.CertificateListFilter)) *MockManagedCertificateService_ListProjectCertificatesEnriched_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 int
+		if args[1] != nil {
+			arg1 = args[1].(int)
+		}
+		var arg2 int
+		if args[2] != nil {
+			arg2 = args[2].(int)
+		}
+		var arg3 repository.CertificateListFilter
+		if args[3] != nil {
+			arg3 = args[3].(repository.CertificateListFilter)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockManagedCertificateService_ListProjectCertificatesEnriched_Call) Return(enrichedCertificates []services.EnrichedCertificate, n int64, err error) *MockManagedCertificateService_ListProjectCertificatesEnriched_Call {
+	_c.Call.Return(enrichedCertificates, n, err)
+	return _c
+}
+
+func (_c *MockManagedCertificateService_ListProjectCertificatesEnriched_Call) RunAndReturn(run func(projectID uuid.UUID, page int, limit int, f repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error)) *MockManagedCertificateService_ListProjectCertificatesEnriched_Call {
 	_c.Call.Return(run)
 	return _c
 }

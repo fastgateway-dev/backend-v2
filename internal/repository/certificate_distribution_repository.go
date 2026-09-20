@@ -32,3 +32,18 @@ func (r *CertificateDistributionRepository) GetByCertificateID(certID uuid.UUID)
 func (r *CertificateDistributionRepository) DeleteByCertificateID(certID uuid.UUID) error {
 	return r.db.Delete(&models.CertificateDistribution{}, "managed_certificate_id = ?", certID).Error
 }
+
+// ListByCertificateIDs returns all distribution rows whose
+// managed_certificate_id is in certIDs, in a single query. Used to avoid an
+// N+1 when enriching a page of certificates. Returns nil, nil for an empty
+// input without querying.
+func (r *CertificateDistributionRepository) ListByCertificateIDs(certIDs []uuid.UUID) ([]models.CertificateDistribution, error) {
+	if len(certIDs) == 0 {
+		return nil, nil
+	}
+	var out []models.CertificateDistribution
+	if err := r.db.Where("managed_certificate_id IN ?", certIDs).Find(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}

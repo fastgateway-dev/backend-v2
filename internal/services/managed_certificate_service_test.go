@@ -17,6 +17,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -977,4 +978,244 @@ func TestManagedCertificateService_Resync_DistRepoOtherError_Propagates(t *testi
 	distRepo.AssertNotCalled(t, "Upsert", mock.Anything)
 	repo.AssertExpectations(t)
 	distRepo.AssertExpectations(t)
+}
+
+// --- ListProjectCertificatesEnriched tests ---
+
+func TestManagedCertificateService_ListProjectCertificatesEnriched_JoinsAndNoN1(t *testing.T) {
+	repo := new(mocks.MockManagedCertificateRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	grantRepo := new(mocks.MockIssuerProjectGrantRepository)
+	projectRepo := new(mocks.MockProjectRepository)
+	applier := new(mocks.MockCertInfraApplier)
+	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
+	submitter := &fakeCertApprovalSubmitter{}
+
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
+
+	projectID := uuid.New()
+	issuerID := uuid.New()
+	certAID := uuid.New()
+	certBID := uuid.New()
+
+	certA := models.ManagedCertificate{ID: certAID, ProjectID: projectID, Name: "cert-a", IssuerID: issuerID, Status: models.ManagedCertStatusReady}
+	certB := models.ManagedCertificate{ID: certBID, ProjectID: projectID, Name: "cert-b", IssuerID: issuerID, Status: models.ManagedCertStatusReady}
+	certs := []models.ManagedCertificate{certA, certB}
+
+	dist := models.CertificateDistribution{ManagedCertificateID: certAID, ProjectID: projectID, Status: models.CertDistStatusSynced}
+	domain := models.Domain{ID: uuid.New(), ProjectID: projectID, Hostname: "a.example.com", ManagedCertificateID: &certAID}
+	issuer := models.CertificateIssuer{ID: issuerID, Name: "Issuer A", Type: models.IssuerTypeSelfSignedCA}
+
+	filter := repository.CertificateListFilter{Status: string(models.ManagedCertStatusReady)}
+
+	repo.On("ListByProjectFiltered", projectID, 1, 20, filter).Return(certs, int64(2), nil)
+
+	// The batch repos must be called with exactly the page's cert IDs -- ONE
+	// call each, proving no N+1 per-cert lookups.
+	distRepo.On("ListByCertificateIDs", []uuid.UUID{certAID, certBID}).Return([]models.CertificateDistribution{dist}, nil).Once()
+	domainRepo.On("ListByManagedCertificateIDs", []uuid.UUID{certAID, certBID}).Return([]models.Domain{domain}, nil).Once()
+	issuerRepo.On("List").Return([]models.CertificateIssuer{issuer}, nil).Once()
+
+	enriched, total, err := svc.ListProjectCertificatesEnriched(projectID, 1, 20, filter)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	require.Len(t, enriched, 2)
+
+	assert.Equal(t, certAID, enriched[0].Certificate.ID)
+	require.NotNil(t, enriched[0].Distribution)
+	assert.Equal(t, models.CertDistStatusSynced, enriched[0].Distribution.Status)
+	require.Len(t, enriched[0].Domains, 1)
+	assert.Equal(t, "a.example.com", enriched[0].Domains[0].Hostname)
+	assert.Equal(t, "Issuer A", enriched[0].IssuerName)
+	assert.Equal(t, "self_signed_ca", enriched[0].IssuerType)
+
+	assert.Equal(t, certBID, enriched[1].Certificate.ID)
+	assert.Nil(t, enriched[1].Distribution)
+	assert.Empty(t, enriched[1].Domains)
+
+	repo.AssertExpectations(t)
+	distRepo.AssertExpectations(t)
+	domainRepo.AssertExpectations(t)
+	issuerRepo.AssertExpectations(t)
+}
+
+func TestManagedCertificateService_ListProjectCertificatesEnriched_EmptyPage_NoBatchCalls(t *testing.T) {
+	repo := new(mocks.MockManagedCertificateRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	grantRepo := new(mocks.MockIssuerProjectGrantRepository)
+	projectRepo := new(mocks.MockProjectRepository)
+	applier := new(mocks.MockCertInfraApplier)
+	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
+	submitter := &fakeCertApprovalSubmitter{}
+
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
+
+	projectID := uuid.New()
+	filter := repository.CertificateListFilter{}
+	repo.On("ListByProjectFiltered", projectID, 1, 20, filter).Return([]models.ManagedCertificate{}, int64(0), nil)
+	distRepo.On("ListByCertificateIDs", []uuid.UUID{}).Return([]models.CertificateDistribution{}, nil).Once()
+	domainRepo.On("ListByManagedCertificateIDs", []uuid.UUID{}).Return([]models.Domain{}, nil).Once()
+	issuerRepo.On("List").Return([]models.CertificateIssuer{}, nil).Once()
+
+	enriched, total, err := svc.ListProjectCertificatesEnriched(projectID, 1, 20, filter)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), total)
+	assert.Empty(t, enriched)
+
+	repo.AssertExpectations(t)
+}
+
+func TestManagedCertificateService_ListProjectCertificatesEnriched_RepoError_Propagates(t *testing.T) {
+	repo := new(mocks.MockManagedCertificateRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	grantRepo := new(mocks.MockIssuerProjectGrantRepository)
+	projectRepo := new(mocks.MockProjectRepository)
+	applier := new(mocks.MockCertInfraApplier)
+	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
+	submitter := &fakeCertApprovalSubmitter{}
+
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
+
+	projectID := uuid.New()
+	filter := repository.CertificateListFilter{}
+	boom := errors.New("db exploded")
+	repo.On("ListByProjectFiltered", projectID, 1, 20, filter).Return(nil, int64(0), boom)
+
+	_, _, err := svc.ListProjectCertificatesEnriched(projectID, 1, 20, filter)
+	require.Error(t, err)
+	distRepo.AssertNotCalled(t, "ListByCertificateIDs", mock.Anything)
+	domainRepo.AssertNotCalled(t, "ListByManagedCertificateIDs", mock.Anything)
+	issuerRepo.AssertNotCalled(t, "List")
+}
+
+// --- ListFleetCertificates tests ---
+
+// Verifies ListFleetCertificates lists across projects (via repo.ListFleet)
+// and reuses the same enrich helper as ListProjectCertificatesEnriched --
+// each batch repo called exactly once with the page's cert IDs, no per-cert
+// N+1 lookups.
+func TestManagedCertificateService_ListFleetCertificates_JoinsAndNoN1(t *testing.T) {
+	repo := new(mocks.MockManagedCertificateRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	grantRepo := new(mocks.MockIssuerProjectGrantRepository)
+	projectRepo := new(mocks.MockProjectRepository)
+	applier := new(mocks.MockCertInfraApplier)
+	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
+	submitter := &fakeCertApprovalSubmitter{}
+
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
+
+	projectA := uuid.New()
+	projectB := uuid.New()
+	issuerID := uuid.New()
+	certAID := uuid.New()
+	certBID := uuid.New()
+
+	// certA and certB belong to DIFFERENT projects -- proving this is a
+	// cross-project (fleet) listing, not a project-scoped one.
+	certA := models.ManagedCertificate{ID: certAID, ProjectID: projectA, Name: "cert-a", IssuerID: issuerID, Status: models.ManagedCertStatusReady}
+	certB := models.ManagedCertificate{ID: certBID, ProjectID: projectB, Name: "cert-b", IssuerID: issuerID, Status: models.ManagedCertStatusReady}
+	certs := []models.ManagedCertificate{certA, certB}
+
+	dist := models.CertificateDistribution{ManagedCertificateID: certAID, ProjectID: projectA, Status: models.CertDistStatusSynced}
+	domain := models.Domain{ID: uuid.New(), ProjectID: projectA, Hostname: "a.example.com", ManagedCertificateID: &certAID}
+	issuer := models.CertificateIssuer{ID: issuerID, Name: "Issuer A", Type: models.IssuerTypeSelfSignedCA}
+
+	filter := repository.CertificateListFilter{Status: string(models.ManagedCertStatusReady)}
+
+	repo.On("ListFleet", 1, 20, filter).Return(certs, int64(2), nil)
+
+	distRepo.On("ListByCertificateIDs", []uuid.UUID{certAID, certBID}).Return([]models.CertificateDistribution{dist}, nil).Once()
+	domainRepo.On("ListByManagedCertificateIDs", []uuid.UUID{certAID, certBID}).Return([]models.Domain{domain}, nil).Once()
+	issuerRepo.On("List").Return([]models.CertificateIssuer{issuer}, nil).Once()
+
+	enriched, total, err := svc.ListFleetCertificates(1, 20, filter)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	require.Len(t, enriched, 2)
+
+	assert.Equal(t, certAID, enriched[0].Certificate.ID)
+	assert.Equal(t, projectA, enriched[0].Certificate.ProjectID)
+	require.NotNil(t, enriched[0].Distribution)
+	assert.Equal(t, models.CertDistStatusSynced, enriched[0].Distribution.Status)
+	require.Len(t, enriched[0].Domains, 1)
+	assert.Equal(t, "a.example.com", enriched[0].Domains[0].Hostname)
+	assert.Equal(t, "Issuer A", enriched[0].IssuerName)
+
+	assert.Equal(t, certBID, enriched[1].Certificate.ID)
+	assert.Equal(t, projectB, enriched[1].Certificate.ProjectID)
+	assert.Nil(t, enriched[1].Distribution)
+	assert.Empty(t, enriched[1].Domains)
+
+	repo.AssertExpectations(t)
+	distRepo.AssertExpectations(t)
+	domainRepo.AssertExpectations(t)
+	issuerRepo.AssertExpectations(t)
+}
+
+// Verifies the projectId filter passes through to repo.ListFleet
+// unmodified -- unlike ListProjectCertificatesEnriched, the fleet method
+// does NOT ignore f.ProjectID, since there is no path-derived project scope
+// to fall back on.
+func TestManagedCertificateService_ListFleetCertificates_ProjectIDFilterPassesThrough(t *testing.T) {
+	repo := new(mocks.MockManagedCertificateRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	grantRepo := new(mocks.MockIssuerProjectGrantRepository)
+	projectRepo := new(mocks.MockProjectRepository)
+	applier := new(mocks.MockCertInfraApplier)
+	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
+	submitter := &fakeCertApprovalSubmitter{}
+
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
+
+	projectID := uuid.New()
+	filter := repository.CertificateListFilter{ProjectID: &projectID}
+
+	repo.On("ListFleet", 1, 20, filter).Return([]models.ManagedCertificate{}, int64(0), nil)
+	distRepo.On("ListByCertificateIDs", []uuid.UUID{}).Return([]models.CertificateDistribution{}, nil).Once()
+	domainRepo.On("ListByManagedCertificateIDs", []uuid.UUID{}).Return([]models.Domain{}, nil).Once()
+	issuerRepo.On("List").Return([]models.CertificateIssuer{}, nil).Once()
+
+	enriched, total, err := svc.ListFleetCertificates(1, 20, filter)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), total)
+	assert.Empty(t, enriched)
+
+	repo.AssertExpectations(t)
+}
+
+// Verifies a repo.ListFleet error propagates without calling any of the
+// batch enrichment repos.
+func TestManagedCertificateService_ListFleetCertificates_RepoError_Propagates(t *testing.T) {
+	repo := new(mocks.MockManagedCertificateRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	grantRepo := new(mocks.MockIssuerProjectGrantRepository)
+	projectRepo := new(mocks.MockProjectRepository)
+	applier := new(mocks.MockCertInfraApplier)
+	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
+	submitter := &fakeCertApprovalSubmitter{}
+
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
+
+	filter := repository.CertificateListFilter{}
+	boom := errors.New("db exploded")
+	repo.On("ListFleet", 1, 20, filter).Return(nil, int64(0), boom)
+
+	_, _, err := svc.ListFleetCertificates(1, 20, filter)
+	require.Error(t, err)
+	distRepo.AssertNotCalled(t, "ListByCertificateIDs", mock.Anything)
+	domainRepo.AssertNotCalled(t, "ListByManagedCertificateIDs", mock.Anything)
+	issuerRepo.AssertNotCalled(t, "List")
 }

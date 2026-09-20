@@ -595,6 +595,70 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /certificates:
+    get:
+      tags:
+        - Managed Certificates
+      summary: List managed certificates across all projects (Owner only)
+      description: Owner-only fleet view of managed certificates across ALL projects, enriched with each certificate's resolved issuer name/type, Phase 3a distribution sync state, and referencing domains. Filterable by projectId to narrow to a single project.
+      operationId: listFleetCertificates
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - pending
+              - issuing
+              - ready
+              - error
+          description: Filter by certificate status.
+        - name: usage
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - server
+              - client
+          description: Filter by certificate usage.
+        - name: issuerId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Filter by issuer.
+        - name: projectId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Filter to a single project.
+        - name: expiresBefore
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filter to certificates expiring before this RFC3339 timestamp.
+      responses:
+        '200':
+          description: List of managed certificates across all projects, enriched with issuer, distribution, and domain info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrichedManagedCertificateList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /certificates/issuers:
     get:
       tags:
@@ -4159,7 +4223,8 @@ paths:
     get:
       tags:
         - Managed Certificates
-      summary: List managed certificates in project
+      summary: List managed certificates in project (requires cert.view)
+      description: Each item is enriched with its resolved issuer name/type, Phase 3a distribution sync state, and the domains referencing it.
       operationId: listManagedCertificates
       security:
         - bearerAuth: []
@@ -4178,13 +4243,36 @@ paths:
               - ready
               - error
           description: Filter by certificate status.
+        - name: issuerId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Filter by issuer.
+        - name: usage
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - server
+              - client
+          description: Filter by certificate usage.
+        - name: expiresBefore
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filter to certificates expiring before this RFC3339 timestamp.
       responses:
         '200':
-          description: List of managed certificates
+          description: List of managed certificates, enriched with issuer, distribution, and domain info
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ManagedCertificateList'
+                $ref: '#/components/schemas/EnrichedManagedCertificateList'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -10489,6 +10577,88 @@ components:
             $ref: '#/components/schemas/ApprovalComment'
         total:
           type: integer
+    EnrichedManagedCertificate:
+      type: object
+      description: ManagedCertificate plus resolved issuer name/type, Phase 3a distribution sync state, and the domains referencing this certificate. Metadata only -- distribution carries a fingerprint hash (never key/certificate material), and domains carry id+hostname only (no TLS config or gateway wiring).
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        issuerId:
+          type: string
+          format: uuid
+        usage:
+          type: string
+          enum:
+            - server
+            - client
+        dnsNames:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - issuing
+            - ready
+            - error
+        statusMessage:
+          type: string
+        fingerprint:
+          type: string
+        notAfter:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        issuerName:
+          type: string
+        issuerType:
+          type: string
+        distribution:
+          nullable: true
+          type: object
+          description: Null when the certdist controller has never pushed this certificate's Secret.
+          properties:
+            status:
+              type: string
+              enum:
+                - pending
+                - synced
+                - error
+            lastPushedFingerprint:
+              type: string
+            message:
+              type: string
+            lastSyncedAt:
+              type: string
+              format: date-time
+        domains:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              hostname:
+                type: string
+    EnrichedManagedCertificateList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnrichedManagedCertificate'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
     Labels:
       type: object
       additionalProperties:
@@ -10931,6 +11101,41 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ConflictResult'
+    CreateManagedCertificateRequest:
+      type: object
+      description: DNSNames applies to server-usage certificates; subject applies to client-usage certificates.
+      required:
+        - name
+        - issuerId
+        - usage
+      properties:
+        name:
+          type: string
+        issuerId:
+          type: string
+          format: uuid
+        usage:
+          type: string
+          enum:
+            - server
+            - client
+        dnsNames:
+          type: array
+          items:
+            type: string
+          description: Required when usage is server.
+        subject:
+          type: string
+          description: Required when usage is client.
+        keyAlgorithm:
+          type: string
+          description: Defaults to RSA.
+        keySize:
+          type: integer
+          description: Defaults to 2048.
+        durationDays:
+          type: integer
+          description: Defaults to 90.
     ManagedCertificate:
       type: object
       description: Project-scoped managed certificate issued from a granted certificate issuer. Metadata only -- never includes key or certificate material, which lives in a cert-manager-managed Kubernetes Secret, never in this row or response.
@@ -10972,50 +11177,6 @@ components:
         createdAt:
           type: string
           format: date-time
-    ManagedCertificateList:
-      type: object
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/ManagedCertificate'
-        pagination:
-          $ref: '#/components/schemas/Pagination'
-    CreateManagedCertificateRequest:
-      type: object
-      description: DNSNames applies to server-usage certificates; subject applies to client-usage certificates.
-      required:
-        - name
-        - issuerId
-        - usage
-      properties:
-        name:
-          type: string
-        issuerId:
-          type: string
-          format: uuid
-        usage:
-          type: string
-          enum:
-            - server
-            - client
-        dnsNames:
-          type: array
-          items:
-            type: string
-          description: Required when usage is server.
-        subject:
-          type: string
-          description: Required when usage is client.
-        keyAlgorithm:
-          type: string
-          description: Defaults to RSA.
-        keySize:
-          type: integer
-          description: Defaults to 2048.
-        durationDays:
-          type: integer
-          description: Defaults to 90.
     CreateManagedCertificateResponse:
       type: object
       description: Returned with 201 when the certificate was issued immediately (project has approvals disabled), or 202 when it opened an approval and is still pending.

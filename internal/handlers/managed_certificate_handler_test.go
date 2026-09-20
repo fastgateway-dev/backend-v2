@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -181,15 +183,35 @@ func TestManagedCertificateHandler_List_Success(t *testing.T) {
 	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
 	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
 
+	user := testUser() // Owner role bypasses the certificate.view permission check
 	projectID := uuid.New()
-	certs := []models.ManagedCertificate{
-		{ID: uuid.New(), ProjectID: projectID, Name: "cert1"},
-		{ID: uuid.New(), ProjectID: projectID, Name: "cert2"},
+	issuerID := uuid.New()
+	certAID := uuid.New()
+	certBID := uuid.New()
+	domainID := uuid.New()
+
+	enriched := []services.EnrichedCertificate{
+		{
+			Certificate: models.ManagedCertificate{ID: certAID, ProjectID: projectID, Name: "cert1", IssuerID: issuerID},
+			IssuerName:  "Issuer A",
+			IssuerType:  "self_signed_ca",
+			Distribution: &models.CertificateDistribution{
+				ManagedCertificateID: certAID,
+				Status:               models.CertDistStatusSynced,
+			},
+			Domains: []models.Domain{{ID: domainID, Hostname: "a.example.com"}},
+		},
+		{
+			Certificate: models.ManagedCertificate{ID: certBID, ProjectID: projectID, Name: "cert2", IssuerID: issuerID},
+			IssuerName:  "Issuer A",
+			IssuerType:  "self_signed_ca",
+		},
 	}
-	mockCert.On("ListByProject", projectID, 1, 20, "").Return(certs, int64(2), nil)
+	mockCert.On("ListProjectCertificatesEnriched", projectID, 1, 20, repository.CertificateListFilter{}).Return(enriched, int64(2), nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("user", user)
 	c.Request, _ = http.NewRequest("GET", "/projects/"+projectID.String()+"/certificates", nil)
 	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}}
 
@@ -202,6 +224,105 @@ func TestManagedCertificateHandler_List_Success(t *testing.T) {
 	data := resp["data"].([]interface{})
 	require.Len(data, 2)
 	require.NotNil(resp["pagination"])
+
+	first := data[0].(map[string]interface{})
+	assert.Equal(t, "Issuer A", first["issuerName"])
+	assert.Equal(t, "self_signed_ca", first["issuerType"])
+	dist := first["distribution"].(map[string]interface{})
+	assert.Equal(t, string(models.CertDistStatusSynced), dist["status"])
+	domains := first["domains"].([]interface{})
+	require.Len(domains, 1)
+	firstDomain := domains[0].(map[string]interface{})
+	assert.Equal(t, "a.example.com", firstDomain["hostname"])
+	assert.Equal(t, domainID.String(), firstDomain["id"])
+	// No secret material and no other domain fields leaked.
+	assert.Len(t, firstDomain, 2)
+
+	second := data[1].(map[string]interface{})
+	assert.Nil(t, second["distribution"])
+	assert.Empty(t, second["domains"])
+
+	mockCert.AssertExpectations(t)
+}
+
+func TestManagedCertificateHandler_List_DeniedWithoutCertificateView(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	mockProject := new(mocks.MockProjectRepository)
+	mockTeam := new(mocks.MockTeamRepository)
+	pc := middleware.NewPermissionChecker(mockProject, mockTeam)
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	user := &models.User{ID: uuid.New(), Username: "dev1", Role: models.UserRoleUser, IsActive: true}
+	projectID := uuid.New()
+
+	mockProject.On("IsAdmin", projectID, user.ID).Return(false, nil)
+	mockTeam.On("HasPermissionInProject", projectID, user.ID, models.PermCertificateView).Return(false, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("user", user)
+	c.Request, _ = http.NewRequest("GET", "/projects/"+projectID.String()+"/certificates", nil)
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}}
+
+	h.List(c)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	mockCert.AssertNotCalled(t, "ListProjectCertificatesEnriched", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestManagedCertificateHandler_List_MalformedExpiresBefore_BadRequest(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	user := testUser() // Owner role bypasses the certificate.view check, isolating filter parsing
+	projectID := uuid.New()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("user", user)
+	c.Request, _ = http.NewRequest("GET", "/projects/"+projectID.String()+"/certificates?expiresBefore=not-a-date", nil)
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}}
+
+	h.List(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	mockCert.AssertNotCalled(t, "ListProjectCertificatesEnriched", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestManagedCertificateHandler_List_FiltersPassedThrough(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	user := testUser()
+	projectID := uuid.New()
+	issuerID := uuid.New()
+	expiresBefore, err := time.Parse(time.RFC3339, "2026-12-31T00:00:00Z")
+	require := assert.New(t)
+	require.NoError(err)
+
+	expected := repository.CertificateListFilter{
+		Status:        "ready",
+		IssuerID:      &issuerID,
+		Usage:         "server",
+		ExpiresBefore: &expiresBefore,
+	}
+	mockCert.On("ListProjectCertificatesEnriched", projectID, 1, 20, expected).Return([]services.EnrichedCertificate{}, int64(0), nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("user", user)
+	url := "/projects/" + projectID.String() + "/certificates?status=ready&issuerId=" + issuerID.String() + "&usage=server&expiresBefore=2026-12-31T00:00:00Z"
+	c.Request, _ = http.NewRequest("GET", url, nil)
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}}
+
+	h.List(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
 	mockCert.AssertExpectations(t)
 }
 
@@ -553,4 +674,124 @@ func TestManagedCertificateHandler_Resync_AllowedWithEditPermission(t *testing.T
 	assert.Equal(t, http.StatusAccepted, w.Code)
 	mockCert.AssertExpectations(t)
 	mockAudit.AssertExpectations(t)
+}
+
+// --- ListFleet tests ---
+//
+// ListFleet has no per-handler permission check -- the owner gate is
+// enforced by the RequireRole("owner") route middleware in main.go, not by
+// the handler -- so these tests exercise the handler directly (no
+// permission-checker wiring needed) and focus on filter parsing and the
+// enriched cross-project response shape.
+
+func TestManagedCertificateHandler_ListFleet_Success_AcrossProjects(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	projectA := uuid.New()
+	projectB := uuid.New()
+	issuerID := uuid.New()
+	certAID := uuid.New()
+	certBID := uuid.New()
+
+	enriched := []services.EnrichedCertificate{
+		{
+			Certificate: models.ManagedCertificate{ID: certAID, ProjectID: projectA, Name: "cert1", IssuerID: issuerID},
+			IssuerName:  "Issuer A",
+			IssuerType:  "self_signed_ca",
+		},
+		{
+			Certificate: models.ManagedCertificate{ID: certBID, ProjectID: projectB, Name: "cert2", IssuerID: issuerID},
+			IssuerName:  "Issuer A",
+			IssuerType:  "self_signed_ca",
+		},
+	}
+	mockCert.On("ListFleetCertificates", 1, 20, repository.CertificateListFilter{}).Return(enriched, int64(2), nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/certificates", nil)
+
+	h.ListFleet(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require := assert.New(t)
+	require.NoError(json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].([]interface{})
+	require.Len(data, 2)
+	require.NotNil(resp["pagination"])
+
+	first := data[0].(map[string]interface{})
+	assert.Equal(t, projectA.String(), first["projectId"])
+	second := data[1].(map[string]interface{})
+	assert.Equal(t, projectB.String(), second["projectId"])
+
+	mockCert.AssertExpectations(t)
+}
+
+func TestManagedCertificateHandler_ListFleet_MalformedExpiresBefore_BadRequest(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/certificates?expiresBefore=not-a-date", nil)
+
+	h.ListFleet(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	mockCert.AssertNotCalled(t, "ListFleetCertificates", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestManagedCertificateHandler_ListFleet_MalformedProjectID_BadRequest(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/certificates?projectId=not-a-uuid", nil)
+
+	h.ListFleet(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	mockCert.AssertNotCalled(t, "ListFleetCertificates", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestManagedCertificateHandler_ListFleet_FiltersPassedThrough(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	projectID := uuid.New()
+	issuerID := uuid.New()
+	expiresBefore, err := time.Parse(time.RFC3339, "2026-12-31T00:00:00Z")
+	require := assert.New(t)
+	require.NoError(err)
+
+	expected := repository.CertificateListFilter{
+		Status:        "ready",
+		IssuerID:      &issuerID,
+		Usage:         "server",
+		ExpiresBefore: &expiresBefore,
+		ProjectID:     &projectID,
+	}
+	mockCert.On("ListFleetCertificates", 1, 20, expected).Return([]services.EnrichedCertificate{}, int64(0), nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	url := "/certificates?status=ready&issuerId=" + issuerID.String() + "&usage=server&expiresBefore=2026-12-31T00:00:00Z&projectId=" + projectID.String()
+	c.Request, _ = http.NewRequest("GET", url, nil)
+
+	h.ListFleet(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockCert.AssertExpectations(t)
 }

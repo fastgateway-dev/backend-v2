@@ -228,6 +228,15 @@ func (p *PermissionChecker) CanEditCertificates(projectID uuid.UUID, user *model
 	return p.HasPermission(projectID, user, models.PermCertificateEdit)
 }
 
+// CanViewCertificates checks if user can view certificates.
+// Owner, Project Admin, or user with certificate.view permission.
+func (p *PermissionChecker) CanViewCertificates(projectID uuid.UUID, user *models.User) bool {
+	if IsOwner(user) || p.IsProjectAdmin(projectID, user.ID) {
+		return true
+	}
+	return p.HasPermission(projectID, user, models.PermCertificateView)
+}
+
 // GetProjectPermissions returns all permissions for a user in a project
 func (p *PermissionChecker) GetProjectPermissions(projectID uuid.UUID, user *models.User) *ProjectPermissions {
 	isOwner := IsOwner(user)

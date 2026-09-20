@@ -143,6 +143,7 @@ type DomainRepositoryInterface interface {
 	ListByTemplateID(templateID uuid.UUID) ([]models.Domain, error)
 	CountByProjectID(projectID uuid.UUID) (int, error)
 	ListByManagedCertificateID(certID uuid.UUID) ([]models.Domain, error)
+	ListByManagedCertificateIDs(certIDs []uuid.UUID) ([]models.Domain, error)
 }
 
 // DomainSettingsRepositoryInterface defines the interface for domain settings repository operations
@@ -398,6 +399,8 @@ type ManagedCertificateRepositoryInterface interface {
 	Update(c *models.ManagedCertificate) error
 	Delete(id uuid.UUID) error
 	ListByProject(projectID uuid.UUID, page, limit int, status string) ([]models.ManagedCertificate, int64, error)
+	ListByProjectFiltered(projectID uuid.UUID, page, limit int, f CertificateListFilter) ([]models.ManagedCertificate, int64, error)
+	ListFleet(page, limit int, f CertificateListFilter) ([]models.ManagedCertificate, int64, error)
 	CountByIssuer(issuerID uuid.UUID) (int64, error)
 	CountByIssuerAndProject(issuerID, projectID uuid.UUID) (int64, error)
 	ListByStatuses(statuses []models.ManagedCertStatus) ([]models.ManagedCertificate, error)
@@ -408,6 +411,7 @@ type CertificateDistributionRepositoryInterface interface {
 	Upsert(cd *models.CertificateDistribution) error
 	GetByCertificateID(certID uuid.UUID) (*models.CertificateDistribution, error)
 	DeleteByCertificateID(certID uuid.UUID) error
+	ListByCertificateIDs(certIDs []uuid.UUID) ([]models.CertificateDistribution, error)
 }
 
 // Compile-time interface satisfaction checks

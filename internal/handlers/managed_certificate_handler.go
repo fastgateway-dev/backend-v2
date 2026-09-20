@@ -12,6 +12,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
 
@@ -69,11 +70,66 @@ func toManagedCertificateResponse(c *models.ManagedCertificate) managedCertifica
 	}
 }
 
-// List lists managed certificates for a project.
+// domainSummaryResponse carries only a referencing domain's id and hostname
+// -- never its TLS config, gateway wiring, or any other field.
+type domainSummaryResponse struct {
+	ID       uuid.UUID `json:"id"`
+	Hostname string    `json:"hostname"`
+}
+
+// enrichedCertificateResponse extends managedCertificateResponse with the
+// visibility fields Task 3/4 add: the resolved issuer name/type, the Phase
+// 3a distribution sync state (nil if never distributed), and the domains
+// referencing this certificate (id+hostname only -- no secret material). It
+// is a separate type from managedCertificateResponse (rather than adding
+// fields there) so Get/Create/Delete/Status's plain responses stay
+// unchanged.
+type enrichedCertificateResponse struct {
+	managedCertificateResponse
+	IssuerName   string                           `json:"issuerName"`
+	IssuerType   string                           `json:"issuerType"`
+	Distribution *certificateDistributionResponse `json:"distribution"`
+	Domains      []domainSummaryResponse          `json:"domains"`
+}
+
+func toEnrichedCertificateResponse(e *services.EnrichedCertificate) enrichedCertificateResponse {
+	domains := make([]domainSummaryResponse, 0, len(e.Domains))
+	for _, d := range e.Domains {
+		domains = append(domains, domainSummaryResponse{ID: d.ID, Hostname: d.Hostname})
+	}
+
+	var dist *certificateDistributionResponse
+	if e.Distribution != nil {
+		converted := toCertificateDistributionResponse(e.Distribution)
+		dist = &converted
+	}
+
+	return enrichedCertificateResponse{
+		managedCertificateResponse: toManagedCertificateResponse(&e.Certificate),
+		IssuerName:                 e.IssuerName,
+		IssuerType:                 e.IssuerType,
+		Distribution:               dist,
+		Domains:                    domains,
+	}
+}
+
+// List lists managed certificates for a project, enriched with each
+// certificate's resolved issuer name/type, distribution sync state, and
+// referencing domains. Gated by certificate.view (Ruling: previously this
+// endpoint was reachable by anyone with any project access via the
+// group-level RequireProjectAccess() middleware; a project member in a
+// preset lacking certificate.view now loses list access -- PresetViewer
+// already includes it, so ordinary viewers are unaffected).
 func (h *ManagedCertificateHandler) List(c *gin.Context) {
+	user := middleware.GetCurrentUser(c)
 	projectID, err := uuid.Parse(c.Param("projectId"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+
+	if !h.permChecker.CanViewCertificates(projectID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: insufficient permissions to view certificates"})
 		return
 	}
 
@@ -85,17 +141,112 @@ func (h *ManagedCertificateHandler) List(c *gin.Context) {
 	if limit < 1 {
 		limit = 20
 	}
-	status := c.Query("status")
 
-	certs, total, err := h.service.ListByProject(projectID, page, limit, status)
+	filter := repository.CertificateListFilter{
+		Status: c.Query("status"),
+		Usage:  c.Query("usage"),
+	}
+
+	if issuerIDStr := c.Query("issuerId"); issuerIDStr != "" {
+		issuerID, err := uuid.Parse(issuerIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid issuerId"})
+			return
+		}
+		filter.IssuerID = &issuerID
+	}
+
+	if expiresBeforeStr := c.Query("expiresBefore"); expiresBeforeStr != "" {
+		expiresBefore, err := time.Parse(time.RFC3339, expiresBeforeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid expiresBefore: must be RFC3339"})
+			return
+		}
+		filter.ExpiresBefore = &expiresBefore
+	}
+
+	enriched, total, err := h.service.ListProjectCertificatesEnriched(projectID, page, limit, filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	resp := make([]managedCertificateResponse, 0, len(certs))
-	for i := range certs {
-		resp = append(resp, toManagedCertificateResponse(&certs[i]))
+	resp := make([]enrichedCertificateResponse, 0, len(enriched))
+	for i := range enriched {
+		resp = append(resp, toEnrichedCertificateResponse(&enriched[i]))
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": resp,
+		"pagination": gin.H{
+			"page":       page,
+			"limit":      limit,
+			"total":      total,
+			"totalPages": (total + int64(limit) - 1) / int64(limit),
+		},
+	})
+}
+
+// ListFleet lists managed certificates across ALL projects, enriched the
+// same way as List (resolved issuer name/type, distribution sync state, and
+// referencing domains -- the enriched DTO already carries projectId, which
+// is what makes cross-project rows identifiable here). Owner-only: gated by
+// the RequireRole("owner") middleware on the route group in main.go, not by
+// a per-handler permission check -- there is no project in scope to check
+// permissions against. Unlike List, the projectId filter is read from the
+// query string (rather than fixed by a path param) so an owner can narrow
+// the fleet view to one project.
+func (h *ManagedCertificateHandler) ListFleet(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+
+	filter := repository.CertificateListFilter{
+		Status: c.Query("status"),
+		Usage:  c.Query("usage"),
+	}
+
+	if issuerIDStr := c.Query("issuerId"); issuerIDStr != "" {
+		issuerID, err := uuid.Parse(issuerIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid issuerId"})
+			return
+		}
+		filter.IssuerID = &issuerID
+	}
+
+	if projectIDStr := c.Query("projectId"); projectIDStr != "" {
+		projectID, err := uuid.Parse(projectIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid projectId"})
+			return
+		}
+		filter.ProjectID = &projectID
+	}
+
+	if expiresBeforeStr := c.Query("expiresBefore"); expiresBeforeStr != "" {
+		expiresBefore, err := time.Parse(time.RFC3339, expiresBeforeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid expiresBefore: must be RFC3339"})
+			return
+		}
+		filter.ExpiresBefore = &expiresBefore
+	}
+
+	enriched, total, err := h.service.ListFleetCertificates(page, limit, filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp := make([]enrichedCertificateResponse, 0, len(enriched))
+	for i := range enriched {
+		resp = append(resp, toEnrichedCertificateResponse(&enriched[i]))
 	}
 
 	c.JSON(http.StatusOK, gin.H{

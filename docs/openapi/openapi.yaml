@@ -120,6 +120,10 @@ paths:
   /dns/credentials/{dnsCredentialId}:
     $ref: 'paths/dns-credentials.yaml#/dns-credentials_{dnsCredentialId}'
 
+  # ============== MANAGED CERTIFICATES (FLEET) ==============
+  /certificates:
+    $ref: 'paths/certificates.yaml#/fleet'
+
   # ============== CERTIFICATE ISSUERS ==============
   /certificates/issuers:
     $ref: 'paths/certificates.yaml#/issuers'

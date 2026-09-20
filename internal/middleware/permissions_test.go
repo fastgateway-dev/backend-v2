@@ -330,6 +330,51 @@ func TestCanManageDomains_NoPermission(t *testing.T) {
 	assert.False(t, checker.CanManageDomains(projectID, user))
 }
 
+// --- CanViewCertificates tests ---
+
+func TestCanViewCertificates_Owner(t *testing.T) {
+	checker, _, _ := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleOwner)
+	projectID := uuid.New()
+
+	assert.True(t, checker.CanViewCertificates(projectID, user))
+}
+
+func TestCanViewCertificates_ProjectAdmin(t *testing.T) {
+	checker, projectRepo, _ := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleUser)
+	projectID := uuid.New()
+
+	projectRepo.On("IsAdmin", projectID, user.ID).Return(true, nil)
+
+	assert.True(t, checker.CanViewCertificates(projectID, user))
+	projectRepo.AssertExpectations(t)
+}
+
+func TestCanViewCertificates_WithPermission(t *testing.T) {
+	checker, projectRepo, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleUser)
+	projectID := uuid.New()
+
+	projectRepo.On("IsAdmin", projectID, user.ID).Return(false, nil)
+	teamRepo.On("HasPermissionInProject", projectID, user.ID, models.PermCertificateView).Return(true, nil)
+
+	assert.True(t, checker.CanViewCertificates(projectID, user))
+	projectRepo.AssertExpectations(t)
+	teamRepo.AssertExpectations(t)
+}
+
+func TestCanViewCertificates_NoPermission(t *testing.T) {
+	checker, projectRepo, teamRepo := newTestPermissionChecker()
+	user := newTestUser(models.UserRoleUser)
+	projectID := uuid.New()
+
+	projectRepo.On("IsAdmin", projectID, user.ID).Return(false, nil)
+	teamRepo.On("HasPermissionInProject", projectID, user.ID, models.PermCertificateView).Return(false, nil)
+
+	assert.False(t, checker.CanViewCertificates(projectID, user))
+}
+
 // --- CanViewDomains tests ---
 
 func TestCanViewDomains_Owner(t *testing.T) {

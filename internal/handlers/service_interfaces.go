@@ -6,6 +6,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/ai"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/google/uuid"
 )
@@ -83,6 +84,8 @@ type ManagedCertificateServiceInterface interface {
 	Create(projectID uuid.UUID, input *services.CreateCertificateInput, createdBy uuid.UUID) (*models.ManagedCertificate, *models.Approval, error)
 	GetByID(id uuid.UUID) (*models.ManagedCertificate, error)
 	ListByProject(projectID uuid.UUID, page, limit int, status string) ([]models.ManagedCertificate, int64, error)
+	ListProjectCertificatesEnriched(projectID uuid.UUID, page, limit int, f repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error)
+	ListFleetCertificates(page, limit int, f repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error)
 	Delete(id uuid.UUID) error
 	Status(id uuid.UUID) (*services.CertStatus, error)
 	IssuersForProject(projectID uuid.UUID) ([]models.CertificateIssuer, error)

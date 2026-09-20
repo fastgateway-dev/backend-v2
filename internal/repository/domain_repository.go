@@ -142,3 +142,17 @@ func (r *DomainRepository) ListByManagedCertificateID(certID uuid.UUID) ([]model
 	}
 	return domains, nil
 }
+
+// ListByManagedCertificateIDs lists all domains whose managed_certificate_id
+// is in certIDs, in a single query. Used to avoid an N+1 when enriching a
+// page of certificates. Returns nil, nil for an empty input without querying.
+func (r *DomainRepository) ListByManagedCertificateIDs(certIDs []uuid.UUID) ([]models.Domain, error) {
+	if len(certIDs) == 0 {
+		return nil, nil
+	}
+	var domains []models.Domain
+	if err := r.db.Where("managed_certificate_id IN ?", certIDs).Find(&domains).Error; err != nil {
+		return nil, err
+	}
+	return domains, nil
+}

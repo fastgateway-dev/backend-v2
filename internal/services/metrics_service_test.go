@@ -295,6 +295,10 @@ func (m *metricsTestDomainRepo) ListByManagedCertificateID(uuid.UUID) ([]models.
 	return nil, nil
 }
 
+func (m *metricsTestDomainRepo) ListByManagedCertificateIDs([]uuid.UUID) ([]models.Domain, error) {
+	return nil, nil
+}
+
 func (m *metricsTestDomainRepo) Update(domain *models.Domain) error {
 	args := m.Called(domain)
 	return args.Error(0)

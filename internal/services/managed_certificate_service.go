@@ -366,6 +366,72 @@ func (s *ManagedCertificateService) ListByProject(projectID uuid.UUID, page, lim
 	return s.repo.ListByProject(projectID, page, limit, status)
 }
 
+// ListProjectCertificatesEnriched lists a project's certificates with the
+// optional filters in f applied, joined with each certificate's distribution
+// sync state, referencing domains, and issuer name/type (Task 3's
+// EnrichedCertificate). f.ProjectID is ignored -- the project scope comes
+// from projectID, not the filter.
+func (s *ManagedCertificateService) ListProjectCertificatesEnriched(projectID uuid.UUID, page, limit int, f repository.CertificateListFilter) ([]EnrichedCertificate, int64, error) {
+	certs, total, err := s.repo.ListByProjectFiltered(projectID, page, limit, f)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	enriched, err := s.enrich(certs)
+	if err != nil {
+		return nil, 0, err
+	}
+	return enriched, total, nil
+}
+
+// ListFleetCertificates lists managed certificates across ALL projects
+// (owner-only visibility), enriched the same way as
+// ListProjectCertificatesEnriched -- resolved issuer name/type, distribution
+// sync state, and referencing domains. Unlike the project-scoped method,
+// f.ProjectID is honored here: a caller may narrow the fleet view to a
+// single project via the filter, since there is no path-derived project
+// scope to fall back on.
+func (s *ManagedCertificateService) ListFleetCertificates(page, limit int, f repository.CertificateListFilter) ([]EnrichedCertificate, int64, error) {
+	certs, total, err := s.repo.ListFleet(page, limit, f)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	enriched, err := s.enrich(certs)
+	if err != nil {
+		return nil, 0, err
+	}
+	return enriched, total, nil
+}
+
+// enrich joins a page of certificates with their distribution rows,
+// referencing domains, and issuers, fetching each relation in ONE batch call
+// -- no per-cert N+1 lookups. Shared by ListProjectCertificatesEnriched and
+// the fleet-wide visibility method.
+func (s *ManagedCertificateService) enrich(certs []models.ManagedCertificate) ([]EnrichedCertificate, error) {
+	certIDs := make([]uuid.UUID, len(certs))
+	for i, c := range certs {
+		certIDs[i] = c.ID
+	}
+
+	dists, err := s.distRepo.ListByCertificateIDs(certIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list certificate distributions: %w", err)
+	}
+
+	domains, err := s.domainRepo.ListByManagedCertificateIDs(certIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list referencing domains: %w", err)
+	}
+
+	issuers, err := s.issuerRepo.List()
+	if err != nil {
+		return nil, fmt.Errorf("list certificate issuers: %w", err)
+	}
+
+	return buildEnrichedCertificates(certs, dists, domains, issuers), nil
+}
+
 // Delete removes a managed certificate. It refuses to delete a certificate
 // that is still attached to one or more domains (ErrCertificateInUse, mapped
 // by the handler to 409) -- checked BEFORE any deletion happens, so a
