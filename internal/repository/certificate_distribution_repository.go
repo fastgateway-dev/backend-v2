@@ -29,10 +29,6 @@ func (r *CertificateDistributionRepository) GetByCertificateID(certID uuid.UUID)
 	return &cd, nil
 }
 
-func (r *CertificateDistributionRepository) DeleteByCertificateID(certID uuid.UUID) error {
-	return r.db.Delete(&models.CertificateDistribution{}, "managed_certificate_id = ?", certID).Error
-}
-
 // ListByCertificateIDs returns all distribution rows whose
 // managed_certificate_id is in certIDs, in a single query. Used to avoid an
 // N+1 when enriching a page of certificates. Returns nil, nil for an empty

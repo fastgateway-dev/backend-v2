@@ -398,7 +398,6 @@ type ManagedCertificateRepositoryInterface interface {
 	GetByID(id uuid.UUID) (*models.ManagedCertificate, error)
 	Update(c *models.ManagedCertificate) error
 	Delete(id uuid.UUID) error
-	ListByProject(projectID uuid.UUID, page, limit int, status string) ([]models.ManagedCertificate, int64, error)
 	ListByProjectFiltered(projectID uuid.UUID, page, limit int, f CertificateListFilter) ([]models.ManagedCertificate, int64, error)
 	ListFleet(page, limit int, f CertificateListFilter) ([]models.ManagedCertificate, int64, error)
 	CountByIssuer(issuerID uuid.UUID) (int64, error)
@@ -410,7 +409,6 @@ type ManagedCertificateRepositoryInterface interface {
 type CertificateDistributionRepositoryInterface interface {
 	Upsert(cd *models.CertificateDistribution) error
 	GetByCertificateID(certID uuid.UUID) (*models.CertificateDistribution, error)
-	DeleteByCertificateID(certID uuid.UUID) error
 	ListByCertificateIDs(certIDs []uuid.UUID) ([]models.CertificateDistribution, error)
 }
 

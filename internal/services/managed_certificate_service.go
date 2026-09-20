@@ -362,10 +362,6 @@ func (s *ManagedCertificateService) GetByID(id uuid.UUID) (*models.ManagedCertif
 	return s.repo.GetByID(id)
 }
 
-func (s *ManagedCertificateService) ListByProject(projectID uuid.UUID, page, limit int, status string) ([]models.ManagedCertificate, int64, error) {
-	return s.repo.ListByProject(projectID, page, limit, status)
-}
-
 // ListProjectCertificatesEnriched lists a project's certificates with the
 // optional filters in f applied, joined with each certificate's distribution
 // sync state, referencing domains, and issuer name/type (Task 3's

@@ -44,27 +44,6 @@ func (r *ManagedCertificateRepository) Delete(id uuid.UUID) error {
 	return r.db.Delete(&models.ManagedCertificate{}, "id = ?", id).Error
 }
 
-func (r *ManagedCertificateRepository) ListByProject(projectID uuid.UUID, page, limit int, status string) ([]models.ManagedCertificate, int64, error) {
-	var out []models.ManagedCertificate
-	var total int64
-
-	query := r.db.Where("project_id = ?", projectID)
-	if status != "" {
-		query = query.Where("status = ?", status)
-	}
-
-	if err := query.Model(&models.ManagedCertificate{}).Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-
-	offset := (page - 1) * limit
-	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&out).Error; err != nil {
-		return nil, 0, err
-	}
-
-	return out, total, nil
-}
-
 func (r *ManagedCertificateRepository) CountByIssuer(issuerID uuid.UUID) (int64, error) {
 	var n int64
 	err := r.db.Model(&models.ManagedCertificate{}).Where("issuer_id = ?", issuerID).Count(&n).Error
@@ -145,8 +124,8 @@ func applyCertificateListFilter(query *gorm.DB, f CertificateListFilter) *gorm.D
 }
 
 // ListByStatuses returns every ManagedCertificate whose status is one of the
-// given statuses, across ALL projects. Unlike ListByProject, this is
-// intentionally cross-project: the distribution controller reconciles every
+// given statuses, across ALL projects. This is intentionally cross-project
+// (unlike the project-scoped list methods): the distribution controller reconciles every
 // pending/issuing/ready certificate cluster-wide on each pass, not one
 // project's certificates at a time.
 func (r *ManagedCertificateRepository) ListByStatuses(statuses []models.ManagedCertStatus) ([]models.ManagedCertificate, error) {

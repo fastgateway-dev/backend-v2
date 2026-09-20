@@ -83,7 +83,6 @@ type IssuerGrantServiceInterface interface {
 type ManagedCertificateServiceInterface interface {
 	Create(projectID uuid.UUID, input *services.CreateCertificateInput, createdBy uuid.UUID) (*models.ManagedCertificate, *models.Approval, error)
 	GetByID(id uuid.UUID) (*models.ManagedCertificate, error)
-	ListByProject(projectID uuid.UUID, page, limit int, status string) ([]models.ManagedCertificate, int64, error)
 	ListProjectCertificatesEnriched(projectID uuid.UUID, page, limit int, f repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error)
 	ListFleetCertificates(page, limit int, f repository.CertificateListFilter) ([]services.EnrichedCertificate, int64, error)
 	Delete(id uuid.UUID) error
