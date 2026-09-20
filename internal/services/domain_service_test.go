@@ -96,28 +96,60 @@ func newTestDomainService() (
 	*mocks.MockDomainRepository,
 	*mocks.MockProjectRepository,
 	*mocks.MockDomainTemplateRepository,
+	*mocks.MockKubernetesService,
+	*mocks.MockProjectNamespaceRepository,
+	*mocks.MockManagedCertificateRepository,
 ) {
 	domainRepo := new(mocks.MockDomainRepository)
 	projectRepo := new(mocks.MockProjectRepository)
 	dtRepo := new(mocks.MockDomainTemplateRepository)
+	k8sMock := new(mocks.MockKubernetesService)
+	projectNamespaceRepo := new(mocks.MockProjectNamespaceRepository)
+	managedCertRepo := new(mocks.MockManagedCertificateRepository)
 	svc := services.NewDomainService(services.DomainServiceDeps{
-		DomainRepo:           domainRepo,
-		ProjectRepo:          projectRepo,
-		DomainTemplateRepo:   dtRepo,
-		K8sGateways:          new(mocks.MockKubernetesService),
-		K8sSecrets:           new(mocks.MockKubernetesService),
-		K8sBackends:          new(mocks.MockKubernetesService),
-		K8sPolicies:          new(mocks.MockKubernetesService),
-		K8sRefGrants:         new(mocks.MockKubernetesService),
+		DomainRepo:         domainRepo,
+		ProjectRepo:        projectRepo,
+		DomainTemplateRepo: dtRepo,
+		// All five K8s roles share one mock instance here (as
+		// newTestDomainServiceWithK8s already does below) so that a single
+		// applyGateway call -- UpdateGateway plus the syncReferenceGrants
+		// fan-out it now triggers (Update/AttachCertificate/
+		// DetachCertificate) -- can be set up against one object.
+		K8sGateways:          k8sMock,
+		K8sSecrets:           k8sMock,
+		K8sBackends:          k8sMock,
+		K8sPolicies:          k8sMock,
+		K8sRefGrants:         k8sMock,
 		SettingsRepo:         new(mocks.MockDomainSettingsRepository),
 		ClientAttachmentRepo: newDefaultClientAttachmentRepoStub(),
 		BtpRepo:              newDefaultBtpRepoStub(),
 		ExtPolicyRepo:        newDefaultExtPolicyRepoStub(),
-		ProjectNamespaceRepo: new(mocks.MockProjectNamespaceRepository),
+		ProjectNamespaceRepo: projectNamespaceRepo,
 		DtService:            noTemplateLookup{},
 		AiService:            disabledAIReviewer{},
+		ManagedCertLookup:    managedCertRepo,
 	})
-	return svc, domainRepo, projectRepo, dtRepo
+	return svc, domainRepo, projectRepo, dtRepo, k8sMock, projectNamespaceRepo, managedCertRepo
+}
+
+// expectSuccessfulApplyGateway wires the mocks applyGateway's shared path
+// needs on a happy path: UpdateGateway succeeds, and the syncReferenceGrants
+// call it now makes on every apply (Update/AttachCertificate/
+// DetachCertificate -- previously Update never called it at all) sees an
+// otherwise-empty project: no other domains and no project namespaces, so it
+// reconciles down to a single no-op DeleteReferenceGrant for the shared
+// secrets ReferenceGrant in fastgateway-system.
+func expectSuccessfulApplyGateway(
+	domainRepo *mocks.MockDomainRepository,
+	projectNamespaceRepo *mocks.MockProjectNamespaceRepository,
+	k8sMock *mocks.MockKubernetesService,
+	projectID uuid.UUID,
+) {
+	k8sMock.On("UpdateGateway", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).Return(nil)
+	domainRepo.On("ListByProjectID", projectID, 1, 10000, "", "", mock.Anything).
+		Return([]models.Domain{}, int64(0), nil)
+	projectNamespaceRepo.On("ListByProjectID", projectID).Return([]models.ProjectNamespace{}, nil)
+	k8sMock.On("DeleteReferenceGrant", mock.Anything, projectID, kubernetes.FastGatewayNamespace, mock.Anything).Return(nil)
 }
 
 // =========================================================================
@@ -125,7 +157,7 @@ func newTestDomainService() (
 // =========================================================================
 
 func TestDomainService_GetByID_Success(t *testing.T) {
-	svc, domainRepo, _, _ := newTestDomainService()
+	svc, domainRepo, _, _, _, _, _ := newTestDomainService()
 
 	domainID := uuid.New()
 	expected := &models.Domain{
@@ -145,7 +177,7 @@ func TestDomainService_GetByID_Success(t *testing.T) {
 }
 
 func TestDomainService_GetByID_NotFound(t *testing.T) {
-	svc, domainRepo, _, _ := newTestDomainService()
+	svc, domainRepo, _, _, _, _, _ := newTestDomainService()
 
 	domainID := uuid.New()
 	domainRepo.On("GetByID", domainID).Return(nil, errors.New("record not found"))
@@ -162,7 +194,7 @@ func TestDomainService_GetByID_NotFound(t *testing.T) {
 // =========================================================================
 
 func TestDomainService_ListByProjectID_Success(t *testing.T) {
-	svc, domainRepo, _, _ := newTestDomainService()
+	svc, domainRepo, _, _, _, _, _ := newTestDomainService()
 
 	projectID := uuid.New()
 	domains := []models.Domain{
@@ -186,7 +218,7 @@ func TestDomainService_ListByProjectID_Success(t *testing.T) {
 // =========================================================================
 
 func TestDomainService_Create_HostnameAlreadyExists(t *testing.T) {
-	svc, domainRepo, _, dtRepo := newTestDomainService()
+	svc, domainRepo, _, dtRepo, _, _, _ := newTestDomainService()
 
 	projectID := uuid.New()
 	dtID := uuid.New()
@@ -207,7 +239,7 @@ func TestDomainService_Create_HostnameAlreadyExists(t *testing.T) {
 }
 
 func TestDomainService_Create_InvalidTemplateID(t *testing.T) {
-	svc, domainRepo, _, _ := newTestDomainService()
+	svc, domainRepo, _, _, _, _, _ := newTestDomainService()
 
 	projectID := uuid.New()
 	input := &services.CreateDomainInput{
@@ -226,7 +258,7 @@ func TestDomainService_Create_InvalidTemplateID(t *testing.T) {
 }
 
 func TestDomainService_Create_TemplateNotFound(t *testing.T) {
-	svc, domainRepo, _, dtRepo := newTestDomainService()
+	svc, domainRepo, _, dtRepo, _, _, _ := newTestDomainService()
 
 	projectID := uuid.New()
 	dtID := uuid.New()
@@ -248,7 +280,7 @@ func TestDomainService_Create_TemplateNotFound(t *testing.T) {
 }
 
 func TestDomainService_Create_TemplateNotActive(t *testing.T) {
-	svc, domainRepo, _, dtRepo := newTestDomainService()
+	svc, domainRepo, _, dtRepo, _, _, _ := newTestDomainService()
 
 	projectID := uuid.New()
 	dtID := uuid.New()
@@ -277,7 +309,7 @@ func TestDomainService_Create_TemplateNotActive(t *testing.T) {
 }
 
 func TestDomainService_Create_TLSRequiredButMissing(t *testing.T) {
-	svc, domainRepo, _, dtRepo := newTestDomainService()
+	svc, domainRepo, _, dtRepo, _, _, _ := newTestDomainService()
 
 	projectID := uuid.New()
 	dtID := uuid.New()
@@ -312,17 +344,20 @@ func TestDomainService_Create_TLSRequiredButMissing(t *testing.T) {
 // =========================================================================
 
 func TestDomainService_Update_Success(t *testing.T) {
-	svc, domainRepo, _, _ := newTestDomainService()
+	svc, domainRepo, _, _, k8sMock, projectNamespaceRepo, _ := newTestDomainService()
 
 	domainID := uuid.New()
+	projectID := uuid.New()
 	existing := &models.Domain{
-		ID:       domainID,
-		Name:     "old-name",
-		Hostname: "example.com",
+		ID:        domainID,
+		ProjectID: projectID,
+		Name:      "old-name",
+		Hostname:  "example.com",
 	}
 
 	domainRepo.On("GetByID", domainID).Return(existing, nil)
 	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+	expectSuccessfulApplyGateway(domainRepo, projectNamespaceRepo, k8sMock, projectID)
 
 	input := &services.UpdateDomainInput{
 		Name: "new-name",
@@ -332,11 +367,11 @@ func TestDomainService_Update_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "new-name", result.Name)
-	domainRepo.AssertExpectations(t)
+	k8sMock.AssertCalled(t, "UpdateGateway", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GatewayConfig"))
 }
 
 func TestDomainService_Update_NotFound(t *testing.T) {
-	svc, domainRepo, _, _ := newTestDomainService()
+	svc, domainRepo, _, _, _, _, _ := newTestDomainService()
 
 	domainID := uuid.New()
 	domainRepo.On("GetByID", domainID).Return(nil, errors.New("record not found"))
@@ -350,18 +385,25 @@ func TestDomainService_Update_NotFound(t *testing.T) {
 	domainRepo.AssertExpectations(t)
 }
 
+// TestDomainService_Update_TLSSecretName is the fill-the-TODO regression:
+// domain_service.go:371 used to read "// TODO: Update Kubernetes resources",
+// making a TLSSecretName change a DB-only no-op against the live Gateway.
+// It now goes through applyGateway, which must call UpdateGateway.
 func TestDomainService_Update_TLSSecretName(t *testing.T) {
-	svc, domainRepo, _, _ := newTestDomainService()
+	svc, domainRepo, _, _, k8sMock, projectNamespaceRepo, _ := newTestDomainService()
 
 	domainID := uuid.New()
+	projectID := uuid.New()
 	existing := &models.Domain{
 		ID:            domainID,
+		ProjectID:     projectID,
 		Name:          "my-domain",
 		TLSSecretName: "old-secret",
 	}
 
 	domainRepo.On("GetByID", domainID).Return(existing, nil)
 	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+	expectSuccessfulApplyGateway(domainRepo, projectNamespaceRepo, k8sMock, projectID)
 
 	input := &services.UpdateDomainInput{
 		TLSSecretName: "new-secret",
@@ -371,7 +413,9 @@ func TestDomainService_Update_TLSSecretName(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "new-secret", result.TLSSecretName)
-	domainRepo.AssertExpectations(t)
+	k8sMock.AssertCalled(t, "UpdateGateway", mock.Anything, projectID, mock.MatchedBy(func(cfg *kubernetes.GatewayConfig) bool {
+		return cfg.TLSSecretName == "new-secret"
+	}))
 }
 
 // =========================================================================
@@ -421,17 +465,20 @@ func TestDomainService_GetDomainSettings_NotFound(t *testing.T) {
 // =========================================================================
 
 func TestDomainService_Update_WithLabels(t *testing.T) {
-	svc, domainRepo, _, _ := newTestDomainService()
+	svc, domainRepo, _, _, k8sMock, projectNamespaceRepo, _ := newTestDomainService()
 
 	domainID := uuid.New()
+	projectID := uuid.New()
 	existing := &models.Domain{
-		ID:       domainID,
-		Name:     "my-domain",
-		Hostname: "example.com",
+		ID:        domainID,
+		ProjectID: projectID,
+		Name:      "my-domain",
+		Hostname:  "example.com",
 	}
 
 	domainRepo.On("GetByID", domainID).Return(existing, nil)
 	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+	expectSuccessfulApplyGateway(domainRepo, projectNamespaceRepo, k8sMock, projectID)
 
 	labels := models.Labels{"env": "prod"}
 	input := &services.UpdateDomainInput{Labels: labels}
@@ -443,7 +490,7 @@ func TestDomainService_Update_WithLabels(t *testing.T) {
 }
 
 func TestDomainService_Update_RepoError(t *testing.T) {
-	svc, domainRepo, _, _ := newTestDomainService()
+	svc, domainRepo, _, _, _, _, _ := newTestDomainService()
 
 	domainID := uuid.New()
 	existing := &models.Domain{ID: domainID, Name: "my-domain"}
@@ -456,12 +503,227 @@ func TestDomainService_Update_RepoError(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestDomainService_Update_GatewayApplyError pins the Phase 3b gap: Update's
+// applyGateway call can now fail against a real cluster (e.g. a transient
+// tenant-cluster outage), and that failure must be distinguishable from an
+// input/validation error so the handler can map it to 500 instead of 400.
+// Update must return an error that unwraps to services.ErrGatewayApply.
+func TestDomainService_Update_GatewayApplyError(t *testing.T) {
+	svc, domainRepo, _, _, k8sMock, _, _ := newTestDomainService()
+
+	domainID := uuid.New()
+	projectID := uuid.New()
+	existing := &models.Domain{
+		ID:        domainID,
+		ProjectID: projectID,
+		Name:      "my-domain",
+		Hostname:  "example.com",
+	}
+
+	domainRepo.On("GetByID", domainID).Return(existing, nil)
+	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+	k8sMock.On("UpdateGateway", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).
+		Return(errors.New("cluster unreachable"))
+
+	result, err := svc.Update(domainID, &services.UpdateDomainInput{Name: "new-name"})
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, services.ErrGatewayApply))
+	// applyGateway still returns the domain alongside the error (Update's
+	// existing "return domain, err" path), so the handler can still log it.
+	require.NotNil(t, result)
+}
+
+// =========================================================================
+// AttachCertificate / DetachCertificate
+// =========================================================================
+
+// readyServerCert returns a managed certificate fixture that passes every
+// AttachCertificate validation gate: same project, usage=server, status=ready.
+func readyServerCert(id, projectID uuid.UUID) *models.ManagedCertificate {
+	return &models.ManagedCertificate{
+		ID:        id,
+		ProjectID: projectID,
+		Usage:     models.ManagedCertUsageServer,
+		Status:    models.ManagedCertStatusReady,
+	}
+}
+
+func TestDomainService_AttachCertificate_Success(t *testing.T) {
+	svc, domainRepo, _, _, k8sMock, projectNamespaceRepo, certRepo := newTestDomainService()
+
+	domainID := uuid.New()
+	certID := uuid.New()
+	projectID := uuid.New()
+	domain := &models.Domain{ID: domainID, ProjectID: projectID, Name: "my-domain"}
+	cert := readyServerCert(certID, projectID)
+
+	domainRepo.On("GetByID", domainID).Return(domain, nil)
+	certRepo.On("GetByID", certID).Return(cert, nil)
+	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+	expectSuccessfulApplyGateway(domainRepo, projectNamespaceRepo, k8sMock, projectID)
+
+	result, err := svc.AttachCertificate(domainID, certID, projectID)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.ManagedCertificateID)
+	assert.Equal(t, certID, *result.ManagedCertificateID)
+	k8sMock.AssertCalled(t, "UpdateGateway", mock.Anything, projectID, mock.Anything)
+	k8sMock.AssertNumberOfCalls(t, "UpdateGateway", 1)
+}
+
+func TestDomainService_AttachCertificate_DomainWrongProject_NotFound(t *testing.T) {
+	svc, domainRepo, _, _, k8sMock, _, certRepo := newTestDomainService()
+
+	domainID := uuid.New()
+	certID := uuid.New()
+	domainProjectID := uuid.New()
+	callerProjectID := uuid.New()
+	domain := &models.Domain{ID: domainID, ProjectID: domainProjectID, Name: "my-domain"}
+
+	domainRepo.On("GetByID", domainID).Return(domain, nil)
+
+	result, err := svc.AttachCertificate(domainID, certID, callerProjectID)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, services.ErrDomainNotFound)
+	assert.Nil(t, result)
+	certRepo.AssertNotCalled(t, "GetByID", mock.Anything)
+	domainRepo.AssertNotCalled(t, "Update", mock.Anything)
+	k8sMock.AssertNotCalled(t, "UpdateGateway", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestDomainService_AttachCertificate_CertWrongProject_NotFound(t *testing.T) {
+	svc, domainRepo, _, _, k8sMock, _, certRepo := newTestDomainService()
+
+	domainID := uuid.New()
+	certID := uuid.New()
+	projectID := uuid.New()
+	otherProjectID := uuid.New()
+	domain := &models.Domain{ID: domainID, ProjectID: projectID, Name: "my-domain"}
+	cert := readyServerCert(certID, otherProjectID)
+
+	domainRepo.On("GetByID", domainID).Return(domain, nil)
+	certRepo.On("GetByID", certID).Return(cert, nil)
+
+	result, err := svc.AttachCertificate(domainID, certID, projectID)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, services.ErrCertificateNotFound)
+	assert.Nil(t, result)
+	domainRepo.AssertNotCalled(t, "Update", mock.Anything)
+	assert.Nil(t, domain.ManagedCertificateID)
+	k8sMock.AssertNotCalled(t, "UpdateGateway", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestDomainService_AttachCertificate_ClientUsage_Rejected(t *testing.T) {
+	svc, domainRepo, _, _, k8sMock, _, certRepo := newTestDomainService()
+
+	domainID := uuid.New()
+	certID := uuid.New()
+	projectID := uuid.New()
+	domain := &models.Domain{ID: domainID, ProjectID: projectID, Name: "my-domain"}
+	cert := &models.ManagedCertificate{
+		ID:        certID,
+		ProjectID: projectID,
+		Usage:     models.ManagedCertUsageClient,
+		Status:    models.ManagedCertStatusReady,
+	}
+
+	domainRepo.On("GetByID", domainID).Return(domain, nil)
+	certRepo.On("GetByID", certID).Return(cert, nil)
+
+	result, err := svc.AttachCertificate(domainID, certID, projectID)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, services.ErrCertificateWrongUsage)
+	assert.Nil(t, result)
+	domainRepo.AssertNotCalled(t, "Update", mock.Anything)
+	assert.Nil(t, domain.ManagedCertificateID)
+	k8sMock.AssertNotCalled(t, "UpdateGateway", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestDomainService_AttachCertificate_NotReady_Rejected(t *testing.T) {
+	svc, domainRepo, _, _, k8sMock, _, certRepo := newTestDomainService()
+
+	domainID := uuid.New()
+	certID := uuid.New()
+	projectID := uuid.New()
+	domain := &models.Domain{ID: domainID, ProjectID: projectID, Name: "my-domain"}
+	cert := &models.ManagedCertificate{
+		ID:        certID,
+		ProjectID: projectID,
+		Usage:     models.ManagedCertUsageServer,
+		Status:    models.ManagedCertStatusIssuing,
+	}
+
+	domainRepo.On("GetByID", domainID).Return(domain, nil)
+	certRepo.On("GetByID", certID).Return(cert, nil)
+
+	result, err := svc.AttachCertificate(domainID, certID, projectID)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, services.ErrCertificateNotReady)
+	assert.Nil(t, result)
+	domainRepo.AssertNotCalled(t, "Update", mock.Anything)
+	assert.Nil(t, domain.ManagedCertificateID)
+	k8sMock.AssertNotCalled(t, "UpdateGateway", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestDomainService_DetachCertificate_Success(t *testing.T) {
+	svc, domainRepo, _, _, k8sMock, projectNamespaceRepo, _ := newTestDomainService()
+
+	domainID := uuid.New()
+	certID := uuid.New()
+	projectID := uuid.New()
+	domain := &models.Domain{
+		ID:                   domainID,
+		ProjectID:            projectID,
+		Name:                 "my-domain",
+		ManagedCertificateID: &certID,
+		TLSSecretName:        "legacy-secret",
+	}
+
+	domainRepo.On("GetByID", domainID).Return(domain, nil)
+	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+	expectSuccessfulApplyGateway(domainRepo, projectNamespaceRepo, k8sMock, projectID)
+
+	result, err := svc.DetachCertificate(domainID, projectID)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Nil(t, result.ManagedCertificateID)
+	k8sMock.AssertCalled(t, "UpdateGateway", mock.Anything, projectID, mock.MatchedBy(func(cfg *kubernetes.GatewayConfig) bool {
+		return cfg.TLSSecretName == "legacy-secret"
+	}))
+}
+
+func TestDomainService_DetachCertificate_WrongProject_NotFound(t *testing.T) {
+	svc, domainRepo, _, _, k8sMock, _, _ := newTestDomainService()
+
+	domainID := uuid.New()
+	domainProjectID := uuid.New()
+	callerProjectID := uuid.New()
+	domain := &models.Domain{ID: domainID, ProjectID: domainProjectID, Name: "my-domain"}
+
+	domainRepo.On("GetByID", domainID).Return(domain, nil)
+
+	result, err := svc.DetachCertificate(domainID, callerProjectID)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, services.ErrDomainNotFound)
+	assert.Nil(t, result)
+	domainRepo.AssertNotCalled(t, "Update", mock.Anything)
+	k8sMock.AssertNotCalled(t, "UpdateGateway", mock.Anything, mock.Anything, mock.Anything)
+}
+
 // =========================================================================
 // ListByProjectID (additional)
 // =========================================================================
 
 func TestDomainService_ListByProjectID_Empty(t *testing.T) {
-	svc, domainRepo, _, _ := newTestDomainService()
+	svc, domainRepo, _, _, _, _, _ := newTestDomainService()
 
 	projectID := uuid.New()
 	domainRepo.On("ListByProjectID", projectID, 1, 10, "", "", map[string]string(nil)).
@@ -475,7 +737,7 @@ func TestDomainService_ListByProjectID_Empty(t *testing.T) {
 }
 
 func TestDomainService_ListByProjectID_Error(t *testing.T) {
-	svc, domainRepo, _, _ := newTestDomainService()
+	svc, domainRepo, _, _, _, _, _ := newTestDomainService()
 
 	projectID := uuid.New()
 	domainRepo.On("ListByProjectID", projectID, 1, 10, "", "", map[string]string(nil)).
@@ -515,6 +777,7 @@ func newTestDomainServiceWithK8s() (
 		ProjectNamespaceRepo: new(mocks.MockProjectNamespaceRepository),
 		DtService:            noTemplateLookup{},
 		AiService:            disabledAIReviewer{},
+		ManagedCertLookup:    new(mocks.MockManagedCertificateRepository),
 	})
 	return svc, domainRepo, settingsRepo, k8sMock
 }
@@ -746,6 +1009,7 @@ func newTestDomainServiceWithClientAttachments(clients []models.Client) (
 		ProjectNamespaceRepo: new(mocks.MockProjectNamespaceRepository),
 		DtService:            noTemplateLookup{},
 		AiService:            disabledAIReviewer{},
+		ManagedCertLookup:    new(mocks.MockManagedCertificateRepository),
 	})
 	return svc, domainRepo, settingsRepo, k8sMock
 }
@@ -878,6 +1142,7 @@ func fullDomainServiceDeps() services.DomainServiceDeps {
 		ProjectNamespaceRepo: new(mocks.MockProjectNamespaceRepository),
 		DtService:            noTemplateLookup{},
 		AiService:            disabledAIReviewer{},
+		ManagedCertLookup:    new(mocks.MockManagedCertificateRepository),
 	}
 }
 
@@ -900,6 +1165,7 @@ func TestNewDomainService_RequiresEveryDependency(t *testing.T) {
 		"ProjectNamespaceRepo": func(d *services.DomainServiceDeps) { d.ProjectNamespaceRepo = nil },
 		"DtService":            func(d *services.DomainServiceDeps) { d.DtService = nil },
 		"AiService":            func(d *services.DomainServiceDeps) { d.AiService = nil },
+		"ManagedCertLookup":    func(d *services.DomainServiceDeps) { d.ManagedCertLookup = nil },
 	}
 	for name, breakIt := range cases {
 		t.Run("nil "+name, func(t *testing.T) {

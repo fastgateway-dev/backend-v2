@@ -181,6 +181,7 @@ type ReferenceGrants interface {
 // Consumer: DomainService (domain_service.go).
 type GatewayApplier interface {
 	CreateGateway(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayConfig) error
+	UpdateGateway(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayConfig) error
 	DeleteGateway(ctx context.Context, projectID uuid.UUID, namespace, name string) error
 	CreateClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, config *kubernetes.ClientTrafficPolicyConfig) error
 	DeleteClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, namespace, name string) error

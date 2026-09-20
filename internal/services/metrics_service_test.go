@@ -291,6 +291,10 @@ func (m *metricsTestDomainRepo) ListByProjectID(projectID uuid.UUID, page, limit
 	return args.Get(0).([]models.Domain), args.Get(1).(int64), args.Error(2)
 }
 
+func (m *metricsTestDomainRepo) ListByManagedCertificateID(uuid.UUID) ([]models.Domain, error) {
+	return nil, nil
+}
+
 func (m *metricsTestDomainRepo) Update(domain *models.Domain) error {
 	args := m.Called(domain)
 	return args.Error(0)

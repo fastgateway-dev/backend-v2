@@ -6,6 +6,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/google/uuid"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -33,6 +34,52 @@ func (s *Client) CreateGateway(ctx context.Context, projectID uuid.UUID, config 
 	_, err = client.Resource(gvr).Namespace(config.Namespace).Create(ctx, gateway, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to create gateway: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateGateway updates a Gateway resource in Kubernetes, preserving its
+// resourceVersion. It is idempotent: if the Gateway does not exist yet, it
+// creates it instead of erroring.
+func (s *Client) UpdateGateway(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayConfig) error {
+	// Ensure namespace exists first
+	if err := s.EnsureNamespace(ctx, projectID, config.Namespace); err != nil {
+		return fmt.Errorf("failed to ensure namespace: %w", err)
+	}
+
+	client, err := s.getClient(projectID)
+	if err != nil {
+		return err
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "gateway.networking.k8s.io",
+		Version:  "v1",
+		Resource: "gateways",
+	}
+
+	gateway := kubernetes.BuildGatewayObject(config)
+
+	existing, err := client.Resource(gvr).Namespace(config.Namespace).Get(ctx, config.Name, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			_, cerr := client.Resource(gvr).Namespace(config.Namespace).Create(ctx, gateway, metav1.CreateOptions{})
+			if cerr != nil {
+				return fmt.Errorf("failed to create gateway: %w", cerr)
+			}
+			return nil
+		}
+		return fmt.Errorf("failed to get existing gateway: %w", err)
+	}
+
+	// Preserve the resourceVersion from existing object
+	gateway.SetResourceVersion(existing.GetResourceVersion())
+	gateway.SetUID(existing.GetUID())
+
+	_, err = client.Resource(gvr).Namespace(config.Namespace).Update(ctx, gateway, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update gateway: %w", err)
 	}
 
 	return nil

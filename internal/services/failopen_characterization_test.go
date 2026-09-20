@@ -181,6 +181,9 @@ func (r *failopenDomainRepo) GetByIDs([]uuid.UUID) ([]models.Domain, error) {
 func (r *failopenDomainRepo) ListByProjectID(uuid.UUID, int, int, string, string, map[string]string) ([]models.Domain, int64, error) {
 	panic("unexpected call: ListByProjectID")
 }
+func (r *failopenDomainRepo) ListByManagedCertificateID(uuid.UUID) ([]models.Domain, error) {
+	panic("unexpected call: ListByManagedCertificateID")
+}
 func (r *failopenDomainRepo) Update(*models.Domain) error { panic("unexpected call: Update") }
 func (r *failopenDomainRepo) Delete(uuid.UUID) error      { panic("unexpected call: Delete") }
 func (r *failopenDomainRepo) ExistsByHostname(uuid.UUID, string) (bool, error) {

@@ -2988,6 +2988,69 @@ func (_c *MockKubernetesService_UpdateGRPCRoute_Call) RunAndReturn(run func(ctx 
 	return _c
 }
 
+// UpdateGateway provides a mock function for the type MockKubernetesService
+func (_mock *MockKubernetesService) UpdateGateway(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayConfig) error {
+	ret := _mock.Called(ctx, projectID, config)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateGateway")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, *kubernetes.GatewayConfig) error); ok {
+		r0 = returnFunc(ctx, projectID, config)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockKubernetesService_UpdateGateway_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateGateway'
+type MockKubernetesService_UpdateGateway_Call struct {
+	*mock.Call
+}
+
+// UpdateGateway is a helper method to define mock.On call
+//   - ctx context.Context
+//   - projectID uuid.UUID
+//   - config *kubernetes.GatewayConfig
+func (_e *MockKubernetesService_Expecter) UpdateGateway(ctx any, projectID any, config any) *MockKubernetesService_UpdateGateway_Call {
+	return &MockKubernetesService_UpdateGateway_Call{Call: _e.mock.On("UpdateGateway", ctx, projectID, config)}
+}
+
+func (_c *MockKubernetesService_UpdateGateway_Call) Run(run func(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayConfig)) *MockKubernetesService_UpdateGateway_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 *kubernetes.GatewayConfig
+		if args[2] != nil {
+			arg2 = args[2].(*kubernetes.GatewayConfig)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockKubernetesService_UpdateGateway_Call) Return(err error) *MockKubernetesService_UpdateGateway_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockKubernetesService_UpdateGateway_Call) RunAndReturn(run func(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayConfig) error) *MockKubernetesService_UpdateGateway_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateHTTPRoute provides a mock function for the type MockKubernetesService
 func (_mock *MockKubernetesService) UpdateHTTPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.HTTPRouteConfig) error {
 	ret := _mock.Called(ctx, projectID, config)

@@ -189,6 +189,10 @@ func (h *DomainHandler) Update(c *gin.Context) {
 
 	domain, err := h.domainService.Update(id, &input)
 	if err != nil {
+		if errors.Is(err, services.ErrGatewayApply) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -255,6 +259,124 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 	)
 
 	c.Status(http.StatusNoContent)
+}
+
+// AttachCertificateRequest is the body for AttachCertificate.
+type AttachCertificateRequest struct {
+	CertificateID uuid.UUID `json:"certificateId" binding:"required"`
+}
+
+// AttachCertificate points a domain at a managed certificate and re-applies
+// its Gateway listener.
+// PUT /projects/:projectId/domains/:domainId/certificate
+func (h *DomainHandler) AttachCertificate(c *gin.Context) {
+	user := middleware.GetCurrentUser(c)
+	projectID, err := uuid.Parse(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+
+	// Check permission: only Owner or Project Admin can manage domain certificates
+	if !h.permChecker.CanManageDomains(projectID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: only project admins can manage domain certificates"})
+		return
+	}
+
+	domainID, err := uuid.Parse(c.Param("domainId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+		return
+	}
+
+	var input AttachCertificateRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	domain, err := h.domainService.AttachCertificate(domainID, input.CertificateID, projectID)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrDomainNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		case errors.Is(err, services.ErrCertificateNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
+		case errors.Is(err, services.ErrCertificateWrongUsage):
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrCertificateNotReady):
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	// Audit log
+	h.auditService.LogAction(
+		&projectID,
+		user,
+		"attach_certificate",
+		"domain",
+		&domain.ID,
+		domain.Hostname,
+		middleware.AuditDetails(c),
+		c.ClientIP(),
+		c.Request.UserAgent(),
+	)
+
+	c.JSON(http.StatusOK, domain)
+}
+
+// DetachCertificate clears a domain's managed certificate and re-applies its
+// Gateway listener, reverting to any legacy BYO TLS secret configured on the
+// domain.
+// DELETE /projects/:projectId/domains/:domainId/certificate
+func (h *DomainHandler) DetachCertificate(c *gin.Context) {
+	user := middleware.GetCurrentUser(c)
+	projectID, err := uuid.Parse(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+
+	// Check permission: only Owner or Project Admin can manage domain certificates
+	if !h.permChecker.CanManageDomains(projectID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: only project admins can manage domain certificates"})
+		return
+	}
+
+	domainID, err := uuid.Parse(c.Param("domainId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+		return
+	}
+
+	domain, err := h.domainService.DetachCertificate(domainID, projectID)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrDomainNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	// Audit log
+	h.auditService.LogAction(
+		&projectID,
+		user,
+		"detach_certificate",
+		"domain",
+		&domain.ID,
+		domain.Hostname,
+		middleware.AuditDetails(c),
+		c.ClientIP(),
+		c.Request.UserAgent(),
+	)
+
+	c.JSON(http.StatusOK, domain)
 }
 
 // GetDomainSettings gets the settings for a domain

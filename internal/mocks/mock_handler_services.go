@@ -6082,6 +6082,80 @@ func (_c *MockDomainService_AddDomainMTLSCA_Call) RunAndReturn(run func(ctx cont
 	return _c
 }
 
+// AttachCertificate provides a mock function for the type MockDomainService
+func (_mock *MockDomainService) AttachCertificate(domainID uuid.UUID, certID uuid.UUID, projectID uuid.UUID) (*models.Domain, error) {
+	ret := _mock.Called(domainID, certID, projectID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AttachCertificate")
+	}
+
+	var r0 *models.Domain
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, uuid.UUID) (*models.Domain, error)); ok {
+		return returnFunc(domainID, certID, projectID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, uuid.UUID) *models.Domain); ok {
+		r0 = returnFunc(domainID, certID, projectID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.Domain)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID, uuid.UUID) error); ok {
+		r1 = returnFunc(domainID, certID, projectID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockDomainService_AttachCertificate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AttachCertificate'
+type MockDomainService_AttachCertificate_Call struct {
+	*mock.Call
+}
+
+// AttachCertificate is a helper method to define mock.On call
+//   - domainID uuid.UUID
+//   - certID uuid.UUID
+//   - projectID uuid.UUID
+func (_e *MockDomainService_Expecter) AttachCertificate(domainID any, certID any, projectID any) *MockDomainService_AttachCertificate_Call {
+	return &MockDomainService_AttachCertificate_Call{Call: _e.mock.On("AttachCertificate", domainID, certID, projectID)}
+}
+
+func (_c *MockDomainService_AttachCertificate_Call) Run(run func(domainID uuid.UUID, certID uuid.UUID, projectID uuid.UUID)) *MockDomainService_AttachCertificate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 uuid.UUID
+		if args[2] != nil {
+			arg2 = args[2].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockDomainService_AttachCertificate_Call) Return(domain *models.Domain, err error) *MockDomainService_AttachCertificate_Call {
+	_c.Call.Return(domain, err)
+	return _c
+}
+
+func (_c *MockDomainService_AttachCertificate_Call) RunAndReturn(run func(domainID uuid.UUID, certID uuid.UUID, projectID uuid.UUID) (*models.Domain, error)) *MockDomainService_AttachCertificate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Create provides a mock function for the type MockDomainService
 func (_mock *MockDomainService) Create(projectID uuid.UUID, input *services.CreateDomainInput, createdBy uuid.UUID) (*models.Domain, error) {
 	ret := _mock.Called(projectID, input, createdBy)
@@ -6203,6 +6277,74 @@ func (_c *MockDomainService_Delete_Call) Return(err error) *MockDomainService_De
 }
 
 func (_c *MockDomainService_Delete_Call) RunAndReturn(run func(id uuid.UUID) error) *MockDomainService_Delete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DetachCertificate provides a mock function for the type MockDomainService
+func (_mock *MockDomainService) DetachCertificate(domainID uuid.UUID, projectID uuid.UUID) (*models.Domain, error) {
+	ret := _mock.Called(domainID, projectID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DetachCertificate")
+	}
+
+	var r0 *models.Domain
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID) (*models.Domain, error)); ok {
+		return returnFunc(domainID, projectID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID) *models.Domain); ok {
+		r0 = returnFunc(domainID, projectID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.Domain)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID) error); ok {
+		r1 = returnFunc(domainID, projectID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockDomainService_DetachCertificate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DetachCertificate'
+type MockDomainService_DetachCertificate_Call struct {
+	*mock.Call
+}
+
+// DetachCertificate is a helper method to define mock.On call
+//   - domainID uuid.UUID
+//   - projectID uuid.UUID
+func (_e *MockDomainService_Expecter) DetachCertificate(domainID any, projectID any) *MockDomainService_DetachCertificate_Call {
+	return &MockDomainService_DetachCertificate_Call{Call: _e.mock.On("DetachCertificate", domainID, projectID)}
+}
+
+func (_c *MockDomainService_DetachCertificate_Call) Run(run func(domainID uuid.UUID, projectID uuid.UUID)) *MockDomainService_DetachCertificate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockDomainService_DetachCertificate_Call) Return(domain *models.Domain, err error) *MockDomainService_DetachCertificate_Call {
+	_c.Call.Return(domain, err)
+	return _c
+}
+
+func (_c *MockDomainService_DetachCertificate_Call) RunAndReturn(run func(domainID uuid.UUID, projectID uuid.UUID) (*models.Domain, error)) *MockDomainService_DetachCertificate_Call {
 	_c.Call.Return(run)
 	return _c
 }

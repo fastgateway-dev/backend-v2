@@ -50,16 +50,20 @@ func newTestManagedCertificateService(
 	applier *mocks.MockCertInfraApplier,
 	submitter services.CertApprovalSubmitter,
 	distRepo *mocks.MockCertificateDistributionRepository,
+	domainRepo *mocks.MockDomainRepository,
+	tenantSecrets *mocks.MockTenantSecretDeleter,
 ) *services.ManagedCertificateService {
 	return services.NewManagedCertificateService(services.ManagedCertificateServiceDeps{
-		Repo:         repo,
-		IssuerRepo:   issuerRepo,
-		GrantRepo:    grantRepo,
-		ProjectRepo:  projectRepo,
-		ControlPlane: applier,
-		Approvals:    submitter,
-		Config:       &config.Config{},
-		DistRepo:     distRepo,
+		Repo:          repo,
+		IssuerRepo:    issuerRepo,
+		GrantRepo:     grantRepo,
+		ProjectRepo:   projectRepo,
+		ControlPlane:  applier,
+		Approvals:     submitter,
+		Config:        &config.Config{},
+		DistRepo:      distRepo,
+		DomainRepo:    domainRepo,
+		TenantSecrets: tenantSecrets,
 	})
 }
 
@@ -70,9 +74,11 @@ func TestManagedCertificateService_Create_SubmitsApproval(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	projectID := uuid.New()
 	issuerID := uuid.New()
@@ -120,9 +126,11 @@ func TestManagedCertificateService_Create_RejectedWhenIssuerNotGranted(t *testin
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	projectID := uuid.New()
 	issuerID := uuid.New()
@@ -150,9 +158,11 @@ func TestManagedCertificateService_OnApproved_IssuesLeafCertificate(t *testing.T
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	issuerID := uuid.New()
@@ -221,9 +231,11 @@ func TestManagedCertificateService_OnApproved_ApplyFailureSetsErrorStatus(t *tes
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	issuerID := uuid.New()
@@ -271,9 +283,11 @@ func TestManagedCertificateService_Create_ServerUsageRequiresDNSNames(t *testing
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	_, _, err := svc.Create(uuid.New(), &services.CreateCertificateInput{
 		Name:     "example",
@@ -292,9 +306,11 @@ func TestManagedCertificateService_Create_ClientUsageRequiresSubject(t *testing.
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	_, _, err := svc.Create(uuid.New(), &services.CreateCertificateInput{
 		Name:     "example",
@@ -313,9 +329,11 @@ func TestManagedCertificateService_Create_FastPathWhenApprovalDisabled(t *testin
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	projectID := uuid.New()
 	issuerID := uuid.New()
@@ -375,9 +393,11 @@ func TestManagedCertificateService_OnCancelled_CreateDeletesRow(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	repo.On("Delete", certID).Return(nil)
@@ -397,6 +417,86 @@ func TestManagedCertificateService_OnCancelled_CreateDeletesRow(t *testing.T) {
 	applier.AssertNotCalled(t, "ApplyNamespaced", mock.Anything, mock.Anything, mock.Anything)
 }
 
+// TestManagedCertificateService_Delete_InUseReturnsError covers the
+// referential guard: Delete must check for referencing domains BEFORE
+// deleting anything, and return ErrCertificateInUse rather than touching the
+// row or the cluster when the certificate is still attached to a domain.
+func TestManagedCertificateService_Delete_InUseReturnsError(t *testing.T) {
+	repo := new(mocks.MockManagedCertificateRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	grantRepo := new(mocks.MockIssuerProjectGrantRepository)
+	projectRepo := new(mocks.MockProjectRepository)
+	applier := new(mocks.MockCertInfraApplier)
+	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
+	submitter := &fakeCertApprovalSubmitter{}
+
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
+
+	certID := uuid.New()
+	cert := &models.ManagedCertificate{
+		ID:     certID,
+		Config: models.ManagedCertConfig{CertificateName: "cert-x", SecretName: "cert-x"},
+	}
+	repo.On("GetByID", certID).Return(cert, nil)
+	domainRepo.On("ListByManagedCertificateID", certID).Return([]models.Domain{{ID: uuid.New()}}, nil)
+
+	err := svc.Delete(certID)
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, services.ErrCertificateInUse))
+	repo.AssertNotCalled(t, "Delete", mock.Anything)
+	applier.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	tenantSecrets.AssertNotCalled(t, "DeleteSecret", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	repo.AssertExpectations(t)
+	domainRepo.AssertExpectations(t)
+}
+
+// TestManagedCertificateService_Delete_NoReferences_CleansUpCluster covers
+// the happy path: no referencing domains, so the row is deleted and
+// best-effort cluster cleanup (leaf Certificate CRD + tenant TLS Secret) is
+// invoked with the right GVR/name/namespace. One of the cleanup calls
+// returns an error, which must not fail the overall Delete -- the row is
+// already gone and the user's action succeeded.
+func TestManagedCertificateService_Delete_NoReferences_CleansUpCluster(t *testing.T) {
+	repo := new(mocks.MockManagedCertificateRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	grantRepo := new(mocks.MockIssuerProjectGrantRepository)
+	projectRepo := new(mocks.MockProjectRepository)
+	applier := new(mocks.MockCertInfraApplier)
+	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
+	submitter := &fakeCertApprovalSubmitter{}
+
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
+
+	certID := uuid.New()
+	projectID := uuid.New()
+	cert := &models.ManagedCertificate{
+		ID:        certID,
+		ProjectID: projectID,
+		Config: models.ManagedCertConfig{
+			CertificateName: "cert-" + certID.String(),
+			SecretName:      "cert-" + certID.String(),
+		},
+	}
+	repo.On("GetByID", certID).Return(cert, nil)
+	domainRepo.On("ListByManagedCertificateID", certID).Return(nil, nil)
+	repo.On("Delete", certID).Return(nil)
+	applier.On("Delete", mock.Anything, kubernetes.CertManagerCertificateGVR, "cert-"+certID.String(), true).Return(errors.New("crd not found"))
+	tenantSecrets.On("DeleteSecret", mock.Anything, projectID, kubernetes.FastGatewayNamespace, "cert-"+certID.String()).Return(nil)
+
+	err := svc.Delete(certID)
+
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+	domainRepo.AssertExpectations(t)
+	applier.AssertExpectations(t)
+	tenantSecrets.AssertExpectations(t)
+}
+
 // TestManagedCertificateService_OnRejected_CreateSetsErrorStatus mirrors
 // routeWrite.OnRejected's create case in spirit: a rejected create never
 // reached the cluster, so the row is marked errored (this implementation's
@@ -409,9 +509,11 @@ func TestManagedCertificateService_OnRejected_CreateSetsErrorStatus(t *testing.T
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	cert := &models.ManagedCertificate{
@@ -471,15 +573,18 @@ func TestManagedCertificateService_Status_ReadyTrue(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	cert := &models.ManagedCertificate{
-		ID:     certID,
-		Status: models.ManagedCertStatusIssuing,
-		Config: models.ManagedCertConfig{CertificateName: "cert-x"},
+		ID:          certID,
+		Status:      models.ManagedCertStatusIssuing,
+		Config:      models.ManagedCertConfig{CertificateName: "cert-x"},
+		Fingerprint: "existingbarehexfingerprint",
 	}
 	repo.On("GetByID", certID).Return(cert, nil)
 	obj := readyConditionCertificate("True", "", map[string]interface{}{
@@ -490,7 +595,11 @@ func TestManagedCertificateService_Status_ReadyTrue(t *testing.T) {
 	repo.On("Update", mock.AnythingOfType("*models.ManagedCertificate")).Run(func(args mock.Arguments) {
 		updated := args.Get(0).(*models.ManagedCertificate)
 		assert.Equal(t, models.ManagedCertStatusReady, updated.Status)
-		assert.Equal(t, "AA:BB:CC", updated.Fingerprint)
+		// Status() must NOT overwrite Fingerprint with cert-manager's
+		// colon-hex status.fingerprint -- the distributor (bare-hex, via
+		// SetIssuedMeta) is the sole writer of this column.
+		assert.Equal(t, "existingbarehexfingerprint", updated.Fingerprint)
+		assert.NotEqual(t, "AA:BB:CC", updated.Fingerprint)
 		require.NotNil(t, updated.NotAfter)
 		assert.True(t, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC).Equal(*updated.NotAfter))
 	}).Return(nil)
@@ -516,9 +625,11 @@ func TestManagedCertificateService_Status_ReadyTrueInvalidNotAfterDoesNotClobber
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	existingNotAfter := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -553,9 +664,11 @@ func TestManagedCertificateService_Status_ReadyFalseSurfacesMessage(t *testing.T
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	cert := &models.ManagedCertificate{
@@ -588,9 +701,11 @@ func TestManagedCertificateService_Status_NoReadyConditionDefaultsToIssuing(t *t
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	cert := &models.ManagedCertificate{
@@ -628,9 +743,11 @@ func TestManagedCertificateService_IssuersForProject_ReturnsOnlyGranted(t *testi
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	projectID := uuid.New()
 	grantedIssuer := models.CertificateIssuer{ID: uuid.New(), Name: "granted"}
@@ -653,9 +770,11 @@ func TestManagedCertificateService_DistributionStatus_ReturnsRow(t *testing.T) {
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	syncedAt := time.Now()
@@ -683,9 +802,11 @@ func TestManagedCertificateService_DistributionStatus_NoRow_ReturnsPendingPlaceh
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	distRepo.On("GetByCertificateID", certID).Return(nil, gorm.ErrRecordNotFound)
@@ -706,9 +827,11 @@ func TestManagedCertificateService_DistributionStatus_OtherError_Propagates(t *t
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	boom := errors.New("db exploded")
@@ -727,9 +850,11 @@ func TestManagedCertificateService_Resync_ExistingRow_PreservesFingerprintAndSyn
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	projectID := uuid.New()
@@ -773,9 +898,11 @@ func TestManagedCertificateService_Resync_NoRow_CreatesPendingRow(t *testing.T) 
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	projectID := uuid.New()
@@ -806,9 +933,11 @@ func TestManagedCertificateService_Resync_CertNotFound_ReturnsError(t *testing.T
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	repo.On("GetByID", certID).Return(nil, gorm.ErrRecordNotFound)
@@ -828,9 +957,11 @@ func TestManagedCertificateService_Resync_DistRepoOtherError_Propagates(t *testi
 	projectRepo := new(mocks.MockProjectRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
 	submitter := &fakeCertApprovalSubmitter{}
 
-	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo)
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
 
 	certID := uuid.New()
 	projectID := uuid.New()

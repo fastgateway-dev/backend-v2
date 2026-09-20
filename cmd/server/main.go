@@ -170,6 +170,7 @@ func main() {
 		ProjectNamespaceRepo: projectNamespaceRepo,
 		DtService:            domainTemplateService,
 		AiService:            aiService,
+		ManagedCertLookup:    managedCertRepo,
 	})
 	wafConfig := routeplan.WAFConfig{Image: cfg.WAFImage, Tag: cfg.WAFTag}
 
@@ -350,14 +351,16 @@ func main() {
 		// distributor below.
 		certDistRepo := repository.NewCertificateDistributionRepository(db)
 		managedCertService := services.NewManagedCertificateService(services.ManagedCertificateServiceDeps{
-			Repo:         managedCertRepo,
-			IssuerRepo:   certificateIssuerRepo,
-			GrantRepo:    issuerProjectGrantRepo,
-			ProjectRepo:  projectRepo,
-			ControlPlane: controlPlane,
-			Approvals:    approvalEngine,
-			Config:       cfg,
-			DistRepo:     certDistRepo,
+			Repo:          managedCertRepo,
+			IssuerRepo:    certificateIssuerRepo,
+			GrantRepo:     issuerProjectGrantRepo,
+			ProjectRepo:   projectRepo,
+			ControlPlane:  controlPlane,
+			Approvals:     approvalEngine,
+			Config:        cfg,
+			DistRepo:      certDistRepo,
+			DomainRepo:    domainRepo,
+			TenantSecrets: k8sService,
 		})
 		managedCertHandler = handlers.NewManagedCertificateHandler(managedCertService, permChecker, auditService)
 		approvalEngine.Register(models.ApprovalEntityCertificate, managedCertService)
@@ -809,6 +812,10 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					domains.DELETE("/:domainId", deps.DomainHandler.Delete) // Permission check in handler
 					domains.GET("/:domainId/settings", deps.DomainHandler.GetDomainSettings)
 					domains.PUT("/:domainId/settings", deps.DomainHandler.UpdateDomainSettings) // Permission check in handler
+
+					// Managed certificate attach/detach
+					domains.PUT("/:domainId/certificate", deps.DomainHandler.AttachCertificate)    // Permission check in handler
+					domains.DELETE("/:domainId/certificate", deps.DomainHandler.DetachCertificate) // Permission check in handler
 
 					// mTLS CA management
 					domains.POST("/:domainId/settings/mtls/ca", deps.DomainHandler.AddDomainMTLSCA)            // Permission check in handler

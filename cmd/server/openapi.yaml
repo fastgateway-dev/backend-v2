@@ -2216,6 +2216,81 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /projects/{projectId}/domains/{domainId}/certificate:
+    put:
+      tags:
+        - Domains
+      summary: Attach a managed certificate to a domain (Admin only)
+      description: |
+        Points the domain's Gateway listener at a `usage=server` managed certificate
+        and re-applies it. Requires Owner, Project Admin, or domain-manage permission
+        (the same access level as domain settings).
+      operationId: attachDomainCertificate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/domainId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - certificateId
+              properties:
+                certificateId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Certificate attached; returns the updated domain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Domain'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Domain or certificate not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Certificate has the wrong usage, or is not yet ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - Domains
+      summary: Detach the managed certificate from a domain (Admin only)
+      description: |
+        Clears the domain's managed certificate and re-applies its Gateway listener,
+        which reverts to any legacy BYO TLS secret configured on the domain. Requires
+        Owner, Project Admin, or domain-manage permission.
+      operationId: detachDomainCertificate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/domainId'
+      responses:
+        '200':
+          description: Certificate detached; returns the updated domain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Domain'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /projects/{projectId}/domains/{domainId}/settings/mtls/ca:
     post:
       tags:

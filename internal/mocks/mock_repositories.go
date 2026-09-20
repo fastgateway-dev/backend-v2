@@ -5631,6 +5631,68 @@ func (_c *MockDomainRepository_GetByIDs_Call) RunAndReturn(run func(ids []uuid.U
 	return _c
 }
 
+// ListByManagedCertificateID provides a mock function for the type MockDomainRepository
+func (_mock *MockDomainRepository) ListByManagedCertificateID(certID uuid.UUID) ([]models.Domain, error) {
+	ret := _mock.Called(certID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByManagedCertificateID")
+	}
+
+	var r0 []models.Domain
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) ([]models.Domain, error)); ok {
+		return returnFunc(certID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) []models.Domain); ok {
+		r0 = returnFunc(certID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.Domain)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(certID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockDomainRepository_ListByManagedCertificateID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByManagedCertificateID'
+type MockDomainRepository_ListByManagedCertificateID_Call struct {
+	*mock.Call
+}
+
+// ListByManagedCertificateID is a helper method to define mock.On call
+//   - certID uuid.UUID
+func (_e *MockDomainRepository_Expecter) ListByManagedCertificateID(certID any) *MockDomainRepository_ListByManagedCertificateID_Call {
+	return &MockDomainRepository_ListByManagedCertificateID_Call{Call: _e.mock.On("ListByManagedCertificateID", certID)}
+}
+
+func (_c *MockDomainRepository_ListByManagedCertificateID_Call) Run(run func(certID uuid.UUID)) *MockDomainRepository_ListByManagedCertificateID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockDomainRepository_ListByManagedCertificateID_Call) Return(domains []models.Domain, err error) *MockDomainRepository_ListByManagedCertificateID_Call {
+	_c.Call.Return(domains, err)
+	return _c
+}
+
+func (_c *MockDomainRepository_ListByManagedCertificateID_Call) RunAndReturn(run func(certID uuid.UUID) ([]models.Domain, error)) *MockDomainRepository_ListByManagedCertificateID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListByProjectID provides a mock function for the type MockDomainRepository
 func (_mock *MockDomainRepository) ListByProjectID(projectID uuid.UUID, page int, limit int, search string, status string, labels map[string]string) ([]models.Domain, int64, error) {
 	ret := _mock.Called(projectID, page, limit, search, status, labels)

@@ -142,6 +142,7 @@ type DomainRepositoryInterface interface {
 	ExistsByHostname(projectID uuid.UUID, hostname string) (bool, error)
 	ListByTemplateID(templateID uuid.UUID) ([]models.Domain, error)
 	CountByProjectID(projectID uuid.UUID) (int, error)
+	ListByManagedCertificateID(certID uuid.UUID) ([]models.Domain, error)
 }
 
 // DomainSettingsRepositoryInterface defines the interface for domain settings repository operations

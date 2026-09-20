@@ -42,6 +42,7 @@ type DomainService struct {
 	dtService            DomainTemplateLookup
 	aiService            AIReviewer
 	projectNamespaceRepo repository.ProjectNamespaceRepositoryInterface
+	managedCertLookup    ManagedCertReader
 }
 
 // DomainTemplateLookup is the only thing DomainService needs from
@@ -50,6 +51,15 @@ type DomainService struct {
 // structurally.
 type DomainTemplateLookup interface {
 	GetByID(id uuid.UUID) (*models.DomainTemplate, error)
+}
+
+// ManagedCertReader is the only thing DomainService needs from the managed
+// certificate repository: reading a certificate by ID to validate an
+// AttachCertificate call (it must exist, belong to the caller's project, be
+// a server-usage certificate, and be ready). repository.
+// ManagedCertificateRepositoryInterface satisfies it structurally.
+type ManagedCertReader interface {
+	GetByID(id uuid.UUID) (*models.ManagedCertificate, error)
 }
 
 // AIReviewer is the only thing DomainService needs from AIService.
@@ -94,6 +104,10 @@ type DomainServiceDeps struct {
 	// whether AI is actually available is AIReviewer.IsEnabled's answer, not
 	// this field's nil-ness. See AIReviewer.
 	AiService AIReviewer
+
+	// ManagedCertLookup resolves a managed certificate by ID for
+	// AttachCertificate's validation. See ManagedCertReader.
+	ManagedCertLookup ManagedCertReader
 }
 
 // NewDomainService builds a fully-wired DomainService. It panics if a
@@ -147,6 +161,9 @@ func NewDomainService(deps DomainServiceDeps) *DomainService {
 	if deps.AiService == nil {
 		missing = append(missing, "AiService")
 	}
+	if deps.ManagedCertLookup == nil {
+		missing = append(missing, "ManagedCertLookup")
+	}
 	if len(missing) > 0 {
 		panic("services.NewDomainService: missing required dependency: " + strings.Join(missing, ", "))
 	}
@@ -167,8 +184,42 @@ func NewDomainService(deps DomainServiceDeps) *DomainService {
 		projectNamespaceRepo: deps.ProjectNamespaceRepo,
 		dtService:            deps.DtService,
 		aiService:            deps.AiService,
+		managedCertLookup:    deps.ManagedCertLookup,
 	}
 }
+
+// ErrDomainNotFound is returned by DomainService methods that scope a
+// domain lookup to a project (AttachCertificate, DetachCertificate) when the
+// domain does not exist or exists but belongs to a different project. The
+// two cases are deliberately indistinguishable to callers -- mirroring
+// ErrTopologyNotFound (topology_service.go) -- so a cross-project lookup
+// leaks no information about domains owned by another project; the handler
+// maps this to 404.
+var ErrDomainNotFound = errors.New("domain not found")
+
+// ErrCertificateNotFound is returned by AttachCertificate when the managed
+// certificate does not exist or belongs to a different project than the
+// domain being attached to. Matches the cross-project-is-404 pattern already
+// used by the managed-certificate handler (internal/handlers/
+// managed_certificate_handler.go).
+var ErrCertificateNotFound = errors.New("certificate not found")
+
+// ErrCertificateWrongUsage is returned by AttachCertificate when the
+// certificate's Usage is not models.ManagedCertUsageServer. Only a
+// server-usage certificate can terminate a domain's Gateway listener.
+var ErrCertificateWrongUsage = errors.New("certificate usage must be server")
+
+// ErrGatewayApply wraps a failure to apply Gateway changes to the cluster
+// (as opposed to input/validation errors). Handlers map it to 500, since it
+// is a server-side/infra failure the client may retry unchanged.
+var ErrGatewayApply = errors.New("failed to apply gateway changes")
+
+// ErrCertificateNotReady is returned by AttachCertificate when the
+// certificate's Status is not models.ManagedCertStatusReady. The Phase-3a
+// distribution controller has not (yet, or successfully) pushed a leaf
+// secret for it, so pointing the Gateway listener at it now would reference
+// a secret that does not exist.
+var ErrCertificateNotReady = errors.New("certificate is not ready")
 
 // CreateDomainInput represents input for creating a domain
 type CreateDomainInput struct {
@@ -368,7 +419,112 @@ func (s *DomainService) Update(id uuid.UUID, input *UpdateDomainInput) (*models.
 		return nil, err
 	}
 
-	// TODO: Update Kubernetes resources
+	if err := s.applyGateway(domain); err != nil {
+		return domain, err
+	}
+
+	return domain, nil
+}
+
+// applyGateway builds the Gateway config for domain's current state and
+// applies it to the cluster, mirroring Create's apply-and-status-handling
+// path (domain_service.go:299-310 above): a failed apply sets
+// DomainStatusError with a StatusMessage and persists it; a successful apply
+// sets DomainStatusActive and re-syncs ReferenceGrants for the domain's
+// project. It is the single place Update, AttachCertificate and
+// DetachCertificate go through to push a listener change to the live
+// Gateway -- before this, Update was DB-only and never touched the cluster
+// (the "TODO: Update Kubernetes resources" it replaces), so a TLS secret or
+// managed-certificate change never actually reached Envoy Gateway.
+func (s *DomainService) applyGateway(domain *models.Domain) error {
+	ctx := context.Background()
+	gatewayConfig := domainplan.BuildGatewayConfig(domain, s.templateAnnotations(domain))
+
+	if err := s.k8sGateways.UpdateGateway(ctx, domain.ProjectID, gatewayConfig); err != nil {
+		log.Printf("Failed to update Gateway in Kubernetes: %v", err)
+		domain.Status = models.DomainStatusError
+		domain.StatusMessage = fmt.Sprintf("Failed to update Gateway: %v", err)
+		_ = s.domainRepo.Update(domain)
+		return fmt.Errorf("%w: %v", ErrGatewayApply, err)
+	}
+
+	domain.Status = models.DomainStatusActive
+	domain.StatusMessage = "Gateway updated successfully"
+	_ = s.domainRepo.Update(domain)
+
+	// Reconcile ReferenceGrants for the domain's project. Safe to call on
+	// every apply: syncReferenceGrants recomputes the full set of grants a
+	// project needs from scratch, so a no-op project (single domain in
+	// fastgateway-system, no extra namespaces) just re-applies the same
+	// no-op state.
+	s.syncReferenceGrants(domain.ProjectID)
+
+	return nil
+}
+
+// AttachCertificate points domain at a managed certificate and re-applies
+// its Gateway listener. It does NOT distribute the certificate's secret --
+// the Phase-3a distribution controller already pushes every ready
+// certificate's leaf to cert-<id> in fastgateway-system, and
+// domainplan.BuildGatewayConfig resolves the listener to that deterministic
+// name whenever a domain carries a ManagedCertificateID, so attaching here
+// only needs to set the foreign key and re-apply.
+func (s *DomainService) AttachCertificate(domainID, certID, projectID uuid.UUID) (*models.Domain, error) {
+	domain, err := s.domainRepo.GetByID(domainID)
+	if err != nil {
+		return nil, fmt.Errorf("get domain: %w", ErrDomainNotFound)
+	}
+	if domain.ProjectID != projectID {
+		return nil, ErrDomainNotFound
+	}
+
+	cert, err := s.managedCertLookup.GetByID(certID)
+	if err != nil {
+		return nil, fmt.Errorf("get certificate: %w", ErrCertificateNotFound)
+	}
+	if cert.ProjectID != projectID {
+		return nil, ErrCertificateNotFound
+	}
+	if cert.Usage != models.ManagedCertUsageServer {
+		return nil, ErrCertificateWrongUsage
+	}
+	if cert.Status != models.ManagedCertStatusReady {
+		return nil, ErrCertificateNotReady
+	}
+
+	domain.ManagedCertificateID = &certID
+	if err := s.domainRepo.Update(domain); err != nil {
+		return nil, err
+	}
+
+	if err := s.applyGateway(domain); err != nil {
+		return domain, err
+	}
+
+	return domain, nil
+}
+
+// DetachCertificate clears domain's managed certificate FK and re-applies
+// its Gateway listener. domainplan.BuildGatewayConfig sees the nil FK and
+// falls back to the domain's legacy TLSSecretName/TLSSecretNamespace, so the
+// listener reverts to whatever BYO secret the domain had configured.
+func (s *DomainService) DetachCertificate(domainID, projectID uuid.UUID) (*models.Domain, error) {
+	domain, err := s.domainRepo.GetByID(domainID)
+	if err != nil {
+		return nil, fmt.Errorf("get domain: %w", ErrDomainNotFound)
+	}
+	if domain.ProjectID != projectID {
+		return nil, ErrDomainNotFound
+	}
+
+	domain.ManagedCertificateID = nil
+	if err := s.domainRepo.Update(domain); err != nil {
+		return nil, err
+	}
+
+	if err := s.applyGateway(domain); err != nil {
+		return domain, err
+	}
 
 	return domain, nil
 }

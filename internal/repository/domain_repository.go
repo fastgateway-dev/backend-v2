@@ -133,3 +133,12 @@ func (r *DomainRepository) CountByProjectID(projectID uuid.UUID) (int, error) {
 	}
 	return int(count), nil
 }
+
+// ListByManagedCertificateID lists all domains using a specific managed certificate
+func (r *DomainRepository) ListByManagedCertificateID(certID uuid.UUID) ([]models.Domain, error) {
+	var domains []models.Domain
+	if err := r.db.Where("managed_certificate_id = ?", certID).Find(&domains).Error; err != nil {
+		return nil, err
+	}
+	return domains, nil
+}

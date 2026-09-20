@@ -22,6 +22,17 @@ import (
 // no template, or when the lookup failed -- see the note on error handling
 // at the call sites.
 func BuildGatewayConfig(domain *models.Domain, templateAnnotations map[string]string) *kubernetes.GatewayConfig {
+	tlsSecretName := domain.TLSSecretName
+	tlsSecretNamespace := domain.TLSSecretNamespace
+	if domain.ManagedCertificateID != nil {
+		// A managed cert wins over any legacy BYO secret. The Phase-3a
+		// distribution controller pushes the leaf to cert-<id> in
+		// fastgateway-system for every ready cert, so the name is
+		// deterministic and needs no cert lookup here.
+		tlsSecretName = "cert-" + domain.ManagedCertificateID.String()
+		tlsSecretNamespace = kubernetes.FastGatewayNamespace
+	}
+
 	config := &kubernetes.GatewayConfig{
 		Name:               domain.K8sGatewayName,
 		Namespace:          domain.Namespace,
@@ -30,8 +41,8 @@ func BuildGatewayConfig(domain *models.Domain, templateAnnotations map[string]st
 		TLSMode:            domain.TLSMode,
 		HTTPPort:           domain.HTTPPort,
 		HTTPSPort:          domain.HTTPSPort,
-		TLSSecretName:      domain.TLSSecretName,
-		TLSSecretNamespace: domain.TLSSecretNamespace,
+		TLSSecretName:      tlsSecretName,
+		TLSSecretNamespace: tlsSecretNamespace,
 		TLSPolicy:          string(domain.TLSPolicy),
 	}
 	// Include annotations from domain template

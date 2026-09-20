@@ -258,6 +258,39 @@ func TestManagedCertificateHandler_Delete_ProjectMismatch_NotFound(t *testing.T)
 	mockCert.AssertExpectations(t)
 }
 
+// TestManagedCertificateHandler_Delete_InUse_Conflict verifies the handler
+// maps services.ErrCertificateInUse (the referential guard in
+// ManagedCertificateService.Delete) to 409, distinct from the generic 500
+// path for other errors.
+func TestManagedCertificateHandler_Delete_InUse_Conflict(t *testing.T) {
+	mockCert := new(mocks.MockManagedCertificateService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewManagedCertificateHandler(mockCert, pc, mockAudit)
+
+	user := testUser() // Owner role bypasses permission checks, isolating the Delete-error handling
+	projectID := uuid.New()
+	certID := uuid.New()
+	cert := &models.ManagedCertificate{ID: certID, ProjectID: projectID, Name: "in-use-cert"}
+
+	mockCert.On("GetByID", certID).Return(cert, nil)
+	mockCert.On("Delete", certID).Return(services.ErrCertificateInUse)
+
+	router := gin.New()
+	router.DELETE("/projects/:projectId/certificates/:certificateId", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Delete(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/projects/"+projectID.String()+"/certificates/"+certID.String(), nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	mockCert.AssertExpectations(t)
+	mockAudit.AssertNotCalled(t, "LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestManagedCertificateHandler_Status_ProjectMismatch_NotFound(t *testing.T) {
 	mockCert := new(mocks.MockManagedCertificateService)
 	mockAudit := new(mocks.MockAuditService)

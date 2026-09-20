@@ -239,6 +239,10 @@ func (h *ManagedCertificateHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.service.Delete(id); err != nil {
+		if errors.Is(err, services.ErrCertificateInUse) {
+			c.JSON(http.StatusConflict, gin.H{"error": "certificate is attached to one or more domains; detach it first"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

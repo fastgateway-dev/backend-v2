@@ -337,3 +337,39 @@ func TestBuildGatewayConfig_MapsTLSSecretNamespace(t *testing.T) {
 	require.Equal(t, "shared-certs", got.TLSSecretNamespace,
 		"F2: preview must emit the same cross-namespace certificateRef that deploy does")
 }
+
+// TestBuildGatewayConfig_ManagedCertificateWinsOverLegacySecret covers Phase
+// 3b Task 4: when a Domain has a managed certificate attached, the Gateway
+// listener must terminate TLS with the managed cert's deterministic tenant
+// Secret (cert-<id> in fastgateway-system, pushed there by the Phase 3a
+// distribution controller for every ready cert) instead of any legacy BYO
+// TLSSecretName/TLSSecretNamespace.
+func TestBuildGatewayConfig_ManagedCertificateWinsOverLegacySecret(t *testing.T) {
+	certID := uuid.New()
+	domain := fixtureDomain()
+	domain.ManagedCertificateID = &certID
+	domain.TLSSecretName = "legacy-secret"
+	domain.Namespace = "fastgateway-system"
+
+	got := BuildGatewayConfig(domain, nil)
+
+	assert.Equal(t, "cert-"+certID.String(), got.TLSSecretName,
+		"managed cert must win over the legacy BYO secret name")
+	assert.Equal(t, "fastgateway-system", got.TLSSecretNamespace,
+		"managed cert's tenant secret always lives in fastgateway-system")
+}
+
+// TestBuildGatewayConfig_NoManagedCertificateKeepsLegacySecret pins the
+// unchanged behavior for domains with no managed cert attached: the legacy
+// BYO TLSSecretName/TLSSecretNamespace pass through untouched.
+func TestBuildGatewayConfig_NoManagedCertificateKeepsLegacySecret(t *testing.T) {
+	domain := fixtureDomain()
+	domain.ManagedCertificateID = nil
+	domain.TLSSecretName = "legacy-secret"
+	domain.TLSSecretNamespace = "team-ns"
+
+	got := BuildGatewayConfig(domain, nil)
+
+	assert.Equal(t, "legacy-secret", got.TLSSecretName)
+	assert.Equal(t, "team-ns", got.TLSSecretNamespace)
+}

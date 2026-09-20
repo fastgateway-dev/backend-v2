@@ -37,6 +37,10 @@ func New(creds ProjectCredentials) *Client {
 
 // getClient creates a dynamic Kubernetes client for a project
 func (s *Client) getClient(projectID uuid.UUID) (dynamic.Interface, error) {
+	if s.testClient != nil {
+		return s.testClient, nil
+	}
+
 	project, err := s.creds.GetByID(projectID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get project: %w", err)

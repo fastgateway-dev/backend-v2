@@ -159,6 +159,8 @@ type DomainServiceInterface interface {
 	RemoveDomainMTLSCA(ctx context.Context, domainID uuid.UUID, caID string) (*models.DomainSettings, error)
 	ListTLSSecrets(ctx context.Context, projectID uuid.UUID, namespace string) (*services.ListTLSSecretsResponse, error)
 	ListAvailableNamespaces(ctx context.Context, projectID uuid.UUID) ([]string, error)
+	AttachCertificate(domainID, certID, projectID uuid.UUID) (*models.Domain, error)
+	DetachCertificate(domainID, projectID uuid.UUID) (*models.Domain, error)
 }
 
 // TemplateDomainLister is the slice of DomainTemplateService that

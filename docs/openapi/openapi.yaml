@@ -243,6 +243,8 @@ paths:
     $ref: 'paths/domains.yaml#/domains_{domainId}'
   /projects/{projectId}/domains/{domainId}/settings:
     $ref: 'paths/domains.yaml#/domain-settings'
+  /projects/{projectId}/domains/{domainId}/certificate:
+    $ref: 'paths/domains.yaml#/domain-certificate'
   /projects/{projectId}/domains/{domainId}/settings/mtls/ca:
     $ref: 'paths/domains.yaml#/domain-mtls-ca'
   /projects/{projectId}/domains/{domainId}/settings/mtls/ca/{caId}:

@@ -25,3 +25,9 @@ type CertInfraApplier interface {
 // (see k8s_roles.go), so this assertion lives here rather than in a _test.go
 // to avoid any import-cycle risk.
 var _ CertInfraApplier = (*cluster.ControlPlaneClient)(nil)
+
+// Compile-time role satisfaction check for TenantSecretDeleter
+// (managed_certificate_service.go): *cluster.Client is the single concrete
+// implementation, the same client passed elsewhere as certdist's
+// TenantWriter.
+var _ TenantSecretDeleter = (*cluster.Client)(nil)

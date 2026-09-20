@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -18,6 +19,20 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 )
+
+// ErrCertificateInUse is returned by Delete when the certificate is still
+// attached to one or more domains. The handler maps this to 409 Conflict --
+// deleting the row out from under a domain that references it would leave
+// the domain pointing at a certificate that no longer exists in-cluster.
+var ErrCertificateInUse = errors.New("certificate is attached to one or more domains")
+
+// TenantSecretDeleter is the narrow tenant-cluster role
+// ManagedCertificateService needs to clean up the pushed TLS Secret when a
+// certificate is deleted. Satisfied by *cluster.Client (the same client
+// passed elsewhere as certdist's TenantWriter).
+type TenantSecretDeleter interface {
+	DeleteSecret(ctx context.Context, projectID uuid.UUID, namespace, name string) error
+}
 
 // CertApprovalSubmitter is the narrow slice of *approvalpkg.Engine that
 // ManagedCertificateService needs to submit a certificate create for
@@ -36,28 +51,32 @@ var _ CertApprovalSubmitter = (*approvalpkg.Engine)(nil)
 // deploy step in Phase 2 -- OnApproved issues the leaf Certificate directly;
 // distributing the resulting Secret to workload clusters is Phase 3.
 type ManagedCertificateService struct {
-	repo         repository.ManagedCertificateRepositoryInterface
-	issuerRepo   repository.CertificateIssuerRepositoryInterface
-	grantRepo    repository.IssuerProjectGrantRepositoryInterface
-	projectRepo  repository.ProjectRepositoryInterface
-	controlPlane CertInfraApplier
-	approvals    CertApprovalSubmitter
-	config       *config.Config
-	distRepo     repository.CertificateDistributionRepositoryInterface
+	repo          repository.ManagedCertificateRepositoryInterface
+	issuerRepo    repository.CertificateIssuerRepositoryInterface
+	grantRepo     repository.IssuerProjectGrantRepositoryInterface
+	projectRepo   repository.ProjectRepositoryInterface
+	controlPlane  CertInfraApplier
+	approvals     CertApprovalSubmitter
+	config        *config.Config
+	distRepo      repository.CertificateDistributionRepositoryInterface
+	domainRepo    repository.DomainRepositoryInterface
+	tenantSecrets TenantSecretDeleter
 }
 
 // ManagedCertificateServiceDeps are ManagedCertificateService's required
 // dependencies. NewManagedCertificateService panics if any of them is nil,
 // following the house pattern (see CertificateIssuerServiceDeps).
 type ManagedCertificateServiceDeps struct {
-	Repo         repository.ManagedCertificateRepositoryInterface
-	IssuerRepo   repository.CertificateIssuerRepositoryInterface
-	GrantRepo    repository.IssuerProjectGrantRepositoryInterface
-	ProjectRepo  repository.ProjectRepositoryInterface
-	ControlPlane CertInfraApplier
-	Approvals    CertApprovalSubmitter
-	Config       *config.Config
-	DistRepo     repository.CertificateDistributionRepositoryInterface
+	Repo          repository.ManagedCertificateRepositoryInterface
+	IssuerRepo    repository.CertificateIssuerRepositoryInterface
+	GrantRepo     repository.IssuerProjectGrantRepositoryInterface
+	ProjectRepo   repository.ProjectRepositoryInterface
+	ControlPlane  CertInfraApplier
+	Approvals     CertApprovalSubmitter
+	Config        *config.Config
+	DistRepo      repository.CertificateDistributionRepositoryInterface
+	DomainRepo    repository.DomainRepositoryInterface // referential guard (ListByManagedCertificateID)
+	TenantSecrets TenantSecretDeleter                  // tenant-cluster secret cleanup
 }
 
 func NewManagedCertificateService(deps ManagedCertificateServiceDeps) *ManagedCertificateService {
@@ -86,18 +105,26 @@ func NewManagedCertificateService(deps ManagedCertificateServiceDeps) *ManagedCe
 	if deps.DistRepo == nil {
 		missing = append(missing, "DistRepo")
 	}
+	if deps.DomainRepo == nil {
+		missing = append(missing, "DomainRepo")
+	}
+	if deps.TenantSecrets == nil {
+		missing = append(missing, "TenantSecrets")
+	}
 	if len(missing) > 0 {
 		panic("services.NewManagedCertificateService: missing required dependency: " + strings.Join(missing, ", "))
 	}
 	return &ManagedCertificateService{
-		repo:         deps.Repo,
-		issuerRepo:   deps.IssuerRepo,
-		grantRepo:    deps.GrantRepo,
-		projectRepo:  deps.ProjectRepo,
-		controlPlane: deps.ControlPlane,
-		approvals:    deps.Approvals,
-		config:       deps.Config,
-		distRepo:     deps.DistRepo,
+		repo:          deps.Repo,
+		issuerRepo:    deps.IssuerRepo,
+		grantRepo:     deps.GrantRepo,
+		projectRepo:   deps.ProjectRepo,
+		controlPlane:  deps.ControlPlane,
+		approvals:     deps.Approvals,
+		config:        deps.Config,
+		distRepo:      deps.DistRepo,
+		domainRepo:    deps.DomainRepo,
+		tenantSecrets: deps.TenantSecrets,
 	}
 }
 
@@ -339,13 +366,49 @@ func (s *ManagedCertificateService) ListByProject(projectID uuid.UUID, page, lim
 	return s.repo.ListByProject(projectID, page, limit, status)
 }
 
+// Delete removes a managed certificate. It refuses to delete a certificate
+// that is still attached to one or more domains (ErrCertificateInUse, mapped
+// by the handler to 409) -- checked BEFORE any deletion happens, so a
+// referenced certificate is left fully intact. Once the referential guard
+// passes, the DB row is deleted (the certificate_distributions row cascades
+// via its ON DELETE CASCADE FK -- see migration 000042, no explicit
+// DistRepo delete needed), followed by best-effort cluster cleanup: the
+// cert-manager leaf Certificate CRD and the pushed tenant TLS Secret.
+// Cleanup failures are logged, not returned -- the row is already gone and
+// the user's delete action succeeded.
 func (s *ManagedCertificateService) Delete(id uuid.UUID) error {
-	return s.repo.Delete(id)
+	cert, err := s.repo.GetByID(id)
+	if err != nil {
+		return err
+	}
+
+	domains, err := s.domainRepo.ListByManagedCertificateID(id)
+	if err != nil {
+		return fmt.Errorf("check domain references: %w", err)
+	}
+	if len(domains) > 0 {
+		return ErrCertificateInUse
+	}
+
+	if err := s.repo.Delete(id); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	if err := s.controlPlane.Delete(ctx, kubernetes.CertManagerCertificateGVR, cert.Config.CertificateName, true); err != nil {
+		log.Printf("managed certificate %s: failed to delete leaf Certificate CRD %q: %v", id, cert.Config.CertificateName, err)
+	}
+	if err := s.tenantSecrets.DeleteSecret(ctx, cert.ProjectID, kubernetes.FastGatewayNamespace, cert.Config.SecretName); err != nil {
+		log.Printf("managed certificate %s: failed to delete tenant TLS secret %q: %v", id, cert.Config.SecretName, err)
+	}
+
+	return nil
 }
 
 // Status reads the live cert-manager Certificate for cert id and reports
-// its Ready condition, updating the row's Status/NotAfter/Fingerprint to
-// match.
+// its Ready condition, updating the row's Status/StatusMessage/NotAfter to
+// match. It does not touch Fingerprint -- see the comment on the Ready
+// branch below.
 func (s *ManagedCertificateService) Status(id uuid.UUID) (*CertStatus, error) {
 	cert, err := s.repo.GetByID(id)
 	if err != nil {
@@ -374,9 +437,12 @@ func (s *ManagedCertificateService) Status(id uuid.UUID) (*CertStatus, error) {
 				cert.NotAfter = &parsed
 			}
 		}
-		if fingerprint, ok := nestedString(obj, "status", "fingerprint"); ok {
-			cert.Fingerprint = fingerprint
-		}
+		// Fingerprint is deliberately NOT persisted here. cert-manager's
+		// status.fingerprint is colon-hex, while the certdist distributor
+		// (via SetIssuedMeta) writes bare-hex cluster.CertFingerprint on
+		// every push -- storing both formats made the column flip-flop
+		// between polls. The distributor is now the sole writer of
+		// Fingerprint.
 	case "False":
 		result.Status = models.ManagedCertStatusError
 		result.Message = message
