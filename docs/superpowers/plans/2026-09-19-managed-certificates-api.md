@@ -61,6 +61,9 @@ Response: `{id, type, name, status, config{…}, createdAt, updatedAt}` (no key 
 
 ## Phase 2 — Certificate issuance + approval (project-scoped)
 
+> **Delivered in Phase 2 (scope note):** `GET /projects/{projectId}/certificates` (project list) was pulled forward from Phase 4, and `PATCH /projects/{projectId}/certificates/{certificateId}` (edit/re-issue) was deferred — the issuer service treats issued certs as immutable in Phase 2. The router + OpenAPI bundle reflect the delivered set (parity passes).
+
+
 Group: `/api/v1/projects/:projectId/certificates`, `RequireProjectAccess()` + per-handler `cert.X`.
 
 | Method | Path | Auth | Purpose |
