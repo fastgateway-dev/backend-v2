@@ -74,12 +74,17 @@ func main() {
 
 	log.Printf("\n=== Create project: %s ===", cfg.projectName)
 	var project models.Project
-	if err := api.post(ctx, "/projects", services.CreateProjectInput{
+	projectInput := services.CreateProjectInput{
 		Name:        cfg.projectName,
 		Description: "FastGateway e2e test project",
-		K8sAPIURL:   cfg.k8sAPIURL,
-		K8sToken:    cfg.k8sToken,
-	}, &project); err != nil {
+	}
+	if os.Getenv("SEED_PROJECT_IN_CLUSTER") == "true" {
+		projectInput.ConnectionType = services.ConnectionTypeInCluster
+	} else {
+		projectInput.K8sAPIURL = cfg.k8sAPIURL
+		projectInput.K8sToken = cfg.k8sToken
+	}
+	if err := api.post(ctx, "/projects", projectInput, &project); err != nil {
 		log.Fatalf("FATAL: create project: %v", err)
 	}
 	projectID := project.ID.String()
@@ -431,7 +436,14 @@ func loadSeedConfig() seedConfig {
 		tlsSecretName: env("E2E_TLS_SECRET_NAME", "domain-tls"),
 		kubeContext:   os.Getenv("KUBE_CONTEXT"),
 	}
-	if c.k8sAPIURL == "" || c.k8sToken == "" {
+	// In-cluster mode seeds the project with ConnectionType=in_cluster (the
+	// backend resolves the tenant client from its own in-cluster
+	// ServiceAccount), so it deliberately omits K8S_API_URL/K8S_TOKEN --
+	// requiring them here would fatal before the in-cluster branch at the
+	// project-creation call site ever runs. The off-cluster path still
+	// mandates both, since a project created without them can't reach any
+	// cluster.
+	if os.Getenv("SEED_PROJECT_IN_CLUSTER") != "true" && (c.k8sAPIURL == "" || c.k8sToken == "") {
 		log.Fatal("FATAL: K8S_API_URL and K8S_TOKEN must both be set (the project's own K8s credentials -- never host.docker.internal)")
 	}
 	return c

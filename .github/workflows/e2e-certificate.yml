@@ -1,0 +1,318 @@
+name: e2e-certificate
+
+# Covers the managed-certificate feature (cert-manager issuance, the
+# /certificates*/issuer APIs, distribution, managed attach, and
+# client-cert export/CSR) end-to-end. See
+# docs/superpowers/specs/2026-09-21-managed-certificate-e2e-design.md.
+#
+# The critical difference from .github/workflows/e2e.yml (and main.yml's
+# `e2e` job): that job runs the backend OFF-cluster (`go run ./cmd/server`
+# on the runner), so internal/config.IsRunningInCluster() is false and the
+# entire managed-cert surface is nil-guarded / compiled out -- an e2e call
+# there returns 404 (see the design doc §1). This job instead runs the
+# backend IN-CLUSTER as a Pod (its own ServiceAccount token flips
+# IsRunningInCluster() true) fronted by a LoadBalancer Service, so the
+# real managed-cert control plane is active for the suite in
+# e2e/suites/certificate/.
+#
+# Pins a single Envoy Gateway / Gateway API pair (the newest one e2e.yml's
+# manual release matrix covers) -- unlike e2e.yml this is not a
+# compatibility matrix, since the certificate suite is about the managed
+# certificate control plane, not Envoy Gateway version compatibility.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e-certificate:
+    name: E2E Certificate (Envoy Gateway 1.9.1)
+    runs-on: ubuntu-latest
+    # go test arms a fresh 10-minute-per-package timeout by default; -p 1
+    # (below) only serializes packages, it doesn't raise that timer. This
+    # job also builds a Docker image and installs cert-manager/Postgres
+    # on top of the usual kind/Envoy Gateway setup, so give it more room
+    # than a bare install would need before falling back to GitHub's
+    # 360-minute default.
+    timeout-minutes: 60
+    env:
+      # Distinct from e2e.yml's/main.yml's KIND_CLUSTER
+      # ("fastgateway-e2e") so the two jobs can never collide if they ever
+      # ran on the same runner.
+      KIND_CLUSTER: fastgateway-cert-e2e
+      KIND_VERSION: "v0.29.0"
+      CLOUD_PROVIDER_KIND_VERSION: "0.11.1"
+      GATEWAY_API_VERSION: "1.6.1"
+      ENVOY_GATEWAY_VERSION: "1.9.1"
+      CERT_MANAGER_VERSION: "v1.16.2"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: go.sum
+
+      - name: Install kind
+        run: |
+          curl -fLo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
+
+      - name: Create kind cluster
+        run: kind create cluster --name "$KIND_CLUSTER" --wait 120s
+
+      # cloud-provider-kind gives Services of type LoadBalancer a real,
+      # reachable external IP inside the kind docker network. Both the
+      # seeded Gateway's Service AND (new here) the in-cluster backend's
+      # own Service need this -- without it neither IP would ever leave
+      # "Pending".
+      - name: Start cloud-provider-kind (LoadBalancer support)
+        run: |
+          arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+          curl -fLo /tmp/cpk.tar.gz "https://github.com/kubernetes-sigs/cloud-provider-kind/releases/download/v${CLOUD_PROVIDER_KIND_VERSION}/cloud-provider-kind_${CLOUD_PROVIDER_KIND_VERSION}_linux_${arch}.tar.gz"
+          tar -xzf /tmp/cpk.tar.gz -C /tmp cloud-provider-kind
+          chmod +x /tmp/cloud-provider-kind
+          sudo mv /tmp/cloud-provider-kind /usr/local/bin/cloud-provider-kind
+          sudo nohup cloud-provider-kind > /tmp/cloud-provider-kind.log 2>&1 &
+          sleep 3
+
+      - name: Install Gateway API CRDs
+        run: |
+          kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/standard-install.yaml"
+
+      # Minimal install: no Redis / rate-limit backend. The certificate
+      # suite (e2e/suites/certificate/) does not exercise rate limiting,
+      # unlike e2e.yml's suite -- so this job skips e2e.yml's "Deploy
+      # Redis for Envoy Gateway rate limiting" step, the rateLimit values
+      # block, and the envoy-ratelimit rollout wait entirely. No values
+      # file is needed for the GatewayClass/controller to come up.
+      - name: Install Envoy Gateway (Helm)
+        run: |
+          helm install eg oci://docker.io/envoyproxy/gateway-helm \
+            --version "v${ENVOY_GATEWAY_VERSION}" \
+            -n envoy-gateway-system --create-namespace
+          kubectl -n envoy-gateway-system rollout status deployment/envoy-gateway --timeout=180s
+
+      # NEW vs e2e.yml: cert-manager is the control plane behind every
+      # managed-certificate API this suite exercises (issuers,
+      # ClusterIssuers, Certificates, CertificateRequests). It must be
+      # Ready before the backend starts, since the backend's certdist
+      # controller and certificate services talk to these CRDs from the
+      # very first reconcile.
+      - name: Install cert-manager (Helm)
+        run: |
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update
+          helm install cert-manager jetstack/cert-manager \
+            --namespace cert-manager --create-namespace \
+            --set installCRDs=true \
+            --version "${CERT_MANAGER_VERSION}"
+          kubectl -n cert-manager rollout status deploy/cert-manager --timeout=180s
+          kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=180s
+          kubectl -n cert-manager rollout status deploy/cert-manager-cainjector --timeout=180s
+
+      # NEW vs e2e.yml: Postgres for the in-cluster backend. The pod
+      # backend cannot reach the runner-level `postgres` service
+      # container e2e.yml uses (that's only bound to the runner's own
+      # localhost), so it gets its own in-cluster Deployment instead.
+      # e2e/deps/backend/postgres.yaml also declares the
+      # fastgateway-system namespace the backend and its Postgres share.
+      - name: Deploy Postgres for the in-cluster backend
+        run: |
+          kubectl apply -f e2e/deps/backend/postgres.yaml
+          kubectl -n fastgateway-system rollout status deploy/postgres --timeout=120s
+
+      # e2e-seed (below, run for every suite including this one) refuses
+      # to create the domain unless a TLS secret named by
+      # E2E_TLS_SECRET_NAME (default "domain-tls") already exists in
+      # fastgateway-system -- see
+      # e2e/cmd/e2e-seed/main.go:verifyTLSSecretExists. That check runs
+      # unconditionally, even for SEED_PROJECT_IN_CLUSTER=true, and is
+      # unrelated to the managed-certificate feature under test (it only
+      # backs the domain's initial placeholder listener cert, which the
+      # certificate suite's own tests replace via AttachServerCertToDomain).
+      # A throwaway self-signed cert is enough; unlike e2e.yml this job
+      # does not need the full step-CLI-generated multi-CA PKI in
+      # e2e/testdata/certificate (that PKI backs the OTHER suites' BYO
+      # TLS/mTLS tests, none of which this suite runs).
+      - name: Create placeholder domain TLS secret
+        run: |
+          openssl req -x509 -newkey rsa:2048 -keyout /tmp/domain-tls.key -out /tmp/domain-tls.crt \
+            -days 365 -nodes -subj "/CN=api.fastgateway.local"
+          kubectl create secret tls domain-tls \
+            --namespace=fastgateway-system \
+            --cert=/tmp/domain-tls.crt --key=/tmp/domain-tls.key \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # REQUIRED: Tier 2 mTLS tests (e2e/suites/certificate/client_managed_cert_test.go)
+      # route their 200 case to default/nginx-service:80, exactly like
+      # e2e.yml's shared nginx fixture.
+      - name: Deploy nginx backend
+        run: |
+          kubectl apply -f e2e/deps/nginx.yaml
+          kubectl -n default rollout status deployment/nginx-deployment --timeout=120s
+
+      # NEW vs e2e.yml: build the real backend image (root Dockerfile,
+      # EXPOSE 8081 / CMD ["./server"]) and load it into kind so the
+      # Deployment below can run it as a Pod with imagePullPolicy:
+      # IfNotPresent -- no registry round-trip needed.
+      - name: Build and load the backend image into kind
+        run: |
+          docker build -t fastgateway-backend:e2e .
+          kind load docker-image fastgateway-backend:e2e --name "$KIND_CLUSTER"
+
+      # NEW vs e2e.yml: apply the backend's own ServiceAccount/ClusterRole
+      # (distinct from e2e/deps/rbac.yaml's "fastgateway" SA, which mints a
+      # kubeconfig token for the OFF-cluster `go run` backend in the other
+      # job) and the Deployment + LoadBalancer Service. Mounting this SA
+      # is what flips IsRunningInCluster() true.
+      - name: Apply backend manifests
+        run: |
+          kubectl apply -f e2e/deps/backend/rbac.yaml -f e2e/deps/backend/backend.yaml
+          kubectl -n fastgateway-system rollout status deploy/fastgateway-backend --timeout=180s
+
+      # NEW vs e2e.yml: resolve the in-cluster backend's own LoadBalancer
+      # IP (cloud-provider-kind, same mechanism as GATEWAY_IP below) so
+      # the off-cluster test binary and e2e-seed can reach it.
+      # `kubectl get` with a jsonpath array index EXITS NON-ZERO on an
+      # empty/absent field -- same as the GATEWAY_IP resolution further
+      # down -- so swallow that with `|| true` and retry instead of
+      # failing the step on a not-yet-provisioned IP.
+      - name: Resolve backend LoadBalancer IP
+        run: |
+          ip=""
+          for i in $(seq 1 30); do
+            ip="$(kubectl -n fastgateway-system get svc fastgateway-backend \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+            [ -n "$ip" ] && break
+            sleep 2
+          done
+          if [ -z "$ip" ]; then
+            echo "fastgateway-backend LoadBalancer IP never appeared" >&2
+            kubectl -n fastgateway-system get svc >&2
+            kubectl -n fastgateway-system get pods >&2
+            exit 1
+          fi
+          echo "backend LB IP: ${ip}"
+          for i in $(seq 1 30); do
+            if curl -sf "http://${ip}:8081/health" > /dev/null; then
+              echo "backend is up"
+              break
+            fi
+            sleep 2
+          done
+          echo "FASTGATEWAY_API_URL=http://${ip}:8081/api/v1" >> "$GITHUB_ENV"
+
+      # NEW vs e2e.yml: SEED_PROJECT_IN_CLUSTER=true makes e2e-seed set
+      # ConnectionType=in_cluster on the seeded project instead of
+      # posting K8s API URL/token -- the in-cluster backend resolves its
+      # own tenant client from its mounted ServiceAccount, so no
+      # off-cluster kubeconfig credentials are passed here (unlike
+      # e2e.yml's Seed step, which sets K8S_API_URL/K8S_TOKEN).
+      # FASTGATEWAY_API_URL comes from $GITHUB_ENV (previous step); the
+      # admin credentials below mirror backend.yaml's ADMIN_* env exactly,
+      # matching what "Run backend" sets them to in e2e.yml.
+      - name: Seed FastGateway (go run ./e2e/cmd/e2e-seed)
+        env:
+          SEED_PROJECT_IN_CLUSTER: "true"
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: admin123
+          ADMIN_EMAIL: admin@fastgateway.local
+        run: go run ./e2e/cmd/e2e-seed
+
+      - name: Wait for the seeded Gateway and resolve GATEWAY_IP
+        run: |
+          # FastGateway creates Gateway resources in fastgateway-system, not
+          # default -- models.Domain.Namespace defaults to it and
+          # domain_service.go defines FastGatewayNamespace = "fastgateway-system".
+          ns="${FG_NAMESPACE:-fastgateway-system}"
+
+          # Gateway creation is asynchronous: e2e-seed returns as soon as the
+          # domain is accepted, before the Gateway object exists. Poll for it.
+          # (`kubectl get` with a jsonpath index EXITS NON-ZERO on an empty
+          # list, so swallow that and retry rather than failing the step.)
+          gw=""
+          for i in $(seq 1 60); do
+            gw="$(kubectl -n "$ns" get gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+            [ -n "$gw" ] && break
+            sleep 2
+          done
+          if [ -z "$gw" ]; then
+            echo "no Gateway appeared in namespace ${ns} within 120s of seeding" >&2
+            echo "--- gateways in all namespaces ---" >&2
+            kubectl get gateway -A >&2 || true
+            echo "--- backend log ---" >&2
+            kubectl -n fastgateway-system logs deploy/fastgateway-backend --tail=200 >&2 || true
+            exit 1
+          fi
+          echo "found Gateway ${gw} in namespace ${ns}"
+          kubectl -n "$ns" wait --for=condition=Programmed "gateway/${gw}" --timeout=180s
+          ip=""
+          for i in $(seq 1 30); do
+            ip="$(kubectl -n envoy-gateway-system get svc \
+              -l "gateway.envoyproxy.io/owning-gateway-name=${gw},gateway.envoyproxy.io/owning-gateway-namespace=${ns}" \
+              -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+            [ -n "$ip" ] && break
+            sleep 2
+          done
+          if [ -z "$ip" ]; then
+            echo "Gateway LoadBalancer IP never appeared" >&2
+            kubectl -n envoy-gateway-system get svc >&2
+            exit 1
+          fi
+          echo "GATEWAY_IP=${ip}" >> "$GITHUB_ENV"
+
+      # -p 1 is required: the harness's shared fixtures (project/domain)
+      # make package-level parallelism unsafe, mirroring every other e2e
+      # suite in this repo. FASTGATEWAY_API_URL and GATEWAY_IP come from
+      # $GITHUB_ENV set above; the admin/editor/approver creds below match
+      # both the backend's own ADMIN_* env and e2e-seed's SEED_USER_PASS
+      # default ("password123"), which is what harness/config.go's
+      # EditorPass/ApproverPass fall back to.
+      - name: Run e2e certificate suite (go test -tags e2e ./e2e/suites/certificate/...)
+        env:
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: admin123
+          EDITOR_USER: dev1
+          EDITOR_PASS: password123
+          APPROVER_USER: sec1
+          APPROVER_PASS: password123
+        run: go test -tags e2e ./e2e/suites/certificate/... -p 1 -count=1 -v -timeout 30m
+
+      - name: Backend log (always, for debugging)
+        if: always()
+        run: kubectl -n fastgateway-system logs deploy/fastgateway-backend --tail=500 || true
+
+      - name: Diagnostics (on failure)
+        if: failure()
+        run: |
+          echo "=== all resources, all namespaces ==="
+          kubectl get all -A || true
+
+          echo
+          echo "=== fastgateway-backend deployment describe ==="
+          kubectl -n fastgateway-system describe deploy/fastgateway-backend || true
+
+          echo
+          echo "=== fastgateway-backend logs ==="
+          kubectl -n fastgateway-system logs deploy/fastgateway-backend --tail=200 || true
+
+          echo
+          echo "=== postgres logs ==="
+          kubectl -n fastgateway-system logs deploy/postgres --tail=100 || true
+
+          echo
+          echo "=== cert-manager logs ==="
+          kubectl -n cert-manager logs deploy/cert-manager --tail=200 || true
+          kubectl -n cert-manager logs deploy/cert-manager-webhook --tail=100 || true
+          kubectl -n cert-manager logs deploy/cert-manager-cainjector --tail=100 || true
+
+          echo
+          echo "=== cert-manager resources, all namespaces ==="
+          kubectl get certificates,certificaterequests,clusterissuers,issuers -A || true
+
+      - name: Delete kind cluster
+        if: always()
+        run: kind delete cluster --name "$KIND_CLUSTER" || true

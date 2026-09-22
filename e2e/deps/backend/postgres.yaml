@@ -1,0 +1,88 @@
+# Namespace for the in-cluster FastGateway backend and its Postgres
+# dependency. kubectl apply is idempotent, so re-declaring this alongside
+# e2e/deps/rbac.yaml (which also creates fastgateway-system) is safe.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fastgateway-system
+---
+# Postgres for the in-cluster backend. Mirrors the POSTGRES_USER/PASSWORD/DB
+# values used by the GitHub Actions `postgres` service container in
+# .github/workflows/e2e.yml, but runs as an in-cluster Deployment instead of
+# a runner-level service so the backend can reach it at
+# postgres.fastgateway-system.svc:5432 from inside the kind cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: fastgateway-system
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "fastgateway"
+            - name: POSTGRES_PASSWORD
+              value: "fastgateway"
+            - name: POSTGRES_DB
+              value: "fastgateway"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              # Avoid postgres's "data directory has wrong ownership /
+              # not empty" complaints when the emptyDir mount point
+              # itself is the volume root.
+              subPath: pgdata
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U fastgateway
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U fastgateway
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: fastgateway-system
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

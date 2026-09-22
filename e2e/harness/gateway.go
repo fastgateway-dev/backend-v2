@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,6 +50,65 @@ func (g *Gateway) tlsConfig(clientCertPEM, clientKeyPEM string) (*tls.Config, er
 		cfg.Certificates = []tls.Certificate{cert}
 	}
 	return cfg, nil
+}
+
+// --- Verifying TLS dial ---
+
+// gatewayAddr is the host:port the existing tlsConfig-based dials
+// (HTTP, dialGRPC) all connect to: cfg.GatewayIP direct, never a DNS name,
+// with SNI/Host forced to cfg.GatewayDomain separately.
+func (g *Gateway) gatewayAddr() string {
+	return fmt.Sprintf("%s:%d", g.cfg.GatewayIP, g.cfg.GatewayPort)
+}
+
+// TLSServedChain dials the gateway with InsecureSkipVerify (like tlsConfig
+// above -- the test certs are self-signed, so the standard verifier would
+// reject them before the handshake ever completes) and SNI set to sni,
+// then returns the certificate chain the server actually presented. This
+// lets a caller verify the served chain itself against a supplied root
+// (e.g. the issuer's CA) without the dial's own verifier getting in the
+// way.
+func (g *Gateway) TLSServedChain(ctx context.Context, sni string) ([]*x509.Certificate, error) {
+	cfg := &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         sni,
+	}
+
+	dialer := &tls.Dialer{Config: cfg}
+	conn, err := dialer.DialContext(ctx, "tcp", g.gatewayAddr())
+	if err != nil {
+		return nil, fmt.Errorf("dial %s (sni=%s): %w", g.gatewayAddr(), sni, err)
+	}
+	defer conn.Close()
+
+	tlsConn, ok := conn.(*tls.Conn)
+	if !ok {
+		return nil, fmt.Errorf("dial %s: unexpected connection type %T", g.gatewayAddr(), conn)
+	}
+	return tlsConn.ConnectionState().PeerCertificates, nil
+}
+
+// VerifyServedBy dials the gateway with real verification turned on --
+// RootCAs: roots and ServerName: sni, no InsecureSkipVerify -- and reports
+// whether the handshake succeeds. A nil error means the chain the gateway
+// served for sni is trusted by roots; any other error (typically an
+// x509.UnknownAuthorityError or a hostname mismatch) means it isn't.
+func (g *Gateway) VerifyServedBy(ctx context.Context, sni string, roots *x509.CertPool) error {
+	cfg := &tls.Config{
+		RootCAs:    roots,
+		ServerName: sni,
+	}
+
+	dialer := &tls.Dialer{Config: cfg}
+	conn, err := dialer.DialContext(ctx, "tcp", g.gatewayAddr())
+	if err != nil {
+		return err
+	}
+	// The handshake completed and the chain verified against roots; a close
+	// error at this point says nothing about trust, so don't let it mask a
+	// genuine success.
+	_ = conn.Close()
+	return nil
 }
 
 // --- HTTP ---

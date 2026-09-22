@@ -1,0 +1,95 @@
+# In-cluster FastGateway backend Deployment + Service.
+#
+# Image: fastgateway-backend:e2e -- built from ./Dockerfile (EXPOSE 8081,
+# CMD ["./server"]) and kind-loaded by the CI workflow (a later task in
+# this plan). imagePullPolicy IfNotPresent so kind's locally-loaded image
+# is used as-is, without an image-registry pull attempt.
+#
+# Env mirrors the go-run block in .github/workflows/e2e.yml, with env var
+# names confirmed against internal/config/config.go's getEnv(...) calls,
+# plus CONTROL_PLANE_NAMESPACE/CERT_DISTRIBUTOR_INTERVAL for the in-cluster
+# managed-certificate distribution controller.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastgateway-backend
+  namespace: fastgateway-system
+  labels:
+    app: fastgateway-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fastgateway-backend
+  template:
+    metadata:
+      labels:
+        app: fastgateway-backend
+    spec:
+      serviceAccountName: fastgateway-backend
+      containers:
+        - name: backend
+          image: fastgateway-backend:e2e
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: DATABASE_HOST
+              value: "postgres"
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_USER
+              value: "fastgateway"
+            - name: DATABASE_PASSWORD
+              value: "fastgateway"
+            - name: DATABASE_NAME
+              value: "fastgateway"
+            - name: API_PORT
+              value: "8081"
+            - name: JWT_SECRET
+              value: "e2e-ci-jwt-secret-not-for-production-use"
+            - name: ENCRYPTION_KEY
+              value: "e2e-ci-encryption-key-not-for-prod"
+            - name: ADMIN_USERNAME
+              value: "admin"
+            - name: ADMIN_PASSWORD
+              value: "admin123"
+            - name: ADMIN_EMAIL
+              value: "admin@fastgateway.local"
+            - name: CONTROL_PLANE_NAMESPACE
+              value: "fastgateway-system"
+            - name: CERT_DISTRIBUTOR_INTERVAL
+              value: "3s"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastgateway-backend
+  namespace: fastgateway-system
+  labels:
+    app: fastgateway-backend
+spec:
+  type: LoadBalancer
+  selector:
+    app: fastgateway-backend
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081

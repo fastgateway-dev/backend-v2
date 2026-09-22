@@ -5,6 +5,7 @@ package harness
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"strings"
@@ -19,6 +20,17 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+// certificateRequestGVR is the cert-manager.io CertificateRequest CR --
+// there's no generated typed client for cert-manager types in this repo
+// (see how GetUnstructured/GetUnstructuredByLabel above already read other
+// CRs via the dynamic client), so ReadCertificateRequestSignedCert reads it
+// the same way.
+var certificateRequestGVR = schema.GroupVersionResource{
+	Group:    "cert-manager.io",
+	Version:  "v1",
+	Resource: "certificaterequests",
+}
 
 // Kube wraps a typed clientset and a dynamic client built from the ambient
 // kubeconfig. Unlike the Python predecessor -- which pinned
@@ -235,6 +247,48 @@ func (k *Kube) ListUnstructuredByLabel(ctx context.Context, gvr schema.GroupVers
 		return nil, fmt.Errorf("list %s in %s matching %q: %w", gvr.Resource, ns, labelSelector, err)
 	}
 	return list.Items, nil
+}
+
+// ReadSecretKey reads a single key out of a Secret's Data map via the
+// typed client, which -- unlike the dynamic client's unstructured
+// "data" map -- already base64-decodes Secret values for callers.
+func (k *Kube) ReadSecretKey(ctx context.Context, ns, name, key string) ([]byte, error) {
+	secret, err := k.Clientset.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("get secret %s/%s: %w", ns, name, err)
+	}
+	val, ok := secret.Data[key]
+	if !ok {
+		return nil, fmt.Errorf("secret %s/%s has no key %q", ns, name, key)
+	}
+	return val, nil
+}
+
+// ReadCertificateRequestSignedCert reads a cert-manager.io/v1
+// CertificateRequest CR via the dynamic client and returns its
+// status.certificate field, base64-decoded to the raw signed leaf PEM --
+// unlike Secret.Data above, the dynamic client's unstructured fields are
+// exactly as stored in the API object's JSON, so a base64 string field
+// like this one comes back needing an explicit decode.
+func (k *Kube) ReadCertificateRequestSignedCert(ctx context.Context, ns, name string) ([]byte, error) {
+	obj, err := k.GetUnstructured(ctx, certificateRequestGVR, ns, name)
+	if err != nil {
+		return nil, err
+	}
+
+	certB64, found, err := unstructured.NestedString(obj.Object, "status", "certificate")
+	if err != nil {
+		return nil, fmt.Errorf("read status.certificate of certificaterequest %s/%s: %w", ns, name, err)
+	}
+	if !found || certB64 == "" {
+		return nil, fmt.Errorf("certificaterequest %s/%s has no status.certificate yet", ns, name)
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(certB64)
+	if err != nil {
+		return nil, fmt.Errorf("decode status.certificate of certificaterequest %s/%s: %w", ns, name, err)
+	}
+	return decoded, nil
 }
 
 // DescribeService reports whether ns/name exists and, if so, its

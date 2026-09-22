@@ -1,0 +1,109 @@
+# RBAC for the in-cluster FastGateway backend Deployment (backend.yaml).
+#
+# Distinct from e2e/deps/rbac.yaml's ServiceAccount/ClusterRole/
+# ClusterRoleBinding (all named "fastgateway"), which mints a token used by
+# the out-of-cluster `go run` backend process in the main e2e workflow. This
+# SA/ClusterRole/ClusterRoleBinding (all named "fastgateway-backend") is for
+# the backend running as an in-cluster Pod, authenticating via its own
+# ServiceAccount token instead of a kubeconfig Secret. Both can coexist in
+# the same cluster.
+#
+# Resource list confirmed by grepping internal/cluster/*.go and
+# internal/kubernetes/gvr.go for `schema.GroupVersionResource{` /
+# `Resource:` and cross-checking usages in internal/services/*.go:
+#   - cert-manager.io: issuers, clusterissuers, certificates,
+#     certificaterequests (internal/kubernetes/gvr.go; issuers/
+#     clusterissuers/certificates/certificaterequests exercised by
+#     internal/services/certificate_issuer_service.go and
+#     internal/services/managed_certificate_service.go)
+#   - gateway.networking.k8s.io: gateways, httproutes, grpcroutes,
+#     referencegrants, gatewayclasses (internal/cluster/route.go,
+#     gateway.go, discovery.go)
+#   - gateway.envoyproxy.io: clienttrafficpolicies, backendtrafficpolicies,
+#     envoyextensionpolicies, backends, envoyproxies, httproutefilters,
+#     securitypolicies (internal/cluster/policy.go, route.go)
+#   - apps: deployments (internal/cluster/versions.go, discovery.go --
+#     Envoy Gateway install validation + version detection)
+#   - apiextensions.k8s.io: customresourcedefinitions (internal/cluster/
+#     versions.go crdsGVR -- Gateway API / EG version detection)
+#   - core: secrets, namespaces, configmaps, services, serviceaccounts,
+#     pods (internal/cluster/namespace.go, discovery.go,
+#     internal/kubernetes/gvr.go, internal/cluster/route.go for
+#     configmaps)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fastgateway-backend
+  namespace: fastgateway-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fastgateway-backend
+rules:
+  # cert-manager.io -- managed certificates (issuers, ClusterIssuers,
+  # Certificates, CertificateRequests)
+  - apiGroups: ["cert-manager.io"]
+    resources:
+      - issuers
+      - clusterissuers
+      - certificates
+      - certificaterequests
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Core: Secrets (TLS/managed-cert secrets, API keys), Namespaces (project
+  # namespace provisioning), ConfigMaps (Direct Response bodies), Services
+  # and ServiceAccounts (namespace capability checks), Pods (EG install
+  # validation).
+  - apiGroups: [""]
+    resources:
+      - secrets
+      - namespaces
+      - configmaps
+      - services
+      - serviceaccounts
+      - pods
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # apps -- Deployments (Envoy Gateway install validation + version
+  # detection)
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Gateway API
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - gateways
+      - gatewayclasses
+      - httproutes
+      - grpcroutes
+      - referencegrants
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Envoy Gateway
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources:
+      - clienttrafficpolicies
+      - backendtrafficpolicies
+      - envoyextensionpolicies
+      - backends
+      - envoyproxies
+      - httproutefilters
+      - securitypolicies
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # apiextensions.k8s.io -- CRD discovery for Gateway API / Envoy Gateway
+  # version detection (internal/cluster/versions.go crdsGVR). Read-only:
+  # nothing in the backend creates or mutates CRDs.
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fastgateway-backend
+subjects:
+  - kind: ServiceAccount
+    name: fastgateway-backend
+    namespace: fastgateway-system
+roleRef:
+  kind: ClusterRole
+  name: fastgateway-backend
+  apiGroup: rbac.authorization.k8s.io
