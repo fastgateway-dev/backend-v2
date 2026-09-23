@@ -279,7 +279,12 @@ jobs:
       # both the backend's own ADMIN_* env and e2e-seed's SEED_USER_PASS
       # default ("password123"), which is what harness/config.go's
       # EditorPass/ApproverPass fall back to.
-      - name: Run e2e certificate suite (go test -tags e2e ./e2e/suites/certificate/...)
+      # The certificate suite is gated behind the extra `certe2e` build tag
+      # (on top of `e2e`) because it only works against an IN-CLUSTER backend
+      # -- the off-cluster e2e job (main.yml, `-tags e2e ./e2e/...`) would hit
+      # 404s on the managed-cert routes. That tag keeps the suite out of every
+      # off-cluster run; this in-cluster job opts in with `-tags e2e,certe2e`.
+      - name: Run e2e certificate suite (go test -tags e2e,certe2e ./e2e/suites/certificate/...)
         env:
           ADMIN_USERNAME: admin
           ADMIN_PASSWORD: admin123
@@ -287,7 +292,7 @@ jobs:
           EDITOR_PASS: password123
           APPROVER_USER: sec1
           APPROVER_PASS: password123
-        run: go test -tags e2e ./e2e/suites/certificate/... -p 1 -count=1 -v -timeout 30m
+        run: go test -tags e2e,certe2e ./e2e/suites/certificate/... -p 1 -count=1 -v -timeout 30m
 
       - name: Backend log (always, for debugging)
         if: always()

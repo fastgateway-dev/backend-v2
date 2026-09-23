@@ -827,7 +827,7 @@ func (s *ManagedCertificateService) statusManaged(cert *models.ManagedCertificat
 
 	result := &CertStatus{Status: models.ManagedCertStatusIssuing}
 
-	ready, message := readyCondition(obj)
+	ready, reason, message := readyCondition(obj)
 	switch ready {
 	case "True":
 		result.Status = models.ManagedCertStatusReady
@@ -849,10 +849,19 @@ func (s *ManagedCertificateService) statusManaged(cert *models.ManagedCertificat
 		// between polls. The distributor is now the sole writer of
 		// Fingerprint.
 	case "False":
-		result.Status = models.ManagedCertStatusError
-		result.Message = message
-		cert.Status = models.ManagedCertStatusError
-		cert.StatusMessage = message
+		if isCertManagerTerminalFailure(reason) {
+			result.Status = models.ManagedCertStatusError
+			result.Message = message
+			cert.Status = models.ManagedCertStatusError
+			cert.StatusMessage = message
+		} else {
+			// Ready=False with a non-terminal reason (Pending/Issuing) is the
+			// normal in-progress state while cert-manager signs the leaf.
+			result.Status = models.ManagedCertStatusIssuing
+			result.Message = message
+			cert.Status = models.ManagedCertStatusIssuing
+			cert.StatusMessage = message
+		}
 	default:
 		result.Status = models.ManagedCertStatusIssuing
 		result.Message = message
@@ -880,7 +889,7 @@ func (s *ManagedCertificateService) statusCSR(cert *models.ManagedCertificate) (
 
 	result := &CertStatus{Status: models.ManagedCertStatusIssuing}
 
-	ready, message := readyCondition(obj)
+	ready, reason, message := readyCondition(obj)
 	switch ready {
 	case "True":
 		result.Status = models.ManagedCertStatusReady
@@ -894,10 +903,19 @@ func (s *ManagedCertificateService) statusCSR(cert *models.ManagedCertificate) (
 			}
 		}
 	case "False":
-		result.Status = models.ManagedCertStatusError
-		result.Message = message
-		cert.Status = models.ManagedCertStatusError
-		cert.StatusMessage = message
+		if isCertManagerTerminalFailure(reason) {
+			result.Status = models.ManagedCertStatusError
+			result.Message = message
+			cert.Status = models.ManagedCertStatusError
+			cert.StatusMessage = message
+		} else {
+			// Ready=False with a non-terminal reason (Pending) is the normal
+			// in-progress state while cert-manager signs the CertificateRequest.
+			result.Status = models.ManagedCertStatusIssuing
+			result.Message = message
+			cert.Status = models.ManagedCertStatusIssuing
+			cert.StatusMessage = message
+		}
 	default:
 		result.Status = models.ManagedCertStatusIssuing
 		result.Message = message
@@ -1011,13 +1029,13 @@ func (s *ManagedCertificateService) IssuersForProject(projectID uuid.UUID) ([]mo
 }
 
 // readyCondition extracts the cert-manager Certificate's status.conditions
-// entry with type=Ready, returning its status ("True"/"False"/"Unknown")
-// and message. An absent conditions list or Ready entry reports
-// ("Unknown", "") -- treated by Status as still issuing.
-func readyCondition(obj *unstructured.Unstructured) (status, message string) {
+// entry with type=Ready, returning its status ("True"/"False"/"Unknown"),
+// its reason, and its message. An absent conditions list or Ready entry
+// reports ("Unknown", "", "") -- treated by Status as still issuing.
+func readyCondition(obj *unstructured.Unstructured) (status, reason, message string) {
 	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
 	if err != nil || !found {
-		return "Unknown", ""
+		return "Unknown", "", ""
 	}
 	for _, c := range conditions {
 		cond, ok := c.(map[string]interface{})
@@ -1028,13 +1046,31 @@ func readyCondition(obj *unstructured.Unstructured) (status, message string) {
 			continue
 		}
 		s, _, _ := unstructured.NestedString(cond, "status")
+		r, _, _ := unstructured.NestedString(cond, "reason")
 		m, _, _ := unstructured.NestedString(cond, "message")
 		if s == "" {
 			s = "Unknown"
 		}
-		return s, m
+		return s, r, m
 	}
-	return "Unknown", ""
+	return "Unknown", "", ""
+}
+
+// isCertManagerTerminalFailure reports whether a cert-manager Ready=False
+// condition reason represents a genuinely failed issuance. A Ready=False
+// condition is the NORMAL in-progress state while cert-manager signs a
+// Certificate or CertificateRequest (reason "Pending"/"Issuing"); only
+// "Failed"/"Denied" are terminal. Treating every Ready=False as an error
+// made a freshly created certificate report "error" during its normal
+// issuance window (e.g. before its issuer's ClusterIssuer finished
+// reconciling), which callers polling for readiness see as a hard failure.
+func isCertManagerTerminalFailure(reason string) bool {
+	switch reason {
+	case "Failed", "Denied":
+		return true
+	default:
+		return false
+	}
 }
 
 // nestedString reads a string field from obj at the given path, reporting

@@ -943,12 +943,13 @@ func TestManagedCertificateService_OnCancelled_ExportAction_NoOp(t *testing.T) {
 // readyConditionCertificate builds a minimal unstructured cert-manager
 // Certificate object with a single status.conditions entry of type=Ready,
 // for exercising Status's condition-parsing logic.
-func readyConditionCertificate(status, message string, extra map[string]interface{}) *unstructured.Unstructured {
+func readyConditionCertificate(status, reason, message string, extra map[string]interface{}) *unstructured.Unstructured {
 	statusFields := map[string]interface{}{
 		"conditions": []interface{}{
 			map[string]interface{}{
 				"type":    "Ready",
 				"status":  status,
+				"reason":  reason,
 				"message": message,
 			},
 		},
@@ -985,7 +986,7 @@ func TestManagedCertificateService_Status_ReadyTrue(t *testing.T) {
 		Fingerprint: "existingbarehexfingerprint",
 	}
 	repo.On("GetByID", certID).Return(cert, nil)
-	obj := readyConditionCertificate("True", "", map[string]interface{}{
+	obj := readyConditionCertificate("True", "Ready", "", map[string]interface{}{
 		"notAfter":    "2027-01-01T00:00:00Z",
 		"fingerprint": "AA:BB:CC",
 	})
@@ -1038,7 +1039,7 @@ func TestManagedCertificateService_Status_ReadyTrueInvalidNotAfterDoesNotClobber
 		NotAfter: &existingNotAfter,
 	}
 	repo.On("GetByID", certID).Return(cert, nil)
-	obj := readyConditionCertificate("True", "", map[string]interface{}{
+	obj := readyConditionCertificate("True", "Ready", "", map[string]interface{}{
 		"notAfter":    "not-a-valid-timestamp",
 		"fingerprint": "AA:BB:CC",
 	})
@@ -1075,7 +1076,7 @@ func TestManagedCertificateService_Status_ReadyFalseSurfacesMessage(t *testing.T
 		Config: models.ManagedCertConfig{CertificateName: "cert-x"},
 	}
 	repo.On("GetByID", certID).Return(cert, nil)
-	obj := readyConditionCertificate("False", "failed to issue certificate: rate limited", nil)
+	obj := readyConditionCertificate("False", "Failed", "failed to issue certificate: rate limited", nil)
 	applier.On("Get", mock.Anything, kubernetes.CertManagerCertificateGVR, "cert-x", true).Return(obj, nil)
 	repo.On("Update", mock.AnythingOfType("*models.ManagedCertificate")).Run(func(args mock.Arguments) {
 		updated := args.Get(0).(*models.ManagedCertificate)
@@ -1088,6 +1089,49 @@ func TestManagedCertificateService_Status_ReadyFalseSurfacesMessage(t *testing.T
 	require.NotNil(t, result)
 	assert.Equal(t, models.ManagedCertStatusError, result.Status)
 	assert.Equal(t, "failed to issue certificate: rate limited", result.Message)
+	assert.Nil(t, result.NotAfter)
+	repo.AssertExpectations(t)
+}
+
+// TestManagedCertificateService_Status_ReadyFalsePendingStaysIssuing covers
+// the normal in-progress state: cert-manager reports Ready=False with a
+// non-terminal reason (Pending/Issuing) while it is still signing the leaf.
+// This must map to "issuing", not "error" -- otherwise a freshly created
+// certificate reads as failed during its normal issuance window (e.g. before
+// its issuer's ClusterIssuer has finished reconciling), and a caller polling
+// for readiness gives up on a transient state.
+func TestManagedCertificateService_Status_ReadyFalsePendingStaysIssuing(t *testing.T) {
+	repo := new(mocks.MockManagedCertificateRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	grantRepo := new(mocks.MockIssuerProjectGrantRepository)
+	projectRepo := new(mocks.MockProjectRepository)
+	applier := new(mocks.MockCertInfraApplier)
+	distRepo := new(mocks.MockCertificateDistributionRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	tenantSecrets := new(mocks.MockTenantSecretDeleter)
+	submitter := &fakeCertApprovalSubmitter{}
+
+	svc := newTestManagedCertificateService(repo, issuerRepo, grantRepo, projectRepo, applier, submitter, distRepo, domainRepo, tenantSecrets)
+
+	certID := uuid.New()
+	cert := &models.ManagedCertificate{
+		ID:     certID,
+		Status: models.ManagedCertStatusIssuing,
+		Config: models.ManagedCertConfig{CertificateName: "cert-x"},
+	}
+	repo.On("GetByID", certID).Return(cert, nil)
+	obj := readyConditionCertificate("False", "Pending", "Issuing certificate as Secret does not exist", nil)
+	applier.On("Get", mock.Anything, kubernetes.CertManagerCertificateGVR, "cert-x", true).Return(obj, nil)
+	repo.On("Update", mock.AnythingOfType("*models.ManagedCertificate")).Run(func(args mock.Arguments) {
+		updated := args.Get(0).(*models.ManagedCertificate)
+		assert.Equal(t, models.ManagedCertStatusIssuing, updated.Status)
+	}).Return(nil)
+
+	result, err := svc.Status(certID)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, models.ManagedCertStatusIssuing, result.Status)
+	assert.Equal(t, "Issuing certificate as Secret does not exist", result.Message)
 	assert.Nil(t, result.NotAfter)
 	repo.AssertExpectations(t)
 }
