@@ -70,46 +70,54 @@ func (r *PresetRepository) IsPresetInUse(presetID uuid.UUID) (bool, error) {
 	return count > 0, err
 }
 
-// SeedBuiltinPresets seeds the built-in presets for a new project
+// permStrings flattens a preset's []models.Permission into the []string the
+// PermissionPreset row stores.
+func permStrings(perms []models.Permission) []string {
+	out := make([]string, len(perms))
+	for i, p := range perms {
+		out[i] = string(p)
+	}
+	return out
+}
+
+// SeedBuiltinPresets seeds the built-in presets for a new project.
+//
+// The permission lists are derived from the canonical models.Preset* vars
+// (the single source of truth, e.g. models.PresetApprover) rather than
+// hand-copied here. An earlier hand-maintained copy drifted when the managed
+// certificate permissions were added: the model presets gained the
+// certificate.* permissions but this seed did not, so no project's built-in
+// Approver/Editor/Admin could view, create or approve certificates. Deriving
+// from the model vars keeps them in lock-step permanently.
 func (r *PresetRepository) SeedBuiltinPresets(projectID uuid.UUID) error {
 	presets := []models.PermissionPreset{
 		{
 			ProjectID:   projectID,
 			Name:        "Viewer",
-			Description: "Read-only access to routes, clients, and domains",
-			Permissions: []string{"route.view", "client.view", "domain.view"},
+			Description: "Read-only access to routes, clients, domains, and certificates",
+			Permissions: permStrings(models.PresetViewer),
 			IsBuiltin:   true,
 		},
 		{
 			ProjectID:   projectID,
 			Name:        "Editor",
-			Description: "Can create and edit routes, clients, and domains",
-			Permissions: []string{
-				"route.view", "route.create", "route.edit", "route.delete", "route.deploy",
-				"client.view", "client.create", "client.edit", "client.manage_ip", "client.manage_apikey", "client.manage_jwt", "client.attach", "client.detach",
-				"domain.view", "domain.create", "domain.edit",
-			},
-			IsBuiltin: true,
+			Description: "Can create and edit routes, clients, domains, and certificates",
+			Permissions: permStrings(models.PresetEditor),
+			IsBuiltin:   true,
 		},
 		{
 			ProjectID:   projectID,
 			Name:        "Approver",
-			Description: "Can approve or reject route and client changes",
-			Permissions: []string{"route.view", "route.approve", "client.view", "client.approve", "domain.view"},
+			Description: "Can approve or reject route, client, and certificate changes",
+			Permissions: permStrings(models.PresetApprover),
 			IsBuiltin:   true,
 		},
 		{
 			ProjectID:   projectID,
 			Name:        "Admin",
 			Description: "Full project administration access",
-			Permissions: []string{
-				"route.view", "route.create", "route.edit", "route.delete", "route.deploy", "route.approve",
-				"client.view", "client.create", "client.edit", "client.delete", "client.manage_ip", "client.manage_apikey", "client.manage_jwt", "client.attach", "client.detach", "client.approve",
-				"domain.view", "domain.create", "domain.edit", "domain.delete",
-				"project.settings", "project.teams", "project.approval_policy",
-				"audit.view",
-			},
-			IsBuiltin: true,
+			Permissions: permStrings(models.PresetAdmin),
+			IsBuiltin:   true,
 		},
 	}
 
