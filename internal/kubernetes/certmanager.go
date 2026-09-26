@@ -13,12 +13,12 @@ func managedByLabels() map[string]interface{} {
 	return map[string]interface{}{"app.kubernetes.io/managed-by": "fastgateway"}
 }
 
-// SelfSignedClusterIssuer builds a cert-manager ClusterIssuer backed by the
+// SelfSignedIssuer builds a namespaced cert-manager Issuer backed by the
 // selfSigned issuer type. Used as the root issuer for the internal CA chain.
-func SelfSignedClusterIssuer(name string) *unstructured.Unstructured {
+func SelfSignedIssuer(name, namespace string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "cert-manager.io/v1", "kind": "ClusterIssuer",
-		"metadata": map[string]interface{}{"name": name, "labels": managedByLabels()},
+		"apiVersion": "cert-manager.io/v1", "kind": "Issuer",
+		"metadata": map[string]interface{}{"name": name, "namespace": namespace, "labels": managedByLabels()},
 		"spec":     map[string]interface{}{"selfSigned": map[string]interface{}{}},
 	}}
 }
@@ -30,7 +30,7 @@ type CACertConfig struct {
 }
 
 // CACertificate builds a cert-manager Certificate with isCA: true, issued by
-// a selfSigned ClusterIssuer, whose resulting Secret backs a CA ClusterIssuer.
+// a selfSigned Issuer, whose resulting Secret backs a CA Issuer.
 func CACertificate(cfg CACertConfig) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "cert-manager.io/v1", "kind": "Certificate",
@@ -42,7 +42,7 @@ func CACertificate(cfg CACertConfig) *unstructured.Unstructured {
 			"duration":   hoursDuration(cfg.DurationDays),
 			"privateKey": map[string]interface{}{"algorithm": cfg.KeyAlgorithm, "size": int64(cfg.KeySize)},
 			"issuerRef": map[string]interface{}{
-				"name": cfg.SelfSignedIssuerName, "kind": "ClusterIssuer", "group": "cert-manager.io",
+				"name": cfg.SelfSignedIssuerName, "kind": "Issuer", "group": "cert-manager.io",
 			},
 		},
 	}}
@@ -50,14 +50,14 @@ func CACertificate(cfg CACertConfig) *unstructured.Unstructured {
 
 // LeafCertConfig configures the leaf Certificate built by LeafCertificate.
 type LeafCertConfig struct {
-	Name, Namespace, SecretName, IssuerClusterIssuerName, CommonName, KeyAlgorithm string
-	DNSNames, URISANs                                                              []string
-	KeySize, DurationDays                                                          int
-	Usage                                                                          models.ManagedCertUsage
+	Name, Namespace, SecretName, IssuerName, CommonName, KeyAlgorithm string
+	DNSNames, URISANs                                                 []string
+	KeySize, DurationDays                                             int
+	Usage                                                             models.ManagedCertUsage
 }
 
 // LeafCertificate builds a cert-manager Certificate for a leaf certificate,
-// issued by a ClusterIssuer (typically the CA ClusterIssuer or ACME ClusterIssuer).
+// issued by an Issuer (typically the CA Issuer or ACME Issuer).
 func LeafCertificate(cfg LeafCertConfig) *unstructured.Unstructured {
 	dnsNames := make([]interface{}, 0, len(cfg.DNSNames))
 	for _, n := range cfg.DNSNames {
@@ -69,7 +69,7 @@ func LeafCertificate(cfg LeafCertConfig) *unstructured.Unstructured {
 		"duration":   hoursDuration(cfg.DurationDays),
 		"privateKey": map[string]interface{}{"algorithm": cfg.KeyAlgorithm, "size": int64(cfg.KeySize)},
 		"issuerRef": map[string]interface{}{
-			"name": cfg.IssuerClusterIssuerName, "kind": "ClusterIssuer", "group": "cert-manager.io",
+			"name": cfg.IssuerName, "kind": "Issuer", "group": "cert-manager.io",
 		},
 	}
 	if cfg.CommonName != "" {
@@ -98,11 +98,11 @@ func LeafCertificate(cfg LeafCertConfig) *unstructured.Unstructured {
 // CertificateRequestConfig configures the CertificateRequest built by
 // CertificateRequestObject.
 type CertificateRequestConfig struct {
-	Name                    string
-	Namespace               string
-	IssuerClusterIssuerName string
-	Request                 []byte // PEM-encoded CSR bytes
-	DurationDays            int
+	Name         string
+	Namespace    string
+	IssuerName   string
+	Request      []byte // PEM-encoded CSR bytes
+	DurationDays int
 }
 
 // CertificateRequestObject builds a cert-manager CertificateRequest for
@@ -113,7 +113,7 @@ func CertificateRequestObject(config CertificateRequestConfig) *unstructured.Uns
 	spec := map[string]interface{}{
 		"request": base64.StdEncoding.EncodeToString(config.Request),
 		"issuerRef": map[string]interface{}{
-			"name": config.IssuerClusterIssuerName, "kind": "ClusterIssuer", "group": "cert-manager.io",
+			"name": config.IssuerName, "kind": "Issuer", "group": "cert-manager.io",
 		},
 		"usages": []interface{}{"client auth", "digital signature", "key encipherment"},
 	}
@@ -127,25 +127,25 @@ func CertificateRequestObject(config CertificateRequestConfig) *unstructured.Uns
 	}}
 }
 
-// CAClusterIssuer builds a cert-manager ClusterIssuer of type "ca", signing
+// CAIssuer builds a namespaced cert-manager Issuer of type "ca", signing
 // with the key material in caSecretName (produced by CACertificate).
-func CAClusterIssuer(name, caSecretName string) *unstructured.Unstructured {
+func CAIssuer(name, namespace, caSecretName string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "cert-manager.io/v1", "kind": "ClusterIssuer",
-		"metadata": map[string]interface{}{"name": name, "labels": managedByLabels()},
+		"apiVersion": "cert-manager.io/v1", "kind": "Issuer",
+		"metadata": map[string]interface{}{"name": name, "namespace": namespace, "labels": managedByLabels()},
 		"spec":     map[string]interface{}{"ca": map[string]interface{}{"secretName": caSecretName}},
 	}}
 }
 
-// ACMEIssuerConfig configures the ACME ClusterIssuer built by ACMEClusterIssuer.
+// ACMEIssuerConfig configures the ACME Issuer built by ACMEIssuer.
 type ACMEIssuerConfig struct {
-	Name, Server, Email, AccountSecretName, EABKeyID, EABSecretName, ProviderType, SolverSecretName string
+	Name, Namespace, Server, Email, AccountSecretName, EABKeyID, EABSecretName, ProviderType, SolverSecretName string
 }
 
-// ACMEClusterIssuer builds a cert-manager ClusterIssuer of type "acme" with a
+// ACMEIssuer builds a namespaced cert-manager Issuer of type "acme" with a
 // single DNS-01 solver. EAB fields are optional; when EABKeyID is set, an
 // externalAccountBinding is added (used by some ACME providers such as ZeroSSL).
-func ACMEClusterIssuer(cfg ACMEIssuerConfig) *unstructured.Unstructured {
+func ACMEIssuer(cfg ACMEIssuerConfig) *unstructured.Unstructured {
 	acme := map[string]interface{}{
 		"server": cfg.Server, "email": cfg.Email,
 		"privateKeySecretRef": map[string]interface{}{"name": cfg.AccountSecretName},
@@ -158,8 +158,8 @@ func ACMEClusterIssuer(cfg ACMEIssuerConfig) *unstructured.Unstructured {
 		}
 	}
 	return &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "cert-manager.io/v1", "kind": "ClusterIssuer",
-		"metadata": map[string]interface{}{"name": cfg.Name, "labels": managedByLabels()},
+		"apiVersion": "cert-manager.io/v1", "kind": "Issuer",
+		"metadata": map[string]interface{}{"name": cfg.Name, "namespace": cfg.Namespace, "labels": managedByLabels()},
 		"spec":     map[string]interface{}{"acme": acme},
 	}}
 }
@@ -179,7 +179,7 @@ func dns01Solver(providerType, solverSecretName string) map[string]interface{} {
 }
 
 // CloudflareSolverSecret builds the Secret holding the Cloudflare API token
-// referenced by an ACME ClusterIssuer's dns01.cloudflare.apiTokenSecretRef.
+// referenced by an ACME Issuer's dns01.cloudflare.apiTokenSecretRef.
 func CloudflareSolverSecret(name, namespace, apiToken string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "v1", "kind": "Secret",
@@ -190,7 +190,7 @@ func CloudflareSolverSecret(name, namespace, apiToken string) *unstructured.Unst
 }
 
 // EABSecret builds the Secret holding an ACME External Account Binding HMAC
-// key, referenced by an ACME ClusterIssuer's
+// key, referenced by an ACME Issuer's
 // acme.externalAccountBinding.keySecretRef (used by providers such as
 // ZeroSSL that require EAB).
 func EABSecret(name, namespace, hmacKey string) *unstructured.Unstructured {

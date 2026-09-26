@@ -16,14 +16,14 @@ import (
 const (
 	// issuerReadyTimeout bounds how long a freshly created self-signed CA
 	// issuer takes to reconcile: CertificateIssuerService.Create applies a
-	// cert-manager ClusterIssuer and a Certificate CR, and cert-manager
+	// cert-manager Issuer and a Certificate CR, and cert-manager
 	// itself has to notice, sign, and write the resulting CA Secret before
 	// IssuerStatus reports "ready".
 	issuerReadyTimeout = 60 * time.Second
 
 	// certReadyTimeout bounds how long a freshly created managed
 	// certificate takes to actually issue: cert-manager has to create a
-	// CertificateRequest against the ClusterIssuer, get it signed, and
+	// CertificateRequest against the Issuer, get it signed, and
 	// write the leaf Secret before CertificateStatus reports "ready".
 	// Longer than issuerReadyTimeout since it depends on the issuer already
 	// being ready plus its own signing round-trip.

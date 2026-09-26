@@ -156,7 +156,7 @@ func TestManagedCertificateService_Create_SubmitsApproval(t *testing.T) {
 	grantRepo.On("Exists", issuerID, projectID).Return(true, nil)
 	issuerRepo.On("GetByID", issuerID).Return(&models.CertificateIssuer{
 		ID:     issuerID,
-		Config: models.IssuerConfig{ClusterIssuerName: "iss-abc"},
+		Config: models.IssuerConfig{IssuerName: "iss-abc"},
 	}, nil)
 	projectRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID, ApprovalEnabled: true}, nil)
 
@@ -253,7 +253,7 @@ func TestManagedCertificateService_OnApproved_IssuesLeafCertificate(t *testing.T
 	repo.On("GetByID", certID).Return(cert, nil)
 	issuerRepo.On("GetByID", issuerID).Return(&models.CertificateIssuer{
 		ID:     issuerID,
-		Config: models.IssuerConfig{ClusterIssuerName: "iss-abc"},
+		Config: models.IssuerConfig{IssuerName: "iss-abc"},
 	}, nil)
 	applier.On("Namespace").Return("fastgateway-system")
 
@@ -386,7 +386,7 @@ func TestManagedCertificateService_OnApproved_CreateAction_DoesNotTouchExportGra
 	repo.On("GetByID", certID).Return(cert, nil)
 	issuerRepo.On("GetByID", issuerID).Return(&models.CertificateIssuer{
 		ID:     issuerID,
-		Config: models.IssuerConfig{ClusterIssuerName: "iss-abc"},
+		Config: models.IssuerConfig{IssuerName: "iss-abc"},
 	}, nil)
 	applier.On("Namespace").Return("fastgateway-system")
 	applier.On("ApplyNamespaced", mock.Anything, mock.Anything, mock.AnythingOfType("*unstructured.Unstructured")).Return(nil)
@@ -436,7 +436,7 @@ func TestManagedCertificateService_OnApproved_ApplyFailureSetsErrorStatus(t *tes
 	repo.On("GetByID", certID).Return(cert, nil)
 	issuerRepo.On("GetByID", issuerID).Return(&models.CertificateIssuer{
 		ID:     issuerID,
-		Config: models.IssuerConfig{ClusterIssuerName: "iss-abc"},
+		Config: models.IssuerConfig{IssuerName: "iss-abc"},
 	}, nil)
 	applier.On("Namespace").Return("fastgateway-system")
 	applier.On("ApplyNamespaced", mock.Anything, kubernetes.CertManagerCertificateGVR, mock.AnythingOfType("*unstructured.Unstructured")).Return(errors.New("apply failed"))
@@ -523,7 +523,7 @@ func TestManagedCertificateService_Create_FastPathWhenApprovalDisabled(t *testin
 	grantRepo.On("Exists", issuerID, projectID).Return(true, nil)
 	issuerRepo.On("GetByID", issuerID).Return(&models.CertificateIssuer{
 		ID:     issuerID,
-		Config: models.IssuerConfig{ClusterIssuerName: "iss-abc"},
+		Config: models.IssuerConfig{IssuerName: "iss-abc"},
 	}, nil)
 	projectRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID, ApprovalEnabled: false}, nil)
 
@@ -1098,7 +1098,7 @@ func TestManagedCertificateService_Status_ReadyFalseSurfacesMessage(t *testing.T
 // non-terminal reason (Pending/Issuing) while it is still signing the leaf.
 // This must map to "issuing", not "error" -- otherwise a freshly created
 // certificate reads as failed during its normal issuance window (e.g. before
-// its issuer's ClusterIssuer has finished reconciling), and a caller polling
+// its issuer's Issuer has finished reconciling), and a caller polling
 // for readiness gives up on a transient state.
 func TestManagedCertificateService_Status_ReadyFalsePendingStaysIssuing(t *testing.T) {
 	repo := new(mocks.MockManagedCertificateRepository)
@@ -1779,7 +1779,7 @@ func TestManagedCertificateService_Create_ClientUsageWithACMEIssuer_ReturnsErrCl
 	issuerRepo.On("GetByID", issuerID).Return(&models.CertificateIssuer{
 		ID:     issuerID,
 		Type:   models.IssuerTypeACME,
-		Config: models.IssuerConfig{ClusterIssuerName: "iss-acme"},
+		Config: models.IssuerConfig{IssuerName: "iss-acme"},
 	}, nil)
 
 	cert, approval, err := svc.Create(projectID, &services.CreateCertificateInput{
@@ -1827,7 +1827,7 @@ func TestManagedCertificateService_Create_ServerUsageWithCSRKeyMode_RejectsBefor
 	issuerRepo.On("GetByID", issuerID).Return(&models.CertificateIssuer{
 		ID:     issuerID,
 		Type:   models.IssuerTypeSelfSignedCA,
-		Config: models.IssuerConfig{ClusterIssuerName: "iss-ca"},
+		Config: models.IssuerConfig{IssuerName: "iss-ca"},
 	}, nil)
 
 	cert, approval, err := svc.Create(projectID, &services.CreateCertificateInput{
@@ -1869,7 +1869,7 @@ func TestManagedCertificateService_Create_CSRKeyModeWithoutCSR_ReturnsErrCSRRequ
 	issuerRepo.On("GetByID", issuerID).Return(&models.CertificateIssuer{
 		ID:     issuerID,
 		Type:   models.IssuerTypeSelfSignedCA,
-		Config: models.IssuerConfig{ClusterIssuerName: "iss-ca"},
+		Config: models.IssuerConfig{IssuerName: "iss-ca"},
 	}, nil)
 
 	cert, approval, err := svc.Create(projectID, &services.CreateCertificateInput{
@@ -1910,7 +1910,7 @@ func TestManagedCertificateService_Create_CSRKeyModeMalformedCSR_ReturnsParseErr
 	issuerRepo.On("GetByID", issuerID).Return(&models.CertificateIssuer{
 		ID:     issuerID,
 		Type:   models.IssuerTypeSelfSignedCA,
-		Config: models.IssuerConfig{ClusterIssuerName: "iss-ca"},
+		Config: models.IssuerConfig{IssuerName: "iss-ca"},
 	}, nil)
 
 	cert, approval, err := svc.Create(projectID, &services.CreateCertificateInput{
@@ -1958,7 +1958,7 @@ func TestManagedCertificateService_Create_ManagedClientCert_PersistsKeyModeAndAp
 	issuerRepo.On("GetByID", issuerID).Return(&models.CertificateIssuer{
 		ID:     issuerID,
 		Type:   models.IssuerTypeSelfSignedCA,
-		Config: models.IssuerConfig{ClusterIssuerName: "iss-ca"},
+		Config: models.IssuerConfig{IssuerName: "iss-ca"},
 	}, nil)
 	projectRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID, ApprovalEnabled: false}, nil)
 
@@ -2058,7 +2058,7 @@ func TestManagedCertificateService_Create_CSRClientCert_OnApprovedAppliesCertifi
 	issuerRepo.On("GetByID", issuerID).Return(&models.CertificateIssuer{
 		ID:     issuerID,
 		Type:   models.IssuerTypeSelfSignedCA,
-		Config: models.IssuerConfig{ClusterIssuerName: "iss-ca"},
+		Config: models.IssuerConfig{IssuerName: "iss-ca"},
 	}, nil)
 	projectRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID, ApprovalEnabled: false}, nil)
 

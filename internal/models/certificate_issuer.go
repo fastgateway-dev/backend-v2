@@ -42,7 +42,7 @@ type IssuerConfig struct {
 	DNSCredentialID *uuid.UUID `json:"dnsCredentialId,omitempty"`
 
 	// resolved cert-manager object names (both types)
-	ClusterIssuerName string `json:"clusterIssuerName,omitempty"`
+	IssuerName string `json:"issuerName,omitempty"`
 	// for acme: the account key + EAB HMAC secret names
 	AccountSecretName string `json:"accountSecretName,omitempty"`
 	SolverSecretName  string `json:"solverSecretName,omitempty"`

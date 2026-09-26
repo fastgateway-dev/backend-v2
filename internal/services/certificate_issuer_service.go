@@ -82,7 +82,7 @@ type CreateIssuerInput struct {
 	DNSCredentialID *uuid.UUID `json:"dnsCredentialId"`
 }
 
-const selfSignedClusterIssuer = "fgw-selfsigned"
+const selfSignedIssuerName = "fgw-selfsigned"
 
 // Create builds either a self-signed internal CA chain or an ACME issuer,
 // applying the cert-manager CRDs (and, for ACME, the DNS-01 solver Secret) to
@@ -115,7 +115,7 @@ func (s *CertificateIssuerService) Create(input *CreateIssuerInput, createdBy uu
 			return nil, err
 		}
 		caSecret := "ca-" + iss.ID.String()
-		clusterIssuer := "iss-" + iss.ID.String()
+		issuerName := "iss-" + iss.ID.String()
 
 		// Persist the resolved object names into Config BEFORE applying any
 		// CRDs. If an apply below fails, markError persists the row with
@@ -123,23 +123,23 @@ func (s *CertificateIssuerService) Create(input *CreateIssuerInput, createdBy uu
 		// and clean up whatever was actually created in-cluster.
 		iss.Config = models.IssuerConfig{
 			CommonName: input.CommonName, KeyAlgorithm: input.KeyAlgorithm, KeySize: input.KeySize,
-			DurationDays: input.DurationDays, CASecretName: caSecret, ClusterIssuerName: clusterIssuer,
+			DurationDays: input.DurationDays, CASecretName: caSecret, IssuerName: issuerName,
 		}
 		if err := s.repo.Update(iss); err != nil {
 			return nil, err
 		}
 
-		if err := s.controlPlane.ApplyClusterScoped(ctx, kubernetes.CertManagerClusterIssuerGVR, kubernetes.SelfSignedClusterIssuer(selfSignedClusterIssuer)); err != nil {
+		if err := s.controlPlane.ApplyNamespaced(ctx, kubernetes.CertManagerIssuerGVR, kubernetes.SelfSignedIssuer(selfSignedIssuerName, ns)); err != nil {
 			return s.markError(iss, err)
 		}
 		caCert := kubernetes.CACertificate(kubernetes.CACertConfig{
 			Name: caSecret, Namespace: ns, CommonName: input.CommonName, SecretName: caSecret,
-			SelfSignedIssuerName: selfSignedClusterIssuer, KeyAlgorithm: input.KeyAlgorithm, KeySize: input.KeySize, DurationDays: input.DurationDays,
+			SelfSignedIssuerName: selfSignedIssuerName, KeyAlgorithm: input.KeyAlgorithm, KeySize: input.KeySize, DurationDays: input.DurationDays,
 		})
 		if err := s.controlPlane.ApplyNamespaced(ctx, kubernetes.CertManagerCertificateGVR, caCert); err != nil {
 			return s.markError(iss, err)
 		}
-		if err := s.controlPlane.ApplyClusterScoped(ctx, kubernetes.CertManagerClusterIssuerGVR, kubernetes.CAClusterIssuer(clusterIssuer, caSecret)); err != nil {
+		if err := s.controlPlane.ApplyNamespaced(ctx, kubernetes.CertManagerIssuerGVR, kubernetes.CAIssuer(issuerName, ns, caSecret)); err != nil {
 			return s.markError(iss, err)
 		}
 
@@ -154,12 +154,12 @@ func (s *CertificateIssuerService) Create(input *CreateIssuerInput, createdBy uu
 		if err := s.repo.Create(iss); err != nil {
 			return nil, err
 		}
-		clusterIssuer := "iss-" + iss.ID.String()
-		accountSecret := clusterIssuer + "-account"
-		solverSecret := clusterIssuer + "-solver"
+		issuerName := "iss-" + iss.ID.String()
+		accountSecret := issuerName + "-account"
+		solverSecret := issuerName + "-solver"
 		var eabSecret string
 		if input.EABHMACKey != "" {
-			eabSecret = clusterIssuer + "-eab"
+			eabSecret = issuerName + "-eab"
 		}
 
 		// Persist the resolved object names into Config BEFORE applying any
@@ -171,7 +171,7 @@ func (s *CertificateIssuerService) Create(input *CreateIssuerInput, createdBy uu
 		// created in-cluster.
 		iss.Config = models.IssuerConfig{
 			Server: input.Server, Email: input.Email, EABKeyID: input.EABKeyID, DNSCredentialID: input.DNSCredentialID,
-			ClusterIssuerName: clusterIssuer, AccountSecretName: accountSecret, SolverSecretName: solverSecret,
+			IssuerName: issuerName, AccountSecretName: accountSecret, SolverSecretName: solverSecret,
 			EABSecretName: eabSecret,
 		}
 		if err := s.repo.Update(iss); err != nil {
@@ -192,12 +192,12 @@ func (s *CertificateIssuerService) Create(input *CreateIssuerInput, createdBy uu
 			}
 		}
 
-		acme := kubernetes.ACMEClusterIssuer(kubernetes.ACMEIssuerConfig{
-			Name: clusterIssuer, Server: input.Server, Email: input.Email,
+		acme := kubernetes.ACMEIssuer(kubernetes.ACMEIssuerConfig{
+			Name: issuerName, Namespace: ns, Server: input.Server, Email: input.Email,
 			AccountSecretName: accountSecret, ProviderType: providerType, SolverSecretName: solverSecret,
 			EABKeyID: input.EABKeyID, EABSecretName: eabSecret,
 		})
-		if err := s.controlPlane.ApplyClusterScoped(ctx, kubernetes.CertManagerClusterIssuerGVR, acme); err != nil {
+		if err := s.controlPlane.ApplyNamespaced(ctx, kubernetes.CertManagerIssuerGVR, acme); err != nil {
 			return s.markError(iss, err)
 		}
 	default:
@@ -222,7 +222,7 @@ func (s *CertificateIssuerService) GetByID(id uuid.UUID) (*models.CertificateIss
 	return s.repo.GetByID(id)
 }
 
-// Delete removes the issuer's cert-manager ClusterIssuer (and, for a
+// Delete removes the issuer's namespaced cert-manager Issuer (and, for a
 // self-signed CA, its CA Certificate; for an ACME issuer, its DNS-01 solver,
 // account key, and EAB HMAC secrets) from the control cluster, then the row.
 // Kubernetes deletes are best-effort (not-found is not an error, see
@@ -247,8 +247,8 @@ func (s *CertificateIssuerService) Delete(id uuid.UUID) error {
 		return errors.New("certificate issuer is in use by one or more managed certificates")
 	}
 	ctx := context.Background()
-	if iss.Config.ClusterIssuerName != "" {
-		_ = s.controlPlane.Delete(ctx, kubernetes.CertManagerClusterIssuerGVR, iss.Config.ClusterIssuerName, false)
+	if iss.Config.IssuerName != "" {
+		_ = s.controlPlane.Delete(ctx, kubernetes.CertManagerIssuerGVR, iss.Config.IssuerName, true)
 	}
 	if iss.Config.CASecretName != "" {
 		_ = s.controlPlane.Delete(ctx, kubernetes.CertManagerCertificateGVR, iss.Config.CASecretName, true)

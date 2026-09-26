@@ -97,7 +97,7 @@ jobs:
 
       # NEW vs e2e.yml: cert-manager is the control plane behind every
       # managed-certificate API this suite exercises (issuers,
-      # ClusterIssuers, Certificates, CertificateRequests). It must be
+      # Certificates, CertificateRequests). It must be
       # Ready before the backend starts, since the backend's certdist
       # controller and certificate services talk to these CRDs from the
       # very first reconcile.
@@ -105,17 +105,9 @@ jobs:
         run: |
           helm repo add jetstack https://charts.jetstack.io
           helm repo update
-          # --cluster-resource-namespace MUST be fastgateway-system: the
-          # backend creates CA-type ClusterIssuers (kubernetes.CAClusterIssuer)
-          # whose spec.ca.secretName points at the CA Secret it writes in
-          # fastgateway-system, and cert-manager resolves a ClusterIssuer's CA
-          # secretRef in its cluster-resource-namespace (default: its own
-          # release namespace, cert-manager). Without this the iss-<id>
-          # ClusterIssuers never go Ready and no leaf certificate can issue.
           helm install cert-manager jetstack/cert-manager \
             --namespace cert-manager --create-namespace \
             --set installCRDs=true \
-            --set "extraArgs={--cluster-resource-namespace=fastgateway-system}" \
             --version "${CERT_MANAGER_VERSION}"
           kubectl -n cert-manager rollout status deploy/cert-manager --timeout=180s
           kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=180s

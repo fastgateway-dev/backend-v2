@@ -10,7 +10,7 @@ spec:
   duration: 2160h
   issuerRef:
     group: cert-manager.io
-    kind: ClusterIssuer
+    kind: Issuer
     name: iss-1
   privateKey:
     algorithm: RSA

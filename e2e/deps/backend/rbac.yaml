@@ -11,9 +11,9 @@
 # Resource list confirmed by grepping internal/cluster/*.go and
 # internal/kubernetes/gvr.go for `schema.GroupVersionResource{` /
 # `Resource:` and cross-checking usages in internal/services/*.go:
-#   - cert-manager.io: issuers, clusterissuers, certificates,
+#   - cert-manager.io: issuers, certificates,
 #     certificaterequests (internal/kubernetes/gvr.go; issuers/
-#     clusterissuers/certificates/certificaterequests exercised by
+#     certificates/certificaterequests exercised by
 #     internal/services/certificate_issuer_service.go and
 #     internal/services/managed_certificate_service.go)
 #   - gateway.networking.k8s.io: gateways, httproutes, grpcroutes,
@@ -41,12 +41,11 @@ kind: ClusterRole
 metadata:
   name: fastgateway-backend
 rules:
-  # cert-manager.io -- managed certificates (issuers, ClusterIssuers,
-  # Certificates, CertificateRequests)
+  # cert-manager.io -- managed certificates (Issuers, Certificates,
+  # CertificateRequests)
   - apiGroups: ["cert-manager.io"]
     resources:
       - issuers
-      - clusterissuers
       - certificates
       - certificaterequests
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

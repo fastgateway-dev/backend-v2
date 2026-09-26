@@ -1,9 +1,10 @@
 apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
+kind: Issuer
 metadata:
   labels:
     app.kubernetes.io/managed-by: fastgateway
   name: iss-acme
+  namespace: fastgateway-system
 spec:
   acme:
     email: ops@example.com

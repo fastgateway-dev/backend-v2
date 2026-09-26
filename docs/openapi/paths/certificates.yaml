@@ -153,7 +153,7 @@ issuer-status:
   get:
     tags: [Certificate Issuers]
     summary: Get certificate issuer readiness (Owner only)
-    description: cert-manager readiness of the underlying Issuer/ClusterIssuer (Ready condition + message).
+    description: cert-manager readiness of the underlying Issuer (Ready condition + message).
     operationId: getCertificateIssuerStatus
     security:
       - bearerAuth: []

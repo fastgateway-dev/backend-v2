@@ -219,8 +219,8 @@ func (s *ManagedCertificateService) Create(projectID uuid.UUID, input *CreateCer
 	if err != nil {
 		return nil, nil, fmt.Errorf("load issuer: %w", err)
 	}
-	if issuer.Config.ClusterIssuerName == "" {
-		return nil, nil, errors.New("issuer has no resolved cluster issuer")
+	if issuer.Config.IssuerName == "" {
+		return nil, nil, errors.New("issuer has no resolved issuer")
 	}
 
 	// keyMode defaults to managed (cert-manager generates and holds the
@@ -574,11 +574,11 @@ func (s *ManagedCertificateService) OnApproved(a *models.Approval) error {
 		// only ask cert-manager to sign it via a CertificateRequest. There
 		// is no leaf key Secret in this mode (no SecretName is used).
 		obj := kubernetes.CertificateRequestObject(kubernetes.CertificateRequestConfig{
-			Name:                    cert.Config.CertificateName,
-			Namespace:               s.controlPlane.Namespace(),
-			IssuerClusterIssuerName: issuer.Config.ClusterIssuerName,
-			Request:                 []byte(cert.Config.CSRPEM),
-			DurationDays:            cert.Config.DurationDays,
+			Name:         cert.Config.CertificateName,
+			Namespace:    s.controlPlane.Namespace(),
+			IssuerName:   issuer.Config.IssuerName,
+			Request:      []byte(cert.Config.CSRPEM),
+			DurationDays: cert.Config.DurationDays,
 		})
 		if err := s.controlPlane.ApplyNamespaced(ctx, kubernetes.CertManagerCertificateRequestGVR, obj); err != nil {
 			cert.Status = models.ManagedCertStatusError
@@ -590,17 +590,17 @@ func (s *ManagedCertificateService) OnApproved(a *models.Approval) error {
 		// managed mode (default): cert-manager generates and holds the leaf
 		// private key, pushed into SecretName.
 		obj := kubernetes.LeafCertificate(kubernetes.LeafCertConfig{
-			Name:                    cert.Config.CertificateName,
-			Namespace:               s.controlPlane.Namespace(),
-			SecretName:              cert.Config.SecretName,
-			IssuerClusterIssuerName: issuer.Config.ClusterIssuerName,
-			DNSNames:                cert.Config.DNSNames,
-			CommonName:              cert.Config.Subject,
-			KeyAlgorithm:            cert.Config.KeyAlgorithm,
-			KeySize:                 cert.Config.KeySize,
-			DurationDays:            cert.Config.DurationDays,
-			Usage:                   cert.Usage,
-			URISANs:                 cert.Config.URISANs,
+			Name:         cert.Config.CertificateName,
+			Namespace:    s.controlPlane.Namespace(),
+			SecretName:   cert.Config.SecretName,
+			IssuerName:   issuer.Config.IssuerName,
+			DNSNames:     cert.Config.DNSNames,
+			CommonName:   cert.Config.Subject,
+			KeyAlgorithm: cert.Config.KeyAlgorithm,
+			KeySize:      cert.Config.KeySize,
+			DurationDays: cert.Config.DurationDays,
+			Usage:        cert.Usage,
+			URISANs:      cert.Config.URISANs,
 		})
 		if err := s.controlPlane.ApplyNamespaced(ctx, kubernetes.CertManagerCertificateGVR, obj); err != nil {
 			cert.Status = models.ManagedCertStatusError
@@ -1062,7 +1062,7 @@ func readyCondition(obj *unstructured.Unstructured) (status, reason, message str
 // Certificate or CertificateRequest (reason "Pending"/"Issuing"); only
 // "Failed"/"Denied" are terminal. Treating every Ready=False as an error
 // made a freshly created certificate report "error" during its normal
-// issuance window (e.g. before its issuer's ClusterIssuer finished
+// issuance window (e.g. before its issuer's Issuer finished
 // reconciling), which callers polling for readiness see as a hard failure.
 func isCertManagerTerminalFailure(reason string) bool {
 	switch reason {

@@ -72,6 +72,16 @@ The server is configured entirely through environment variables (see `internal/c
 
 Database migrations run automatically on server startup.
 
+### Managed Certificates
+
+Managed certificates require [cert-manager](https://cert-manager.io/) to be installed in the cluster. No special cert-manager configuration is needed — FastGateway issues from namespaced cert-manager `Issuer`s in `fastgateway-system`, so a stock cert-manager install works out of the box.
+
+If you're upgrading from **v0.1.0**, the old cluster-scoped issuers are inert and can be removed with:
+
+```bash
+kubectl delete clusterissuer -l app.kubernetes.io/managed-by=fastgateway
+```
+
 ## 💻 Running Locally
 
 Start a PostgreSQL instance of your own (locally installed, or any container runtime you prefer), then:

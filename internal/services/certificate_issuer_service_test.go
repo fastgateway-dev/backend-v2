@@ -30,7 +30,6 @@ func TestCertificateIssuerService_CreateSelfSignedCA_AppliesCRDs(t *testing.T) {
 	})
 
 	applier.On("Namespace").Return("fastgateway-system")
-	applier.On("ApplyClusterScoped", mock.Anything, mock.AnythingOfType("schema.GroupVersionResource"), mock.AnythingOfType("*unstructured.Unstructured")).Return(nil)
 	applier.On("ApplyNamespaced", mock.Anything, mock.AnythingOfType("schema.GroupVersionResource"), mock.AnythingOfType("*unstructured.Unstructured")).Return(nil)
 	repo.On("Create", mock.AnythingOfType("*models.CertificateIssuer")).Return(nil)
 	repo.On("Update", mock.AnythingOfType("*models.CertificateIssuer")).Return(nil)
@@ -41,9 +40,19 @@ func TestCertificateIssuerService_CreateSelfSignedCA_AppliesCRDs(t *testing.T) {
 	}, uuid.New())
 	require.NoError(t, err)
 	assert.Equal(t, models.IssuerTypeSelfSignedCA, out.Type)
-	// self-signed CA applies: SelfSigned ClusterIssuer + CA ClusterIssuer (cluster-scoped) and CA Certificate (namespaced)
-	applier.AssertNumberOfCalls(t, "ApplyClusterScoped", 2)
-	applier.AssertNumberOfCalls(t, "ApplyNamespaced", 1)
+	// self-signed CA applies: SelfSigned Issuer + CA Issuer + CA Certificate, all namespaced.
+	// Both issuer applies must target CertManagerIssuerGVR (the namespaced "issuers"
+	// resource), never CertManagerClusterIssuerGVR -- otherwise a ClusterIssuer is
+	// created and the original cluster-scoped-issuer bug persists.
+	applier.AssertNumberOfCalls(t, "ApplyNamespaced", 3)
+	issuerGVRCalls := 0
+	for _, call := range applier.Calls {
+		if call.Method == "ApplyNamespaced" && call.Arguments.Get(1) == kubernetes.CertManagerIssuerGVR {
+			issuerGVRCalls++
+		}
+	}
+	assert.Equal(t, 2, issuerGVRCalls, "expected SelfSignedIssuer + CAIssuer both applied via CertManagerIssuerGVR")
+	applier.AssertNotCalled(t, "ApplyClusterScoped", mock.Anything, mock.Anything, mock.Anything)
 	repo.AssertExpectations(t)
 
 	_ = context.Background()
@@ -71,7 +80,7 @@ func TestCertificateIssuerService_CreateACME_AppliesSolverAndIssuer(t *testing.T
 
 	applier.On("Namespace").Return("fastgateway-system")
 	applier.On("ApplyNamespaced", mock.Anything, kubernetes.SecretGVR, mock.AnythingOfType("*unstructured.Unstructured")).Return(nil)
-	applier.On("ApplyClusterScoped", mock.Anything, kubernetes.CertManagerClusterIssuerGVR, mock.AnythingOfType("*unstructured.Unstructured")).Return(nil)
+	applier.On("ApplyNamespaced", mock.Anything, kubernetes.CertManagerIssuerGVR, mock.AnythingOfType("*unstructured.Unstructured")).Return(nil)
 	repo.On("Create", mock.AnythingOfType("*models.CertificateIssuer")).Return(nil)
 	repo.On("Update", mock.AnythingOfType("*models.CertificateIssuer")).Return(nil)
 
@@ -84,9 +93,12 @@ func TestCertificateIssuerService_CreateACME_AppliesSolverAndIssuer(t *testing.T
 	assert.Equal(t, models.IssuerTypeACME, out.Type)
 	assert.Equal(t, models.IssuerStatusReady, out.Status)
 
-	// solver Secret + EAB Secret, both namespaced; ACME ClusterIssuer, cluster-scoped
-	applier.AssertNumberOfCalls(t, "ApplyNamespaced", 2)
-	applier.AssertNumberOfCalls(t, "ApplyClusterScoped", 1)
+	// solver Secret + EAB Secret + ACME Issuer, all namespaced -- the ACME
+	// Issuer must be applied via CertManagerIssuerGVR (never
+	// CertManagerClusterIssuerGVR/ApplyClusterScoped).
+	applier.AssertNumberOfCalls(t, "ApplyNamespaced", 3)
+	applier.AssertCalled(t, "ApplyNamespaced", mock.Anything, kubernetes.CertManagerIssuerGVR, mock.AnythingOfType("*unstructured.Unstructured"))
+	applier.AssertNotCalled(t, "ApplyClusterScoped", mock.Anything, mock.Anything, mock.Anything)
 	assert.Equal(t, "eab-key-id", out.Config.EABKeyID)
 	assert.NotEmpty(t, out.Config.EABSecretName)
 	assert.NotEmpty(t, out.Config.SolverSecretName)
@@ -96,7 +108,7 @@ func TestCertificateIssuerService_CreateACME_AppliesSolverAndIssuer(t *testing.T
 
 // TestCertificateIssuerService_CreateACME_ApplyFailure_ConfigPopulatedForCleanup
 // guards the Task 8 fix: Config must be persisted BEFORE any ControlPlane
-// apply call, so that when a later apply fails (here, the ClusterIssuer
+// apply call, so that when a later apply fails (here, the Issuer
 // apply), the errored issuer row still carries every secret name Delete
 // needs to clean up whatever was already created in-cluster (the solver
 // Secret here) -- otherwise those secrets, which hold plaintext DNS-provider
@@ -120,10 +132,11 @@ func TestCertificateIssuerService_CreateACME_ApplyFailure_ConfigPopulatedForClea
 	}, nil)
 
 	applier.On("Namespace").Return("fastgateway-system")
-	// Solver + EAB secret applies (ApplyNamespaced) succeed; the ClusterIssuer
-	// apply (ApplyClusterScoped) -- the last step -- fails.
+	// Solver + EAB secret applies (ApplyNamespaced) succeed; the namespaced
+	// Issuer apply (also ApplyNamespaced, CertManagerIssuerGVR) -- the last
+	// step -- fails.
 	applier.On("ApplyNamespaced", mock.Anything, kubernetes.SecretGVR, mock.AnythingOfType("*unstructured.Unstructured")).Return(nil)
-	applier.On("ApplyClusterScoped", mock.Anything, kubernetes.CertManagerClusterIssuerGVR, mock.AnythingOfType("*unstructured.Unstructured")).Return(errors.New("apply failed: admission webhook denied"))
+	applier.On("ApplyNamespaced", mock.Anything, kubernetes.CertManagerIssuerGVR, mock.AnythingOfType("*unstructured.Unstructured")).Return(errors.New("apply failed: admission webhook denied"))
 	repo.On("Create", mock.AnythingOfType("*models.CertificateIssuer")).Return(nil)
 	repo.On("Update", mock.AnythingOfType("*models.CertificateIssuer")).Return(nil)
 
@@ -141,7 +154,7 @@ func TestCertificateIssuerService_CreateACME_ApplyFailure_ConfigPopulatedForClea
 	// secrets that were actually applied before the failure.
 	assert.NotEmpty(t, out.Config.SolverSecretName)
 	assert.NotEmpty(t, out.Config.EABSecretName)
-	assert.NotEmpty(t, out.Config.ClusterIssuerName)
+	assert.NotEmpty(t, out.Config.IssuerName)
 	assert.NotEmpty(t, out.Config.AccountSecretName)
 	assert.Equal(t, "eab-key-id", out.Config.EABKeyID)
 	require.NotNil(t, out.Config.DNSCredentialID)
@@ -166,7 +179,7 @@ func TestCertificateIssuerService_DeleteACME_RemovesSecrets(t *testing.T) {
 	iss := &models.CertificateIssuer{
 		ID: id, Type: models.IssuerTypeACME, Status: models.IssuerStatusReady,
 		Config: models.IssuerConfig{
-			ClusterIssuerName: "iss-" + id.String(),
+			IssuerName:        "iss-" + id.String(),
 			SolverSecretName:  "iss-" + id.String() + "-solver",
 			AccountSecretName: "iss-" + id.String() + "-account",
 			EABSecretName:     "iss-" + id.String() + "-eab",
@@ -174,7 +187,10 @@ func TestCertificateIssuerService_DeleteACME_RemovesSecrets(t *testing.T) {
 	}
 	repo.On("GetByID", id).Return(iss, nil)
 	managedCertRepo.On("CountByIssuer", id).Return(int64(0), nil)
-	applier.On("Delete", mock.Anything, kubernetes.CertManagerClusterIssuerGVR, iss.Config.ClusterIssuerName, false).Return(nil)
+	// Delete must target the namespaced Issuer GVR with namespaced=true --
+	// CertManagerClusterIssuerGVR/namespaced=false would leave the namespaced
+	// Issuer orphaned in-cluster.
+	applier.On("Delete", mock.Anything, kubernetes.CertManagerIssuerGVR, iss.Config.IssuerName, true).Return(nil)
 	applier.On("Delete", mock.Anything, kubernetes.SecretGVR, iss.Config.SolverSecretName, true).Return(nil)
 	applier.On("Delete", mock.Anything, kubernetes.SecretGVR, iss.Config.AccountSecretName, true).Return(nil)
 	applier.On("Delete", mock.Anything, kubernetes.SecretGVR, iss.Config.EABSecretName, true).Return(nil)
@@ -184,7 +200,7 @@ func TestCertificateIssuerService_DeleteACME_RemovesSecrets(t *testing.T) {
 	require.NoError(t, err)
 
 	applier.AssertNumberOfCalls(t, "Delete", 4)
-	applier.AssertCalled(t, "Delete", mock.Anything, kubernetes.CertManagerClusterIssuerGVR, iss.Config.ClusterIssuerName, false)
+	applier.AssertCalled(t, "Delete", mock.Anything, kubernetes.CertManagerIssuerGVR, iss.Config.IssuerName, true)
 	applier.AssertCalled(t, "Delete", mock.Anything, kubernetes.SecretGVR, iss.Config.SolverSecretName, true)
 	applier.AssertCalled(t, "Delete", mock.Anything, kubernetes.SecretGVR, iss.Config.AccountSecretName, true)
 	applier.AssertCalled(t, "Delete", mock.Anything, kubernetes.SecretGVR, iss.Config.EABSecretName, true)

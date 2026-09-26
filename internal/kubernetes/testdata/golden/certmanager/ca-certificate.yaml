@@ -11,7 +11,7 @@ spec:
   isCA: true
   issuerRef:
     group: cert-manager.io
-    kind: ClusterIssuer
+    kind: Issuer
     name: fgw-selfsigned
   privateKey:
     algorithm: RSA

@@ -23,9 +23,9 @@ IssuerConfig:
     dnsCredentialId:
       type: string
       format: uuid
-    clusterIssuerName:
+    issuerName:
       type: string
-      description: Name of the resolved cert-manager ClusterIssuer.
+      description: Name of the resolved cert-manager Issuer.
     accountSecretName:
       type: string
     solverSecretName:
