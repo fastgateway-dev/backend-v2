@@ -1221,3 +1221,82 @@ func TestDomainService_DeployGatewayConfig_MatchesDomainplanBuilder(t *testing.T
 
 	require.Equal(t, want, domainplan.BuildGatewayConfig(domain, annotations))
 }
+
+// TestDomainService_Create_SelectingManagedCertAttachesIt verifies Option A:
+// when a domain's TLS secret IS a ready server managed certificate's secret
+// (cert-<id>), Create sets the domain's ManagedCertificateID so the
+// certificate's in-use delete guard applies -- no separate attach step.
+func TestDomainService_Create_SelectingManagedCertAttachesIt(t *testing.T) {
+	svc, domainRepo, _, dtRepo, k8sMock, _, managedCertRepo := newTestDomainService()
+
+	projectID := uuid.New()
+	dtID := uuid.New()
+	certID := uuid.New()
+
+	input := &services.CreateDomainInput{
+		Name:             "test",
+		Hostname:         "new.example.com",
+		DomainTemplateID: dtID.String(),
+		Namespace:        kubernetes.FastGatewayNamespace,
+		TLSSecretName:    "cert-" + certID.String(),
+	}
+	dt := &models.DomainTemplate{
+		ID: dtID, ProjectID: projectID, Name: "tpl",
+		Status:  models.DomainTemplateStatusActive,
+		TLSMode: models.TLSModeOnly,
+	}
+
+	domainRepo.On("ExistsByHostname", projectID, "new.example.com").Return(false, nil)
+	dtRepo.On("GetByID", dtID).Return(dt, nil)
+	managedCertRepo.On("GetByID", certID).Return(&models.ManagedCertificate{
+		ID: certID, ProjectID: projectID,
+		Usage: models.ManagedCertUsageServer, Status: models.ManagedCertStatusReady,
+	}, nil)
+	domainRepo.On("Create", mock.MatchedBy(func(d *models.Domain) bool {
+		return d.ManagedCertificateID != nil && *d.ManagedCertificateID == certID
+	})).Return(nil)
+	k8sMock.On("CreateGateway", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).Return(nil)
+	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+
+	result, err := svc.Create(projectID, input, uuid.New())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.ManagedCertificateID)
+	assert.Equal(t, certID, *result.ManagedCertificateID)
+	managedCertRepo.AssertExpectations(t)
+}
+
+// TestDomainService_Create_ByoSecretDoesNotAttach verifies a plain BYO secret
+// name leaves ManagedCertificateID nil (no managed-cert lookup/attach).
+func TestDomainService_Create_ByoSecretDoesNotAttach(t *testing.T) {
+	svc, domainRepo, _, dtRepo, k8sMock, _, _ := newTestDomainService()
+
+	projectID := uuid.New()
+	dtID := uuid.New()
+
+	input := &services.CreateDomainInput{
+		Name:             "test",
+		Hostname:         "new.example.com",
+		DomainTemplateID: dtID.String(),
+		Namespace:        kubernetes.FastGatewayNamespace,
+		TLSSecretName:    "my-wildcard-tls",
+	}
+	dt := &models.DomainTemplate{
+		ID: dtID, ProjectID: projectID, Name: "tpl",
+		Status:  models.DomainTemplateStatusActive,
+		TLSMode: models.TLSModeOnly,
+	}
+
+	domainRepo.On("ExistsByHostname", projectID, "new.example.com").Return(false, nil)
+	dtRepo.On("GetByID", dtID).Return(dt, nil)
+	domainRepo.On("Create", mock.MatchedBy(func(d *models.Domain) bool {
+		return d.ManagedCertificateID == nil
+	})).Return(nil)
+	k8sMock.On("CreateGateway", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).Return(nil)
+	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+
+	result, err := svc.Create(projectID, input, uuid.New())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Nil(t, result.ManagedCertificateID)
+}

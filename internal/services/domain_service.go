@@ -338,6 +338,10 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 		CreatedBy:          createdBy,
 		Labels:             input.Labels,
 	}
+	// Selecting a managed certificate's secret as the domain's TLS attaches
+	// that certificate as a first-class relationship (so its in-use delete
+	// guard applies). A plain BYO secret leaves this nil.
+	domain.ManagedCertificateID = s.inferManagedCert(projectID, input.TLSSecretName)
 
 	if err := s.domainRepo.Create(domain); err != nil {
 		return nil, err
@@ -391,6 +395,10 @@ func (s *DomainService) Update(id uuid.UUID, input *UpdateDomainInput) (*models.
 
 	if input.TLSSecretName != "" {
 		domain.TLSSecretName = input.TLSSecretName
+		// Re-derive the managed-cert attachment from the new TLS secret:
+		// selecting a managed certificate's secret attaches it; switching to a
+		// BYO secret detaches it.
+		domain.ManagedCertificateID = s.inferManagedCert(domain.ProjectID, input.TLSSecretName)
 	}
 
 	if input.TLSSecretNamespace != "" {
@@ -460,6 +468,35 @@ func (s *DomainService) applyGateway(domain *models.Domain) error {
 	s.syncReferenceGrants(domain.ProjectID)
 
 	return nil
+}
+
+// inferManagedCert returns the managed certificate a domain should be
+// attached to when its TLS secret IS a FastGateway managed server
+// certificate's secret -- named "cert-<certID>", ready, and in this project.
+// It returns nil for an empty name, a plain BYO secret, or a name that does
+// not resolve to a ready server certificate, so the domain stays on the BYO
+// TLSSecretName path. This lets selecting a managed certificate as a domain's
+// TLS at create/update transparently become a first-class attachment (so the
+// certificate's in-use delete guard applies) without a separate attach step.
+func (s *DomainService) inferManagedCert(projectID uuid.UUID, tlsSecretName string) *uuid.UUID {
+	const prefix = "cert-"
+	if !strings.HasPrefix(tlsSecretName, prefix) {
+		return nil
+	}
+	certID, err := uuid.Parse(strings.TrimPrefix(tlsSecretName, prefix))
+	if err != nil {
+		return nil
+	}
+	cert, err := s.managedCertLookup.GetByID(certID)
+	if err != nil {
+		return nil
+	}
+	if cert.ProjectID != projectID ||
+		cert.Usage != models.ManagedCertUsageServer ||
+		cert.Status != models.ManagedCertStatusReady {
+		return nil
+	}
+	return &certID
 }
 
 // AttachCertificate points domain at a managed certificate and re-applies
