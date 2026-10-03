@@ -593,6 +593,7 @@ func (s *ManagedCertificateService) OnApproved(a *models.Approval) error {
 			Name:         cert.Config.CertificateName,
 			Namespace:    s.controlPlane.Namespace(),
 			SecretName:   cert.Config.SecretName,
+			DisplayName:  cert.Name,
 			IssuerName:   issuer.Config.IssuerName,
 			DNSNames:     cert.Config.DNSNames,
 			CommonName:   cert.Config.Subject,

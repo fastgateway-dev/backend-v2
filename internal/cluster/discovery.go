@@ -107,11 +107,16 @@ func (s *Client) ListServices(ctx context.Context, projectID uuid.UUID, namespac
 
 // TLSSecretInfo represents a kubernetes.io/tls secret for the API response
 type TLSSecretInfo struct {
-	Name                 string            `json:"name"`
-	Namespace            string            `json:"namespace"`
-	ManagedByFastgateway bool              `json:"managedByFastgateway"`
-	Labels               map[string]string `json:"labels"`
-	CreatedAt            string            `json:"createdAt"`
+	Name                 string `json:"name"`
+	Namespace            string `json:"namespace"`
+	ManagedByFastgateway bool   `json:"managedByFastgateway"`
+	// DisplayName is the human-facing name FastGateway stamped onto the
+	// Secret (annotation fastgateway.dev/name, via the Certificate's
+	// spec.secretTemplate). Empty for secrets FastGateway did not issue, so
+	// the UI can fall back to Name (the raw Secret name) for those.
+	DisplayName string            `json:"displayName,omitempty"`
+	Labels      map[string]string `json:"labels"`
+	CreatedAt   string            `json:"createdAt"`
 }
 
 // ListTLSSecrets lists kubernetes.io/tls secrets in the specified namespace
@@ -142,6 +147,7 @@ func (s *Client) ListTLSSecrets(ctx context.Context, projectID uuid.UUID, namesp
 		}
 
 		managedBy := labels["app.kubernetes.io/managed-by"] == "fastgateway"
+		displayName := item.GetAnnotations()["fastgateway.dev/name"]
 
 		createdAt := ""
 		if ts := item.GetCreationTimestamp(); !ts.IsZero() {
@@ -152,6 +158,7 @@ func (s *Client) ListTLSSecrets(ctx context.Context, projectID uuid.UUID, namesp
 			Name:                 item.GetName(),
 			Namespace:            item.GetNamespace(),
 			ManagedByFastgateway: managedBy,
+			DisplayName:          displayName,
 			Labels:               labels,
 			CreatedAt:            createdAt,
 		})

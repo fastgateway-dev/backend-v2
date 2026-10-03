@@ -17,3 +17,6 @@ spec:
     algorithm: RSA
     size: 4096
   secretName: ca-abc
+  secretTemplate:
+    labels:
+      app.kubernetes.io/managed-by: fastgateway

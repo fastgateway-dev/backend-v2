@@ -13,6 +13,20 @@ func managedByLabels() map[string]interface{} {
 	return map[string]interface{}{"app.kubernetes.io/managed-by": "fastgateway"}
 }
 
+// secretTemplate builds a cert-manager Certificate spec.secretTemplate so the
+// Secret cert-manager issues carries FastGateway's managed-by label (and, when
+// known, a human-facing name annotation). This matters because cert-manager
+// does NOT copy a Certificate's own metadata labels onto its Secret -- only
+// what spec.secretTemplate declares -- so without this the issued Secret looks
+// unmanaged (e.g. the TLS-secret picker tags it "External").
+func secretTemplate(displayName string) map[string]interface{} {
+	tmpl := map[string]interface{}{"labels": managedByLabels()}
+	if displayName != "" {
+		tmpl["annotations"] = map[string]interface{}{"fastgateway.dev/name": displayName}
+	}
+	return tmpl
+}
+
 // SelfSignedIssuer builds a namespaced cert-manager Issuer backed by the
 // selfSigned issuer type. Used as the root issuer for the internal CA chain.
 func SelfSignedIssuer(name, namespace string) *unstructured.Unstructured {
@@ -26,6 +40,7 @@ func SelfSignedIssuer(name, namespace string) *unstructured.Unstructured {
 // CACertConfig configures the internal CA Certificate built by CACertificate.
 type CACertConfig struct {
 	Name, Namespace, CommonName, SecretName, SelfSignedIssuerName, KeyAlgorithm string
+	DisplayName                                                                 string
 	KeySize, DurationDays                                                       int
 }
 
@@ -44,6 +59,7 @@ func CACertificate(cfg CACertConfig) *unstructured.Unstructured {
 			"issuerRef": map[string]interface{}{
 				"name": cfg.SelfSignedIssuerName, "kind": "Issuer", "group": "cert-manager.io",
 			},
+			"secretTemplate": secretTemplate(cfg.DisplayName),
 		},
 	}}
 }
@@ -51,6 +67,7 @@ func CACertificate(cfg CACertConfig) *unstructured.Unstructured {
 // LeafCertConfig configures the leaf Certificate built by LeafCertificate.
 type LeafCertConfig struct {
 	Name, Namespace, SecretName, IssuerName, CommonName, KeyAlgorithm string
+	DisplayName                                                       string
 	DNSNames, URISANs                                                 []string
 	KeySize, DurationDays                                             int
 	Usage                                                             models.ManagedCertUsage
@@ -71,6 +88,7 @@ func LeafCertificate(cfg LeafCertConfig) *unstructured.Unstructured {
 		"issuerRef": map[string]interface{}{
 			"name": cfg.IssuerName, "kind": "Issuer", "group": "cert-manager.io",
 		},
+		"secretTemplate": secretTemplate(cfg.DisplayName),
 	}
 	if cfg.CommonName != "" {
 		spec["commonName"] = cfg.CommonName

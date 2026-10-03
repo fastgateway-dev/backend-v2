@@ -17,6 +17,9 @@ spec:
     algorithm: RSA
     size: 2048
   secretName: cert-abc
+  secretTemplate:
+    labels:
+      app.kubernetes.io/managed-by: fastgateway
   usages:
   - server auth
   - digital signature

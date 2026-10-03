@@ -133,7 +133,7 @@ func (s *CertificateIssuerService) Create(input *CreateIssuerInput, createdBy uu
 			return s.markError(iss, err)
 		}
 		caCert := kubernetes.CACertificate(kubernetes.CACertConfig{
-			Name: caSecret, Namespace: ns, CommonName: input.CommonName, SecretName: caSecret,
+			Name: caSecret, Namespace: ns, CommonName: input.CommonName, SecretName: caSecret, DisplayName: iss.Name,
 			SelfSignedIssuerName: selfSignedIssuerName, KeyAlgorithm: input.KeyAlgorithm, KeySize: input.KeySize, DurationDays: input.DurationDays,
 		})
 		if err := s.controlPlane.ApplyNamespaced(ctx, kubernetes.CertManagerCertificateGVR, caCert); err != nil {

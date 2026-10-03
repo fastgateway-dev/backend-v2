@@ -16,6 +16,9 @@ spec:
     algorithm: RSA
     size: 2048
   secretName: cert-client-abc
+  secretTemplate:
+    labels:
+      app.kubernetes.io/managed-by: fastgateway
   uris:
   - spiffe://fastgateway/proj/client-1
   usages:
