@@ -72,6 +72,12 @@ func recordTypeForAddress(addr GatewayAddress, forced models.DNSRecordType) (mod
 		if addr.Kind != "hostname" {
 			return "", fmt.Errorf("record type CNAME requires a hostname target, but the gateway address %q is an IP", addr.Value)
 		}
+	default:
+		// Defense-in-depth (final review Fix A): DNSRecordService validates
+		// RecordType before it ever reaches here, but no unexpected value
+		// must be allowed to flow into the DNSEndpoint CR even if a future
+		// caller skips that validation.
+		return "", fmt.Errorf("unsupported record type %q (allowed: auto, A, AAAA, CNAME)", forced)
 	}
 	return forced, nil
 }

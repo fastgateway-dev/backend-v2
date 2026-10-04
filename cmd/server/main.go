@@ -324,6 +324,10 @@ func main() {
 		IssuerRepo:          certificateIssuerRepo,
 		Config:              cfg,
 		DomainDNSRecordRepo: domainDNSRecordRepo,
+		// Settings (not DNSInfraService) because DNSInfraService is only
+		// built later, inside the in-cluster block below -- SystemSettingsService
+		// is available unconditionally from construction (see line ~106).
+		Settings: systemSettingsService,
 	})
 	dnsCredentialHandler := handlers.NewDNSCredentialHandler(dnsCredentialService)
 

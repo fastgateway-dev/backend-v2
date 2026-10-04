@@ -110,10 +110,11 @@ func (h *DNSCredentialHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, toDNSCredentialResponse(cred))
 }
 
-// Delete removes a DNS provider credential. ErrDNSCredentialInUseByIssuer
-// and ErrDNSCredentialInUse are caller-fixable conflicts (409, mirroring how
-// ErrCertificateInUse -> 409 is done in ManagedCertificateHandler.Delete);
-// anything else is an unexpected failure (500).
+// Delete removes a DNS provider credential. ErrDNSCredentialInUseByIssuer,
+// ErrDNSCredentialInUse, and ErrDNSCredentialIsActive are caller-fixable
+// conflicts (409, mirroring how ErrCertificateInUse -> 409 is done in
+// ManagedCertificateHandler.Delete); anything else is an unexpected failure
+// (500).
 func (h *DNSCredentialHandler) Delete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("dnsCredentialId"))
 	if err != nil {
@@ -121,7 +122,7 @@ func (h *DNSCredentialHandler) Delete(c *gin.Context) {
 		return
 	}
 	if err := h.service.Delete(id); err != nil {
-		if errors.Is(err, services.ErrDNSCredentialInUseByIssuer) || errors.Is(err, services.ErrDNSCredentialInUse) {
+		if errors.Is(err, services.ErrDNSCredentialInUseByIssuer) || errors.Is(err, services.ErrDNSCredentialInUse) || errors.Is(err, services.ErrDNSCredentialIsActive) {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
 		}

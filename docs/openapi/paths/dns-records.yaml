@@ -56,7 +56,7 @@ domain-dns-record:
             schema:
               $ref: '../schemas/dns-record.yaml#/DomainDNSRecord'
       '400':
-        description: No active DNS credential is configured, or providerCredentialId does not match it
+        description: No active DNS credential is configured, providerCredentialId does not match it, or recordType is not one of auto/A/AAAA/CNAME
         content:
           application/json:
             schema:
@@ -96,7 +96,7 @@ domain-dns-record:
             schema:
               $ref: '../schemas/dns-record.yaml#/DomainDNSRecord'
       '400':
-        description: No active DNS credential is configured, or providerCredentialId does not match it
+        description: No active DNS credential is configured, providerCredentialId does not match it, or recordType is not one of auto/A/AAAA/CNAME
         content:
           application/json:
             schema:

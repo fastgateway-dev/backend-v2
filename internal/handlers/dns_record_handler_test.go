@@ -189,6 +189,72 @@ func TestDNSRecordHandler_Enable_NoActiveCredential_BadRequest(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
+// TestDNSRecordHandler_Enable_InvalidRecordType_BadRequest verifies the
+// handler maps services.ErrInvalidRecordType (final review Fix A: an
+// unrecognized recordType like "TXT" must be rejected, never written into
+// the DNSEndpoint CR) to 400, not the generic 500 path.
+func TestDNSRecordHandler_Enable_InvalidRecordType_BadRequest(t *testing.T) {
+	mockSvc := new(mocks.MockDNSRecordService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewDNSRecordHandler(mockSvc, pc, mockAudit)
+
+	user := testUser()
+	projectID := uuid.New()
+	domainID := uuid.New()
+
+	mockSvc.On("Enable", domainID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
+		Return((*models.DomainDNSRecord)(nil), services.ErrInvalidRecordType)
+
+	router := gin.New()
+	router.POST("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Enable(c)
+	})
+
+	body, _ := json.Marshal(map[string]interface{}{"recordType": "TXT"})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domains/"+domainID.String()+"/dns-record", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	mockSvc.AssertExpectations(t)
+	mockAudit.AssertNotCalled(t, "LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestDNSRecordHandler_Update_InvalidRecordType_BadRequest is Update's
+// counterpart to the Enable test above.
+func TestDNSRecordHandler_Update_InvalidRecordType_BadRequest(t *testing.T) {
+	mockSvc := new(mocks.MockDNSRecordService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewDNSRecordHandler(mockSvc, pc, mockAudit)
+
+	user := testUser()
+	projectID := uuid.New()
+	domainID := uuid.New()
+
+	mockSvc.On("Update", domainID, mock.AnythingOfType("services.DNSRecordInput")).
+		Return((*models.DomainDNSRecord)(nil), services.ErrInvalidRecordType)
+
+	router := gin.New()
+	router.PUT("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Update(c)
+	})
+
+	body, _ := json.Marshal(map[string]interface{}{"recordType": "foo"})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/projects/"+projectID.String()+"/domains/"+domainID.String()+"/dns-record", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	mockSvc.AssertExpectations(t)
+	mockAudit.AssertNotCalled(t, "LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestDNSRecordHandler_Enable_AlreadyExists_Conflict(t *testing.T) {
 	mockSvc := new(mocks.MockDNSRecordService)
 	mockAudit := new(mocks.MockAuditService)

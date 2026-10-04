@@ -23,7 +23,25 @@ var (
 	// errors.Is, consistent with ErrNoActiveDNSCredential/ErrCredentialNotActive
 	// above.
 	ErrDNSRecordExists = errors.New("DNS record already exists for this domain")
+	// ErrInvalidRecordType is returned by Enable/Update when the caller
+	// supplies a RecordType that isn't one of the types DNSRecordService
+	// understands (final review Fix A). Without this check an unvalidated
+	// string -- "TXT", "foo", lowercase "a" -- would flow straight into the
+	// DNSEndpoint CR via recordTypeForAddress's forced-type branch and be
+	// reported ready.
+	ErrInvalidRecordType = errors.New("invalid record type (allowed: auto, A, AAAA, CNAME)")
 )
+
+// isValidRecordType reports whether rt is one of the record types
+// DNSRecordService (and, downstream, recordTypeForAddress) understands.
+func isValidRecordType(rt models.DNSRecordType) bool {
+	switch rt {
+	case models.DNSRecordTypeAuto, models.DNSRecordTypeA, models.DNSRecordTypeAAAA, models.DNSRecordTypeCNAME:
+		return true
+	default:
+		return false
+	}
+}
 
 // DNSRecordService reconciles a domain's single DNS record
 // (models.DomainDNSRecord) to a DNSEndpoint custom resource that
@@ -114,6 +132,9 @@ func (s *DNSRecordService) Enable(domainID, createdBy uuid.UUID, in DNSRecordInp
 	if rt == "" {
 		rt = models.DNSRecordTypeAuto
 	}
+	if !isValidRecordType(rt) {
+		return nil, ErrInvalidRecordType
+	}
 
 	rec := &models.DomainDNSRecord{
 		DomainID:             domainID,
@@ -163,6 +184,9 @@ func (s *DNSRecordService) Update(domainID uuid.UUID, in DNSRecordInput) (*model
 		return nil, err
 	}
 	if in.RecordType != "" {
+		if !isValidRecordType(in.RecordType) {
+			return nil, ErrInvalidRecordType
+		}
 		rec.RecordType = in.RecordType
 	}
 	rec.TTL = in.TTL

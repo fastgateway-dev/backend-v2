@@ -77,3 +77,21 @@ func TestRecordTypeForAddress_ForcedFamilyMismatch(t *testing.T) {
 		t.Fatalf("forced AAAA on IPv6 should be ok, got ty=%v err=%v", ty, err)
 	}
 }
+
+// TestRecordTypeForAddress_UnknownForcedType_Errors is the regression test
+// for final review Fix A (defense-in-depth): before this, an unrecognized
+// forced type (e.g. "TXT", "foo") fell through the switch without matching
+// any case and was returned verbatim via `return forced, nil`, letting it
+// flow straight into the DNSEndpoint CR. It must now error instead.
+func TestRecordTypeForAddress_UnknownForcedType_Errors(t *testing.T) {
+	ip := GatewayAddress{Value: "203.0.113.5", Kind: "ip"}
+	if _, err := recordTypeForAddress(ip, models.DNSRecordType("TXT")); err == nil {
+		t.Fatal("expected error for unknown forced record type TXT")
+	}
+	if _, err := recordTypeForAddress(ip, models.DNSRecordType("foo")); err == nil {
+		t.Fatal("expected error for unknown forced record type foo")
+	}
+	if _, err := recordTypeForAddress(ip, models.DNSRecordType("a")); err == nil {
+		t.Fatal("expected error for lowercase forced record type a (case-sensitive)")
+	}
+}

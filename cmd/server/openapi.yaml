@@ -592,7 +592,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
-          description: DNS provider credential is referenced by an ACME issuer, or by one or more domain DNS records
+          description: DNS provider credential is referenced by an ACME issuer, by one or more domain DNS records, or is the system-wide active DNS credential
           content:
             application/json:
               schema:
@@ -2703,7 +2703,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DomainDNSRecord'
         '400':
-          description: No active DNS credential is configured, or providerCredentialId does not match it
+          description: No active DNS credential is configured, providerCredentialId does not match it, or recordType is not one of auto/A/AAAA/CNAME
           content:
             application/json:
               schema:
@@ -2743,7 +2743,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DomainDNSRecord'
         '400':
-          description: No active DNS credential is configured, or providerCredentialId does not match it
+          description: No active DNS credential is configured, providerCredentialId does not match it, or recordType is not one of auto/A/AAAA/CNAME
           content:
             application/json:
               schema:

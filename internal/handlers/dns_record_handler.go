@@ -96,14 +96,14 @@ func toDNSRecordResponse(r *models.DomainDNSRecord) dnsRecordResponse {
 }
 
 // mapDNSRecordServiceError maps the service-layer errors Enable/Get/Update
-// can return into an HTTP response: ErrNoActiveDNSCredential and
-// ErrCredentialNotActive are caller-fixable input problems (400),
-// ErrDNSRecordExists means Enable was called twice for the same domain
-// (409), gorm.ErrRecordNotFound means there is no record for this domain yet
-// (404), and anything else is an unexpected failure (500).
+// can return into an HTTP response: ErrNoActiveDNSCredential,
+// ErrCredentialNotActive, and ErrInvalidRecordType are caller-fixable input
+// problems (400), ErrDNSRecordExists means Enable was called twice for the
+// same domain (409), gorm.ErrRecordNotFound means there is no record for
+// this domain yet (404), and anything else is an unexpected failure (500).
 func mapDNSRecordServiceError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, services.ErrNoActiveDNSCredential), errors.Is(err, services.ErrCredentialNotActive):
+	case errors.Is(err, services.ErrNoActiveDNSCredential), errors.Is(err, services.ErrCredentialNotActive), errors.Is(err, services.ErrInvalidRecordType):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, services.ErrDNSRecordExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})

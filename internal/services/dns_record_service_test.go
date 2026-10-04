@@ -431,3 +431,52 @@ func TestUpdate_CredentialMismatch_Errors(t *testing.T) {
 	_, err = svc.Update(d.domainID, services.DNSRecordInput{ProviderCredentialID: &other})
 	require.ErrorIs(t, err, services.ErrCredentialNotActive)
 }
+
+// TestEnable_InvalidRecordType_Errors and TestUpdate_InvalidRecordType_Errors
+// are the regression tests for final review Fix A: an unvalidated
+// RecordType string (from the handler, or from the domain-auto-create path
+// in DomainService) used to flow straight into the DNSEndpoint CR via
+// recordTypeForAddress's forced-type default branch. Both Enable and Update
+// must now reject anything outside {auto, A, AAAA, CNAME} before the record
+// is ever persisted or reconciled.
+func TestEnable_InvalidRecordType_Errors(t *testing.T) {
+	svc, d := newTestDNSRecordService(t)
+	d.setGatewayIP("203.0.113.9")
+
+	_, err := svc.Enable(d.domainID, d.userID, services.DNSRecordInput{RecordType: models.DNSRecordType("TXT")})
+	require.ErrorIs(t, err, services.ErrInvalidRecordType)
+
+	// No record must have been persisted for the rejected input.
+	_, err = svc.Get(d.domainID)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+}
+
+func TestEnable_ValidRecordTypes_StillPass(t *testing.T) {
+	for _, rt := range []models.DNSRecordType{models.DNSRecordTypeAuto, models.DNSRecordTypeA, "" /* normalizes to auto */} {
+		svc, d := newTestDNSRecordService(t)
+		d.setGatewayIP("203.0.113.9")
+		_, err := svc.Enable(d.domainID, d.userID, services.DNSRecordInput{RecordType: rt})
+		require.NoError(t, err, "recordType %q must be accepted", rt)
+	}
+}
+
+func TestUpdate_InvalidRecordType_Errors(t *testing.T) {
+	svc, d := newTestDNSRecordService(t)
+	d.setGatewayIP("203.0.113.9")
+	_, err := svc.Enable(d.domainID, d.userID, services.DNSRecordInput{})
+	require.NoError(t, err)
+
+	_, err = svc.Update(d.domainID, services.DNSRecordInput{RecordType: models.DNSRecordType("foo")})
+	require.ErrorIs(t, err, services.ErrInvalidRecordType)
+}
+
+func TestUpdate_ValidRecordType_StillPasses(t *testing.T) {
+	svc, d := newTestDNSRecordService(t)
+	d.setGatewayIP("203.0.113.9")
+	_, err := svc.Enable(d.domainID, d.userID, services.DNSRecordInput{})
+	require.NoError(t, err)
+
+	got, err := svc.Update(d.domainID, services.DNSRecordInput{RecordType: models.DNSRecordTypeA})
+	require.NoError(t, err)
+	require.Equal(t, models.DNSRecordTypeA, got.RecordType)
+}

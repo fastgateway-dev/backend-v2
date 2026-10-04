@@ -24,7 +24,7 @@ func TestCertificateIssuerService_CreateSelfSignedCA_AppliesCRDs(t *testing.T) {
 	repo := new(mocks.MockCertificateIssuerRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: new(mocks.MockDNSProviderCredentialRepository), Config: cfg, IssuerRepo: repo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository)})
+	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: new(mocks.MockDNSProviderCredentialRepository), Config: cfg, IssuerRepo: repo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
 	svc := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
 		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg, ManagedCertRepo: new(mocks.MockManagedCertificateRepository),
 	})
@@ -65,7 +65,7 @@ func TestCertificateIssuerService_CreateACME_AppliesSolverAndIssuer(t *testing.T
 	dnsRepo := new(mocks.MockDNSProviderCredentialRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository)})
+	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
 	svc := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
 		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg, ManagedCertRepo: new(mocks.MockManagedCertificateRepository),
 	})
@@ -118,7 +118,7 @@ func TestCertificateIssuerService_CreateACME_ApplyFailure_ConfigPopulatedForClea
 	dnsRepo := new(mocks.MockDNSProviderCredentialRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository)})
+	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
 	svc := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
 		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg, ManagedCertRepo: new(mocks.MockManagedCertificateRepository),
 	})
@@ -169,7 +169,7 @@ func TestCertificateIssuerService_DeleteACME_RemovesSecrets(t *testing.T) {
 	dnsRepo := new(mocks.MockDNSProviderCredentialRepository)
 	applier := new(mocks.MockCertInfraApplier)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository)})
+	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
 	managedCertRepo := new(mocks.MockManagedCertificateRepository)
 	svc := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
 		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg, ManagedCertRepo: managedCertRepo,
@@ -213,7 +213,7 @@ func TestCertificateIssuerService_Delete_BlockedWhenCertReferences(t *testing.T)
 	applier := new(mocks.MockCertInfraApplier)
 	managedCertRepo := new(mocks.MockManagedCertificateRepository)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository)})
+	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
 	svc := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
 		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg, ManagedCertRepo: managedCertRepo,
 	})
@@ -234,7 +234,7 @@ func TestDNSCredentialService_Delete_BlockedWhenReferenced(t *testing.T) {
 	dnsRepo := new(mocks.MockDNSProviderCredentialRepository)
 	issRepo := new(mocks.MockCertificateIssuerRepository)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: issRepo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository)})
+	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: issRepo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
 
 	id := uuid.New()
 	issRepo.On("CountByDNSCredential", id).Return(int64(2), nil)
