@@ -1300,3 +1300,150 @@ func TestDomainService_Create_ByoSecretDoesNotAttach(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Nil(t, result.ManagedCertificateID)
 }
+
+// =========================================================================
+// Create: DNS auto-enable (Task 10)
+// =========================================================================
+
+// mockDNSEnabler is a minimal stand-in for DNSRecordService's Enable method
+// (services.DNSRecordEnabler). It is deliberately not a full testify mock --
+// Create's DNS-enable step is best-effort and only needs to record whether
+// (and with what) it was called.
+type mockDNSEnabler struct {
+	enableCalled bool
+	domainID     uuid.UUID
+	createdBy    uuid.UUID
+	in           services.DNSRecordInput
+	err          error
+}
+
+func (m *mockDNSEnabler) Enable(domainID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error) {
+	m.enableCalled = true
+	m.domainID = domainID
+	m.createdBy = createdBy
+	m.in = in
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &models.DomainDNSRecord{DomainID: domainID}, nil
+}
+
+func TestCreateDomain_WithDNS_EnablesRecord(t *testing.T) {
+	svc, domainRepo, _, dtRepo, k8sMock, _, _ := newTestDomainService()
+	dnsMock := &mockDNSEnabler{}
+	svc.SetDNSRecords(dnsMock)
+
+	projectID := uuid.New()
+	dtID := uuid.New()
+	userID := uuid.New()
+	cred := uuid.New()
+
+	dt := &models.DomainTemplate{
+		ID: dtID, ProjectID: projectID, Name: "tpl",
+		Status:  models.DomainTemplateStatusActive,
+		TLSMode: models.TLSModeNone,
+	}
+
+	domainRepo.On("ExistsByHostname", projectID, "app.example.com").Return(false, nil)
+	dtRepo.On("GetByID", dtID).Return(dt, nil)
+	domainRepo.On("Create", mock.AnythingOfType("*models.Domain")).Return(nil)
+	k8sMock.On("CreateGateway", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).Return(nil)
+	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+
+	result, err := svc.Create(projectID, &services.CreateDomainInput{
+		Name:             "d",
+		Hostname:         "app.example.com",
+		DomainTemplateID: dtID.String(),
+		Namespace:        kubernetes.FastGatewayNamespace,
+		DNS: &services.DomainDNSInput{
+			Enabled:              true,
+			ProviderCredentialID: cred.String(),
+		},
+	}, userID)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	if !dnsMock.enableCalled {
+		t.Fatal("expected DNS record Enable to be called")
+	}
+	assert.Equal(t, result.ID, dnsMock.domainID)
+	assert.Equal(t, userID, dnsMock.createdBy)
+	require.NotNil(t, dnsMock.in.ProviderCredentialID)
+	assert.Equal(t, cred, *dnsMock.in.ProviderCredentialID)
+}
+
+// TestCreateDomain_WithDNS_Disabled verifies that an unset or disabled DNS
+// block never calls Enable, even when dnsRecords is wired.
+func TestCreateDomain_WithDNS_Disabled(t *testing.T) {
+	svc, domainRepo, _, dtRepo, k8sMock, _, _ := newTestDomainService()
+	dnsMock := &mockDNSEnabler{}
+	svc.SetDNSRecords(dnsMock)
+
+	projectID := uuid.New()
+	dtID := uuid.New()
+
+	dt := &models.DomainTemplate{
+		ID: dtID, ProjectID: projectID, Name: "tpl",
+		Status:  models.DomainTemplateStatusActive,
+		TLSMode: models.TLSModeNone,
+	}
+
+	domainRepo.On("ExistsByHostname", projectID, "app2.example.com").Return(false, nil)
+	dtRepo.On("GetByID", dtID).Return(dt, nil)
+	domainRepo.On("Create", mock.AnythingOfType("*models.Domain")).Return(nil)
+	k8sMock.On("CreateGateway", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).Return(nil)
+	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+
+	_, err := svc.Create(projectID, &services.CreateDomainInput{
+		Name:             "d",
+		Hostname:         "app2.example.com",
+		DomainTemplateID: dtID.String(),
+		Namespace:        kubernetes.FastGatewayNamespace,
+	}, uuid.New())
+
+	require.NoError(t, err)
+	if dnsMock.enableCalled {
+		t.Fatal("expected DNS record Enable NOT to be called when DNS is unset")
+	}
+}
+
+// TestCreateDomain_WithDNS_EnableFailureIsBestEffort verifies that a DNS
+// Enable failure does not fail domain creation (Create still returns the
+// domain with no error).
+func TestCreateDomain_WithDNS_EnableFailureIsBestEffort(t *testing.T) {
+	svc, domainRepo, _, dtRepo, k8sMock, _, _ := newTestDomainService()
+	dnsMock := &mockDNSEnabler{err: errors.New("boom")}
+	svc.SetDNSRecords(dnsMock)
+
+	projectID := uuid.New()
+	dtID := uuid.New()
+
+	dt := &models.DomainTemplate{
+		ID: dtID, ProjectID: projectID, Name: "tpl",
+		Status:  models.DomainTemplateStatusActive,
+		TLSMode: models.TLSModeNone,
+	}
+
+	domainRepo.On("ExistsByHostname", projectID, "app3.example.com").Return(false, nil)
+	dtRepo.On("GetByID", dtID).Return(dt, nil)
+	domainRepo.On("Create", mock.AnythingOfType("*models.Domain")).Return(nil)
+	k8sMock.On("CreateGateway", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).Return(nil)
+	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+
+	result, err := svc.Create(projectID, &services.CreateDomainInput{
+		Name:             "d",
+		Hostname:         "app3.example.com",
+		DomainTemplateID: dtID.String(),
+		Namespace:        kubernetes.FastGatewayNamespace,
+		DNS: &services.DomainDNSInput{
+			Enabled: true,
+		},
+	}, uuid.New())
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, models.DomainStatusActive, result.Status)
+	if !dnsMock.enableCalled {
+		t.Fatal("expected DNS record Enable to be attempted")
+	}
+}

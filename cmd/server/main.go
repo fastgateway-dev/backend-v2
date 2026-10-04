@@ -364,6 +364,13 @@ func main() {
 		dnsRecordHandler = handlers.NewDNSRecordHandler(dnsRecordService, permChecker, auditService)
 		dnsActiveCredHandler = handlers.NewDNSActiveCredentialHandler(dnsInfraService)
 
+		// Task 10: wire the optional DNS-enable-at-create dependency now that
+		// dnsRecordService exists. domainService was built unconditionally
+		// above (before this in-cluster block), so it cannot receive this
+		// through DomainServiceDeps; SetDNSRecords is the documented
+		// exception (see its doc comment on DomainService).
+		domainService.SetDNSRecords(dnsRecordService)
+
 		// certDistRepo is constructed here (before managedCertService) so it
 		// can be passed to ManagedCertificateService as its DistRepo dep
 		// (Task 6: distribution status + resync) as well as to the certdist

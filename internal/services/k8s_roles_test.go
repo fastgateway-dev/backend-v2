@@ -283,7 +283,7 @@ func TestNoWiringNilGuardsRemain(t *testing.T) {
 // The allowlist is keyed on file:field, not on file, so a NEW `!= nil` guard
 // on a different field in an allowlisted file still fails.
 func TestNoWiringNilGuardsRemain_NegatedForm(t *testing.T) {
-	// The four guards deliberately kept. Each is a genuinely optional
+	// The five guards deliberately kept. Each is a genuinely optional
 	// dependency or a cache slot, NOT wiring.
 	allowed := map[string]string{
 		// A memoised provider, rebuilt when the config key changes. nil
@@ -302,6 +302,16 @@ func TestNoWiringNilGuardsRemain_NegatedForm(t *testing.T) {
 		// constructor; converting it would retire these two entries. Recorded
 		// as known deviation (d) in verification.md.
 		"domain_template_manifests.go:aiService": "genuinely-optional AI review dependency; see known deviation (d)",
+
+		// DomainService.dnsRecords (DNS management Task 10) is genuinely
+		// optional: DNSRecordService needs the in-cluster control-plane
+		// client, so DomainService is built unconditionally in
+		// cmd/server/main.go BEFORE the in-cluster block that constructs
+		// DNSRecordService. It cannot go through DomainServiceDeps like
+		// every other dependency on this struct -- it arrives later via
+		// SetDNSRecords (see that method's doc comment), and stays nil
+		// outside a cluster, where Create's DNS-enable step is a no-op.
+		"domain_service.go:dnsRecords": "genuinely-optional DNS-record dependency, wired after construction via SetDNSRecords",
 	}
 
 	entries, err := os.ReadDir(".")
@@ -349,6 +359,7 @@ func TestNoWiringNilGuardsRemain_NegatedForm_AllowlistIsExact(t *testing.T) {
 		"ai_service.go:provider":                 1,
 		"system_settings_service.go:cached":      1,
 		"domain_template_manifests.go:aiService": 2,
+		"domain_service.go:dnsRecords":           1,
 	}
 
 	entries, err := os.ReadDir(".")
@@ -375,7 +386,7 @@ func TestNoWiringNilGuardsRemain_NegatedForm_AllowlistIsExact(t *testing.T) {
 	}
 
 	assert.Equal(t, expected, found,
-		"the four kept `!= nil` guards changed. If one was removed, drop its\n"+
+		"the five kept `!= nil` guards changed. If one was removed, drop its\n"+
 			"allowlist entry in TestNoWiringNilGuardsRemain_NegatedForm too;\n"+
 			"if one was added, justify it there first.")
 }

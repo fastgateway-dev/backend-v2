@@ -43,6 +43,23 @@ type DomainService struct {
 	aiService            AIReviewer
 	projectNamespaceRepo repository.ProjectNamespaceRepositoryInterface
 	managedCertLookup    ManagedCertReader
+
+	// dnsRecords is an optional dependency: DNSRecordService needs the
+	// in-cluster control-plane client, so it only exists when
+	// services.IsRunningInCluster() is true (cmd/server/main.go). Outside a
+	// cluster it stays nil and Create's best-effort DNS-enable step is
+	// skipped entirely. Unlike every other dependency on this struct, it is
+	// not set through DomainServiceDeps/NewDomainService -- DomainService is
+	// built unconditionally, before the in-cluster block that constructs
+	// DNSRecordService -- so it arrives later through SetDNSRecords.
+	dnsRecords DNSRecordEnabler
+}
+
+// DNSRecordEnabler is the only thing DomainService needs from
+// DNSRecordService: enabling a managed DNS record for a domain.
+// *DNSRecordService satisfies it structurally.
+type DNSRecordEnabler interface {
+	Enable(domainID, createdBy uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error)
 }
 
 // DomainTemplateLookup is the only thing DomainService needs from
@@ -188,6 +205,16 @@ func NewDomainService(deps DomainServiceDeps) *DomainService {
 	}
 }
 
+// SetDNSRecords wires the optional DNSRecordService dependency after
+// construction. See the dnsRecords field comment: DomainService is built
+// unconditionally in cmd/server/main.go, before the in-cluster block that
+// constructs DNSRecordService, so this cannot go through DomainServiceDeps.
+// Called at most once, from main.go, only when running in-cluster; never
+// called means Create's DNS-enable step is a no-op.
+func (s *DomainService) SetDNSRecords(r DNSRecordEnabler) {
+	s.dnsRecords = r
+}
+
 // ErrDomainNotFound is returned by DomainService methods that scope a
 // domain lookup to a project (AttachCertificate, DetachCertificate) when the
 // domain does not exist or exists but belongs to a different project. The
@@ -230,6 +257,23 @@ type CreateDomainInput struct {
 	TLSSecretNamespace string        `json:"tlsSecretNamespace"`
 	Namespace          string        `json:"namespace"`
 	Labels             models.Labels `json:"labels,omitempty"`
+
+	// DNS optionally enables a managed DNS record for this domain right
+	// after its Gateway is created. Best-effort: see the DNS-enable step at
+	// the end of Create.
+	DNS *DomainDNSInput `json:"dns,omitempty"`
+}
+
+// DomainDNSInput is the opt-in DNS block on CreateDomainInput. It mirrors
+// DNSRecordInput's fields in wire-friendly form (a string credential ID
+// instead of *uuid.UUID), since Create parses it the same way a dedicated
+// DNS-record handler would.
+type DomainDNSInput struct {
+	Enabled              bool   `json:"enabled"`
+	ProviderCredentialID string `json:"providerCredentialId"`
+	RecordType           string `json:"recordType"`
+	TTL                  *int   `json:"ttl"`
+	Proxied              bool   `json:"proxied"`
 }
 
 // UpdateDomainInput represents input for updating a domain
@@ -367,6 +411,29 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 	// Sync ReferenceGrants if domain is in a non-default namespace
 	if input.Namespace != kubernetes.FastGatewayNamespace {
 		s.syncReferenceGrants(projectID)
+	}
+
+	// Best-effort: enable a managed DNS record for the domain just created.
+	// Opt-in (input.DNS.Enabled) and only possible when dnsRecords was wired
+	// (see SetDNSRecords -- nil outside a cluster). A failure here must not
+	// fail domain creation: the domain and its Gateway already exist, and
+	// the DNS record can always be enabled later through the dedicated
+	// endpoint.
+	if input.DNS != nil && input.DNS.Enabled && s.dnsRecords != nil {
+		in := DNSRecordInput{
+			RecordType: models.DNSRecordType(input.DNS.RecordType),
+			TTL:        input.DNS.TTL,
+			Proxied:    input.DNS.Proxied,
+		}
+		if input.DNS.ProviderCredentialID != "" {
+			if id, err := uuid.Parse(input.DNS.ProviderCredentialID); err == nil {
+				in.ProviderCredentialID = &id
+			}
+		}
+		if _, err := s.dnsRecords.Enable(domain.ID, createdBy, in); err != nil {
+			log.Printf("Failed to enable DNS record for domain %s: %v", domain.ID, err)
+			// best-effort: the domain succeeds; the DNS record can be enabled later
+		}
 	}
 
 	return domain, nil

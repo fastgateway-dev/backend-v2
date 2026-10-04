@@ -88,6 +88,33 @@ CreateDomainRequest:
       description: Kubernetes namespace to deploy the domain's gateway resources into. Defaults to the default FastGateway namespace; any other value must be registered for this project.
     labels:
       $ref: './common.yaml#/Labels'
+    dns:
+      type: object
+      description: |
+        Optional: enable a managed DNS record for this domain right after its
+        Gateway is created. Best-effort -- if enabling the record fails, the
+        domain is still created successfully and the record can be enabled
+        later through the DNS record endpoints.
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        providerCredentialId:
+          type: string
+          format: uuid
+          description: Must equal the system-wide active DNS credential if supplied. Omit to use the active credential implicitly.
+        recordType:
+          type: string
+          enum: [auto, A, AAAA, CNAME]
+          default: auto
+        ttl:
+          type: integer
+          nullable: true
+          description: DNS record TTL in seconds. Omitted/null uses the provider's default.
+        proxied:
+          type: boolean
+          default: false
+          description: Cloudflare-specific proxy flag; ignored by other providers.
 
 UpdateDomainRequest:
   type: object
