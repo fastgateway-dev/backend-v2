@@ -5,6 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 )
 
 // DNSActiveCredentialHandler exposes owner-only read/write access to which
@@ -12,12 +14,16 @@ import (
 // exactly one active credential platform-wide at a time -- see
 // DNSInfraService.GetActiveCredentialID/SetActiveCredential.
 type DNSActiveCredentialHandler struct {
-	service DNSActiveCredentialServiceInterface
+	service      DNSActiveCredentialServiceInterface
+	auditService AuditServiceInterface
 }
 
 // NewDNSActiveCredentialHandler creates a new active-DNS-credential handler.
-func NewDNSActiveCredentialHandler(service DNSActiveCredentialServiceInterface) *DNSActiveCredentialHandler {
-	return &DNSActiveCredentialHandler{service: service}
+// auditService is security-relevant here: Set re-renders and applies the
+// cluster-wide external-dns Secret, so a successful change is audit-logged
+// the same way DNSRecordHandler's Enable/Update/Delete already are.
+func NewDNSActiveCredentialHandler(service DNSActiveCredentialServiceInterface, auditService AuditServiceInterface) *DNSActiveCredentialHandler {
+	return &DNSActiveCredentialHandler{service: service, auditService: auditService}
 }
 
 // dnsActiveCredentialResponse carries only the active credential's id, or
@@ -66,6 +72,19 @@ func (h *DNSActiveCredentialHandler) Set(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	user := middleware.GetCurrentUser(c)
+	h.auditService.LogAction(
+		nil,
+		user,
+		"update",
+		"dns_active_credential",
+		&id,
+		id.String(),
+		middleware.AuditDetails(c),
+		c.ClientIP(),
+		c.Request.UserAgent(),
+	)
 
 	c.JSON(http.StatusOK, dnsActiveCredentialResponse{CredentialID: &id})
 }

@@ -54,9 +54,19 @@ func recordTypeForAddress(addr GatewayAddress, forced models.DNSRecordType) (mod
 	}
 	// Validate the forced type against the address kind.
 	switch forced {
-	case models.DNSRecordTypeA, models.DNSRecordTypeAAAA:
+	case models.DNSRecordTypeA:
 		if addr.Kind != "ip" {
-			return "", fmt.Errorf("record type %s requires an IP target, but the gateway address %q is a hostname", forced, addr.Value)
+			return "", fmt.Errorf("record type A requires an IP target, but the gateway address %q is a hostname", addr.Value)
+		}
+		if ip := net.ParseIP(addr.Value); ip == nil || ip.To4() == nil {
+			return "", fmt.Errorf("record type A requires an IPv4 target, but the gateway address %q is IPv6", addr.Value)
+		}
+	case models.DNSRecordTypeAAAA:
+		if addr.Kind != "ip" {
+			return "", fmt.Errorf("record type AAAA requires an IP target, but the gateway address %q is a hostname", addr.Value)
+		}
+		if ip := net.ParseIP(addr.Value); ip == nil || ip.To4() != nil {
+			return "", fmt.Errorf("record type AAAA requires an IPv6 target, but the gateway address %q is IPv4", addr.Value)
 		}
 	case models.DNSRecordTypeCNAME:
 		if addr.Kind != "hostname" {

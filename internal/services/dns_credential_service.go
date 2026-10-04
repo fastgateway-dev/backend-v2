@@ -18,20 +18,25 @@ import (
 // encrypted before it is persisted and decrypted only on demand (see
 // DecryptedCredentials) -- it is never returned in plaintext through the API.
 type DNSCredentialService struct {
-	repo       repository.DNSProviderCredentialRepositoryInterface
-	config     *config.Config
-	issuerRepo repository.CertificateIssuerRepositoryInterface
+	repo          repository.DNSProviderCredentialRepositoryInterface
+	config        *config.Config
+	issuerRepo    repository.CertificateIssuerRepositoryInterface
+	domainDNSRepo repository.DomainDNSRecordRepositoryInterface
 }
 
 // DNSCredentialServiceDeps are DNSCredentialService's required dependencies.
 // NewDNSCredentialService panics if any of them is nil, following the house
 // pattern for services with required constructor dependencies. IssuerRepo
 // lets Delete refuse to remove a credential that's still referenced by an
-// ACME issuer (see CertificateIssuerService, Task 6).
+// ACME issuer (see CertificateIssuerService, Task 6). DomainDNSRecordRepo
+// lets Delete refuse to remove a credential that's still referenced by one
+// or more domain DNS records (final review Fix 2: CountByCredential existed
+// on the repository since Task 9 but had no caller).
 type DNSCredentialServiceDeps struct {
-	Repo       repository.DNSProviderCredentialRepositoryInterface
-	Config     *config.Config
-	IssuerRepo repository.CertificateIssuerRepositoryInterface
+	Repo                repository.DNSProviderCredentialRepositoryInterface
+	Config              *config.Config
+	IssuerRepo          repository.CertificateIssuerRepositoryInterface
+	DomainDNSRecordRepo repository.DomainDNSRecordRepositoryInterface
 }
 
 func NewDNSCredentialService(deps DNSCredentialServiceDeps) *DNSCredentialService {
@@ -45,10 +50,13 @@ func NewDNSCredentialService(deps DNSCredentialServiceDeps) *DNSCredentialServic
 	if deps.IssuerRepo == nil {
 		missing = append(missing, "IssuerRepo")
 	}
+	if deps.DomainDNSRecordRepo == nil {
+		missing = append(missing, "DomainDNSRecordRepo")
+	}
 	if len(missing) > 0 {
 		panic("services.NewDNSCredentialService: missing required dependency: " + strings.Join(missing, ", "))
 	}
-	return &DNSCredentialService{repo: deps.Repo, config: deps.Config, issuerRepo: deps.IssuerRepo}
+	return &DNSCredentialService{repo: deps.Repo, config: deps.Config, issuerRepo: deps.IssuerRepo, domainDNSRepo: deps.DomainDNSRecordRepo}
 }
 
 // CreateDNSCredentialInput is the request body for creating a DNS provider
@@ -132,17 +140,35 @@ func (s *DNSCredentialService) Update(id uuid.UUID, input *UpdateDNSCredentialIn
 	return c, nil
 }
 
+// ErrDNSCredentialInUseByIssuer is returned by Delete when the credential is
+// still referenced by one or more ACME issuers (IssuerConfig.dnsCredentialId)
+// -- deleting it out from under them would leave those issuers unable to
+// re-solve DNS-01 challenges. A sentinel (rather than the inline errors.New
+// this replaces) so the handler layer can map it with errors.Is.
+var ErrDNSCredentialInUseByIssuer = errors.New("DNS credential is in use by an ACME issuer")
+
+// ErrDNSCredentialInUse is returned by Delete when the credential is still
+// the active provider credential on one or more domain DNS records
+// (DomainDNSRecord.ProviderCredentialID) -- deleting it out from under them
+// would leave external-dns unable to keep reconciling those records.
+var ErrDNSCredentialInUse = errors.New("DNS credential is in use by one or more domain DNS records")
+
 // Delete removes a DNS provider credential, but refuses when it is still
-// referenced by one or more ACME issuers (IssuerConfig.dnsCredentialId) --
-// deleting it out from under them would leave those issuers unable to
-// re-solve DNS-01 challenges.
+// referenced by one or more ACME issuers or domain DNS records.
 func (s *DNSCredentialService) Delete(id uuid.UUID) error {
 	n, err := s.issuerRepo.CountByDNSCredential(id)
 	if err != nil {
 		return err
 	}
 	if n > 0 {
-		return errors.New("DNS credential is in use by an ACME issuer")
+		return ErrDNSCredentialInUseByIssuer
+	}
+	recN, err := s.domainDNSRepo.CountByCredential(id)
+	if err != nil {
+		return err
+	}
+	if recN > 0 {
+		return ErrDNSCredentialInUse
 	}
 	return s.repo.Delete(id)
 }

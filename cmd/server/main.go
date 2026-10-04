@@ -320,9 +320,10 @@ func main() {
 	commentHandler := handlers.NewCommentHandler(commentService)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
 	dnsCredentialService := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{
-		Repo:       dnsProviderCredentialRepo,
-		IssuerRepo: certificateIssuerRepo,
-		Config:     cfg,
+		Repo:                dnsProviderCredentialRepo,
+		IssuerRepo:          certificateIssuerRepo,
+		Config:              cfg,
+		DomainDNSRecordRepo: domainDNSRecordRepo,
 	})
 	dnsCredentialHandler := handlers.NewDNSCredentialHandler(dnsCredentialService)
 
@@ -362,7 +363,7 @@ func main() {
 			Repo: domainDNSRecordRepo, DomainRepo: domainRepo, Infra: dnsInfraService, ControlPlane: controlPlane,
 		})
 		dnsRecordHandler = handlers.NewDNSRecordHandler(dnsRecordService, permChecker, auditService)
-		dnsActiveCredHandler = handlers.NewDNSActiveCredentialHandler(dnsInfraService)
+		dnsActiveCredHandler = handlers.NewDNSActiveCredentialHandler(dnsInfraService, auditService)
 
 		// Task 10: wire the optional DNS-enable-at-create dependency now that
 		// dnsRecordService exists. domainService was built unconditionally

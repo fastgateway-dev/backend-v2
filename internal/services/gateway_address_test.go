@@ -55,3 +55,25 @@ func TestRecordTypeForAddress(t *testing.T) {
 		t.Fatal("expected conflict error for forced CNAME on IP target")
 	}
 }
+
+// TestRecordTypeForAddress_ForcedFamilyMismatch is the regression test for
+// final review Fix 3: forcing A on an IPv6 gateway address (or AAAA on an
+// IPv4 one) used to be silently accepted because the switch only checked
+// addr.Kind == "ip", not which IP family. Both must now error.
+func TestRecordTypeForAddress_ForcedFamilyMismatch(t *testing.T) {
+	v4 := GatewayAddress{Value: "203.0.113.5", Kind: "ip"}
+	v6 := GatewayAddress{Value: "2001:db8::1", Kind: "ip"}
+
+	if _, err := recordTypeForAddress(v6, models.DNSRecordTypeA); err == nil {
+		t.Fatal("expected error forcing A on an IPv6 address")
+	}
+	if _, err := recordTypeForAddress(v4, models.DNSRecordTypeAAAA); err == nil {
+		t.Fatal("expected error forcing AAAA on an IPv4 address")
+	}
+	if ty, err := recordTypeForAddress(v4, models.DNSRecordTypeA); err != nil || ty != models.DNSRecordTypeA {
+		t.Fatalf("forced A on IPv4 should be ok, got ty=%v err=%v", ty, err)
+	}
+	if ty, err := recordTypeForAddress(v6, models.DNSRecordTypeAAAA); err != nil || ty != models.DNSRecordTypeAAAA {
+		t.Fatalf("forced AAAA on IPv6 should be ok, got ty=%v err=%v", ty, err)
+	}
+}

@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -128,6 +129,42 @@ func TestDNSCredentialHandler_Update_NotFound(t *testing.T) {
 	h.Update(c)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestDNSCredentialHandler_Delete_InUseByDomainDNSRecord_Returns409(t *testing.T) {
+	mockSvc := new(mocks.MockDNSCredentialService)
+	h := handlers.NewDNSCredentialHandler(mockSvc)
+
+	id := uuid.New()
+	mockSvc.On("Delete", id).Return(services.ErrDNSCredentialInUse)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("DELETE", "/dns/credentials/"+id.String(), nil)
+	c.Params = gin.Params{{Key: "dnsCredentialId", Value: id.String()}}
+
+	h.Delete(c)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestDNSCredentialHandler_Delete_UnexpectedError_Returns500(t *testing.T) {
+	mockSvc := new(mocks.MockDNSCredentialService)
+	h := handlers.NewDNSCredentialHandler(mockSvc)
+
+	id := uuid.New()
+	mockSvc.On("Delete", id).Return(errors.New("db exploded"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("DELETE", "/dns/credentials/"+id.String(), nil)
+	c.Params = gin.Params{{Key: "dnsCredentialId", Value: id.String()}}
+
+	h.Delete(c)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	mockSvc.AssertExpectations(t)
 }
 

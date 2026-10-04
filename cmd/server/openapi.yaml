@@ -592,7 +592,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
-          description: DNS provider credential is referenced by an ACME issuer
+          description: DNS provider credential is referenced by an ACME issuer, or by one or more domain DNS records
           content:
             application/json:
               schema:

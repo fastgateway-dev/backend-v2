@@ -1305,16 +1305,21 @@ func TestDomainService_Create_ByoSecretDoesNotAttach(t *testing.T) {
 // Create: DNS auto-enable (Task 10)
 // =========================================================================
 
-// mockDNSEnabler is a minimal stand-in for DNSRecordService's Enable method
-// (services.DNSRecordEnabler). It is deliberately not a full testify mock --
-// Create's DNS-enable step is best-effort and only needs to record whether
-// (and with what) it was called.
+// mockDNSEnabler is a minimal stand-in for DNSRecordService's Enable/Delete
+// methods (services.DNSRecordManager). It is deliberately not a full
+// testify mock -- Create's DNS-enable step and Delete's DNS-teardown step
+// are both best-effort and only need to record whether (and with what) they
+// were called.
 type mockDNSEnabler struct {
 	enableCalled bool
 	domainID     uuid.UUID
 	createdBy    uuid.UUID
 	in           services.DNSRecordInput
 	err          error
+
+	deleteCalled  bool
+	deleteDomains []uuid.UUID
+	deleteErr     error
 }
 
 func (m *mockDNSEnabler) Enable(domainID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error) {
@@ -1326,6 +1331,12 @@ func (m *mockDNSEnabler) Enable(domainID, createdBy uuid.UUID, in services.DNSRe
 		return nil, m.err
 	}
 	return &models.DomainDNSRecord{DomainID: domainID}, nil
+}
+
+func (m *mockDNSEnabler) Delete(domainID uuid.UUID) error {
+	m.deleteCalled = true
+	m.deleteDomains = append(m.deleteDomains, domainID)
+	return m.deleteErr
 }
 
 func TestCreateDomain_WithDNS_EnablesRecord(t *testing.T) {
@@ -1446,4 +1457,96 @@ func TestCreateDomain_WithDNS_EnableFailureIsBestEffort(t *testing.T) {
 	if !dnsMock.enableCalled {
 		t.Fatal("expected DNS record Enable to be attempted")
 	}
+}
+
+// =========================================================================
+// Delete: DNS record teardown (final review Fix 1)
+// =========================================================================
+
+// expectDomainTeardownMocks wires every K8s/DB teardown call Delete makes
+// before reaching the DNS-teardown step, so tests below only need to assert
+// on the DNS side effect.
+func expectDomainTeardownMocks(domainRepo *mocks.MockDomainRepository, settingsRepo *mocks.MockDomainSettingsRepository, k8sMock *mocks.MockKubernetesService, domain *models.Domain) {
+	domainRepo.On("GetByID", domain.ID).Return(domain, nil)
+	k8sMock.On("DeleteBackendTrafficPolicy", mock.Anything, domain.ProjectID, domain.Namespace, domain.K8sGatewayName+"-btp").Return(nil)
+	k8sMock.On("DeleteBackend", mock.Anything, domain.ProjectID, domain.Namespace, mock.Anything).Return(nil)
+	k8sMock.On("DeleteEnvoyExtensionPolicy", mock.Anything, domain.ProjectID, domain.Namespace, domain.K8sGatewayName+"-eep").Return(nil)
+	k8sMock.On("DeleteClientTrafficPolicy", mock.Anything, domain.ProjectID, domain.Namespace, domain.K8sGatewayName+"-ctp").Return(nil)
+	settingsRepo.On("DeleteByDomainID", domain.ID).Return(nil)
+	k8sMock.On("DeleteGateway", mock.Anything, domain.ProjectID, domain.Namespace, domain.K8sGatewayName).Return(nil)
+	domainRepo.On("Delete", domain.ID).Return(nil)
+}
+
+// TestDomainService_Delete_TearsDownDNSRecord is the regression test for the
+// critical review finding: deleting a domain must remove its managed
+// DNSEndpoint (via DNSRecordManager.Delete), not just let the DomainDNSRecord
+// DB row cascade away while the live DNSEndpoint -- and the provider record
+// external-dns created from it -- is orphaned forever.
+func TestDomainService_Delete_TearsDownDNSRecord(t *testing.T) {
+	svc, domainRepo, settingsRepo, k8sMock := newTestDomainServiceWithK8s()
+	dnsMock := &mockDNSEnabler{}
+	svc.SetDNSRecords(dnsMock)
+
+	domain := &models.Domain{
+		ID:             uuid.New(),
+		ProjectID:      uuid.New(),
+		K8sGatewayName: "test-gw",
+		Namespace:      kubernetes.FastGatewayNamespace,
+	}
+	expectDomainTeardownMocks(domainRepo, settingsRepo, k8sMock, domain)
+
+	err := svc.Delete(domain.ID)
+
+	require.NoError(t, err)
+	if !dnsMock.deleteCalled {
+		t.Fatal("expected DNSRecordManager.Delete to be called for the deleted domain")
+	}
+	require.Len(t, dnsMock.deleteDomains, 1)
+	assert.Equal(t, domain.ID, dnsMock.deleteDomains[0])
+}
+
+// TestDomainService_Delete_DNSTeardownFailureIsBestEffort verifies a DNS
+// teardown failure does not block domain deletion, matching the best-effort
+// style of the other teardowns in Delete (e.g. DeleteGateway/
+// DeleteClientTrafficPolicy already log-and-continue on error).
+func TestDomainService_Delete_DNSTeardownFailureIsBestEffort(t *testing.T) {
+	svc, domainRepo, settingsRepo, k8sMock := newTestDomainServiceWithK8s()
+	dnsMock := &mockDNSEnabler{deleteErr: errors.New("k8s boom")}
+	svc.SetDNSRecords(dnsMock)
+
+	domain := &models.Domain{
+		ID:             uuid.New(),
+		ProjectID:      uuid.New(),
+		K8sGatewayName: "test-gw",
+		Namespace:      kubernetes.FastGatewayNamespace,
+	}
+	expectDomainTeardownMocks(domainRepo, settingsRepo, k8sMock, domain)
+
+	err := svc.Delete(domain.ID)
+
+	require.NoError(t, err)
+	if !dnsMock.deleteCalled {
+		t.Fatal("expected DNSRecordManager.Delete to be attempted even though it fails")
+	}
+	domainRepo.AssertExpectations(t)
+}
+
+// TestDomainService_Delete_NoDNSRecordsWired verifies Delete still succeeds
+// when dnsRecords was never wired (outside a cluster) -- the nil-guard around
+// the teardown call must make this a no-op, not a panic.
+func TestDomainService_Delete_NoDNSRecordsWired(t *testing.T) {
+	svc, domainRepo, settingsRepo, k8sMock := newTestDomainServiceWithK8s()
+
+	domain := &models.Domain{
+		ID:             uuid.New(),
+		ProjectID:      uuid.New(),
+		K8sGatewayName: "test-gw",
+		Namespace:      kubernetes.FastGatewayNamespace,
+	}
+	expectDomainTeardownMocks(domainRepo, settingsRepo, k8sMock, domain)
+
+	err := svc.Delete(domain.ID)
+
+	require.NoError(t, err)
+	domainRepo.AssertExpectations(t)
 }

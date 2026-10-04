@@ -47,19 +47,27 @@ type DomainService struct {
 	// dnsRecords is an optional dependency: DNSRecordService needs the
 	// in-cluster control-plane client, so it only exists when
 	// services.IsRunningInCluster() is true (cmd/server/main.go). Outside a
-	// cluster it stays nil and Create's best-effort DNS-enable step is
-	// skipped entirely. Unlike every other dependency on this struct, it is
-	// not set through DomainServiceDeps/NewDomainService -- DomainService is
-	// built unconditionally, before the in-cluster block that constructs
+	// cluster it stays nil and Create's best-effort DNS-enable step (and
+	// Delete's best-effort DNS-teardown step) is skipped entirely. Unlike
+	// every other dependency on this struct, it is not set through
+	// DomainServiceDeps/NewDomainService -- DomainService is built
+	// unconditionally, before the in-cluster block that constructs
 	// DNSRecordService -- so it arrives later through SetDNSRecords.
-	dnsRecords DNSRecordEnabler
+	dnsRecords DNSRecordManager
 }
 
-// DNSRecordEnabler is the only thing DomainService needs from
-// DNSRecordService: enabling a managed DNS record for a domain.
-// *DNSRecordService satisfies it structurally.
-type DNSRecordEnabler interface {
+// DNSRecordManager is the slice of DNSRecordService that DomainService
+// needs: enabling a managed DNS record for a domain at Create, and tearing
+// one down at Delete. *DNSRecordService satisfies it structurally.
+//
+// Delete must be included here: the domain's DNSEndpoint is not cleaned up
+// by anything else. Deleting the domain cascades its DomainDNSRecord row
+// away in the database, but the live DNSEndpoint custom resource -- and the
+// provider record external-dns created from it -- would otherwise be
+// orphaned forever.
+type DNSRecordManager interface {
 	Enable(domainID, createdBy uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error)
+	Delete(domainID uuid.UUID) error
 }
 
 // DomainTemplateLookup is the only thing DomainService needs from
@@ -211,7 +219,7 @@ func NewDomainService(deps DomainServiceDeps) *DomainService {
 // constructs DNSRecordService, so this cannot go through DomainServiceDeps.
 // Called at most once, from main.go, only when running in-cluster; never
 // called means Create's DNS-enable step is a no-op.
-func (s *DomainService) SetDNSRecords(r DNSRecordEnabler) {
+func (s *DomainService) SetDNSRecords(r DNSRecordManager) {
 	s.dnsRecords = r
 }
 
@@ -667,6 +675,20 @@ func (s *DomainService) Delete(id uuid.UUID) error {
 
 	// Delete domain settings from database if exists
 	_ = s.settingsRepo.DeleteByDomainID(id)
+
+	// Best-effort: tear down the domain's managed DNS record (DNSEndpoint +
+	// DB row), the same way the K8s teardowns above are best-effort. Only
+	// possible when dnsRecords was wired (see SetDNSRecords -- nil outside a
+	// cluster). Without this step the DomainDNSRecord row would cascade away
+	// with the domain while its DNSEndpoint -- and the live provider record
+	// external-dns created from it -- is never cleaned up, orphaning it
+	// forever. A failure here must not block domain deletion: the Gateway and
+	// every other domain resource are already gone or on their way out.
+	if s.dnsRecords != nil {
+		if err := s.dnsRecords.Delete(id); err != nil {
+			log.Printf("Failed to delete DNS record for domain %s: %v", id, err)
+		}
+	}
 
 	// Delete Gateway from Kubernetes
 	if err := s.k8sGateways.DeleteGateway(ctx, domain.ProjectID, domain.Namespace, domain.K8sGatewayName); err != nil {
