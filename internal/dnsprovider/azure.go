@@ -14,6 +14,7 @@ func (a azure) Validate(cred map[string]string) error {
 	return requireFields(cred, a.RequiredFields())
 }
 func (azure) RenderSecret(cred map[string]string) map[string][]byte {
+	// json.Marshal of a map[string]string literal cannot fail.
 	cfg, _ := json.Marshal(map[string]string{
 		"tenantId":        cred["tenantId"],
 		"subscriptionId":  cred["subscriptionId"],
