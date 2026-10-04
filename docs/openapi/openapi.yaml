@@ -60,6 +60,8 @@ tags:
     description: Single Sign-On configuration
   - name: DNS Credentials
     description: Platform-global DNS provider credential management (owner only)
+  - name: DNS Records
+    description: Per-domain FastGateway-managed DNS record (external-dns) management
   - name: Certificate Issuers
     description: Platform-global certificate issuer and issuer-project grant management (owner only)
   - name: Managed Certificates
@@ -119,6 +121,8 @@ paths:
     $ref: 'paths/dns-credentials.yaml#/dns-credentials'
   /dns/credentials/{dnsCredentialId}:
     $ref: 'paths/dns-credentials.yaml#/dns-credentials_{dnsCredentialId}'
+  /dns/settings/active-credential:
+    $ref: 'paths/dns-records.yaml#/dns-active-credential'
 
   # ============== MANAGED CERTIFICATES (FLEET) ==============
   /certificates:
@@ -265,6 +269,10 @@ paths:
     $ref: 'paths/topology.yaml#/domain-topology'
   /projects/{projectId}/domains/{domainId}/import/openapi:
     $ref: 'paths/routes.yaml#/openapi-import'
+  /projects/{projectId}/domains/{domainId}/dns-record:
+    $ref: 'paths/dns-records.yaml#/domain-dns-record'
+  /projects/{projectId}/domains/{domainId}/dns-record/refresh:
+    $ref: 'paths/dns-records.yaml#/domain-dns-record-refresh'
 
   # ============== ROUTES ==============
   /projects/{projectId}/domains/{domainId}/routes:
@@ -1085,6 +1093,18 @@ components:
       $ref: 'schemas/dns-credential.yaml#/CreateDNSCredentialRequest'
     UpdateDNSCredentialRequest:
       $ref: 'schemas/dns-credential.yaml#/UpdateDNSCredentialRequest'
+
+    # ============== DNS RECORD ==============
+    DomainDNSRecord:
+      $ref: 'schemas/dns-record.yaml#/DomainDNSRecord'
+    CreateDNSRecordRequest:
+      $ref: 'schemas/dns-record.yaml#/CreateDNSRecordRequest'
+    UpdateDNSRecordRequest:
+      $ref: 'schemas/dns-record.yaml#/UpdateDNSRecordRequest'
+    ActiveDNSCredential:
+      $ref: 'schemas/dns-record.yaml#/ActiveDNSCredential'
+    SetActiveDNSCredentialRequest:
+      $ref: 'schemas/dns-record.yaml#/SetActiveDNSCredentialRequest'
 
     # ============== CERTIFICATE ISSUER ==============
     IssuerConfig:

@@ -17,6 +17,12 @@ import (
 var (
 	ErrNoActiveDNSCredential = errors.New("no active DNS credential is configured")
 	ErrCredentialNotActive   = errors.New("providerCredentialId must equal the active DNS credential")
+	// ErrDNSRecordExists is returned by Enable when a DomainDNSRecord already
+	// exists for the domain -- there is exactly one per domain. A sentinel
+	// (rather than an inline errors.New) so the handler layer can map it with
+	// errors.Is, consistent with ErrNoActiveDNSCredential/ErrCredentialNotActive
+	// above.
+	ErrDNSRecordExists = errors.New("DNS record already exists for this domain")
 )
 
 // DNSRecordService reconciles a domain's single DNS record
@@ -94,7 +100,7 @@ func (s *DNSRecordService) resolveActiveCredential(in DNSRecordInput) (uuid.UUID
 // error.
 func (s *DNSRecordService) Enable(domainID, createdBy uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error) {
 	if _, err := s.repo.GetByDomainID(domainID); err == nil {
-		return nil, errors.New("DNS record already exists for this domain")
+		return nil, ErrDNSRecordExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}

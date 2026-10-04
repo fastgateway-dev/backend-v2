@@ -1,0 +1,102 @@
+DomainDNSRecord:
+  type: object
+  description: |
+    The one FastGateway-managed DNS record for a domain. `hostname` is always
+    the domain's own hostname (not stored on this row). Status is
+    resolved on every read (status-on-read) rather than by a background
+    reconciler, so `status`/`statusMessage`/`resolvedTarget` always reflect
+    the last reconcile attempt made by this request.
+  properties:
+    id:
+      type: string
+      format: uuid
+    domainId:
+      type: string
+      format: uuid
+    providerCredentialId:
+      type: string
+      format: uuid
+      description: The DNS provider credential this record was created against. Must equal the system-wide active credential.
+    recordType:
+      type: string
+      enum: [auto, A, AAAA, CNAME]
+      description: '`auto` resolves to A or AAAA from the gateway''s load-balancer address; the others pin a specific record type.'
+    ttl:
+      type: integer
+      nullable: true
+      description: DNS record TTL in seconds. Omitted/null uses the provider's default.
+    proxied:
+      type: boolean
+      description: Cloudflare-specific proxy flag; ignored by other providers.
+    resolvedTarget:
+      type: string
+      description: The gateway load-balancer address (IP or hostname) last resolved for this record, if any.
+    status:
+      type: string
+      enum: [pending, syncing, ready, error]
+    statusMessage:
+      type: string
+      description: Human-readable detail for the current status.
+    endpointName:
+      type: string
+      description: Name of the underlying DNSEndpoint custom resource external-dns watches.
+    createdBy:
+      type: string
+      format: uuid
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+CreateDNSRecordRequest:
+  type: object
+  properties:
+    providerCredentialId:
+      type: string
+      format: uuid
+      description: Must equal the system-wide active DNS credential if supplied. Omit to use the active credential implicitly.
+    recordType:
+      type: string
+      enum: [auto, A, AAAA, CNAME]
+      default: auto
+    ttl:
+      type: integer
+      nullable: true
+    proxied:
+      type: boolean
+      default: false
+
+UpdateDNSRecordRequest:
+  type: object
+  properties:
+    providerCredentialId:
+      type: string
+      format: uuid
+      description: Must equal the system-wide active DNS credential if supplied.
+    recordType:
+      type: string
+      enum: [auto, A, AAAA, CNAME]
+    ttl:
+      type: integer
+      nullable: true
+    proxied:
+      type: boolean
+
+ActiveDNSCredential:
+  type: object
+  description: The platform-wide active DNS provider credential for external-dns, or none configured yet.
+  properties:
+    credentialId:
+      type: string
+      format: uuid
+      nullable: true
+
+SetActiveDNSCredentialRequest:
+  type: object
+  required: [credentialId]
+  properties:
+    credentialId:
+      type: string
+      format: uuid
