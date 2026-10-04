@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/fastgateway-dev/backend-v2/internal/config"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
@@ -187,6 +189,39 @@ func (s *SystemSettingsService) GetLogLevel() string {
 		return s.config.LogLevel
 	}
 	return settings.LogLevel
+}
+
+// GetActiveDNSCredentialID returns the id of the DNS provider credential
+// currently rendered into the external-dns Secret, or nil if none has been
+// set yet. It goes through the same singleton-row cache as Get.
+func (s *SystemSettingsService) GetActiveDNSCredentialID() (*uuid.UUID, error) {
+	settings, err := s.Get()
+	if err != nil {
+		return nil, err
+	}
+	return settings.ActiveDNSCredentialID, nil
+}
+
+// SetActiveDNSCredentialID persists which DNS provider credential is active
+// (nil clears it) and refreshes the cache, following the same
+// load-mutate-persist-recache shape as Update.
+func (s *SystemSettingsService) SetActiveDNSCredentialID(id *uuid.UUID) error {
+	settings, err := s.repo.Get()
+	if err != nil {
+		return err
+	}
+
+	settings.ActiveDNSCredentialID = id
+
+	if err := s.repo.Update(settings); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	s.cached = settings
+	s.mu.Unlock()
+
+	return nil
 }
 
 func (s *SystemSettingsService) loadAndCache() (*models.SystemSettings, error) {
