@@ -10,6 +10,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -168,9 +169,12 @@ func (s *DNSRecordService) Update(domainID uuid.UUID, in DNSRecordInput) (*model
 }
 
 // Delete removes the DNSEndpoint (so external-dns tears down the live DNS
-// record) and then the DomainDNSRecord row. Deleting the DNSEndpoint is
-// best-effort: if it errors (e.g. already gone) the row is still removed,
-// so a dangling backend row never blocks re-enabling DNS for the domain.
+// record) and then the DomainDNSRecord row. A "not found" from the
+// DNSEndpoint delete (it was never applied, or already gone) is ignored --
+// a dangling backend row must never block re-enabling DNS for the domain.
+// Any other delete failure is returned as-is and the row is left in place,
+// so the caller can retry rather than silently orphaning the live
+// DNSEndpoint/DNS record.
 func (s *DNSRecordService) Delete(domainID uuid.UUID) error {
 	rec, err := s.repo.GetByDomainID(domainID)
 	if err != nil {
@@ -179,7 +183,9 @@ func (s *DNSRecordService) Delete(domainID uuid.UUID) error {
 		}
 		return err
 	}
-	_ = s.cp.Delete(context.Background(), kubernetes.DNSEndpointGVR, rec.EndpointName, true)
+	if err := s.cp.Delete(context.Background(), kubernetes.DNSEndpointGVR, rec.EndpointName, true); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
 	return s.repo.DeleteByDomainID(domainID)
 }
 

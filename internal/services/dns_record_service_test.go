@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -32,6 +33,11 @@ type fakeCertApplier struct {
 	namespace      string
 	gatewayAddrsFn func() []map[string]interface{}
 	echoApplied    bool
+
+	// deleteErr, when set, is what Delete returns instead of recording a
+	// successful delete -- used to simulate a real (non-NotFound) k8s
+	// delete failure, or a NotFound the service must tolerate.
+	deleteErr error
 
 	appliedByGVR  map[schema.GroupVersionResource]*unstructured.Unstructured
 	appliedCounts map[schema.GroupVersionResource]int
@@ -80,6 +86,9 @@ func (f *fakeCertApplier) Get(ctx context.Context, gvr schema.GroupVersionResour
 }
 
 func (f *fakeCertApplier) Delete(ctx context.Context, gvr schema.GroupVersionResource, name string, namespaced bool) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	f.deletedCounts[gvr]++
 	delete(f.appliedByGVR, gvr)
 	return nil
@@ -353,6 +362,46 @@ func TestDelete_NoRecord_NoOp(t *testing.T) {
 	svc, d := newTestDNSRecordService(t)
 	require.NoError(t, svc.Delete(d.domainID))
 	require.Equal(t, 0, d.applier.deletedCount(DNSEndpointGVRResource()))
+}
+
+// TestDelete_ApplierFails_KeepsRow guards against orphaning: if the
+// DNSEndpoint delete fails for a real reason (not NotFound), Delete must
+// return that error and must NOT delete the backend row, so the DB row and
+// the live DNSEndpoint stay in sync and the caller can retry.
+func TestDelete_ApplierFails_KeepsRow(t *testing.T) {
+	svc, d := newTestDNSRecordService(t)
+	d.setGatewayIP("203.0.113.9")
+	_, err := svc.Enable(d.domainID, d.userID, services.DNSRecordInput{})
+	require.NoError(t, err)
+
+	d.applier.deleteErr = errors.New("k8s: delete failed")
+	err = svc.Delete(d.domainID)
+	require.Error(t, err)
+	require.ErrorIs(t, err, d.applier.deleteErr)
+
+	// The row must still be there -- not orphaned.
+	require.Equal(t, 0, d.applier.deletedCount(DNSEndpointGVRResource()))
+	_, err = svc.Get(d.domainID)
+	require.NoError(t, err)
+}
+
+// TestDelete_ApplierNotFound_StillDeletesRow is the flip side: a NotFound
+// from the DNSEndpoint delete (it was never applied, or already removed)
+// must not block removing the backend row.
+func TestDelete_ApplierNotFound_StillDeletesRow(t *testing.T) {
+	svc, d := newTestDNSRecordService(t)
+	d.setGatewayIP("203.0.113.9")
+	_, err := svc.Enable(d.domainID, d.userID, services.DNSRecordInput{})
+	require.NoError(t, err)
+
+	d.applier.deleteErr = apierrors.NewNotFound(
+		schema.GroupResource{Group: "externaldns.k8s.io", Resource: "dnsendpoints"},
+		"dns-already-gone",
+	)
+	require.NoError(t, svc.Delete(d.domainID))
+
+	_, err = svc.Get(d.domainID)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
 
 func TestUpdate_ChangesSettingsAndReconciles(t *testing.T) {
