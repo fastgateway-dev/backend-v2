@@ -84,6 +84,20 @@ type CreateIssuerInput struct {
 
 const selfSignedIssuerName = "fgw-selfsigned"
 
+// ErrUnsupportedACMEDNSProvider is returned by Create when an ACME issuer is
+// requested against a DNS credential whose provider is not cloudflare. The
+// DNS-management feature now lets owners store route53/google/azure
+// credentials (see internal/dnsprovider), but dns01Solver
+// (internal/kubernetes/certmanager.go) only knows how to render a cloudflare
+// solver -- any other provider type renders an empty "dns01: {}" block. Left
+// unguarded, Create would still apply that empty-solver Issuer and mark the
+// row Ready, silently producing a non-functional ACME issuer. Create checks
+// this BEFORE persisting the row or applying any CRD (see the acme case
+// below), so an unsupported provider never creates a DB row or in-cluster
+// object. The handler maps this to 400 via its generic validation-error
+// passthrough.
+var ErrUnsupportedACMEDNSProvider = errors.New("ACME DNS-01 challenges currently support only the cloudflare DNS provider")
+
 // Create builds either a self-signed internal CA chain or an ACME issuer,
 // applying the cert-manager CRDs (and, for ACME, the DNS-01 solver Secret) to
 // the control cluster via ControlPlane. The row is persisted before the CRDs
@@ -150,6 +164,13 @@ func (s *CertificateIssuerService) Create(input *CreateIssuerInput, createdBy uu
 		providerType, creds, err := s.dnsCreds.DecryptedCredentials(*input.DNSCredentialID)
 		if err != nil {
 			return nil, fmt.Errorf("resolve DNS credential: %w", err)
+		}
+		// Guard BEFORE persisting the row or applying any CRD: dns01Solver
+		// only renders a cloudflare solver, so any other provider type would
+		// otherwise produce an Issuer with an empty "dns01: {}" block that
+		// still gets applied and marked Ready (see ErrUnsupportedACMEDNSProvider).
+		if providerType != "cloudflare" {
+			return nil, ErrUnsupportedACMEDNSProvider
 		}
 		if err := s.repo.Create(iss); err != nil {
 			return nil, err

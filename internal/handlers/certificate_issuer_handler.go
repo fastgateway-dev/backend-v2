@@ -34,6 +34,12 @@ func (h *CertificateIssuerHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": items})
 }
 
+// Create validates and creates a certificate issuer. Any error the service
+// returns -- including validation errors such as
+// services.ErrUnsupportedACMEDNSProvider (an ACME issuer requested against a
+// non-cloudflare DNS credential) -- is a caller-fixable 400 via this generic
+// passthrough; the service never applies a CRD or marks the row Ready before
+// that validation runs.
 func (h *CertificateIssuerHandler) Create(c *gin.Context) {
 	user := middleware.GetCurrentUser(c)
 	var input services.CreateIssuerInput

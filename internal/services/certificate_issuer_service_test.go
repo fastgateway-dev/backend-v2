@@ -164,6 +164,51 @@ func TestCertificateIssuerService_CreateACME_ApplyFailure_ConfigPopulatedForClea
 	dnsRepo.AssertExpectations(t)
 }
 
+// TestCertificateIssuerService_CreateACME_RejectsNonCloudflareProvider
+// guards the regression this fix closes: DNS credentials can now be
+// route53/google/azure (not just cloudflare), but dns01Solver
+// (internal/kubernetes/certmanager.go) only renders a cloudflare solver --
+// any other provider type would silently produce a non-functional ACME
+// issuer still marked Ready. Create must reject it before persisting a row
+// or applying any CRD.
+func TestCertificateIssuerService_CreateACME_RejectsNonCloudflareProvider(t *testing.T) {
+	repo := new(mocks.MockCertificateIssuerRepository)
+	dnsRepo := new(mocks.MockDNSProviderCredentialRepository)
+	applier := new(mocks.MockCertInfraApplier)
+	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
+	dnsSvc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: dnsRepo, Config: cfg, IssuerRepo: repo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
+	svc := services.NewCertificateIssuerService(services.CertificateIssuerServiceDeps{
+		Repo: repo, DNSCreds: dnsSvc, ControlPlane: applier, Config: cfg, ManagedCertRepo: new(mocks.MockManagedCertificateRepository),
+	})
+
+	credID := uuid.New()
+	encKey, err := crypto.Encrypt("plain-access-key", cfg.EncryptionKey)
+	require.NoError(t, err)
+	encSecret, err := crypto.Encrypt("plain-secret-key", cfg.EncryptionKey)
+	require.NoError(t, err)
+	dnsRepo.On("GetByID", credID).Return(&models.DNSProviderCredential{
+		ID: credID, ProviderType: "route53",
+		Credentials: models.DNSCredentialData{"accessKeyId": encKey, "secretAccessKey": encSecret},
+	}, nil)
+	applier.On("Namespace").Return("fastgateway-system")
+
+	out, err := svc.Create(&services.CreateIssuerInput{
+		Type: "acme", Name: "letsencrypt-route53", Server: "https://acme.zerossl.com/v2/DV90",
+		Email: "ops@example.com", DNSCredentialID: &credID,
+	}, uuid.New())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, services.ErrUnsupportedACMEDNSProvider)
+	assert.Nil(t, out)
+
+	// No DB row and no in-cluster object must be created for an unsupported
+	// provider -- the guard must run before both.
+	repo.AssertNotCalled(t, "Create", mock.Anything)
+	repo.AssertNotCalled(t, "Update", mock.Anything)
+	applier.AssertNotCalled(t, "ApplyNamespaced", mock.Anything, mock.Anything, mock.Anything)
+	dnsRepo.AssertExpectations(t)
+}
+
 func TestCertificateIssuerService_DeleteACME_RemovesSecrets(t *testing.T) {
 	repo := new(mocks.MockCertificateIssuerRepository)
 	dnsRepo := new(mocks.MockDNSProviderCredentialRepository)
