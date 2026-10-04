@@ -1,0 +1,15 @@
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  annotations:
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+  labels:
+    app.kubernetes.io/managed-by: fastgateway
+  name: dns-22222222
+  namespace: fastgateway-system
+spec:
+  endpoints:
+  - dnsName: app.example.com
+    recordType: CNAME
+    targets:
+    - lb.example.net

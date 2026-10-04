@@ -151,3 +151,11 @@ var (
 		Group: "cert-manager.io", Version: "v1", Resource: "clusterissuers",
 	}
 )
+
+// external-dns resources (externaldns.k8s.io)
+var (
+	// DNSEndpointGVR represents the external-dns DNSEndpoint resource
+	DNSEndpointGVR = schema.GroupVersionResource{
+		Group: "externaldns.k8s.io", Version: "v1alpha1", Resource: "dnsendpoints",
+	}
+)

@@ -30,11 +30,11 @@ BAMCA0kAMEYCIQDt1sR62FKflBqbux2WSOWk0Nt/RNuyF4zcg0NA99JbsgIhAI6/
 
 var updateGolden = flag.Bool("update-golden", false, "rewrite golden files")
 
-func assertGolden(t *testing.T, name string, obj any) {
+func assertGolden(t *testing.T, subdir, name string, obj any) {
 	t.Helper()
 	got, err := yaml.Marshal(obj)
 	require.NoError(t, err)
-	path := filepath.Join("testdata", "golden", "certmanager", name+".yaml")
+	path := filepath.Join("testdata", "golden", subdir, name+".yaml")
 	if *updateGolden {
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 		require.NoError(t, os.WriteFile(path, got, 0o644))
@@ -56,7 +56,7 @@ func TestCACertificate_Golden(t *testing.T) {
 	spec := obj.Object["spec"].(map[string]interface{})
 	issuerRef := spec["issuerRef"].(map[string]interface{})
 	assert.Equal(t, "Issuer", issuerRef["kind"])
-	assertGolden(t, "ca-certificate", obj)
+	assertGolden(t, "certmanager", "ca-certificate", obj)
 }
 
 func TestLeafCertificate_Golden(t *testing.T) {
@@ -71,7 +71,7 @@ func TestLeafCertificate_Golden(t *testing.T) {
 	assert.Contains(t, spec["usages"], "server auth")
 	issuerRef := spec["issuerRef"].(map[string]interface{})
 	assert.Equal(t, "Issuer", issuerRef["kind"])
-	assertGolden(t, "leaf-certificate", obj)
+	assertGolden(t, "certmanager", "leaf-certificate", obj)
 }
 
 func TestLeafCertificate_ClientAuth_Golden(t *testing.T) {
@@ -89,7 +89,7 @@ func TestLeafCertificate_ClientAuth_Golden(t *testing.T) {
 	assert.Equal(t, []interface{}{"spiffe://fastgateway/proj/client-1"}, spec["uris"])
 	issuerRef := spec["issuerRef"].(map[string]interface{})
 	assert.Equal(t, "Issuer", issuerRef["kind"])
-	assertGolden(t, "leaf-certificate-client-auth", obj)
+	assertGolden(t, "certmanager", "leaf-certificate-client-auth", obj)
 }
 
 func TestCertificateRequest_Golden(t *testing.T) {
@@ -107,7 +107,7 @@ func TestCertificateRequest_Golden(t *testing.T) {
 	assert.Equal(t, base64.StdEncoding.EncodeToString(csr), spec["request"])
 	issuerRef := spec["issuerRef"].(map[string]interface{})
 	assert.Equal(t, "Issuer", issuerRef["kind"])
-	assertGolden(t, "certificate-request", obj)
+	assertGolden(t, "certmanager", "certificate-request", obj)
 }
 
 func TestACMEIssuer_Golden(t *testing.T) {
@@ -118,7 +118,7 @@ func TestACMEIssuer_Golden(t *testing.T) {
 	})
 	assert.Equal(t, "Issuer", obj.Object["kind"])
 	assert.Equal(t, "fastgateway-system", obj.GetNamespace())
-	assertGolden(t, "acme-issuer", obj)
+	assertGolden(t, "certmanager", "acme-issuer", obj)
 }
 
 func TestSelfSignedIssuer_NamespacedIssuer(t *testing.T) {
