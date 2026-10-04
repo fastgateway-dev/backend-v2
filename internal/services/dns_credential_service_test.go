@@ -80,6 +80,53 @@ func TestNewDNSCredentialService_PanicsOnNilRepo(t *testing.T) {
 	})
 }
 
+func TestCreateDNSCredential_Route53ValidatesFields(t *testing.T) {
+	repo := new(mocks.MockDNSProviderCredentialRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
+	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo})
+
+	in := &services.CreateDNSCredentialInput{
+		Name: "aws", ProviderType: "route53",
+		Credentials: map[string]string{"accessKeyId": "AK"}, // missing secretAccessKey
+	}
+	_, err := svc.Create(in, uuid.New())
+	if err == nil {
+		t.Fatal("expected validation error for missing secretAccessKey")
+	}
+}
+
+func TestCreateDNSCredential_Route53AcceptsCompleteFields(t *testing.T) {
+	repo := new(mocks.MockDNSProviderCredentialRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
+	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo})
+
+	var saved *models.DNSProviderCredential
+	repo.On("Create", mock_anything(&saved)).Return(nil)
+
+	in := &services.CreateDNSCredentialInput{
+		Name: "aws", ProviderType: "route53",
+		Credentials: map[string]string{"accessKeyId": "AK", "secretAccessKey": "SK"},
+	}
+	_, err := svc.Create(in, uuid.New())
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+func TestCreateDNSCredential_UnsupportedProvider(t *testing.T) {
+	repo := new(mocks.MockDNSProviderCredentialRepository)
+	issuerRepo := new(mocks.MockCertificateIssuerRepository)
+	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
+	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo})
+
+	in := &services.CreateDNSCredentialInput{Name: "x", ProviderType: "bind", Credentials: map[string]string{}}
+	_, err := svc.Create(in, uuid.New())
+	if err == nil {
+		t.Fatal("expected error for unsupported provider")
+	}
+}
+
 // mock_anything captures the *models.DNSProviderCredential passed to Create.
 func mock_anything(dst **models.DNSProviderCredential) interface{} {
 	return mock.MatchedBy(func(c *models.DNSProviderCredential) bool { *dst = c; return true })

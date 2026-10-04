@@ -8,6 +8,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/config"
 	"github.com/fastgateway-dev/backend-v2/internal/crypto"
+	"github.com/fastgateway-dev/backend-v2/internal/dnsprovider"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 )
@@ -68,11 +69,13 @@ type UpdateDNSCredentialInput struct {
 	Credentials map[string]string `json:"credentials"`
 }
 
-var supportedDNSProviders = map[string]bool{"cloudflare": true}
-
 func (s *DNSCredentialService) Create(input *CreateDNSCredentialInput, createdBy uuid.UUID) (*models.DNSProviderCredential, error) {
-	if !supportedDNSProviders[input.ProviderType] {
+	prov, ok := dnsprovider.Get(input.ProviderType)
+	if !ok {
 		return nil, errors.New("unsupported DNS provider: " + input.ProviderType)
+	}
+	if err := prov.Validate(input.Credentials); err != nil {
+		return nil, err
 	}
 	enc := make(models.DNSCredentialData, len(input.Credentials))
 	for k, v := range input.Credentials {
@@ -106,6 +109,13 @@ func (s *DNSCredentialService) Update(id uuid.UUID, input *UpdateDNSCredentialIn
 		c.Name = input.Name
 	}
 	if input.Credentials != nil {
+		prov, ok := dnsprovider.Get(c.ProviderType)
+		if !ok {
+			return nil, errors.New("unsupported DNS provider: " + c.ProviderType)
+		}
+		if err := prov.Validate(input.Credentials); err != nil {
+			return nil, err
+		}
 		enc := make(models.DNSCredentialData, len(input.Credentials))
 		for k, v := range input.Credentials {
 			ct, err := crypto.Encrypt(v, s.config.EncryptionKey)
