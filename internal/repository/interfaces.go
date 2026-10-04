@@ -160,6 +160,15 @@ type DomainSettingsRepositoryInterface interface {
 	Upsert(settings *models.DomainSettings) error
 }
 
+// DomainDNSRecordRepositoryInterface defines the interface for domain DNS record repository operations
+type DomainDNSRecordRepositoryInterface interface {
+	Create(rec *models.DomainDNSRecord) error
+	GetByDomainID(domainID uuid.UUID) (*models.DomainDNSRecord, error)
+	Update(rec *models.DomainDNSRecord) error
+	DeleteByDomainID(domainID uuid.UUID) error
+	CountByCredential(credID uuid.UUID) (int64, error)
+}
+
 // DomainTemplateRepositoryInterface defines the interface for domain template repository operations
 type DomainTemplateRepositoryInterface interface {
 	Create(dt *models.DomainTemplate) error
@@ -455,6 +464,7 @@ var _ IssuerProjectGrantRepositoryInterface = (*IssuerProjectGrantRepository)(ni
 var _ ManagedCertificateRepositoryInterface = (*ManagedCertificateRepository)(nil)
 var _ DomainRepositoryInterface = (*DomainRepository)(nil)
 var _ DomainSettingsRepositoryInterface = (*DomainSettingsRepository)(nil)
+var _ DomainDNSRecordRepositoryInterface = (*DomainDNSRecordRepository)(nil)
 var _ DomainTemplateRepositoryInterface = (*DomainTemplateRepository)(nil)
 var _ EnvoyExtensionPolicyRepositoryInterface = (*EnvoyExtensionPolicyRepository)(nil)
 var _ NotificationRepositoryInterface = (*NotificationRepository)(nil)
