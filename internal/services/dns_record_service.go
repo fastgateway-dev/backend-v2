@@ -48,6 +48,27 @@ var (
 // can shrink it; production keeps the default 1s (5 polls over ~5s).
 var enablePollInterval = 1 * time.Second
 
+// assertDomainInProject confirms the domain identified by domainID belongs to
+// projectID before any DNS-record operation touches it. Every public method
+// takes the path project from the handler (which authorized the caller against
+// that project), so without this check a project-A admin could read, tamper
+// with, or delete the live DNS record of a domain owned by project B simply by
+// putting B's domainID in the URL. This mirrors the ownership guard
+// DomainService.AttachCertificate already applies. gorm.ErrRecordNotFound (an
+// unknown domain) surfaces unchanged so the handler maps it to 404; a domain
+// in a different project is reported as ErrDomainNotFound so a cross-project
+// probe is indistinguishable from a missing domain.
+func (s *DNSRecordService) assertDomainInProject(domainID, projectID uuid.UUID) error {
+	d, err := s.domainRepo.GetByID(domainID)
+	if err != nil {
+		return err // gorm.ErrRecordNotFound surfaces as 404
+	}
+	if d.ProjectID != projectID {
+		return ErrDomainNotFound
+	}
+	return nil
+}
+
 // isValidRecordType reports whether rt is one of the record types
 // DNSRecordService understands.
 func isValidRecordType(rt models.DNSRecordType) bool {
@@ -129,7 +150,10 @@ type DNSRecordInput struct {
 // only on validation (missing hosted zone, invalid record type, a record
 // already exists for the domain); reconcile failures are recorded on the
 // returned record's status rather than returned as an error.
-func (s *DNSRecordService) Enable(domainID, createdBy uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error) {
+func (s *DNSRecordService) Enable(domainID, projectID, createdBy uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error) {
+	if err := s.assertDomainInProject(domainID, projectID); err != nil {
+		return nil, err
+	}
 	if in.HostedZoneID == nil {
 		return nil, ErrNoHostedZone
 	}
@@ -208,7 +232,10 @@ func (s *DNSRecordService) deferredRetry(domainID uuid.UUID) {
 // (resolved_target). A ready record whose address is unchanged is returned
 // from the cached row with no provider call. A failed/absent gateway read on
 // a non-pending record never flips it to error -- the cached row is returned.
-func (s *DNSRecordService) Get(domainID uuid.UUID) (*models.DomainDNSRecord, error) {
+func (s *DNSRecordService) Get(domainID, projectID uuid.UUID) (*models.DomainDNSRecord, error) {
+	if err := s.assertDomainInProject(domainID, projectID); err != nil {
+		return nil, err
+	}
 	rec, err := s.repo.GetByDomainID(domainID)
 	if err != nil {
 		return nil, err
@@ -248,14 +275,17 @@ func (s *DNSRecordService) gatewayAddressDrifted(rec *models.DomainDNSRecord) bo
 
 // Refresh re-runs Get and returns the fresh record; an explicit alias for Get
 // so callers (e.g. a "refresh" handler action) can express intent.
-func (s *DNSRecordService) Refresh(domainID uuid.UUID) (*models.DomainDNSRecord, error) {
-	return s.Get(domainID)
+func (s *DNSRecordService) Refresh(domainID, projectID uuid.UUID) (*models.DomainDNSRecord, error) {
+	return s.Get(domainID, projectID)
 }
 
 // Update changes the record's type/TTL/proxied settings and re-reconciles.
 // When the record type changes, the clobber check is skipped because
 // resolved_target is already non-empty (FastGateway already owns the record).
-func (s *DNSRecordService) Update(domainID uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error) {
+func (s *DNSRecordService) Update(domainID, projectID uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error) {
+	if err := s.assertDomainInProject(domainID, projectID); err != nil {
+		return nil, err
+	}
 	rec, err := s.repo.GetByDomainID(domainID)
 	if err != nil {
 		return nil, err
@@ -281,7 +311,10 @@ func (s *DNSRecordService) Update(domainID uuid.UUID, in DNSRecordInput) (*model
 // the provider clients all return nil when the record is already absent, so a
 // non-nil error always means a genuine failure. A record that was never
 // written to a provider (resolved_target == "") is simply removed.
-func (s *DNSRecordService) Delete(domainID uuid.UUID) error {
+func (s *DNSRecordService) Delete(domainID, projectID uuid.UUID) error {
+	if err := s.assertDomainInProject(domainID, projectID); err != nil {
+		return err
+	}
 	rec, err := s.repo.GetByDomainID(domainID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

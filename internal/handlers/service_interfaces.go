@@ -136,11 +136,11 @@ type DNSHostedZoneServiceInterface interface {
 // DNSRecordServiceInterface defines the public methods of DNSRecordService
 // that DNSRecordHandler uses.
 type DNSRecordServiceInterface interface {
-	Enable(domainID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
-	Get(domainID uuid.UUID) (*models.DomainDNSRecord, error)
-	Update(domainID uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
-	Delete(domainID uuid.UUID) error
-	Refresh(domainID uuid.UUID) (*models.DomainDNSRecord, error)
+	Enable(domainID, projectID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
+	Get(domainID, projectID uuid.UUID) (*models.DomainDNSRecord, error)
+	Update(domainID, projectID uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
+	Delete(domainID, projectID uuid.UUID) error
+	Refresh(domainID, projectID uuid.UUID) (*models.DomainDNSRecord, error)
 }
 
 // DomainReader is the slice of DomainService that AIHandler uses: it resolves

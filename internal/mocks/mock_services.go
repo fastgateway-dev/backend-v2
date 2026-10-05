@@ -688,16 +688,16 @@ func (_m *MockDNSRecordManager) EXPECT() *MockDNSRecordManager_Expecter {
 }
 
 // Delete provides a mock function for the type MockDNSRecordManager
-func (_mock *MockDNSRecordManager) Delete(domainID uuid.UUID) error {
-	ret := _mock.Called(domainID)
+func (_mock *MockDNSRecordManager) Delete(domainID uuid.UUID, projectID uuid.UUID) error {
+	ret := _mock.Called(domainID, projectID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Delete")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) error); ok {
-		r0 = returnFunc(domainID)
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID) error); ok {
+		r0 = returnFunc(domainID, projectID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -711,18 +711,24 @@ type MockDNSRecordManager_Delete_Call struct {
 
 // Delete is a helper method to define mock.On call
 //   - domainID uuid.UUID
-func (_e *MockDNSRecordManager_Expecter) Delete(domainID any) *MockDNSRecordManager_Delete_Call {
-	return &MockDNSRecordManager_Delete_Call{Call: _e.mock.On("Delete", domainID)}
+//   - projectID uuid.UUID
+func (_e *MockDNSRecordManager_Expecter) Delete(domainID any, projectID any) *MockDNSRecordManager_Delete_Call {
+	return &MockDNSRecordManager_Delete_Call{Call: _e.mock.On("Delete", domainID, projectID)}
 }
 
-func (_c *MockDNSRecordManager_Delete_Call) Run(run func(domainID uuid.UUID)) *MockDNSRecordManager_Delete_Call {
+func (_c *MockDNSRecordManager_Delete_Call) Run(run func(domainID uuid.UUID, projectID uuid.UUID)) *MockDNSRecordManager_Delete_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 uuid.UUID
 		if args[0] != nil {
 			arg0 = args[0].(uuid.UUID)
 		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
 		run(
 			arg0,
+			arg1,
 		)
 	})
 	return _c
@@ -733,14 +739,14 @@ func (_c *MockDNSRecordManager_Delete_Call) Return(err error) *MockDNSRecordMana
 	return _c
 }
 
-func (_c *MockDNSRecordManager_Delete_Call) RunAndReturn(run func(domainID uuid.UUID) error) *MockDNSRecordManager_Delete_Call {
+func (_c *MockDNSRecordManager_Delete_Call) RunAndReturn(run func(domainID uuid.UUID, projectID uuid.UUID) error) *MockDNSRecordManager_Delete_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // Enable provides a mock function for the type MockDNSRecordManager
-func (_mock *MockDNSRecordManager) Enable(domainID uuid.UUID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error) {
-	ret := _mock.Called(domainID, createdBy, in)
+func (_mock *MockDNSRecordManager) Enable(domainID uuid.UUID, projectID uuid.UUID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error) {
+	ret := _mock.Called(domainID, projectID, createdBy, in)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Enable")
@@ -748,18 +754,18 @@ func (_mock *MockDNSRecordManager) Enable(domainID uuid.UUID, createdBy uuid.UUI
 
 	var r0 *models.DomainDNSRecord
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, services.DNSRecordInput) (*models.DomainDNSRecord, error)); ok {
-		return returnFunc(domainID, createdBy, in)
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, uuid.UUID, services.DNSRecordInput) (*models.DomainDNSRecord, error)); ok {
+		return returnFunc(domainID, projectID, createdBy, in)
 	}
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, services.DNSRecordInput) *models.DomainDNSRecord); ok {
-		r0 = returnFunc(domainID, createdBy, in)
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, uuid.UUID, services.DNSRecordInput) *models.DomainDNSRecord); ok {
+		r0 = returnFunc(domainID, projectID, createdBy, in)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.DomainDNSRecord)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID, services.DNSRecordInput) error); ok {
-		r1 = returnFunc(domainID, createdBy, in)
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID, uuid.UUID, services.DNSRecordInput) error); ok {
+		r1 = returnFunc(domainID, projectID, createdBy, in)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -773,13 +779,14 @@ type MockDNSRecordManager_Enable_Call struct {
 
 // Enable is a helper method to define mock.On call
 //   - domainID uuid.UUID
+//   - projectID uuid.UUID
 //   - createdBy uuid.UUID
 //   - in services.DNSRecordInput
-func (_e *MockDNSRecordManager_Expecter) Enable(domainID any, createdBy any, in any) *MockDNSRecordManager_Enable_Call {
-	return &MockDNSRecordManager_Enable_Call{Call: _e.mock.On("Enable", domainID, createdBy, in)}
+func (_e *MockDNSRecordManager_Expecter) Enable(domainID any, projectID any, createdBy any, in any) *MockDNSRecordManager_Enable_Call {
+	return &MockDNSRecordManager_Enable_Call{Call: _e.mock.On("Enable", domainID, projectID, createdBy, in)}
 }
 
-func (_c *MockDNSRecordManager_Enable_Call) Run(run func(domainID uuid.UUID, createdBy uuid.UUID, in services.DNSRecordInput)) *MockDNSRecordManager_Enable_Call {
+func (_c *MockDNSRecordManager_Enable_Call) Run(run func(domainID uuid.UUID, projectID uuid.UUID, createdBy uuid.UUID, in services.DNSRecordInput)) *MockDNSRecordManager_Enable_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 uuid.UUID
 		if args[0] != nil {
@@ -789,14 +796,19 @@ func (_c *MockDNSRecordManager_Enable_Call) Run(run func(domainID uuid.UUID, cre
 		if args[1] != nil {
 			arg1 = args[1].(uuid.UUID)
 		}
-		var arg2 services.DNSRecordInput
+		var arg2 uuid.UUID
 		if args[2] != nil {
-			arg2 = args[2].(services.DNSRecordInput)
+			arg2 = args[2].(uuid.UUID)
+		}
+		var arg3 services.DNSRecordInput
+		if args[3] != nil {
+			arg3 = args[3].(services.DNSRecordInput)
 		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -807,7 +819,7 @@ func (_c *MockDNSRecordManager_Enable_Call) Return(domainDNSRecord *models.Domai
 	return _c
 }
 
-func (_c *MockDNSRecordManager_Enable_Call) RunAndReturn(run func(domainID uuid.UUID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)) *MockDNSRecordManager_Enable_Call {
+func (_c *MockDNSRecordManager_Enable_Call) RunAndReturn(run func(domainID uuid.UUID, projectID uuid.UUID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)) *MockDNSRecordManager_Enable_Call {
 	_c.Call.Return(run)
 	return _c
 }

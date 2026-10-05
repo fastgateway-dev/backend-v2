@@ -75,8 +75,10 @@ func recordTypeForAddress(addr GatewayAddress, forced models.DNSRecordType) (mod
 	default:
 		// Defense-in-depth (final review Fix A): DNSRecordService validates
 		// RecordType before it ever reaches here, but no unexpected value
-		// must be allowed to flow into the DNSEndpoint CR even if a future
-		// caller skips that validation.
+		// must be written to the DNS provider even if a future caller skips
+		// that validation. The direct-provider reconcile resolves the record
+		// type from the Gateway status address and upserts it via the provider
+		// SDK -- there is no external-dns DNSEndpoint CR anymore.
 		return "", fmt.Errorf("unsupported record type %q (allowed: auto, A, AAAA, CNAME)", forced)
 	}
 	return forced, nil

@@ -100,11 +100,18 @@ func (c *googleClient) UpsertRecord(ctx context.Context, providerZoneID string, 
 	if r.TTL != nil {
 		ttl = int64(*r.TTL)
 	}
+	// Google Cloud DNS requires CNAME rrdata to be a fully-qualified,
+	// dot-terminated domain name and rejects a relative value. A/AAAA targets
+	// are IP literals and must be left exactly as given.
+	target := r.Target
+	if r.Type == "CNAME" && !strings.HasSuffix(target, ".") {
+		target += "."
+	}
 	newRRSet := &dns.ResourceRecordSet{
 		Name:    fqdn,
 		Type:    r.Type,
 		Ttl:     ttl,
-		Rrdatas: []string{r.Target},
+		Rrdatas: []string{target},
 	}
 
 	change := &dns.Change{Additions: []*dns.ResourceRecordSet{newRRSet}}

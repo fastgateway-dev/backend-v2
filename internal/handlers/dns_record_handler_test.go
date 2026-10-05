@@ -31,7 +31,7 @@ func TestDNSRecordHandler_Get_NotFound(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Get", domainID).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
+	mockSvc.On("Get", domainID, projectID).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
 
 	router := gin.New()
 	router.GET("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
@@ -67,7 +67,7 @@ func TestDNSRecordHandler_Get_Success(t *testing.T) {
 		UpdatedAt:    time.Now(),
 	}
 
-	mockSvc.On("Get", domainID).Return(rec, nil)
+	mockSvc.On("Get", domainID, projectID).Return(rec, nil)
 
 	router := gin.New()
 	router.GET("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
@@ -135,7 +135,7 @@ func TestDNSRecordHandler_Enable_NoHostedZone_BadRequest(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Enable", domainID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
+	mockSvc.On("Enable", domainID, projectID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
 		Return((*models.DomainDNSRecord)(nil), services.ErrNoHostedZone)
 
 	router := gin.New()
@@ -168,7 +168,7 @@ func TestDNSRecordHandler_Enable_InvalidRecordType_BadRequest(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Enable", domainID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
+	mockSvc.On("Enable", domainID, projectID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
 		Return((*models.DomainDNSRecord)(nil), services.ErrInvalidRecordType)
 
 	router := gin.New()
@@ -200,7 +200,7 @@ func TestDNSRecordHandler_Update_InvalidRecordType_BadRequest(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Update", domainID, mock.AnythingOfType("services.DNSRecordInput")).
+	mockSvc.On("Update", domainID, projectID, mock.AnythingOfType("services.DNSRecordInput")).
 		Return((*models.DomainDNSRecord)(nil), services.ErrInvalidRecordType)
 
 	router := gin.New()
@@ -230,7 +230,7 @@ func TestDNSRecordHandler_Enable_AlreadyExists_Conflict(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Enable", domainID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
+	mockSvc.On("Enable", domainID, projectID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
 		Return((*models.DomainDNSRecord)(nil), services.ErrDNSRecordExists)
 
 	router := gin.New()
@@ -267,7 +267,7 @@ func TestDNSRecordHandler_Enable_Success_Returns201(t *testing.T) {
 		Status:       models.DNSRecordStatusPending,
 	}
 
-	mockSvc.On("Enable", domainID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).Return(rec, nil)
+	mockSvc.On("Enable", domainID, projectID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).Return(rec, nil)
 	mockAudit.On("LogAction", &projectID, user, "create", "dns_record", &rec.ID, domainID.String(), mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	router := gin.New()
@@ -301,7 +301,7 @@ func TestDNSRecordHandler_Update_Success(t *testing.T) {
 	domainID := uuid.New()
 	rec := &models.DomainDNSRecord{ID: uuid.New(), DomainID: domainID, RecordType: models.DNSRecordTypeCNAME}
 
-	mockSvc.On("Update", domainID, mock.AnythingOfType("services.DNSRecordInput")).Return(rec, nil)
+	mockSvc.On("Update", domainID, projectID, mock.AnythingOfType("services.DNSRecordInput")).Return(rec, nil)
 	mockAudit.On("LogAction", &projectID, user, "update", "dns_record", &rec.ID, domainID.String(), mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	router := gin.New()
@@ -331,7 +331,7 @@ func TestDNSRecordHandler_Update_NotFound(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Update", domainID, mock.AnythingOfType("services.DNSRecordInput")).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
+	mockSvc.On("Update", domainID, projectID, mock.AnythingOfType("services.DNSRecordInput")).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
 
 	router := gin.New()
 	router.PUT("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
@@ -360,7 +360,7 @@ func TestDNSRecordHandler_Delete_Success_Returns204(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Delete", domainID).Return(nil)
+	mockSvc.On("Delete", domainID, projectID).Return(nil)
 	mockAudit.On("LogAction", &projectID, user, "delete", "dns_record", (*uuid.UUID)(nil), domainID.String(), mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	router := gin.New()
@@ -418,7 +418,7 @@ func TestDNSRecordHandler_Refresh_Success(t *testing.T) {
 	domainID := uuid.New()
 	rec := &models.DomainDNSRecord{ID: uuid.New(), DomainID: domainID, Status: models.DNSRecordStatusPending}
 
-	mockSvc.On("Refresh", domainID).Return(rec, nil)
+	mockSvc.On("Refresh", domainID, projectID).Return(rec, nil)
 
 	router := gin.New()
 	router.POST("/projects/:projectId/domains/:domainId/dns-record/refresh", func(c *gin.Context) {
@@ -444,7 +444,7 @@ func TestDNSRecordHandler_Refresh_NotFound(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Refresh", domainID).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
+	mockSvc.On("Refresh", domainID, projectID).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
 
 	router := gin.New()
 	router.POST("/projects/:projectId/domains/:domainId/dns-record/refresh", func(c *gin.Context) {

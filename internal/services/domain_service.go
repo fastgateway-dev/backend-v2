@@ -65,8 +65,8 @@ type DomainService struct {
 // away in the database, but the live provider record it was reconciled to
 // would otherwise be orphaned forever.
 type DNSRecordManager interface {
-	Enable(domainID, createdBy uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error)
-	Delete(domainID uuid.UUID) error
+	Enable(domainID, projectID, createdBy uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error)
+	Delete(domainID, projectID uuid.UUID) error
 }
 
 // DomainTemplateLookup is the only thing DomainService needs from
@@ -437,7 +437,7 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 				in.HostedZoneID = &id
 			}
 		}
-		if _, err := s.dnsRecords.Enable(domain.ID, createdBy, in); err != nil {
+		if _, err := s.dnsRecords.Enable(domain.ID, domain.ProjectID, createdBy, in); err != nil {
 			log.Printf("Failed to enable DNS record for domain %s: %v", domain.ID, err)
 			// best-effort: the domain succeeds; the DNS record can be enabled later
 		}
@@ -684,7 +684,7 @@ func (s *DomainService) Delete(id uuid.UUID) error {
 	// here must not block domain deletion: the Gateway and every other
 	// domain resource are already gone or on their way out.
 	if s.dnsRecords != nil {
-		if err := s.dnsRecords.Delete(id); err != nil {
+		if err := s.dnsRecords.Delete(id, domain.ProjectID); err != nil {
 			log.Printf("Failed to delete DNS record for domain %s: %v", id, err)
 		}
 	}

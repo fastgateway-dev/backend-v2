@@ -198,13 +198,14 @@ func installFakeProvider(t *testing.T, providerType string, client *recDNSClient
 // --- harness -----------------------------------------------------------------
 
 type recTestHarness struct {
-	svc      *DNSRecordService
-	domainID uuid.UUID
-	userID   uuid.UUID
-	zoneID   uuid.UUID
-	repo     *fakeRecRepo
-	applier  *recApplier
-	client   *recDNSClient
+	svc       *DNSRecordService
+	domainID  uuid.UUID
+	projectID uuid.UUID
+	userID    uuid.UUID
+	zoneID    uuid.UUID
+	repo      *fakeRecRepo
+	applier   *recApplier
+	client    *recDNSClient
 }
 
 // newRecHarness wires a DNSRecordService with: a domain "app.example.com" in
@@ -221,6 +222,7 @@ func newRecHarness(t *testing.T, hostname, zoneName, addrValue, providerType str
 	t.Cleanup(func() { enablePollInterval = origInterval })
 
 	domainID := uuid.New()
+	projectID := uuid.New()
 	zoneID := uuid.New()
 	credID := uuid.New()
 
@@ -230,6 +232,7 @@ func newRecHarness(t *testing.T, hostname, zoneName, addrValue, providerType str
 	svc := NewDNSRecordService(DNSRecordServiceDeps{
 		Repo: repo,
 		DomainRepo: &recDomainRepo{domain: &models.Domain{
+			ProjectID:      projectID,
 			Hostname:       hostname,
 			K8sGatewayName: "gw-" + domainID.String(),
 			Namespace:      "fastgateway-system",
@@ -244,7 +247,7 @@ func newRecHarness(t *testing.T, hostname, zoneName, addrValue, providerType str
 	})
 
 	return &recTestHarness{
-		svc: svc, domainID: domainID, userID: uuid.New(), zoneID: zoneID,
+		svc: svc, domainID: domainID, projectID: projectID, userID: uuid.New(), zoneID: zoneID,
 		repo: repo, applier: applier, client: client,
 	}
 }
@@ -253,13 +256,13 @@ func newRecHarness(t *testing.T, hostname, zoneName, addrValue, providerType str
 
 func TestEnable_RequiresHostedZone(t *testing.T) {
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
-	_, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{})
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{})
 	require.ErrorIs(t, err, ErrNoHostedZone)
 }
 
 func TestEnable_InvalidRecordType_Errors(t *testing.T) {
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
-	_, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID, RecordType: models.DNSRecordType("TXT")})
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID, RecordType: models.DNSRecordType("TXT")})
 	require.ErrorIs(t, err, ErrInvalidRecordType)
 	// Nothing persisted for the rejected input.
 	_, err = h.svc.repo.GetByDomainID(h.domainID)
@@ -268,9 +271,9 @@ func TestEnable_InvalidRecordType_Errors(t *testing.T) {
 
 func TestEnable_AlreadyExists_Errors(t *testing.T) {
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
-	_, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
-	_, err = h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	_, err = h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.ErrorIs(t, err, ErrDNSRecordExists)
 }
 
@@ -279,7 +282,7 @@ func TestEnable_NoGatewayAddress_PendingNoWrite(t *testing.T) {
 	client := &recDNSClient{}
 	h := newRecHarness(t, "app.example.com", "example.com", "", "faketest", client)
 
-	rec, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	rec, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 	require.Equal(t, models.DNSRecordStatusPending, rec.Status)
 	require.Empty(t, rec.ResolvedTarget)
@@ -292,7 +295,7 @@ func TestEnable_ForeignRecord_ClobberError(t *testing.T) {
 	client := &recDNSClient{getFound: true}
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", client)
 
-	rec, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	rec, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 	require.Equal(t, models.DNSRecordStatusError, rec.Status)
 	require.Contains(t, rec.StatusMessage, "not managed by FastGateway")
@@ -307,7 +310,7 @@ func TestEnable_ApexCNAME_Error(t *testing.T) {
 	client := &recDNSClient{}
 	h := newRecHarness(t, "example.com", "example.com", "lb.example.com", "faketest", client)
 
-	rec, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	rec, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 	require.Equal(t, models.DNSRecordStatusError, rec.Status)
 	require.Equal(t, ErrApexCNAME.Error(), rec.StatusMessage)
@@ -319,7 +322,7 @@ func TestEnable_HostedZoneMismatch_Error(t *testing.T) {
 	client := &recDNSClient{}
 	h := newRecHarness(t, "app.other.com", "example.com", "203.0.113.5", "faketest", client)
 
-	rec, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	rec, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 	require.Equal(t, models.DNSRecordStatusError, rec.Status)
 	require.Equal(t, ErrHostedZoneMismatch.Error(), rec.StatusMessage)
@@ -330,7 +333,7 @@ func TestEnable_WithAddress_UpsertsReady(t *testing.T) {
 	client := &recDNSClient{} // getFound=false, no errors
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", client)
 
-	rec, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	rec, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 	require.Equal(t, models.DNSRecordStatusReady, rec.Status)
 	require.Equal(t, "203.0.113.5", rec.ResolvedTarget)
@@ -344,13 +347,13 @@ func TestGet_ReadyUnchangedAddress_NoProviderCall(t *testing.T) {
 	client := &recDNSClient{}
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", client)
 
-	_, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 	require.Equal(t, 1, client.upsertCalls)
 
 	// Reading a ready record whose gateway address is unchanged must not call
 	// the provider again.
-	rec, err := h.svc.Get(h.domainID)
+	rec, err := h.svc.Get(h.domainID, h.projectID)
 	require.NoError(t, err)
 	require.Equal(t, models.DNSRecordStatusReady, rec.Status)
 	require.Equal(t, 1, client.upsertCalls, "no re-upsert on steady-state read")
@@ -361,14 +364,14 @@ func TestGet_IPDrift_ReUpserts(t *testing.T) {
 	client := &recDNSClient{}
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", client)
 
-	_, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 	require.Equal(t, 1, client.upsertCalls)
 
 	// Gateway address changes => drift => re-upsert (clobber check skipped as
 	// the record is already owned).
 	h.applier.addrValue = "203.0.113.99"
-	rec, err := h.svc.Get(h.domainID)
+	rec, err := h.svc.Get(h.domainID, h.projectID)
 	require.NoError(t, err)
 	require.Equal(t, models.DNSRecordStatusReady, rec.Status)
 	require.Equal(t, "203.0.113.99", rec.ResolvedTarget)
@@ -379,11 +382,11 @@ func TestGet_IPDrift_ReUpserts(t *testing.T) {
 func TestUpdate_ChangesSettings(t *testing.T) {
 	client := &recDNSClient{}
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", client)
-	_, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 
 	ttl := 120
-	got, err := h.svc.Update(h.domainID, DNSRecordInput{RecordType: models.DNSRecordTypeA, TTL: &ttl, Proxied: true})
+	got, err := h.svc.Update(h.domainID, h.projectID, DNSRecordInput{RecordType: models.DNSRecordTypeA, TTL: &ttl, Proxied: true})
 	require.NoError(t, err)
 	require.Equal(t, models.DNSRecordTypeA, got.RecordType)
 	require.NotNil(t, got.TTL)
@@ -393,9 +396,9 @@ func TestUpdate_ChangesSettings(t *testing.T) {
 
 func TestUpdate_InvalidRecordType_Errors(t *testing.T) {
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
-	_, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
-	_, err = h.svc.Update(h.domainID, DNSRecordInput{RecordType: models.DNSRecordType("foo")})
+	_, err = h.svc.Update(h.domainID, h.projectID, DNSRecordInput{RecordType: models.DNSRecordType("foo")})
 	require.ErrorIs(t, err, ErrInvalidRecordType)
 }
 
@@ -404,7 +407,7 @@ func TestReconcile_CloudflareProxied_ForcesAutoTTL(t *testing.T) {
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "cloudflare", client)
 
 	ttl := 300
-	rec, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID, Proxied: true, TTL: &ttl})
+	rec, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID, Proxied: true, TTL: &ttl})
 	require.NoError(t, err)
 	require.Equal(t, models.DNSRecordStatusReady, rec.Status)
 	require.True(t, client.lastUpsert.Proxied)
@@ -416,7 +419,7 @@ func TestReconcile_ProxiedNonCloudflare_Ignored(t *testing.T) {
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", client)
 
 	ttl := 300
-	rec, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID, Proxied: true, TTL: &ttl})
+	rec, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID, Proxied: true, TTL: &ttl})
 	require.NoError(t, err)
 	require.Equal(t, models.DNSRecordStatusReady, rec.Status)
 	require.False(t, client.lastUpsert.Proxied, "proxied is only honored for cloudflare")
@@ -428,11 +431,11 @@ func TestDelete_NeverWritten_DeletesRowNoProviderCall(t *testing.T) {
 	// ResolvedTarget == "" (never written) => delete the row, no provider call.
 	client := &recDNSClient{}
 	h := newRecHarness(t, "app.example.com", "example.com", "", "faketest", client)
-	_, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 	require.Empty(t, h.repo.rec.ResolvedTarget)
 
-	require.NoError(t, h.svc.Delete(h.domainID))
+	require.NoError(t, h.svc.Delete(h.domainID, h.projectID))
 	require.Nil(t, h.repo.rec, "row removed")
 	require.Equal(t, 0, client.deleteCalls, "nothing to delete at the provider")
 }
@@ -440,12 +443,12 @@ func TestDelete_NeverWritten_DeletesRowNoProviderCall(t *testing.T) {
 func TestDelete_ProviderFails_KeepsRow(t *testing.T) {
 	client := &recDNSClient{}
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", client)
-	_, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 	require.Equal(t, "203.0.113.5", h.repo.rec.ResolvedTarget) // owned
 
 	client.deleteErr = errors.New("provider boom")
-	err = h.svc.Delete(h.domainID)
+	err = h.svc.Delete(h.domainID, h.projectID)
 	require.Error(t, err)
 	require.Equal(t, 1, client.deleteCalls)
 	require.Equal(t, string(models.DNSRecordTypeA), client.lastDeleteType, "delete targets the resolved type")
@@ -457,11 +460,11 @@ func TestDelete_NotFound_DeletesRow(t *testing.T) {
 	// removes the row.
 	client := &recDNSClient{} // deleteErr nil
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", client)
-	_, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 	require.Equal(t, "203.0.113.5", h.repo.rec.ResolvedTarget)
 
-	require.NoError(t, h.svc.Delete(h.domainID))
+	require.NoError(t, h.svc.Delete(h.domainID, h.projectID))
 	require.Equal(t, 1, client.deleteCalls)
 	require.Nil(t, h.repo.rec, "row deleted after a successful provider delete")
 }
@@ -476,13 +479,13 @@ func TestDelete_AutoType_DeletesResolvedType(t *testing.T) {
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", client)
 
 	// Empty/auto input type against an IPv4 gateway.
-	rec, err := h.svc.Enable(h.domainID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	rec, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
 	require.NoError(t, err)
 	require.Equal(t, models.DNSRecordStatusReady, rec.Status)
 	require.Equal(t, models.DNSRecordTypeAuto, rec.RecordType, "user intent stays auto (not mutated to A)")
 	require.Equal(t, string(models.DNSRecordTypeA), client.lastUpsert.Type, "upsert wrote type A")
 
-	require.NoError(t, h.svc.Delete(h.domainID))
+	require.NoError(t, h.svc.Delete(h.domainID, h.projectID))
 	require.Equal(t, 1, client.deleteCalls)
 	require.Equal(t, string(models.DNSRecordTypeA), client.lastDeleteType,
 		"delete must target the resolved type A, not the stored auto")
@@ -491,5 +494,59 @@ func TestDelete_AutoType_DeletesResolvedType(t *testing.T) {
 
 func TestDelete_NoRecord_NoOp(t *testing.T) {
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
-	require.NoError(t, h.svc.Delete(h.domainID))
+	require.NoError(t, h.svc.Delete(h.domainID, h.projectID))
+}
+
+// --- cross-project ownership (final review Fix I1) --------------------------
+//
+// The handler authorizes the caller against the PATH project, but the service
+// must still confirm the domain actually belongs to that project. Without the
+// assertDomainInProject guard, a project-A admin could read, tamper with, or
+// delete the live DNS record of a domain owned by project B by putting B's
+// domainID in the URL. These tests pin the guard: the operation is rejected
+// with ErrDomainNotFound and performs NO provider call and NO DB mutation.
+
+// TestDelete_CrossProject_Rejected: a domain owned by project X, deleted under
+// a different project Y, must be refused before any provider DeleteRecord or
+// row delete. Without the guard, Delete would proceed to call the provider and
+// delete the row (the record is owned -- ResolvedTarget is set), tearing down
+// project X's live DNS record on behalf of an unrelated project.
+func TestDelete_CrossProject_Rejected(t *testing.T) {
+	client := &recDNSClient{}
+	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", client)
+
+	// Enable under the owning project so the record is live and owned.
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	require.NoError(t, err)
+	require.Equal(t, "203.0.113.5", h.repo.rec.ResolvedTarget) // owned
+	require.NotNil(t, h.repo.rec)
+
+	// A different project attempts the delete.
+	otherProject := uuid.New()
+	require.NotEqual(t, h.projectID, otherProject)
+	err = h.svc.Delete(h.domainID, otherProject)
+
+	require.ErrorIs(t, err, ErrDomainNotFound)
+	require.Equal(t, 0, client.deleteCalls, "cross-project delete must not call the provider")
+	require.NotNil(t, h.repo.rec, "cross-project delete must not remove the row")
+	require.Equal(t, "203.0.113.5", h.repo.rec.ResolvedTarget)
+}
+
+// TestEnable_CrossProject_Rejected: enabling a DNS record for a domain that
+// belongs to a different project must be refused before any row is created or
+// provider write happens. Without the guard, Enable would create a
+// DomainDNSRecord row and reconcile it against the provider for a domain the
+// caller's project does not own.
+func TestEnable_CrossProject_Rejected(t *testing.T) {
+	client := &recDNSClient{}
+	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", client)
+
+	otherProject := uuid.New()
+	require.NotEqual(t, h.projectID, otherProject)
+	rec, err := h.svc.Enable(h.domainID, otherProject, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+
+	require.ErrorIs(t, err, ErrDomainNotFound)
+	require.Nil(t, rec)
+	require.Equal(t, 0, client.upsertCalls, "cross-project enable must not write at the provider")
+	require.Nil(t, h.repo.rec, "cross-project enable must not create a row")
 }

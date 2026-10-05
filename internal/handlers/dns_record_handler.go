@@ -97,15 +97,17 @@ func toDNSRecordResponse(r *models.DomainDNSRecord) dnsRecordResponse {
 // can return into an HTTP response: ErrNoHostedZone and ErrInvalidRecordType
 // are caller-fixable input problems (400), ErrDNSRecordExists means Enable
 // was called twice for the same domain (409), gorm.ErrRecordNotFound means
-// there is no record for this domain yet (404), and anything else is an
-// unexpected failure (500).
+// there is no record for this domain yet (404), services.ErrDomainNotFound
+// means the domain is unknown or belongs to a different project (404 -- a
+// cross-project probe is indistinguishable from a missing domain), and
+// anything else is an unexpected failure (500).
 func mapDNSRecordServiceError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, services.ErrNoHostedZone), errors.Is(err, services.ErrInvalidRecordType):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, services.ErrDNSRecordExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-	case errors.Is(err, gorm.ErrRecordNotFound):
+	case errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, services.ErrDomainNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "DNS record not found"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -142,7 +144,7 @@ func (h *DNSRecordHandler) Get(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.service.Get(domainID)
+	rec, err := h.service.Get(domainID, projectID)
 	if err != nil {
 		mapDNSRecordServiceError(c, err)
 		return
@@ -175,7 +177,7 @@ func (h *DNSRecordHandler) Enable(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.service.Enable(domainID, user.ID, input)
+	rec, err := h.service.Enable(domainID, projectID, user.ID, input)
 	if err != nil {
 		mapDNSRecordServiceError(c, err)
 		return
@@ -220,7 +222,7 @@ func (h *DNSRecordHandler) Update(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.service.Update(domainID, input)
+	rec, err := h.service.Update(domainID, projectID, input)
 	if err != nil {
 		mapDNSRecordServiceError(c, err)
 		return
@@ -257,7 +259,7 @@ func (h *DNSRecordHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Delete(domainID); err != nil {
+	if err := h.service.Delete(domainID, projectID); err != nil {
 		mapDNSRecordServiceError(c, err)
 		return
 	}
@@ -290,7 +292,7 @@ func (h *DNSRecordHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.service.Refresh(domainID)
+	rec, err := h.service.Refresh(domainID, projectID)
 	if err != nil {
 		mapDNSRecordServiceError(c, err)
 		return

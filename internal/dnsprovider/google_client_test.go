@@ -140,6 +140,58 @@ func TestGoogleClient_UpsertRecord_IncludesDeletionWhenPresent(t *testing.T) {
 	}
 }
 
+// TestGoogleClient_UpsertRecord_CNAMETargetIsFQDN pins final-review Fix I2:
+// Google Cloud DNS requires CNAME rrdata to be a dot-terminated FQDN and
+// rejects a relative value, so UpsertRecord must append the trailing dot to a
+// CNAME target that lacks one. An already-dotted target must not be
+// double-dotted, and A/AAAA (IP) targets must be left exactly as given.
+func TestGoogleClient_UpsertRecord_CNAMETargetIsFQDN(t *testing.T) {
+	cases := []struct {
+		name       string
+		recordType string
+		target     string
+		wantRrdata string
+	}{
+		{"relative CNAME gets a trailing dot", "CNAME", "lb.example.com", "lb.example.com."},
+		{"already-dotted CNAME is not double-dotted", "CNAME", "lb.example.com.", "lb.example.com."},
+		{"A target is left untouched", "A", "203.0.113.5", "203.0.113.5"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var sawCreate dns.Change
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.Contains(r.URL.Path, "/rrsets") && r.Method == http.MethodGet:
+					w.Write([]byte(`{"rrsets":[]}`))
+				case strings.Contains(r.URL.Path, "/changes") && r.Method == http.MethodPost:
+					body, _ := io.ReadAll(r.Body)
+					if err := json.Unmarshal(body, &sawCreate); err != nil {
+						t.Errorf("unmarshal change: %v", err)
+					}
+					w.Write([]byte(`{"id":"1","status":"done"}`))
+				default:
+					w.Write([]byte(`{}`))
+				}
+			}))
+			defer srv.Close()
+
+			c := newGoogleTestClient(t, srv)
+			if err := c.UpsertRecord(context.Background(), "example-com", Record{
+				Name: "app.example.com", Type: tc.recordType, Target: tc.target,
+			}); err != nil {
+				t.Fatalf("UpsertRecord: %v", err)
+			}
+			if len(sawCreate.Additions) != 1 {
+				t.Fatalf("expected 1 addition, got %d", len(sawCreate.Additions))
+			}
+			add := sawCreate.Additions[0]
+			if len(add.Rrdatas) != 1 || add.Rrdatas[0] != tc.wantRrdata {
+				t.Fatalf("rrdata = %+v, want [%q]", add.Rrdatas, tc.wantRrdata)
+			}
+		})
+	}
+}
+
 func TestGoogleClient_DeleteRecord_AbsentIsNil(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"rrsets":[]}`))
