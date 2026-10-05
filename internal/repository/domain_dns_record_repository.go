@@ -32,8 +32,8 @@ func (r *DomainDNSRecordRepository) DeleteByDomainID(domainID uuid.UUID) error {
 	return r.db.Where("domain_id = ?", domainID).Delete(&models.DomainDNSRecord{}).Error
 }
 
-func (r *DomainDNSRecordRepository) CountByCredential(credID uuid.UUID) (int64, error) {
+func (r *DomainDNSRecordRepository) CountByZone(zoneID uuid.UUID) (int64, error) {
 	var n int64
-	err := r.db.Model(&models.DomainDNSRecord{}).Where("provider_credential_id = ?", credID).Count(&n).Error
+	err := r.db.Model(&models.DomainDNSRecord{}).Where("hosted_zone_id = ?", zoneID).Count(&n).Error
 	return n, err
 }

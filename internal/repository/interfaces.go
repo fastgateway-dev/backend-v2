@@ -166,7 +166,7 @@ type DomainDNSRecordRepositoryInterface interface {
 	GetByDomainID(domainID uuid.UUID) (*models.DomainDNSRecord, error)
 	Update(rec *models.DomainDNSRecord) error
 	DeleteByDomainID(domainID uuid.UUID) error
-	CountByCredential(credID uuid.UUID) (int64, error)
+	CountByZone(zoneID uuid.UUID) (int64, error)
 }
 
 // DomainTemplateRepositoryInterface defines the interface for domain template repository operations
@@ -402,6 +402,16 @@ type DNSProviderCredentialRepositoryInterface interface {
 	Delete(id uuid.UUID) error
 }
 
+// DNSHostedZoneRepositoryInterface defines the interface for DNS hosted zone repository operations
+type DNSHostedZoneRepositoryInterface interface {
+	Create(z *models.DNSHostedZone) error
+	GetByID(id uuid.UUID) (*models.DNSHostedZone, error)
+	List() ([]models.DNSHostedZone, error)
+	Update(z *models.DNSHostedZone) error
+	Delete(id uuid.UUID) error
+	CountByCredential(credID uuid.UUID) (int64, error)
+}
+
 // ManagedCertificateRepositoryInterface defines the interface for managed certificate repository operations
 type ManagedCertificateRepositoryInterface interface {
 	Create(c *models.ManagedCertificate) error
@@ -460,6 +470,7 @@ var _ ClientIPRepositoryInterface = (*ClientIPRepository)(nil)
 var _ ClientRepositoryInterface = (*ClientRepository)(nil)
 var _ CommentRepositoryInterface = (*CommentRepository)(nil)
 var _ DNSProviderCredentialRepositoryInterface = (*DNSProviderCredentialRepository)(nil)
+var _ DNSHostedZoneRepositoryInterface = (*DNSHostedZoneRepository)(nil)
 var _ IssuerProjectGrantRepositoryInterface = (*IssuerProjectGrantRepository)(nil)
 var _ ManagedCertificateRepositoryInterface = (*ManagedCertificateRepository)(nil)
 var _ DomainRepositoryInterface = (*DomainRepository)(nil)
