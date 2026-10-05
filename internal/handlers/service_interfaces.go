@@ -124,6 +124,15 @@ type DNSCredentialServiceInterface interface {
 	Delete(id uuid.UUID) error
 }
 
+// DNSHostedZoneServiceInterface defines the public methods of
+// DNSHostedZoneService that DNSHostedZoneHandler uses.
+type DNSHostedZoneServiceInterface interface {
+	Create(name string, credID, createdBy uuid.UUID) (*models.DNSHostedZone, error)
+	List() ([]models.DNSHostedZone, error)
+	GetByID(id uuid.UUID) (*models.DNSHostedZone, error)
+	Delete(id uuid.UUID) error
+}
+
 // DNSRecordServiceInterface defines the public methods of DNSRecordService
 // that DNSRecordHandler uses.
 type DNSRecordServiceInterface interface {
@@ -399,6 +408,7 @@ var _ AuthServiceInterface = (*services.AuthService)(nil)
 var _ CertificateIssuerServiceInterface = (*services.CertificateIssuerService)(nil)
 var _ CommentServiceInterface = (*services.CommentService)(nil)
 var _ DNSCredentialServiceInterface = (*services.DNSCredentialService)(nil)
+var _ DNSHostedZoneServiceInterface = (*services.DNSHostedZoneService)(nil)
 var _ IssuerGrantServiceInterface = (*services.IssuerGrantService)(nil)
 var _ ManagedCertificateServiceInterface = (*services.ManagedCertificateService)(nil)
 var _ DNSRecordServiceInterface = (*services.DNSRecordService)(nil)

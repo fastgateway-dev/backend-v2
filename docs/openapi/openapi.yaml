@@ -60,6 +60,8 @@ tags:
     description: Single Sign-On configuration
   - name: DNS Credentials
     description: Platform-global DNS provider credential management (owner only)
+  - name: DNS Zones
+    description: Platform-global DNS hosted zone (domain apex) management (owner only)
   - name: DNS Records
     description: Per-domain FastGateway-managed DNS record (external-dns) management
   - name: Certificate Issuers
@@ -121,6 +123,12 @@ paths:
     $ref: 'paths/dns-credentials.yaml#/dns-credentials'
   /dns/credentials/{dnsCredentialId}:
     $ref: 'paths/dns-credentials.yaml#/dns-credentials_{dnsCredentialId}'
+
+  # ============== DNS ZONES ==============
+  /dns/zones:
+    $ref: 'paths/dns-zones.yaml#/dns-zones'
+  /dns/zones/{hostedZoneId}:
+    $ref: 'paths/dns-zones.yaml#/dns-zones_{hostedZoneId}'
 
   # ============== MANAGED CERTIFICATES (FLEET) ==============
   /certificates:
@@ -466,6 +474,8 @@ components:
       $ref: 'components/parameters.yaml#/tokenId'
     dnsCredentialId:
       $ref: 'components/parameters.yaml#/dnsCredentialId'
+    hostedZoneId:
+      $ref: 'components/parameters.yaml#/hostedZoneId'
     issuerId:
       $ref: 'components/parameters.yaml#/issuerId'
   responses:
@@ -1091,6 +1101,14 @@ components:
       $ref: 'schemas/dns-credential.yaml#/CreateDNSCredentialRequest'
     UpdateDNSCredentialRequest:
       $ref: 'schemas/dns-credential.yaml#/UpdateDNSCredentialRequest'
+
+    # ============== DNS ZONE ==============
+    DNSHostedZone:
+      $ref: 'schemas/dns-zone.yaml#/DNSHostedZone'
+    DNSHostedZoneList:
+      $ref: 'schemas/dns-zone.yaml#/DNSHostedZoneList'
+    CreateDNSHostedZoneRequest:
+      $ref: 'schemas/dns-zone.yaml#/CreateDNSHostedZoneRequest'
 
     # ============== DNS RECORD ==============
     DomainDNSRecord:

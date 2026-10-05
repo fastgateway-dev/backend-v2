@@ -327,6 +327,8 @@ func main() {
 		ZoneRepo:   dnsHostedZoneRepo,
 	})
 	dnsCredentialHandler := handlers.NewDNSCredentialHandler(dnsCredentialService)
+	dnsHostedZoneService := services.NewDNSHostedZoneService(dnsHostedZoneRepo, domainDNSRecordRepo, dnsCredentialService)
+	dnsHostedZoneHandler := handlers.NewDNSHostedZoneHandler(dnsHostedZoneService)
 
 	// Initialize certificate issuer service + handler, and the managed
 	// certificate service + handler that depends on the same control-plane
@@ -504,6 +506,7 @@ func main() {
 		AuditHandler:              auditHandler,
 		NotificationHandler:       notificationHandler,
 		DNSCredentialHandler:      dnsCredentialHandler,
+		DNSHostedZoneHandler:      dnsHostedZoneHandler,
 		CertificateIssuerHandler:  certificateIssuerHandler,
 		IssuerGrantHandler:        issuerGrantHandler,
 		ManagedCertificateHandler: managedCertHandler,
@@ -567,6 +570,7 @@ type RouterDeps struct {
 	AuditHandler              *handlers.AuditHandler
 	NotificationHandler       *handlers.NotificationHandler
 	DNSCredentialHandler      *handlers.DNSCredentialHandler
+	DNSHostedZoneHandler      *handlers.DNSHostedZoneHandler
 	CertificateIssuerHandler  *handlers.CertificateIssuerHandler
 	IssuerGrantHandler        *handlers.IssuerGrantHandler
 	ManagedCertificateHandler *handlers.ManagedCertificateHandler
@@ -701,6 +705,20 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 				dnsCreds.GET("/:dnsCredentialId", deps.DNSCredentialHandler.Get)
 				dnsCreds.PATCH("/:dnsCredentialId", deps.DNSCredentialHandler.Update)
 				dnsCreds.DELETE("/:dnsCredentialId", deps.DNSCredentialHandler.Delete)
+			}
+
+			// DNS hosted zones (Owner only). Platform-global, not
+			// project-scoped -- a sibling group to /dns/credentials above.
+			// Unconditional like it: this only touches the DB and outbound
+			// HTTP to the DNS provider, not Kubernetes, so it isn't
+			// cluster-gated.
+			dnsZones := protected.Group("/dns/zones")
+			dnsZones.Use(deps.AuthMiddleware.RequireRole("owner"))
+			{
+				dnsZones.GET("", deps.DNSHostedZoneHandler.List)
+				dnsZones.POST("", deps.DNSHostedZoneHandler.Create)
+				dnsZones.GET("/:hostedZoneId", deps.DNSHostedZoneHandler.Get)
+				dnsZones.DELETE("/:hostedZoneId", deps.DNSHostedZoneHandler.Delete)
 			}
 
 			// Certificate issuers (Owner only). Platform-global. Registered

@@ -59,6 +59,8 @@ tags:
     description: Single Sign-On configuration
   - name: DNS Credentials
     description: Platform-global DNS provider credential management (owner only)
+  - name: DNS Zones
+    description: Platform-global DNS hosted zone (domain apex) management (owner only)
   - name: DNS Records
     description: Per-domain FastGateway-managed DNS record (external-dns) management
   - name: Certificate Issuers
@@ -593,6 +595,100 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           description: DNS provider credential is referenced by an ACME issuer, by one or more domain DNS records, or is the system-wide active DNS credential
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /dns/zones:
+    get:
+      tags:
+        - DNS Zones
+      summary: List DNS hosted zones (Owner only)
+      description: Platform-global.
+      operationId: listDNSHostedZones
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of DNS hosted zones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSHostedZoneList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - DNS Zones
+      summary: Register a DNS hosted zone (Owner only)
+      description: 'Validates the zone against the live provider using the given credential. If the provider lookup fails, the zone is still created with `status: error` and a `statusMessage` -- the caller can see the failed registration on the list and delete/retry it, instead of losing the attempt silently.'
+      operationId: createDNSHostedZone
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDNSHostedZoneRequest'
+      responses:
+        '201':
+          description: DNS hosted zone registered (possibly with status error -- see the operation description)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSHostedZone'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /dns/zones/{hostedZoneId}:
+    get:
+      tags:
+        - DNS Zones
+      summary: Get DNS hosted zone (Owner only)
+      operationId: getDNSHostedZone
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/hostedZoneId'
+      responses:
+        '200':
+          description: DNS hosted zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSHostedZone'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - DNS Zones
+      summary: Delete DNS hosted zone (Owner only)
+      operationId: deleteDNSHostedZone
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/hostedZoneId'
+      responses:
+        '204':
+          description: DNS hosted zone deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: DNS hosted zone is referenced by one or more domain DNS records
           content:
             application/json:
               schema:
@@ -5237,6 +5333,13 @@ components:
         format: uuid
     dnsCredentialId:
       name: dnsCredentialId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    hostedZoneId:
+      name: hostedZoneId
       in: path
       required: true
       schema:
@@ -10708,6 +10811,52 @@ components:
           additionalProperties:
             type: string
           description: Provider-specific plaintext credential values to rotate. Encrypted at rest; never returned in any response.
+    DNSHostedZone:
+      type: object
+      description: A DNS hosted zone (domain apex) registered under a DNS provider credential. Never includes the provider's internal zone id.
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        providerCredentialId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - ready
+            - error
+            - pending
+        statusMessage:
+          type: string
+          description: Set when status is `error`; describes why validation against the live provider failed.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DNSHostedZoneList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DNSHostedZone'
+    CreateDNSHostedZoneRequest:
+      type: object
+      required:
+        - name
+        - providerCredentialId
+      properties:
+        name:
+          type: string
+          description: The zone/domain apex name (e.g. `example.com`).
+        providerCredentialId:
+          type: string
+          format: uuid
     DomainDNSRecord:
       type: object
       description: |
