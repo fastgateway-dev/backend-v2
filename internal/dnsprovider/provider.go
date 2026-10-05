@@ -1,23 +1,34 @@
 // Package dnsprovider isolates everything provider-specific about DNS:
-// credential field validation, the external-dns Secret payload, and the
-// external-dns --provider flag. The DNSEndpoint CR and record lifecycle are
-// provider-agnostic and live elsewhere.
+// credential validation and the SDK-backed DNS client (zone lookup + record CRUD).
 package dnsprovider
 
 import (
+	"context"
 	"fmt"
 	"sort"
 )
-
-// SecretName is the fixed Secret in fastgateway-system that external-dns reads.
-const SecretName = "fgw-externaldns-credentials"
 
 type DNSProvider interface {
 	Type() string
 	RequiredFields() []string
 	Validate(cred map[string]string) error
-	RenderSecret(cred map[string]string) map[string][]byte
-	ExternalDNSFlag() string
+	NewClient(cred map[string]string) (DNSClient, error)
+}
+
+// DNSClient talks to one provider account.
+type DNSClient interface {
+	FindZone(ctx context.Context, zoneName string) (providerZoneID string, found bool, err error)
+	GetRecord(ctx context.Context, providerZoneID, name, recordType string) (rec Record, found bool, err error)
+	UpsertRecord(ctx context.Context, providerZoneID string, r Record) error
+	DeleteRecord(ctx context.Context, providerZoneID, name, recordType string) error
+}
+
+type Record struct {
+	Name    string
+	Type    string // A | AAAA | CNAME
+	Target  string
+	TTL     *int
+	Proxied bool
 }
 
 var registry = map[string]DNSProvider{}

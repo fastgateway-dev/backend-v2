@@ -24,6 +24,19 @@ func seedDNSProviderCredential(t *testing.T, db *gorm.DB, createdByUserID uuid.U
 	return id
 }
 
+// seedDNSHostedZone creates a DNS hosted zone with the given name and credential.
+// Returns the zone ID.
+func seedDNSHostedZone(t *testing.T, db *gorm.DB, createdByUserID, credID uuid.UUID, name string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	err := db.Exec(`
+		INSERT INTO dns_hosted_zones (id, name, provider_credential_id, provider_zone_id, status, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+		id, name, credID, "zone_"+id.String(), "ready", createdByUserID).Error
+	require.NoError(t, err)
+	return id
+}
+
 // TestDomainDNSRecordRepository_CreateGetUpdateDelete tests the full CRUD lifecycle.
 func TestDomainDNSRecordRepository_CreateGetUpdateDelete(t *testing.T) {
 	db := requirePostgres(t)
@@ -32,26 +45,27 @@ func TestDomainDNSRecordRepository_CreateGetUpdateDelete(t *testing.T) {
 	// Seed project and domain
 	_, domainID, _, userID := seedProject(t, db)
 
-	// Seed DNS provider credential
+	// Seed DNS provider credential and hosted zone
 	credID := seedDNSProviderCredential(t, db, userID, "test-credential")
+	zoneID := seedDNSHostedZone(t, db, userID, credID, "example.com")
 
 	t.Cleanup(func() {
 		_ = db.Exec(`DELETE FROM domain_dns_records WHERE domain_id = ?`, domainID).Error
+		_ = db.Exec(`DELETE FROM dns_hosted_zones WHERE id = ?`, zoneID).Error
 		_ = db.Exec(`DELETE FROM dns_provider_credentials WHERE id = ?`, credID).Error
 	})
 
 	// Create a DNS record
 	record := &models.DomainDNSRecord{
-		DomainID:             domainID,
-		ProviderCredentialID: credID,
-		RecordType:           models.DNSRecordTypeAuto,
-		TTL:                  nil,
-		Proxied:              false,
-		ResolvedTarget:       "192.0.2.1",
-		Status:               models.DNSRecordStatusPending,
-		StatusMessage:        "Pending sync",
-		EndpointName:         "gateway-endpoint",
-		CreatedBy:            userID,
+		DomainID:       domainID,
+		HostedZoneID:   zoneID,
+		RecordType:     models.DNSRecordTypeAuto,
+		TTL:            nil,
+		Proxied:        false,
+		ResolvedTarget: "192.0.2.1",
+		Status:         models.DNSRecordStatusPending,
+		StatusMessage:  "Pending sync",
+		CreatedBy:      userID,
 	}
 
 	err := repo.Create(record)
@@ -64,7 +78,7 @@ func TestDomainDNSRecordRepository_CreateGetUpdateDelete(t *testing.T) {
 	require.NotNil(t, retrieved)
 	assert.Equal(t, record.ID, retrieved.ID)
 	assert.Equal(t, domainID, retrieved.DomainID)
-	assert.Equal(t, credID, retrieved.ProviderCredentialID)
+	assert.Equal(t, zoneID, retrieved.HostedZoneID)
 	assert.Equal(t, models.DNSRecordStatusPending, retrieved.Status)
 
 	// Update the record
@@ -89,8 +103,8 @@ func TestDomainDNSRecordRepository_CreateGetUpdateDelete(t *testing.T) {
 	assert.Equal(t, gorm.ErrRecordNotFound, err)
 }
 
-// TestDomainDNSRecordRepository_CountByCredential tests counting records by credential.
-func TestDomainDNSRecordRepository_CountByCredential(t *testing.T) {
+// TestDomainDNSRecordRepository_CountByZone tests counting records by hosted zone.
+func TestDomainDNSRecordRepository_CountByZone(t *testing.T) {
 	db := requirePostgres(t)
 	repo := repository.NewDomainDNSRecordRepository(db)
 
@@ -109,53 +123,58 @@ func TestDomainDNSRecordRepository_CountByCredential(t *testing.T) {
 	cred1ID := seedDNSProviderCredential(t, db, userID, "test-credential-1")
 	cred2ID := seedDNSProviderCredential(t, db, userID, "test-credential-2")
 
+	// Seed hosted zones
+	zone1ID := seedDNSHostedZone(t, db, userID, cred1ID, "example.com")
+	zone2ID := seedDNSHostedZone(t, db, userID, cred2ID, "example.org")
+
 	t.Cleanup(func() {
 		_ = db.Exec(`DELETE FROM domain_dns_records WHERE domain_id IN (?, ?)`, domainID1, domainID2).Error
+		_ = db.Exec(`DELETE FROM dns_hosted_zones WHERE id IN (?, ?)`, zone1ID, zone2ID).Error
 		_ = db.Exec(`DELETE FROM domains WHERE id = ?`, domainID2).Error
 		_ = db.Exec(`DELETE FROM dns_provider_credentials WHERE id IN (?, ?)`, cred1ID, cred2ID).Error
 	})
 
-	// Create records for the first credential (one per domain)
+	// Create records for the first zone (one per domain)
 	record1 := &models.DomainDNSRecord{
-		DomainID:             domainID1,
-		ProviderCredentialID: cred1ID,
-		RecordType:           models.DNSRecordTypeAuto,
-		Status:               models.DNSRecordStatusReady,
-		CreatedBy:            userID,
+		DomainID:     domainID1,
+		HostedZoneID: zone1ID,
+		RecordType:   models.DNSRecordTypeAuto,
+		Status:       models.DNSRecordStatusReady,
+		CreatedBy:    userID,
 	}
 	require.NoError(t, repo.Create(record1))
 
 	record2 := &models.DomainDNSRecord{
-		DomainID:             domainID2,
-		ProviderCredentialID: cred1ID,
-		RecordType:           models.DNSRecordTypeAuto,
-		Status:               models.DNSRecordStatusReady,
-		CreatedBy:            userID,
+		DomainID:     domainID2,
+		HostedZoneID: zone1ID,
+		RecordType:   models.DNSRecordTypeAuto,
+		Status:       models.DNSRecordStatusReady,
+		CreatedBy:    userID,
 	}
 	require.NoError(t, repo.Create(record2))
 
-	// Create a record for the second credential
+	// Create a record for the second zone
 	record3 := &models.DomainDNSRecord{
-		DomainID:             domainID1,
-		ProviderCredentialID: cred2ID,
-		RecordType:           models.DNSRecordTypeA,
-		Status:               models.DNSRecordStatusPending,
-		CreatedBy:            userID,
+		DomainID:     domainID1,
+		HostedZoneID: zone2ID,
+		RecordType:   models.DNSRecordTypeA,
+		Status:       models.DNSRecordStatusPending,
+		CreatedBy:    userID,
 	}
 	require.NoError(t, repo.Create(record3))
 
-	// Count by first credential should be 2
-	count1, err := repo.CountByCredential(cred1ID)
+	// Count by first zone should be 2
+	count1, err := repo.CountByZone(zone1ID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), count1)
 
-	// Count by second credential should be 1
-	count2, err := repo.CountByCredential(cred2ID)
+	// Count by second zone should be 1
+	count2, err := repo.CountByZone(zone2ID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), count2)
 
-	// Count by non-existent credential should be 0
-	count3, err := repo.CountByCredential(uuid.New())
+	// Count by non-existent zone should be 0
+	count3, err := repo.CountByZone(uuid.New())
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), count3)
 }

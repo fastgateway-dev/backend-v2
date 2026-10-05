@@ -1,0 +1,98 @@
+dns-zones:
+  get:
+    tags: [DNS Zones]
+    summary: List DNS hosted zones (Owner only)
+    description: Platform-global.
+    operationId: listDNSHostedZones
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: List of DNS hosted zones
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dns-zone.yaml#/DNSHostedZoneList'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+  post:
+    tags: [DNS Zones]
+    summary: Register a DNS hosted zone (Owner only)
+    description: >-
+      Validates the zone against the live provider using the given
+      credential. If the provider lookup fails, the zone is still created
+      with `status: error` and a `statusMessage` -- the caller can see the
+      failed registration on the list and delete/retry it, instead of
+      losing the attempt silently.
+    operationId: createDNSHostedZone
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/dns-zone.yaml#/CreateDNSHostedZoneRequest'
+    responses:
+      '201':
+        description: 'DNS hosted zone registered (possibly with status error -- see the operation description)'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dns-zone.yaml#/DNSHostedZone'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
+dns-zones_{hostedZoneId}:
+  get:
+    tags: [DNS Zones]
+    summary: Get DNS hosted zone (Owner only)
+    operationId: getDNSHostedZone
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/hostedZoneId'
+    responses:
+      '200':
+        description: DNS hosted zone
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dns-zone.yaml#/DNSHostedZone'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+  delete:
+    tags: [DNS Zones]
+    summary: Delete DNS hosted zone (Owner only)
+    operationId: deleteDNSHostedZone
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/hostedZoneId'
+    responses:
+      '204':
+        description: DNS hosted zone deleted
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: DNS hosted zone is referenced by one or more domain DNS records
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

@@ -33,26 +33,26 @@ func NewDNSRecordHandler(service DNSRecordServiceInterface, permChecker *middlew
 
 // dnsRecordRequest is the create/update payload for a domain's DNS record.
 type dnsRecordRequest struct {
-	ProviderCredentialID *string `json:"providerCredentialId"`
-	RecordType           string  `json:"recordType"`
-	TTL                  *int    `json:"ttl"`
-	Proxied              bool    `json:"proxied"`
+	HostedZoneID *string `json:"hostedZoneId"`
+	RecordType   string  `json:"recordType"`
+	TTL          *int    `json:"ttl"`
+	Proxied      bool    `json:"proxied"`
 }
 
 // toInput parses the request body into services.DNSRecordInput. The only
-// failure mode is a malformed (non-UUID) providerCredentialId.
+// failure mode is a malformed (non-UUID) hostedZoneId.
 func (r dnsRecordRequest) toInput() (services.DNSRecordInput, error) {
 	in := services.DNSRecordInput{
 		RecordType: models.DNSRecordType(r.RecordType),
 		TTL:        r.TTL,
 		Proxied:    r.Proxied,
 	}
-	if r.ProviderCredentialID != nil {
-		id, err := uuid.Parse(*r.ProviderCredentialID)
+	if r.HostedZoneID != nil {
+		id, err := uuid.Parse(*r.HostedZoneID)
 		if err != nil {
-			return in, errors.New("invalid providerCredentialId")
+			return in, errors.New("invalid hostedZoneId")
 		}
-		in.ProviderCredentialID = &id
+		in.HostedZoneID = &id
 	}
 	return in, nil
 }
@@ -62,52 +62,52 @@ func (r dnsRecordRequest) toInput() (services.DNSRecordInput, error) {
 // DNSProviderCredential row, never on this one, so unlike
 // managedCertificateResponse there is nothing to omit.
 type dnsRecordResponse struct {
-	ID                   uuid.UUID              `json:"id"`
-	DomainID             uuid.UUID              `json:"domainId"`
-	ProviderCredentialID uuid.UUID              `json:"providerCredentialId"`
-	RecordType           models.DNSRecordType   `json:"recordType"`
-	TTL                  *int                   `json:"ttl,omitempty"`
-	Proxied              bool                   `json:"proxied"`
-	ResolvedTarget       string                 `json:"resolvedTarget,omitempty"`
-	Status               models.DNSRecordStatus `json:"status"`
-	StatusMessage        string                 `json:"statusMessage,omitempty"`
-	EndpointName         string                 `json:"endpointName,omitempty"`
-	CreatedBy            uuid.UUID              `json:"createdBy"`
-	CreatedAt            time.Time              `json:"createdAt"`
-	UpdatedAt            time.Time              `json:"updatedAt"`
+	ID             uuid.UUID              `json:"id"`
+	DomainID       uuid.UUID              `json:"domainId"`
+	HostedZoneID   uuid.UUID              `json:"hostedZoneId"`
+	RecordType     models.DNSRecordType   `json:"recordType"`
+	TTL            *int                   `json:"ttl,omitempty"`
+	Proxied        bool                   `json:"proxied"`
+	ResolvedTarget string                 `json:"resolvedTarget,omitempty"`
+	Status         models.DNSRecordStatus `json:"status"`
+	StatusMessage  string                 `json:"statusMessage,omitempty"`
+	CreatedBy      uuid.UUID              `json:"createdBy"`
+	CreatedAt      time.Time              `json:"createdAt"`
+	UpdatedAt      time.Time              `json:"updatedAt"`
 }
 
 func toDNSRecordResponse(r *models.DomainDNSRecord) dnsRecordResponse {
 	return dnsRecordResponse{
-		ID:                   r.ID,
-		DomainID:             r.DomainID,
-		ProviderCredentialID: r.ProviderCredentialID,
-		RecordType:           r.RecordType,
-		TTL:                  r.TTL,
-		Proxied:              r.Proxied,
-		ResolvedTarget:       r.ResolvedTarget,
-		Status:               r.Status,
-		StatusMessage:        r.StatusMessage,
-		EndpointName:         r.EndpointName,
-		CreatedBy:            r.CreatedBy,
-		CreatedAt:            r.CreatedAt,
-		UpdatedAt:            r.UpdatedAt,
+		ID:             r.ID,
+		DomainID:       r.DomainID,
+		HostedZoneID:   r.HostedZoneID,
+		RecordType:     r.RecordType,
+		TTL:            r.TTL,
+		Proxied:        r.Proxied,
+		ResolvedTarget: r.ResolvedTarget,
+		Status:         r.Status,
+		StatusMessage:  r.StatusMessage,
+		CreatedBy:      r.CreatedBy,
+		CreatedAt:      r.CreatedAt,
+		UpdatedAt:      r.UpdatedAt,
 	}
 }
 
 // mapDNSRecordServiceError maps the service-layer errors Enable/Get/Update
-// can return into an HTTP response: ErrNoActiveDNSCredential,
-// ErrCredentialNotActive, and ErrInvalidRecordType are caller-fixable input
-// problems (400), ErrDNSRecordExists means Enable was called twice for the
-// same domain (409), gorm.ErrRecordNotFound means there is no record for
-// this domain yet (404), and anything else is an unexpected failure (500).
+// can return into an HTTP response: ErrNoHostedZone and ErrInvalidRecordType
+// are caller-fixable input problems (400), ErrDNSRecordExists means Enable
+// was called twice for the same domain (409), gorm.ErrRecordNotFound means
+// there is no record for this domain yet (404), services.ErrDomainNotFound
+// means the domain is unknown or belongs to a different project (404 -- a
+// cross-project probe is indistinguishable from a missing domain), and
+// anything else is an unexpected failure (500).
 func mapDNSRecordServiceError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, services.ErrNoActiveDNSCredential), errors.Is(err, services.ErrCredentialNotActive), errors.Is(err, services.ErrInvalidRecordType):
+	case errors.Is(err, services.ErrNoHostedZone), errors.Is(err, services.ErrInvalidRecordType):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, services.ErrDNSRecordExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-	case errors.Is(err, gorm.ErrRecordNotFound):
+	case errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, services.ErrDomainNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "DNS record not found"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -144,7 +144,7 @@ func (h *DNSRecordHandler) Get(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.service.Get(domainID)
+	rec, err := h.service.Get(domainID, projectID)
 	if err != nil {
 		mapDNSRecordServiceError(c, err)
 		return
@@ -177,7 +177,7 @@ func (h *DNSRecordHandler) Enable(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.service.Enable(domainID, user.ID, input)
+	rec, err := h.service.Enable(domainID, projectID, user.ID, input)
 	if err != nil {
 		mapDNSRecordServiceError(c, err)
 		return
@@ -222,7 +222,7 @@ func (h *DNSRecordHandler) Update(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.service.Update(domainID, input)
+	rec, err := h.service.Update(domainID, projectID, input)
 	if err != nil {
 		mapDNSRecordServiceError(c, err)
 		return
@@ -243,10 +243,10 @@ func (h *DNSRecordHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, toDNSRecordResponse(rec))
 }
 
-// Delete removes the domain's DNS record (and the live DNSEndpoint it
-// reconciled to). Idempotent -- DNSRecordService.Delete treats "no record
-// for this domain" as success rather than an error, so this always 204s
-// unless something actually fails.
+// Delete removes the domain's DNS record. Idempotent --
+// DNSRecordService.Delete treats "no record for this domain" as success
+// rather than an error, so this always 204s unless something actually
+// fails.
 func (h *DNSRecordHandler) Delete(c *gin.Context) {
 	user := middleware.GetCurrentUser(c)
 	projectID, domainID, ok := parseProjectAndDomainID(c)
@@ -259,7 +259,7 @@ func (h *DNSRecordHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Delete(domainID); err != nil {
+	if err := h.service.Delete(domainID, projectID); err != nil {
 		mapDNSRecordServiceError(c, err)
 		return
 	}
@@ -292,7 +292,7 @@ func (h *DNSRecordHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.service.Refresh(domainID)
+	rec, err := h.service.Refresh(domainID, projectID)
 	if err != nil {
 		mapDNSRecordServiceError(c, err)
 		return

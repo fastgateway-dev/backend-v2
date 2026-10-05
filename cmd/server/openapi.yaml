@@ -59,6 +59,8 @@ tags:
     description: Single Sign-On configuration
   - name: DNS Credentials
     description: Platform-global DNS provider credential management (owner only)
+  - name: DNS Zones
+    description: Platform-global DNS hosted zone (domain apex) management (owner only)
   - name: DNS Records
     description: Per-domain FastGateway-managed DNS record (external-dns) management
   - name: Certificate Issuers
@@ -597,35 +599,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /dns/settings/active-credential:
+  /dns/zones:
     get:
       tags:
-        - DNS Credentials
-      summary: Get the active DNS provider credential (Owner only)
-      description: Platform-global. There is exactly one active DNS credential at a time, used by every domain's DNS record.
-      operationId: getActiveDNSCredential
+        - DNS Zones
+      summary: List DNS hosted zones (Owner only)
+      description: Platform-global.
+      operationId: listDNSHostedZones
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: The currently active DNS provider credential, or none configured yet
+          description: List of DNS hosted zones
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ActiveDNSCredential'
+                $ref: '#/components/schemas/DNSHostedZoneList'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-    put:
+    post:
       tags:
-        - DNS Credentials
-      summary: Set the active DNS provider credential (Owner only)
-      description: |
-        Validates the credential, renders it into the external-dns Secret, and
-        applies that Secret to the control cluster. Only once the apply
-        succeeds is the credential persisted as active.
-      operationId: setActiveDNSCredential
+        - DNS Zones
+      summary: Register a DNS hosted zone (Owner only)
+      description: 'Validates the zone against the live provider using the given credential. If the provider lookup fails, the zone is still created with `status: error` and a `statusMessage` -- the caller can see the failed registration on the list and delete/retry it, instead of losing the attempt silently.'
+      operationId: createDNSHostedZone
       security:
         - bearerAuth: []
       requestBody:
@@ -633,20 +632,67 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SetActiveDNSCredentialRequest'
+              $ref: '#/components/schemas/CreateDNSHostedZoneRequest'
       responses:
-        '200':
-          description: Active DNS provider credential updated
+        '201':
+          description: DNS hosted zone registered (possibly with status error -- see the operation description)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ActiveDNSCredential'
+                $ref: '#/components/schemas/DNSHostedZone'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /dns/zones/{hostedZoneId}:
+    get:
+      tags:
+        - DNS Zones
+      summary: Get DNS hosted zone (Owner only)
+      operationId: getDNSHostedZone
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/hostedZoneId'
+      responses:
+        '200':
+          description: DNS hosted zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSHostedZone'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - DNS Zones
+      summary: Delete DNS hosted zone (Owner only)
+      operationId: deleteDNSHostedZone
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/hostedZoneId'
+      responses:
+        '204':
+          description: DNS hosted zone deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: DNS hosted zone is referenced by one or more domain DNS records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /certificates:
     get:
       tags:
@@ -2678,10 +2724,9 @@ paths:
         - DNS Records
       summary: Enable DNS management for a domain
       description: |
-        Creates the domain's DNS record and performs a best-effort first
-        reconcile against external-dns. `providerCredentialId`, if supplied,
-        must equal the system-wide active DNS credential -- callers confirm
-        the already-active credential, they cannot pick an arbitrary one.
+        Creates the domain's DNS record in the given registered hosted zone
+        and performs a best-effort first reconcile against the zone's
+        provider. `hostedZoneId` is required.
         Requires Owner, Project Admin, or domain-manage permission.
       operationId: enableDomainDNSRecord
       security:
@@ -2703,7 +2748,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DomainDNSRecord'
         '400':
-          description: No active DNS credential is configured, providerCredentialId does not match it, or recordType is not one of auto/A/AAAA/CNAME
+          description: hostedZoneId is missing, or recordType is not one of auto/A/AAAA/CNAME
           content:
             application/json:
               schema:
@@ -2743,7 +2788,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DomainDNSRecord'
         '400':
-          description: No active DNS credential is configured, providerCredentialId does not match it, or recordType is not one of auto/A/AAAA/CNAME
+          description: recordType is not one of auto/A/AAAA/CNAME
           content:
             application/json:
               schema:
@@ -2763,9 +2808,8 @@ paths:
         - DNS Records
       summary: Delete a domain's DNS record
       description: |
-        Removes the live DNSEndpoint (so external-dns tears down the DNS
-        record) and the DomainDNSRecord row. Idempotent: deleting when no
-        record exists still returns 204. Requires Owner, Project Admin, or
+        Removes the DomainDNSRecord row. Idempotent: deleting when no record
+        exists still returns 204. Requires Owner, Project Admin, or
         domain-manage permission.
       operationId: deleteDomainDNSRecord
       security:
@@ -2785,7 +2829,7 @@ paths:
       tags:
         - DNS Records
       summary: Re-reconcile a domain's DNS record
-      description: Re-runs reconciliation against external-dns and returns the fresh record. Requires Owner, Project Admin, or domain-manage permission.
+      description: Re-runs reconciliation against the record's hosted-zone provider and returns the fresh record. Requires Owner, Project Admin, or domain-manage permission.
       operationId: refreshDomainDNSRecord
       security:
         - bearerAuth: []
@@ -5294,6 +5338,13 @@ components:
       schema:
         type: string
         format: uuid
+    hostedZoneId:
+      name: hostedZoneId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     issuerId:
       name: issuerId
       in: path
@@ -6753,10 +6804,10 @@ components:
             enabled:
               type: boolean
               default: false
-            providerCredentialId:
+            hostedZoneId:
               type: string
               format: uuid
-              description: Must equal the system-wide active DNS credential if supplied. Omit to use the active credential implicitly.
+              description: The registered hosted zone to write this record into. Required when enabled is true.
             recordType:
               type: string
               enum:
@@ -10760,6 +10811,52 @@ components:
           additionalProperties:
             type: string
           description: Provider-specific plaintext credential values to rotate. Encrypted at rest; never returned in any response.
+    DNSHostedZone:
+      type: object
+      description: A DNS hosted zone (domain apex) registered under a DNS provider credential. Never includes the provider's internal zone id.
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        providerCredentialId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - ready
+            - error
+            - pending
+        statusMessage:
+          type: string
+          description: Set when status is `error`; describes why validation against the live provider failed.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DNSHostedZoneList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DNSHostedZone'
+    CreateDNSHostedZoneRequest:
+      type: object
+      required:
+        - name
+        - providerCredentialId
+      properties:
+        name:
+          type: string
+          description: The zone/domain apex name (e.g. `example.com`).
+        providerCredentialId:
+          type: string
+          format: uuid
     DomainDNSRecord:
       type: object
       description: |
@@ -10775,10 +10872,10 @@ components:
         domainId:
           type: string
           format: uuid
-        providerCredentialId:
+        hostedZoneId:
           type: string
           format: uuid
-          description: The DNS provider credential this record was created against. Must equal the system-wide active credential.
+          description: The registered hosted zone this record is written into.
         recordType:
           type: string
           enum:
@@ -10801,15 +10898,11 @@ components:
           type: string
           enum:
             - pending
-            - syncing
             - ready
             - error
         statusMessage:
           type: string
           description: Human-readable detail for the current status.
-        endpointName:
-          type: string
-          description: Name of the underlying DNSEndpoint custom resource external-dns watches.
         createdBy:
           type: string
           format: uuid
@@ -10821,11 +10914,13 @@ components:
           format: date-time
     CreateDNSRecordRequest:
       type: object
+      required:
+        - hostedZoneId
       properties:
-        providerCredentialId:
+        hostedZoneId:
           type: string
           format: uuid
-          description: Must equal the system-wide active DNS credential if supplied. Omit to use the active credential implicitly.
+          description: The registered hosted zone to write this record into. Required.
         recordType:
           type: string
           enum:
@@ -10843,10 +10938,6 @@ components:
     UpdateDNSRecordRequest:
       type: object
       properties:
-        providerCredentialId:
-          type: string
-          format: uuid
-          description: Must equal the system-wide active DNS credential if supplied.
         recordType:
           type: string
           enum:
@@ -10859,22 +10950,6 @@ components:
           nullable: true
         proxied:
           type: boolean
-    ActiveDNSCredential:
-      type: object
-      description: The platform-wide active DNS provider credential for external-dns, or none configured yet.
-      properties:
-        credentialId:
-          type: string
-          format: uuid
-          nullable: true
-    SetActiveDNSCredentialRequest:
-      type: object
-      required:
-        - credentialId
-      properties:
-        credentialId:
-          type: string
-          format: uuid
     IssuerConfig:
       type: object
       description: Polymorphic issuer configuration. The self_signed_ca fields apply only when `type` is `self_signed_ca`; the acme fields apply only when `type` is `acme`. Never includes key material -- private keys and ACME account/EAB secrets live in cert-manager-managed Kubernetes Secrets, not in this row.

@@ -13,51 +13,30 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 )
 
-// ActiveDNSCredentialReader is the narrow role DNSCredentialService needs
-// from SystemSettingsService: read which DNS provider credential is
-// currently the system-wide active one, so Delete can refuse to remove it
-// out from under external-dns (final review Fix B). Satisfied by
-// *SystemSettingsService. Defined here (rather than on SystemSettingsService
-// itself) following the same narrow-role pattern as DNSCredentialReader/
-// SystemSettingsStore in dns_infra_service.go.
-type ActiveDNSCredentialReader interface {
-	GetActiveDNSCredentialID() (*uuid.UUID, error)
-}
-
-// Compile-time role satisfaction check.
-var _ ActiveDNSCredentialReader = (*SystemSettingsService)(nil)
-
 // DNSCredentialService manages platform-global (owner-managed) DNS provider
 // credentials used by ACME DNS-01 issuers. Every credential value is
 // encrypted before it is persisted and decrypted only on demand (see
 // DecryptedCredentials) -- it is never returned in plaintext through the API.
 type DNSCredentialService struct {
-	repo          repository.DNSProviderCredentialRepositoryInterface
-	config        *config.Config
-	issuerRepo    repository.CertificateIssuerRepositoryInterface
-	domainDNSRepo repository.DomainDNSRecordRepositoryInterface
-	settings      ActiveDNSCredentialReader
+	repo       repository.DNSProviderCredentialRepositoryInterface
+	config     *config.Config
+	issuerRepo repository.CertificateIssuerRepositoryInterface
+	zoneRepo   repository.DNSHostedZoneRepositoryInterface
 }
 
 // DNSCredentialServiceDeps are DNSCredentialService's required dependencies.
 // NewDNSCredentialService panics if any of them is nil, following the house
 // pattern for services with required constructor dependencies. IssuerRepo
 // lets Delete refuse to remove a credential that's still referenced by an
-// ACME issuer (see CertificateIssuerService, Task 6). DomainDNSRecordRepo
-// lets Delete refuse to remove a credential that's still referenced by one
-// or more domain DNS records (final review Fix 2: CountByCredential existed
-// on the repository since Task 9 but had no caller). Settings lets Delete
-// refuse to remove the system-wide active credential, even when nothing yet
-// references it (final review Fix B) -- it's built from SystemSettingsService
-// directly (rather than DNSInfraService, which wraps it) because
-// DNSCredentialService is constructed before DNSInfraService exists in
-// main.go, and SystemSettingsService is available from the very start.
+// ACME issuer (see CertificateIssuerService, Task 6). ZoneRepo lets Delete
+// refuse to remove a credential that's still referenced by one or more
+// registered hosted zones (the direct-provider redesign's in-use guard,
+// replacing the old DomainDNSRecord-based check).
 type DNSCredentialServiceDeps struct {
-	Repo                repository.DNSProviderCredentialRepositoryInterface
-	Config              *config.Config
-	IssuerRepo          repository.CertificateIssuerRepositoryInterface
-	DomainDNSRecordRepo repository.DomainDNSRecordRepositoryInterface
-	Settings            ActiveDNSCredentialReader
+	Repo       repository.DNSProviderCredentialRepositoryInterface
+	Config     *config.Config
+	IssuerRepo repository.CertificateIssuerRepositoryInterface
+	ZoneRepo   repository.DNSHostedZoneRepositoryInterface
 }
 
 func NewDNSCredentialService(deps DNSCredentialServiceDeps) *DNSCredentialService {
@@ -71,16 +50,13 @@ func NewDNSCredentialService(deps DNSCredentialServiceDeps) *DNSCredentialServic
 	if deps.IssuerRepo == nil {
 		missing = append(missing, "IssuerRepo")
 	}
-	if deps.DomainDNSRecordRepo == nil {
-		missing = append(missing, "DomainDNSRecordRepo")
-	}
-	if deps.Settings == nil {
-		missing = append(missing, "Settings")
+	if deps.ZoneRepo == nil {
+		missing = append(missing, "ZoneRepo")
 	}
 	if len(missing) > 0 {
 		panic("services.NewDNSCredentialService: missing required dependency: " + strings.Join(missing, ", "))
 	}
-	return &DNSCredentialService{repo: deps.Repo, config: deps.Config, issuerRepo: deps.IssuerRepo, domainDNSRepo: deps.DomainDNSRecordRepo, settings: deps.Settings}
+	return &DNSCredentialService{repo: deps.Repo, config: deps.Config, issuerRepo: deps.IssuerRepo, zoneRepo: deps.ZoneRepo}
 }
 
 // CreateDNSCredentialInput is the request body for creating a DNS provider
@@ -172,23 +148,13 @@ func (s *DNSCredentialService) Update(id uuid.UUID, input *UpdateDNSCredentialIn
 var ErrDNSCredentialInUseByIssuer = errors.New("DNS credential is in use by an ACME issuer")
 
 // ErrDNSCredentialInUse is returned by Delete when the credential is still
-// the active provider credential on one or more domain DNS records
-// (DomainDNSRecord.ProviderCredentialID) -- deleting it out from under them
-// would leave external-dns unable to keep reconciling those records.
-var ErrDNSCredentialInUse = errors.New("DNS credential is in use by one or more domain DNS records")
-
-// ErrDNSCredentialIsActive is returned by Delete when the credential is the
-// system-wide active DNS credential (system_settings.active_dns_credential_id),
-// even if no domain DNS record references it yet (final review Fix B).
-// active_dns_credential_id has no FK, so without this check an owner could
-// delete the active credential, leaving a dangling pointer and a stale
-// rendered external-dns Secret, and the next Enable would 500 on the
-// domain_dns_records.provider_credential_id FK.
-var ErrDNSCredentialIsActive = errors.New("DNS credential is the active DNS credential; unset it before deleting")
+// referenced by one or more registered hosted zones (DNSHostedZone.
+// ProviderCredentialID) -- deleting it out from under them would leave
+// FastGateway unable to keep writing records into those zones.
+var ErrDNSCredentialInUse = errors.New("DNS credential is in use by one or more hosted zones")
 
 // Delete removes a DNS provider credential, but refuses when it is still
-// referenced by one or more ACME issuers or domain DNS records, or when it
-// is the system-wide active DNS credential.
+// referenced by one or more ACME issuers or registered hosted zones.
 func (s *DNSCredentialService) Delete(id uuid.UUID) error {
 	n, err := s.issuerRepo.CountByDNSCredential(id)
 	if err != nil {
@@ -197,19 +163,12 @@ func (s *DNSCredentialService) Delete(id uuid.UUID) error {
 	if n > 0 {
 		return ErrDNSCredentialInUseByIssuer
 	}
-	recN, err := s.domainDNSRepo.CountByCredential(id)
+	zoneN, err := s.zoneRepo.CountByCredential(id)
 	if err != nil {
 		return err
 	}
-	if recN > 0 {
+	if zoneN > 0 {
 		return ErrDNSCredentialInUse
-	}
-	active, err := s.settings.GetActiveDNSCredentialID()
-	if err != nil {
-		return err
-	}
-	if active != nil && *active == id {
-		return ErrDNSCredentialIsActive
 	}
 	return s.repo.Delete(id)
 }

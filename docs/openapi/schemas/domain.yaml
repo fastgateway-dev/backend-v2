@@ -99,10 +99,10 @@ CreateDomainRequest:
         enabled:
           type: boolean
           default: false
-        providerCredentialId:
+        hostedZoneId:
           type: string
           format: uuid
-          description: Must equal the system-wide active DNS credential if supplied. Omit to use the active credential implicitly.
+          description: The registered hosted zone to write this record into. Required when enabled is true.
         recordType:
           type: string
           enum: [auto, A, AAAA, CNAME]

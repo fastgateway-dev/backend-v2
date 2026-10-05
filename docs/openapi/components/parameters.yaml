@@ -125,6 +125,13 @@ dnsCredentialId:
   schema:
     type: string
     format: uuid
+hostedZoneId:
+  name: hostedZoneId
+  in: path
+  required: true
+  schema:
+    type: string
+    format: uuid
 issuerId:
   name: issuerId
   in: path

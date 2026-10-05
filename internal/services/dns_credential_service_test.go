@@ -19,7 +19,7 @@ func TestDNSCredentialService_Create_EncryptsCredentials(t *testing.T) {
 	repo := new(mocks.MockDNSProviderCredentialRepository)
 	issuerRepo := new(mocks.MockCertificateIssuerRepository)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
+	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo, ZoneRepo: new(mocks.MockDNSHostedZoneRepository)})
 
 	var saved *models.DNSProviderCredential
 	repo.On("Create", mock_anything(&saved)).Return(nil)
@@ -44,7 +44,7 @@ func TestDNSCredentialService_Update_ReEncryptsChangedCredentials(t *testing.T) 
 	repo := new(mocks.MockDNSProviderCredentialRepository)
 	issuerRepo := new(mocks.MockCertificateIssuerRepository)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
+	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo, ZoneRepo: new(mocks.MockDNSHostedZoneRepository)})
 
 	id := uuid.New()
 	existing := &models.DNSProviderCredential{
@@ -84,7 +84,7 @@ func TestCreateDNSCredential_Route53ValidatesFields(t *testing.T) {
 	repo := new(mocks.MockDNSProviderCredentialRepository)
 	issuerRepo := new(mocks.MockCertificateIssuerRepository)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
+	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo, ZoneRepo: new(mocks.MockDNSHostedZoneRepository)})
 
 	in := &services.CreateDNSCredentialInput{
 		Name: "aws", ProviderType: "route53",
@@ -100,7 +100,7 @@ func TestCreateDNSCredential_Route53AcceptsCompleteFields(t *testing.T) {
 	repo := new(mocks.MockDNSProviderCredentialRepository)
 	issuerRepo := new(mocks.MockCertificateIssuerRepository)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
+	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo, ZoneRepo: new(mocks.MockDNSHostedZoneRepository)})
 
 	var saved *models.DNSProviderCredential
 	repo.On("Create", mock_anything(&saved)).Return(nil)
@@ -118,7 +118,7 @@ func TestCreateDNSCredential_UnsupportedProvider(t *testing.T) {
 	repo := new(mocks.MockDNSProviderCredentialRepository)
 	issuerRepo := new(mocks.MockCertificateIssuerRepository)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo, DomainDNSRecordRepo: new(mocks.MockDomainDNSRecordRepository), Settings: new(mocks.MockActiveDNSCredentialReader)})
+	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{Repo: repo, Config: cfg, IssuerRepo: issuerRepo, ZoneRepo: new(mocks.MockDNSHostedZoneRepository)})
 
 	in := &services.CreateDNSCredentialInput{Name: "x", ProviderType: "bind", Credentials: map[string]string{}}
 	_, err := svc.Create(in, uuid.New())
@@ -127,22 +127,22 @@ func TestCreateDNSCredential_UnsupportedProvider(t *testing.T) {
 	}
 }
 
-// TestDNSCredentialService_Delete_RejectsWhenInUseByDomainDNSRecord is the
-// regression test for review Fix 2: CountByCredential existed on
-// DomainDNSRecordRepository since Task 9 but had no caller, so deleting a
-// credential that external-dns records still depend on silently succeeded.
-func TestDNSCredentialService_Delete_RejectsWhenInUseByDomainDNSRecord(t *testing.T) {
+// TestDNSCredentialService_Delete_RejectsWhenInUseByHostedZone is the
+// regression test for the direct-provider redesign's in-use guard: deleting
+// a credential that one or more registered hosted zones still depend on
+// must be refused, not silently succeed.
+func TestDNSCredentialService_Delete_RejectsWhenInUseByHostedZone(t *testing.T) {
 	repo := new(mocks.MockDNSProviderCredentialRepository)
 	issuerRepo := new(mocks.MockCertificateIssuerRepository)
-	domainDNSRepo := new(mocks.MockDomainDNSRecordRepository)
+	zoneRepo := new(mocks.MockDNSHostedZoneRepository)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
 	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{
-		Repo: repo, Config: cfg, IssuerRepo: issuerRepo, DomainDNSRecordRepo: domainDNSRepo, Settings: new(mocks.MockActiveDNSCredentialReader),
+		Repo: repo, Config: cfg, IssuerRepo: issuerRepo, ZoneRepo: zoneRepo,
 	})
 
 	id := uuid.New()
 	issuerRepo.On("CountByDNSCredential", id).Return(int64(0), nil)
-	domainDNSRepo.On("CountByCredential", id).Return(int64(2), nil)
+	zoneRepo.On("CountByCredential", id).Return(int64(2), nil)
 
 	err := svc.Delete(id)
 
@@ -151,76 +151,43 @@ func TestDNSCredentialService_Delete_RejectsWhenInUseByDomainDNSRecord(t *testin
 	repo.AssertNotCalled(t, "Delete", mock.Anything)
 }
 
-// TestDNSCredentialService_Delete_AllowsWhenUnused verifies Delete proceeds
-// to the repository when neither guard finds a reference and the credential
-// is not the active one.
-func TestDNSCredentialService_Delete_AllowsWhenUnused(t *testing.T) {
+// TestDNSCredentialService_Delete_RejectsWhenInUseByIssuer verifies the
+// ACME-issuer in-use guard is still enforced, unchanged by the hosted-zone
+// rewrite.
+func TestDNSCredentialService_Delete_RejectsWhenInUseByIssuer(t *testing.T) {
 	repo := new(mocks.MockDNSProviderCredentialRepository)
 	issuerRepo := new(mocks.MockCertificateIssuerRepository)
-	domainDNSRepo := new(mocks.MockDomainDNSRecordRepository)
-	settings := new(mocks.MockActiveDNSCredentialReader)
+	zoneRepo := new(mocks.MockDNSHostedZoneRepository)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
 	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{
-		Repo: repo, Config: cfg, IssuerRepo: issuerRepo, DomainDNSRecordRepo: domainDNSRepo, Settings: settings,
+		Repo: repo, Config: cfg, IssuerRepo: issuerRepo, ZoneRepo: zoneRepo,
 	})
 
 	id := uuid.New()
-	issuerRepo.On("CountByDNSCredential", id).Return(int64(0), nil)
-	domainDNSRepo.On("CountByCredential", id).Return(int64(0), nil)
-	settings.On("GetActiveDNSCredentialID").Return((*uuid.UUID)(nil), nil)
-	repo.On("Delete", id).Return(nil)
-
-	err := svc.Delete(id)
-
-	require.NoError(t, err)
-	repo.AssertExpectations(t)
-}
-
-// TestDNSCredentialService_Delete_RejectsWhenActive is the regression test
-// for final review Fix B: active_dns_credential_id has no FK, so without
-// this check an owner could delete the system-wide active DNS credential
-// even when no domain DNS record references it yet, leaving a dangling
-// pointer and a stale rendered external-dns Secret.
-func TestDNSCredentialService_Delete_RejectsWhenActive(t *testing.T) {
-	repo := new(mocks.MockDNSProviderCredentialRepository)
-	issuerRepo := new(mocks.MockCertificateIssuerRepository)
-	domainDNSRepo := new(mocks.MockDomainDNSRecordRepository)
-	settings := new(mocks.MockActiveDNSCredentialReader)
-	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
-	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{
-		Repo: repo, Config: cfg, IssuerRepo: issuerRepo, DomainDNSRecordRepo: domainDNSRepo, Settings: settings,
-	})
-
-	id := uuid.New()
-	issuerRepo.On("CountByDNSCredential", id).Return(int64(0), nil)
-	domainDNSRepo.On("CountByCredential", id).Return(int64(0), nil)
-	settings.On("GetActiveDNSCredentialID").Return(&id, nil)
+	issuerRepo.On("CountByDNSCredential", id).Return(int64(1), nil)
 
 	err := svc.Delete(id)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, services.ErrDNSCredentialIsActive)
+	assert.ErrorIs(t, err, services.ErrDNSCredentialInUseByIssuer)
 	repo.AssertNotCalled(t, "Delete", mock.Anything)
+	zoneRepo.AssertNotCalled(t, "CountByCredential", mock.Anything)
 }
 
-// TestDNSCredentialService_Delete_AllowsNonActiveCredential verifies that
-// deleting a credential that is unreferenced AND not the active one
-// succeeds, even when a different credential IS currently active.
-func TestDNSCredentialService_Delete_AllowsNonActiveCredential(t *testing.T) {
+// TestDNSCredentialService_Delete_AllowsWhenUnused verifies Delete proceeds
+// to the repository when neither guard finds a reference.
+func TestDNSCredentialService_Delete_AllowsWhenUnused(t *testing.T) {
 	repo := new(mocks.MockDNSProviderCredentialRepository)
 	issuerRepo := new(mocks.MockCertificateIssuerRepository)
-	domainDNSRepo := new(mocks.MockDomainDNSRecordRepository)
-	settings := new(mocks.MockActiveDNSCredentialReader)
+	zoneRepo := new(mocks.MockDNSHostedZoneRepository)
 	cfg := &config.Config{EncryptionKey: "test-encryption-key-32-bytes-xx!"}
 	svc := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{
-		Repo: repo, Config: cfg, IssuerRepo: issuerRepo, DomainDNSRecordRepo: domainDNSRepo, Settings: settings,
+		Repo: repo, Config: cfg, IssuerRepo: issuerRepo, ZoneRepo: zoneRepo,
 	})
 
 	id := uuid.New()
-	otherActive := uuid.New()
 	issuerRepo.On("CountByDNSCredential", id).Return(int64(0), nil)
-	domainDNSRepo.On("CountByCredential", id).Return(int64(0), nil)
-	settings.On("GetActiveDNSCredentialID").Return(&otherActive, nil)
+	zoneRepo.On("CountByCredential", id).Return(int64(0), nil)
 	repo.On("Delete", id).Return(nil)
 
 	err := svc.Delete(id)

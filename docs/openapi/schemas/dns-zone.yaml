@@ -1,0 +1,43 @@
+DNSHostedZone:
+  type: object
+  description: A DNS hosted zone (domain apex) registered under a DNS provider credential. Never includes the provider's internal zone id.
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    providerCredentialId:
+      type: string
+      format: uuid
+    status:
+      type: string
+      enum: [ready, error, pending]
+    statusMessage:
+      type: string
+      description: Set when status is `error`; describes why validation against the live provider failed.
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+DNSHostedZoneList:
+  type: object
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/DNSHostedZone'
+
+CreateDNSHostedZoneRequest:
+  type: object
+  required: [name, providerCredentialId]
+  properties:
+    name:
+      type: string
+      description: The zone/domain apex name (e.g. `example.com`).
+    providerCredentialId:
+      type: string
+      format: uuid

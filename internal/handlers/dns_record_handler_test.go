@@ -31,7 +31,7 @@ func TestDNSRecordHandler_Get_NotFound(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Get", domainID).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
+	mockSvc.On("Get", domainID, projectID).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
 
 	router := gin.New()
 	router.GET("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
@@ -56,18 +56,18 @@ func TestDNSRecordHandler_Get_Success(t *testing.T) {
 	user := testUser()
 	projectID := uuid.New()
 	domainID := uuid.New()
-	credID := uuid.New()
+	zoneID := uuid.New()
 	rec := &models.DomainDNSRecord{
-		ID:                   uuid.New(),
-		DomainID:             domainID,
-		ProviderCredentialID: credID,
-		RecordType:           models.DNSRecordTypeA,
-		Status:               models.DNSRecordStatusReady,
-		CreatedAt:            time.Now(),
-		UpdatedAt:            time.Now(),
+		ID:           uuid.New(),
+		DomainID:     domainID,
+		HostedZoneID: zoneID,
+		RecordType:   models.DNSRecordTypeA,
+		Status:       models.DNSRecordStatusReady,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
 
-	mockSvc.On("Get", domainID).Return(rec, nil)
+	mockSvc.On("Get", domainID, projectID).Return(rec, nil)
 
 	router := gin.New()
 	router.GET("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
@@ -84,7 +84,7 @@ func TestDNSRecordHandler_Get_Success(t *testing.T) {
 	require := assert.New(t)
 	require.NoError(json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(domainID.String(), resp["domainId"])
-	require.Equal(credID.String(), resp["providerCredentialId"])
+	require.Equal(zoneID.String(), resp["hostedZoneId"])
 	require.Equal(string(models.DNSRecordStatusReady), resp["status"])
 	mockSvc.AssertExpectations(t)
 }
@@ -122,45 +122,10 @@ func TestDNSRecordHandler_Enable_DeniedWithoutPermission(t *testing.T) {
 	mockTeam.AssertExpectations(t)
 }
 
-// TestDNSRecordHandler_Enable_CredentialMismatch_BadRequest verifies the
-// handler maps services.ErrCredentialNotActive (returned when the caller
-// supplies a providerCredentialId that doesn't match the system-wide active
-// DNS credential) to 400, not the generic 500 path.
-func TestDNSRecordHandler_Enable_CredentialMismatch_BadRequest(t *testing.T) {
-	mockSvc := new(mocks.MockDNSRecordService)
-	mockAudit := new(mocks.MockAuditService)
-	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
-	h := handlers.NewDNSRecordHandler(mockSvc, pc, mockAudit)
-
-	user := testUser() // Owner role bypasses permission checks, isolating the error mapping
-	projectID := uuid.New()
-	domainID := uuid.New()
-	otherCred := uuid.New()
-
-	mockSvc.On("Enable", domainID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
-		Return((*models.DomainDNSRecord)(nil), services.ErrCredentialNotActive)
-
-	router := gin.New()
-	router.POST("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
-		c.Set("user", user)
-		h.Enable(c)
-	})
-
-	body, _ := json.Marshal(map[string]interface{}{
-		"providerCredentialId": otherCred.String(),
-		"recordType":           "A",
-	})
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domains/"+domainID.String()+"/dns-record", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	mockSvc.AssertExpectations(t)
-	mockAudit.AssertNotCalled(t, "LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-}
-
-func TestDNSRecordHandler_Enable_NoActiveCredential_BadRequest(t *testing.T) {
+// TestDNSRecordHandler_Enable_NoHostedZone_BadRequest verifies the handler
+// maps services.ErrNoHostedZone (returned when the caller doesn't supply a
+// hostedZoneId) to 400, not the generic 500 path.
+func TestDNSRecordHandler_Enable_NoHostedZone_BadRequest(t *testing.T) {
 	mockSvc := new(mocks.MockDNSRecordService)
 	mockAudit := new(mocks.MockAuditService)
 	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
@@ -170,8 +135,8 @@ func TestDNSRecordHandler_Enable_NoActiveCredential_BadRequest(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Enable", domainID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
-		Return((*models.DomainDNSRecord)(nil), services.ErrNoActiveDNSCredential)
+	mockSvc.On("Enable", domainID, projectID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
+		Return((*models.DomainDNSRecord)(nil), services.ErrNoHostedZone)
 
 	router := gin.New()
 	router.POST("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
@@ -190,9 +155,9 @@ func TestDNSRecordHandler_Enable_NoActiveCredential_BadRequest(t *testing.T) {
 }
 
 // TestDNSRecordHandler_Enable_InvalidRecordType_BadRequest verifies the
-// handler maps services.ErrInvalidRecordType (final review Fix A: an
-// unrecognized recordType like "TXT" must be rejected, never written into
-// the DNSEndpoint CR) to 400, not the generic 500 path.
+// handler maps services.ErrInvalidRecordType (an unrecognized recordType
+// like "TXT" must be rejected, never persisted) to 400, not the generic 500
+// path.
 func TestDNSRecordHandler_Enable_InvalidRecordType_BadRequest(t *testing.T) {
 	mockSvc := new(mocks.MockDNSRecordService)
 	mockAudit := new(mocks.MockAuditService)
@@ -203,7 +168,7 @@ func TestDNSRecordHandler_Enable_InvalidRecordType_BadRequest(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Enable", domainID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
+	mockSvc.On("Enable", domainID, projectID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
 		Return((*models.DomainDNSRecord)(nil), services.ErrInvalidRecordType)
 
 	router := gin.New()
@@ -235,7 +200,7 @@ func TestDNSRecordHandler_Update_InvalidRecordType_BadRequest(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Update", domainID, mock.AnythingOfType("services.DNSRecordInput")).
+	mockSvc.On("Update", domainID, projectID, mock.AnythingOfType("services.DNSRecordInput")).
 		Return((*models.DomainDNSRecord)(nil), services.ErrInvalidRecordType)
 
 	router := gin.New()
@@ -265,7 +230,7 @@ func TestDNSRecordHandler_Enable_AlreadyExists_Conflict(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Enable", domainID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
+	mockSvc.On("Enable", domainID, projectID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).
 		Return((*models.DomainDNSRecord)(nil), services.ErrDNSRecordExists)
 
 	router := gin.New()
@@ -293,16 +258,16 @@ func TestDNSRecordHandler_Enable_Success_Returns201(t *testing.T) {
 	user := testUser()
 	projectID := uuid.New()
 	domainID := uuid.New()
-	credID := uuid.New()
+	zoneID := uuid.New()
 	rec := &models.DomainDNSRecord{
-		ID:                   uuid.New(),
-		DomainID:             domainID,
-		ProviderCredentialID: credID,
-		RecordType:           models.DNSRecordTypeAuto,
-		Status:               models.DNSRecordStatusPending,
+		ID:           uuid.New(),
+		DomainID:     domainID,
+		HostedZoneID: zoneID,
+		RecordType:   models.DNSRecordTypeAuto,
+		Status:       models.DNSRecordStatusPending,
 	}
 
-	mockSvc.On("Enable", domainID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).Return(rec, nil)
+	mockSvc.On("Enable", domainID, projectID, user.ID, mock.AnythingOfType("services.DNSRecordInput")).Return(rec, nil)
 	mockAudit.On("LogAction", &projectID, user, "create", "dns_record", &rec.ID, domainID.String(), mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	router := gin.New()
@@ -312,8 +277,8 @@ func TestDNSRecordHandler_Enable_Success_Returns201(t *testing.T) {
 	})
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"providerCredentialId": credID.String(),
-		"proxied":              true,
+		"hostedZoneId": zoneID.String(),
+		"proxied":      true,
 	})
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domains/"+domainID.String()+"/dns-record", bytes.NewReader(body))
@@ -336,7 +301,7 @@ func TestDNSRecordHandler_Update_Success(t *testing.T) {
 	domainID := uuid.New()
 	rec := &models.DomainDNSRecord{ID: uuid.New(), DomainID: domainID, RecordType: models.DNSRecordTypeCNAME}
 
-	mockSvc.On("Update", domainID, mock.AnythingOfType("services.DNSRecordInput")).Return(rec, nil)
+	mockSvc.On("Update", domainID, projectID, mock.AnythingOfType("services.DNSRecordInput")).Return(rec, nil)
 	mockAudit.On("LogAction", &projectID, user, "update", "dns_record", &rec.ID, domainID.String(), mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	router := gin.New()
@@ -366,7 +331,7 @@ func TestDNSRecordHandler_Update_NotFound(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Update", domainID, mock.AnythingOfType("services.DNSRecordInput")).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
+	mockSvc.On("Update", domainID, projectID, mock.AnythingOfType("services.DNSRecordInput")).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
 
 	router := gin.New()
 	router.PUT("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
@@ -395,7 +360,7 @@ func TestDNSRecordHandler_Delete_Success_Returns204(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Delete", domainID).Return(nil)
+	mockSvc.On("Delete", domainID, projectID).Return(nil)
 	mockAudit.On("LogAction", &projectID, user, "delete", "dns_record", (*uuid.UUID)(nil), domainID.String(), mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	router := gin.New()
@@ -451,9 +416,9 @@ func TestDNSRecordHandler_Refresh_Success(t *testing.T) {
 	user := testUser()
 	projectID := uuid.New()
 	domainID := uuid.New()
-	rec := &models.DomainDNSRecord{ID: uuid.New(), DomainID: domainID, Status: models.DNSRecordStatusSyncing}
+	rec := &models.DomainDNSRecord{ID: uuid.New(), DomainID: domainID, Status: models.DNSRecordStatusPending}
 
-	mockSvc.On("Refresh", domainID).Return(rec, nil)
+	mockSvc.On("Refresh", domainID, projectID).Return(rec, nil)
 
 	router := gin.New()
 	router.POST("/projects/:projectId/domains/:domainId/dns-record/refresh", func(c *gin.Context) {
@@ -479,7 +444,7 @@ func TestDNSRecordHandler_Refresh_NotFound(t *testing.T) {
 	projectID := uuid.New()
 	domainID := uuid.New()
 
-	mockSvc.On("Refresh", domainID).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
+	mockSvc.On("Refresh", domainID, projectID).Return((*models.DomainDNSRecord)(nil), gorm.ErrRecordNotFound)
 
 	router := gin.New()
 	router.POST("/projects/:projectId/domains/:domainId/dns-record/refresh", func(c *gin.Context) {
@@ -495,92 +460,3 @@ func TestDNSRecordHandler_Refresh_NotFound(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
-// --- DNSActiveCredentialHandler ---
-
-func TestDNSActiveCredentialHandler_Get_NilWhenNoneActive(t *testing.T) {
-	mockSvc := new(mocks.MockDNSActiveCredentialService)
-	h := handlers.NewDNSActiveCredentialHandler(mockSvc, new(mocks.MockAuditService))
-
-	mockSvc.On("GetActiveCredentialID").Return((*uuid.UUID)(nil), nil)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request, _ = http.NewRequest("GET", "/dns/settings/active-credential", nil)
-
-	h.Get(c)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
-	require := assert.New(t)
-	require.NoError(json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Nil(resp["credentialId"])
-	mockSvc.AssertExpectations(t)
-}
-
-func TestDNSActiveCredentialHandler_Get_ReturnsActiveID(t *testing.T) {
-	mockSvc := new(mocks.MockDNSActiveCredentialService)
-	h := handlers.NewDNSActiveCredentialHandler(mockSvc, new(mocks.MockAuditService))
-
-	credID := uuid.New()
-	mockSvc.On("GetActiveCredentialID").Return(&credID, nil)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request, _ = http.NewRequest("GET", "/dns/settings/active-credential", nil)
-
-	h.Get(c)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
-	require := assert.New(t)
-	require.NoError(json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(credID.String(), resp["credentialId"])
-	mockSvc.AssertExpectations(t)
-}
-
-func TestDNSActiveCredentialHandler_Set_Success(t *testing.T) {
-	mockSvc := new(mocks.MockDNSActiveCredentialService)
-	mockAudit := new(mocks.MockAuditService)
-	h := handlers.NewDNSActiveCredentialHandler(mockSvc, mockAudit)
-
-	credID := uuid.New()
-	mockSvc.On("SetActiveCredential", credID).Return(nil)
-	mockAudit.On("LogAction", (*uuid.UUID)(nil), (*models.User)(nil), "update", "dns_active_credential", &credID, credID.String(), mock.Anything, mock.Anything, mock.Anything).Return(nil)
-
-	router := gin.New()
-	router.PUT("/dns/settings/active-credential", h.Set)
-
-	body, _ := json.Marshal(map[string]string{"credentialId": credID.String()})
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("PUT", "/dns/settings/active-credential", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	mockSvc.AssertExpectations(t)
-	mockAudit.AssertExpectations(t)
-}
-
-func TestDNSActiveCredentialHandler_Set_ServiceError_BadRequest(t *testing.T) {
-	mockSvc := new(mocks.MockDNSActiveCredentialService)
-	h := handlers.NewDNSActiveCredentialHandler(mockSvc, new(mocks.MockAuditService))
-
-	credID := uuid.New()
-	mockSvc.On("SetActiveCredential", credID).Return(assertAnError())
-
-	router := gin.New()
-	router.PUT("/dns/settings/active-credential", h.Set)
-
-	body, _ := json.Marshal(map[string]string{"credentialId": credID.String()})
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("PUT", "/dns/settings/active-credential", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	mockSvc.AssertExpectations(t)
-}
-
-func assertAnError() error {
-	return gorm.ErrRecordNotFound
-}

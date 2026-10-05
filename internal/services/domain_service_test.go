@@ -1313,18 +1313,21 @@ func TestDomainService_Create_ByoSecretDoesNotAttach(t *testing.T) {
 type mockDNSEnabler struct {
 	enableCalled bool
 	domainID     uuid.UUID
+	projectID    uuid.UUID
 	createdBy    uuid.UUID
 	in           services.DNSRecordInput
 	err          error
 
-	deleteCalled  bool
-	deleteDomains []uuid.UUID
-	deleteErr     error
+	deleteCalled   bool
+	deleteDomains  []uuid.UUID
+	deleteProjects []uuid.UUID
+	deleteErr      error
 }
 
-func (m *mockDNSEnabler) Enable(domainID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error) {
+func (m *mockDNSEnabler) Enable(domainID, projectID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error) {
 	m.enableCalled = true
 	m.domainID = domainID
+	m.projectID = projectID
 	m.createdBy = createdBy
 	m.in = in
 	if m.err != nil {
@@ -1333,9 +1336,10 @@ func (m *mockDNSEnabler) Enable(domainID, createdBy uuid.UUID, in services.DNSRe
 	return &models.DomainDNSRecord{DomainID: domainID}, nil
 }
 
-func (m *mockDNSEnabler) Delete(domainID uuid.UUID) error {
+func (m *mockDNSEnabler) Delete(domainID, projectID uuid.UUID) error {
 	m.deleteCalled = true
 	m.deleteDomains = append(m.deleteDomains, domainID)
+	m.deleteProjects = append(m.deleteProjects, projectID)
 	return m.deleteErr
 }
 
@@ -1367,8 +1371,8 @@ func TestCreateDomain_WithDNS_EnablesRecord(t *testing.T) {
 		DomainTemplateID: dtID.String(),
 		Namespace:        kubernetes.FastGatewayNamespace,
 		DNS: &services.DomainDNSInput{
-			Enabled:              true,
-			ProviderCredentialID: cred.String(),
+			Enabled:      true,
+			HostedZoneID: cred.String(),
 		},
 	}, userID)
 
@@ -1378,9 +1382,10 @@ func TestCreateDomain_WithDNS_EnablesRecord(t *testing.T) {
 		t.Fatal("expected DNS record Enable to be called")
 	}
 	assert.Equal(t, result.ID, dnsMock.domainID)
+	assert.Equal(t, projectID, dnsMock.projectID)
 	assert.Equal(t, userID, dnsMock.createdBy)
-	require.NotNil(t, dnsMock.in.ProviderCredentialID)
-	assert.Equal(t, cred, *dnsMock.in.ProviderCredentialID)
+	require.NotNil(t, dnsMock.in.HostedZoneID)
+	assert.Equal(t, cred, *dnsMock.in.HostedZoneID)
 }
 
 // TestCreateDomain_WithDNS_Disabled verifies that an unset or disabled DNS
@@ -1478,10 +1483,9 @@ func expectDomainTeardownMocks(domainRepo *mocks.MockDomainRepository, settingsR
 }
 
 // TestDomainService_Delete_TearsDownDNSRecord is the regression test for the
-// critical review finding: deleting a domain must remove its managed
-// DNSEndpoint (via DNSRecordManager.Delete), not just let the DomainDNSRecord
-// DB row cascade away while the live DNSEndpoint -- and the provider record
-// external-dns created from it -- is orphaned forever.
+// critical review finding: deleting a domain must remove its managed DNS
+// record (via DNSRecordManager.Delete), not just let the DomainDNSRecord DB
+// row cascade away while the live provider record is orphaned forever.
 func TestDomainService_Delete_TearsDownDNSRecord(t *testing.T) {
 	svc, domainRepo, settingsRepo, k8sMock := newTestDomainServiceWithK8s()
 	dnsMock := &mockDNSEnabler{}
@@ -1503,6 +1507,8 @@ func TestDomainService_Delete_TearsDownDNSRecord(t *testing.T) {
 	}
 	require.Len(t, dnsMock.deleteDomains, 1)
 	assert.Equal(t, domain.ID, dnsMock.deleteDomains[0])
+	require.Len(t, dnsMock.deleteProjects, 1)
+	assert.Equal(t, domain.ProjectID, dnsMock.deleteProjects[0])
 }
 
 // TestDomainService_Delete_DNSTeardownFailureIsBestEffort verifies a DNS

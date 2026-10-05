@@ -95,6 +95,7 @@ func main() {
 	issuerProjectGrantRepo := repository.NewIssuerProjectGrantRepository(db)
 	managedCertRepo := repository.NewManagedCertificateRepository(db)
 	domainDNSRecordRepo := repository.NewDomainDNSRecordRepository(db)
+	dnsHostedZoneRepo := repository.NewDNSHostedZoneRepository(db)
 
 	// Initialize services.
 	//
@@ -320,16 +321,14 @@ func main() {
 	commentHandler := handlers.NewCommentHandler(commentService)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
 	dnsCredentialService := services.NewDNSCredentialService(services.DNSCredentialServiceDeps{
-		Repo:                dnsProviderCredentialRepo,
-		IssuerRepo:          certificateIssuerRepo,
-		Config:              cfg,
-		DomainDNSRecordRepo: domainDNSRecordRepo,
-		// Settings (not DNSInfraService) because DNSInfraService is only
-		// built later, inside the in-cluster block below -- SystemSettingsService
-		// is available unconditionally from construction (see line ~106).
-		Settings: systemSettingsService,
+		Repo:       dnsProviderCredentialRepo,
+		IssuerRepo: certificateIssuerRepo,
+		Config:     cfg,
+		ZoneRepo:   dnsHostedZoneRepo,
 	})
 	dnsCredentialHandler := handlers.NewDNSCredentialHandler(dnsCredentialService)
+	dnsHostedZoneService := services.NewDNSHostedZoneService(dnsHostedZoneRepo, domainDNSRecordRepo, dnsCredentialService)
+	dnsHostedZoneHandler := handlers.NewDNSHostedZoneHandler(dnsHostedZoneService)
 
 	// Initialize certificate issuer service + handler, and the managed
 	// certificate service + handler that depends on the same control-plane
@@ -342,7 +341,6 @@ func main() {
 	var managedCertHandler *handlers.ManagedCertificateHandler
 	var clientCertificateHandler *handlers.ClientCertificateHandler
 	var dnsRecordHandler *handlers.DNSRecordHandler
-	var dnsActiveCredHandler *handlers.DNSActiveCredentialHandler
 	if services.IsRunningInCluster() {
 		cpDyn, err := cluster.InClusterDynamicClient()
 		if err != nil {
@@ -354,20 +352,15 @@ func main() {
 		})
 		certificateIssuerHandler = handlers.NewCertificateIssuerHandler(certificateIssuerService)
 
-		// DNS record management (Task 9): DNSInfraService needs the same
-		// control-plane client as the certificate services above (it applies
-		// the external-dns Secret to the control cluster), so it is built
-		// here rather than unconditionally -- outside a cluster both DNS
-		// record handlers stay nil and setupRouter skips registering their
+		// DNS record management: dnsRecordService needs the same
+		// control-plane client as the certificate services above, so it is
+		// built here rather than unconditionally -- outside a cluster the DNS
+		// record handler stays nil and setupRouter skips registering its
 		// routes, same as the certificate handlers.
-		dnsInfraService := services.NewDNSInfraService(services.DNSInfraServiceDeps{
-			Creds: dnsCredentialService, Settings: systemSettingsService, ControlPlane: controlPlane,
-		})
 		dnsRecordService := services.NewDNSRecordService(services.DNSRecordServiceDeps{
-			Repo: domainDNSRecordRepo, DomainRepo: domainRepo, Infra: dnsInfraService, ControlPlane: controlPlane,
+			Repo: domainDNSRecordRepo, DomainRepo: domainRepo, ZoneRepo: dnsHostedZoneRepo, Creds: dnsCredentialService, ControlPlane: controlPlane,
 		})
 		dnsRecordHandler = handlers.NewDNSRecordHandler(dnsRecordService, permChecker, auditService)
-		dnsActiveCredHandler = handlers.NewDNSActiveCredentialHandler(dnsInfraService, auditService)
 
 		// Task 10: wire the optional DNS-enable-at-create dependency now that
 		// dnsRecordService exists. domainService was built unconditionally
@@ -483,42 +476,42 @@ func main() {
 
 	// Setup router
 	router := setupRouter(RouterDeps{
-		AuthMiddleware:             authMiddleware,
-		PermChecker:                permChecker,
-		AuthHandler:                authHandler,
-		SSOHandler:                 ssoHandler,
-		DocsHandler:                docsHandler,
-		UserHandler:                userHandler,
-		SystemSettingsHandler:      systemSettingsHandler,
-		TeamHandler:                teamHandler,
-		ClientHandler:              clientHandler,
-		ClientAttachmentHandler:    clientAttachmentHandler,
-		AIHandler:                  aiHandler,
-		ProjectHandler:             projectHandler,
-		MetricsHandler:             metricsHandler,
-		ProjectVersionHandler:      projectVersionHandler,
-		PermissionHandler:          permissionHandler,
-		PresetHandler:              presetHandler,
-		DomainTemplateHandler:      domainTemplateHandler,
-		ProjectNamespaceHandler:    projectNamespaceHandler,
-		DomainHandler:              domainHandler,
-		TopologyHandler:            topologyHandler,
-		OpenAPIImportHandler:       openapiImportHandler,
-		RouteHandler:               routeHandler,
-		RouteVersionHandler:        routeVersionHandler,
-		ApprovalHandler:            approvalHandler,
-		CommentHandler:             commentHandler,
-		ApprovalPolicyHandler:      approvalPolicyHandler,
-		K8sHandler:                 k8sHandler,
-		AuditHandler:               auditHandler,
-		NotificationHandler:        notificationHandler,
-		DNSCredentialHandler:       dnsCredentialHandler,
-		CertificateIssuerHandler:   certificateIssuerHandler,
-		IssuerGrantHandler:         issuerGrantHandler,
-		ManagedCertificateHandler:  managedCertHandler,
-		ClientCertificateHandler:   clientCertificateHandler,
-		DNSRecordHandler:           dnsRecordHandler,
-		DNSActiveCredentialHandler: dnsActiveCredHandler,
+		AuthMiddleware:            authMiddleware,
+		PermChecker:               permChecker,
+		AuthHandler:               authHandler,
+		SSOHandler:                ssoHandler,
+		DocsHandler:               docsHandler,
+		UserHandler:               userHandler,
+		SystemSettingsHandler:     systemSettingsHandler,
+		TeamHandler:               teamHandler,
+		ClientHandler:             clientHandler,
+		ClientAttachmentHandler:   clientAttachmentHandler,
+		AIHandler:                 aiHandler,
+		ProjectHandler:            projectHandler,
+		MetricsHandler:            metricsHandler,
+		ProjectVersionHandler:     projectVersionHandler,
+		PermissionHandler:         permissionHandler,
+		PresetHandler:             presetHandler,
+		DomainTemplateHandler:     domainTemplateHandler,
+		ProjectNamespaceHandler:   projectNamespaceHandler,
+		DomainHandler:             domainHandler,
+		TopologyHandler:           topologyHandler,
+		OpenAPIImportHandler:      openapiImportHandler,
+		RouteHandler:              routeHandler,
+		RouteVersionHandler:       routeVersionHandler,
+		ApprovalHandler:           approvalHandler,
+		CommentHandler:            commentHandler,
+		ApprovalPolicyHandler:     approvalPolicyHandler,
+		K8sHandler:                k8sHandler,
+		AuditHandler:              auditHandler,
+		NotificationHandler:       notificationHandler,
+		DNSCredentialHandler:      dnsCredentialHandler,
+		DNSHostedZoneHandler:      dnsHostedZoneHandler,
+		CertificateIssuerHandler:  certificateIssuerHandler,
+		IssuerGrantHandler:        issuerGrantHandler,
+		ManagedCertificateHandler: managedCertHandler,
+		ClientCertificateHandler:  clientCertificateHandler,
+		DNSRecordHandler:          dnsRecordHandler,
 	})
 
 	// Start server
@@ -549,40 +542,40 @@ type RouterDeps struct {
 	AuthMiddleware *middleware.AuthMiddleware
 	PermChecker    *middleware.PermissionChecker
 
-	AuthHandler                *handlers.AuthHandler
-	SSOHandler                 *handlers.SSOHandler
-	DocsHandler                *handlers.DocsHandler
-	UserHandler                *handlers.UserHandler
-	SystemSettingsHandler      *handlers.SystemSettingsHandler
-	TeamHandler                *handlers.TeamHandler
-	ClientHandler              *handlers.ClientHandler
-	ClientAttachmentHandler    *handlers.ClientAttachmentHandler
-	AIHandler                  *handlers.AIHandler
-	ProjectHandler             *handlers.ProjectHandler
-	MetricsHandler             *handlers.MetricsHandler
-	ProjectVersionHandler      *handlers.ProjectVersionHandler
-	PermissionHandler          *handlers.PermissionHandler
-	PresetHandler              *handlers.PresetHandler
-	DomainTemplateHandler      *handlers.DomainTemplateHandler
-	ProjectNamespaceHandler    *handlers.ProjectNamespaceHandler
-	DomainHandler              *handlers.DomainHandler
-	TopologyHandler            *handlers.TopologyHandler
-	OpenAPIImportHandler       *handlers.OpenAPIImportHandler
-	RouteHandler               *handlers.RouteHandler
-	RouteVersionHandler        *handlers.RouteVersionHandler
-	ApprovalHandler            *handlers.ApprovalHandler
-	CommentHandler             *handlers.CommentHandler
-	ApprovalPolicyHandler      *handlers.ApprovalPolicyHandler
-	K8sHandler                 *handlers.KubernetesHandler
-	AuditHandler               *handlers.AuditHandler
-	NotificationHandler        *handlers.NotificationHandler
-	DNSCredentialHandler       *handlers.DNSCredentialHandler
-	CertificateIssuerHandler   *handlers.CertificateIssuerHandler
-	IssuerGrantHandler         *handlers.IssuerGrantHandler
-	ManagedCertificateHandler  *handlers.ManagedCertificateHandler
-	ClientCertificateHandler   *handlers.ClientCertificateHandler
-	DNSRecordHandler           *handlers.DNSRecordHandler
-	DNSActiveCredentialHandler *handlers.DNSActiveCredentialHandler
+	AuthHandler               *handlers.AuthHandler
+	SSOHandler                *handlers.SSOHandler
+	DocsHandler               *handlers.DocsHandler
+	UserHandler               *handlers.UserHandler
+	SystemSettingsHandler     *handlers.SystemSettingsHandler
+	TeamHandler               *handlers.TeamHandler
+	ClientHandler             *handlers.ClientHandler
+	ClientAttachmentHandler   *handlers.ClientAttachmentHandler
+	AIHandler                 *handlers.AIHandler
+	ProjectHandler            *handlers.ProjectHandler
+	MetricsHandler            *handlers.MetricsHandler
+	ProjectVersionHandler     *handlers.ProjectVersionHandler
+	PermissionHandler         *handlers.PermissionHandler
+	PresetHandler             *handlers.PresetHandler
+	DomainTemplateHandler     *handlers.DomainTemplateHandler
+	ProjectNamespaceHandler   *handlers.ProjectNamespaceHandler
+	DomainHandler             *handlers.DomainHandler
+	TopologyHandler           *handlers.TopologyHandler
+	OpenAPIImportHandler      *handlers.OpenAPIImportHandler
+	RouteHandler              *handlers.RouteHandler
+	RouteVersionHandler       *handlers.RouteVersionHandler
+	ApprovalHandler           *handlers.ApprovalHandler
+	CommentHandler            *handlers.CommentHandler
+	ApprovalPolicyHandler     *handlers.ApprovalPolicyHandler
+	K8sHandler                *handlers.KubernetesHandler
+	AuditHandler              *handlers.AuditHandler
+	NotificationHandler       *handlers.NotificationHandler
+	DNSCredentialHandler      *handlers.DNSCredentialHandler
+	DNSHostedZoneHandler      *handlers.DNSHostedZoneHandler
+	CertificateIssuerHandler  *handlers.CertificateIssuerHandler
+	IssuerGrantHandler        *handlers.IssuerGrantHandler
+	ManagedCertificateHandler *handlers.ManagedCertificateHandler
+	ClientCertificateHandler  *handlers.ClientCertificateHandler
+	DNSRecordHandler          *handlers.DNSRecordHandler
 }
 
 // setupRouter registers every route on a fresh *gin.Engine. This is a pure
@@ -714,18 +707,18 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 				dnsCreds.DELETE("/:dnsCredentialId", deps.DNSCredentialHandler.Delete)
 			}
 
-			// Which DNS provider credential is active for external-dns
-			// (Owner only). A sibling of /dns/credentials above. Nil-guarded
-			// like the certificate issuer/managed-cert handlers: the handler
-			// only exists when the control-plane client is present
-			// (in-cluster).
-			if deps.DNSActiveCredentialHandler != nil {
-				dnsSettings := protected.Group("/dns/settings")
-				dnsSettings.Use(deps.AuthMiddleware.RequireRole("owner"))
-				{
-					dnsSettings.GET("/active-credential", deps.DNSActiveCredentialHandler.Get)
-					dnsSettings.PUT("/active-credential", deps.DNSActiveCredentialHandler.Set)
-				}
+			// DNS hosted zones (Owner only). Platform-global, not
+			// project-scoped -- a sibling group to /dns/credentials above.
+			// Unconditional like it: this only touches the DB and outbound
+			// HTTP to the DNS provider, not Kubernetes, so it isn't
+			// cluster-gated.
+			dnsZones := protected.Group("/dns/zones")
+			dnsZones.Use(deps.AuthMiddleware.RequireRole("owner"))
+			{
+				dnsZones.GET("", deps.DNSHostedZoneHandler.List)
+				dnsZones.POST("", deps.DNSHostedZoneHandler.Create)
+				dnsZones.GET("/:hostedZoneId", deps.DNSHostedZoneHandler.Get)
+				dnsZones.DELETE("/:hostedZoneId", deps.DNSHostedZoneHandler.Delete)
 			}
 
 			// Certificate issuers (Owner only). Platform-global. Registered

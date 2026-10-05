@@ -9,7 +9,7 @@ func TestDomainDNSRecord_TableName(t *testing.T) {
 }
 
 func TestDNSRecordStatusConstants(t *testing.T) {
-	for _, s := range []DNSRecordStatus{DNSRecordStatusPending, DNSRecordStatusSyncing, DNSRecordStatusReady, DNSRecordStatusError} {
+	for _, s := range []DNSRecordStatus{DNSRecordStatusPending, DNSRecordStatusReady, DNSRecordStatusError} {
 		if s == "" {
 			t.Fatal("empty DNSRecordStatus constant")
 		}

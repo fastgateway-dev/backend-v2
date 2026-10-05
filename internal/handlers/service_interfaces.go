@@ -124,23 +124,23 @@ type DNSCredentialServiceInterface interface {
 	Delete(id uuid.UUID) error
 }
 
+// DNSHostedZoneServiceInterface defines the public methods of
+// DNSHostedZoneService that DNSHostedZoneHandler uses.
+type DNSHostedZoneServiceInterface interface {
+	Create(name string, credID, createdBy uuid.UUID) (*models.DNSHostedZone, error)
+	List() ([]models.DNSHostedZone, error)
+	GetByID(id uuid.UUID) (*models.DNSHostedZone, error)
+	Delete(id uuid.UUID) error
+}
+
 // DNSRecordServiceInterface defines the public methods of DNSRecordService
 // that DNSRecordHandler uses.
 type DNSRecordServiceInterface interface {
-	Enable(domainID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
-	Get(domainID uuid.UUID) (*models.DomainDNSRecord, error)
-	Update(domainID uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
-	Delete(domainID uuid.UUID) error
-	Refresh(domainID uuid.UUID) (*models.DomainDNSRecord, error)
-}
-
-// DNSActiveCredentialServiceInterface is the narrow slice of DNSInfraService
-// that DNSActiveCredentialHandler uses: read and change which DNS provider
-// credential is currently active for external-dns. Named for the capability
-// rather than the full service, following ClientReader/DomainReader.
-type DNSActiveCredentialServiceInterface interface {
-	GetActiveCredentialID() (*uuid.UUID, error)
-	SetActiveCredential(id uuid.UUID) error
+	Enable(domainID, projectID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
+	Get(domainID, projectID uuid.UUID) (*models.DomainDNSRecord, error)
+	Update(domainID, projectID uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
+	Delete(domainID, projectID uuid.UUID) error
+	Refresh(domainID, projectID uuid.UUID) (*models.DomainDNSRecord, error)
 }
 
 // DomainReader is the slice of DomainService that AIHandler uses: it resolves
@@ -408,10 +408,10 @@ var _ AuthServiceInterface = (*services.AuthService)(nil)
 var _ CertificateIssuerServiceInterface = (*services.CertificateIssuerService)(nil)
 var _ CommentServiceInterface = (*services.CommentService)(nil)
 var _ DNSCredentialServiceInterface = (*services.DNSCredentialService)(nil)
+var _ DNSHostedZoneServiceInterface = (*services.DNSHostedZoneService)(nil)
 var _ IssuerGrantServiceInterface = (*services.IssuerGrantService)(nil)
 var _ ManagedCertificateServiceInterface = (*services.ManagedCertificateService)(nil)
 var _ DNSRecordServiceInterface = (*services.DNSRecordService)(nil)
-var _ DNSActiveCredentialServiceInterface = (*services.DNSInfraService)(nil)
 var _ DomainServiceInterface = (*services.DomainService)(nil)
 var _ DomainReader = (*services.DomainService)(nil)
 var _ DomainPolicyReader = (*services.DomainService)(nil)
