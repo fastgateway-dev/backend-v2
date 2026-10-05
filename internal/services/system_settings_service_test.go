@@ -373,4 +373,3 @@ func TestSystemSettingsService_Update_LogLevelNormalized(t *testing.T) {
 	assert.Equal(t, "debug", result.LogLevel)
 	mockRepo.AssertExpectations(t)
 }
-
