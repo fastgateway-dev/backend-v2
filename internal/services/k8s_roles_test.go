@@ -184,18 +184,11 @@ func TestInterfaces_NoSetters(t *testing.T) {
 	// SetAllowedMethods is a business operation on ClientService, not a
 	// dependency setter: it takes (uuid.UUID, []string) and returns
 	// (*models.Client, error). Task 1 classified it NOT-A-SETTER.
-	//
-	// SetActiveCredential (DNS management Task 9) is likewise a business
-	// operation on DNSInfraService, not a dependency setter: it takes the id
-	// of a DNS provider credential and renders+applies the external-dns
-	// Secret for it, persisting the new active credential only once that
-	// apply succeeds. Nothing about DNSActiveCredentialServiceInterface
-	// itself is mutated by it.
 	re := regexp.MustCompile(`^\tSet[A-Z][A-Za-z]*\(`)
 	var offenders []string
 	for i, line := range strings.Split(string(src), "\n") {
 		trimmed := strings.TrimSpace(line)
-		if !re.MatchString(line) || strings.HasPrefix(trimmed, "SetAllowedMethods(") || strings.HasPrefix(trimmed, "SetActiveCredential(") {
+		if !re.MatchString(line) || strings.HasPrefix(trimmed, "SetAllowedMethods(") {
 			continue
 		}
 		offenders = append(offenders, fmt.Sprintf("service_interfaces.go:%d: %s", i+1, strings.TrimSpace(line)))

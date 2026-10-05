@@ -13,7 +13,7 @@
 // generated output against what is committed.
 module github.com/fastgateway-dev/backend-v2/tools
 
-go 1.25.5
+go 1.26.0
 
 tool github.com/vektra/mockery/v3
 

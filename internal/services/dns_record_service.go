@@ -1,39 +1,33 @@
 package services
 
 import (
-	"context"
 	"errors"
-	"fmt"
 
-	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 var (
-	ErrNoActiveDNSCredential = errors.New("no active DNS credential is configured")
-	ErrCredentialNotActive   = errors.New("providerCredentialId must equal the active DNS credential")
+	// ErrNoHostedZone is returned by Enable when the caller does not supply a
+	// hosted zone to write the record into. Under the direct-provider model
+	// every record belongs to exactly one registered hosted zone -- there is
+	// no implicit "active credential" fallback anymore.
+	ErrNoHostedZone = errors.New("hostedZoneId is required")
 	// ErrDNSRecordExists is returned by Enable when a DomainDNSRecord already
 	// exists for the domain -- there is exactly one per domain. A sentinel
 	// (rather than an inline errors.New) so the handler layer can map it with
-	// errors.Is, consistent with ErrNoActiveDNSCredential/ErrCredentialNotActive
-	// above.
+	// errors.Is.
 	ErrDNSRecordExists = errors.New("DNS record already exists for this domain")
 	// ErrInvalidRecordType is returned by Enable/Update when the caller
 	// supplies a RecordType that isn't one of the types DNSRecordService
-	// understands (final review Fix A). Without this check an unvalidated
-	// string -- "TXT", "foo", lowercase "a" -- would flow straight into the
-	// DNSEndpoint CR via recordTypeForAddress's forced-type branch and be
-	// reported ready.
+	// understands.
 	ErrInvalidRecordType = errors.New("invalid record type (allowed: auto, A, AAAA, CNAME)")
 )
 
 // isValidRecordType reports whether rt is one of the record types
-// DNSRecordService (and, downstream, recordTypeForAddress) understands.
+// DNSRecordService understands.
 func isValidRecordType(rt models.DNSRecordType) bool {
 	switch rt {
 	case models.DNSRecordTypeAuto, models.DNSRecordTypeA, models.DNSRecordTypeAAAA, models.DNSRecordTypeCNAME:
@@ -43,17 +37,27 @@ func isValidRecordType(rt models.DNSRecordType) bool {
 	}
 }
 
+// DNSCredentialReader is the narrow role DNSRecordService needs from
+// DNSCredentialService: decrypt a stored DNS provider credential by id so
+// the (future) direct-provider reconcile can authenticate to the provider.
+// Satisfied by *DNSCredentialService.
+type DNSCredentialReader interface {
+	DecryptedCredentials(id uuid.UUID) (string, map[string]string, error)
+}
+
+// Compile-time role satisfaction check.
+var _ DNSCredentialReader = (*DNSCredentialService)(nil)
+
 // DNSRecordService reconciles a domain's single DNS record
-// (models.DomainDNSRecord) to a DNSEndpoint custom resource that
-// external-dns watches and syncs to the configured DNS provider. The
-// gateway's load-balancer address is resolved lazily (best-effort, on every
-// read) rather than through a background reconciler: reconcile never
-// returns an error, it records the outcome in the record's own
-// status/status_message fields (status-on-read).
+// (models.DomainDNSRecord) directly against the provider SDK for the
+// record's registered hosted zone. reconcile is currently a stub (the
+// direct-provider write path is a later task); Enable/Get/Update/Delete
+// already expose the hosted-zone-based shape this task establishes.
 type DNSRecordService struct {
 	repo       repository.DomainDNSRecordRepositoryInterface
 	domainRepo repository.DomainRepositoryInterface
-	infra      *DNSInfraService
+	zoneRepo   repository.DNSHostedZoneRepositoryInterface
+	creds      DNSCredentialReader
 	cp         CertInfraApplier
 }
 
@@ -63,68 +67,45 @@ type DNSRecordService struct {
 type DNSRecordServiceDeps struct {
 	Repo         repository.DomainDNSRecordRepositoryInterface
 	DomainRepo   repository.DomainRepositoryInterface
-	Infra        *DNSInfraService
+	ZoneRepo     repository.DNSHostedZoneRepositoryInterface
+	Creds        DNSCredentialReader
 	ControlPlane CertInfraApplier
 }
 
 func NewDNSRecordService(deps DNSRecordServiceDeps) *DNSRecordService {
-	if deps.Repo == nil || deps.DomainRepo == nil || deps.Infra == nil || deps.ControlPlane == nil {
+	if deps.Repo == nil || deps.DomainRepo == nil || deps.ZoneRepo == nil || deps.Creds == nil || deps.ControlPlane == nil {
 		panic("services.NewDNSRecordService: missing required dependency")
 	}
-	return &DNSRecordService{repo: deps.Repo, domainRepo: deps.DomainRepo, infra: deps.Infra, cp: deps.ControlPlane}
+	return &DNSRecordService{
+		repo:       deps.Repo,
+		domainRepo: deps.DomainRepo,
+		zoneRepo:   deps.ZoneRepo,
+		creds:      deps.Creds,
+		cp:         deps.ControlPlane,
+	}
 }
 
 // DNSRecordInput is the create/update payload for a domain's DNS record.
 type DNSRecordInput struct {
-	ProviderCredentialID *uuid.UUID
-	RecordType           models.DNSRecordType
-	TTL                  *int
-	Proxied              bool
-}
-
-// gatewayNameForDomain returns the name of the Gateway FastGateway created
-// for this domain. It must stay identical to the name domainplan uses when
-// building the Gateway/BackendTrafficPolicy/ClientTrafficPolicy/
-// EnvoyExtensionPolicy configs for the domain (internal/domainplan/gateway.go
-// and friends all key off domain.K8sGatewayName), since this service reads
-// that same Gateway's status to resolve its load-balancer address.
-func gatewayNameForDomain(domain *models.Domain) string {
-	return domain.K8sGatewayName
-}
-
-// resolveActiveCredential resolves the DNS provider credential Enable/Update
-// must use: the system-wide active credential (there is exactly one at a
-// time; see DNSInfraService.GetActiveCredentialID). If the caller supplied
-// an explicit ProviderCredentialID it must match the active one -- callers
-// confirm the already-active credential, they cannot pick an arbitrary one.
-func (s *DNSRecordService) resolveActiveCredential(in DNSRecordInput) (uuid.UUID, error) {
-	active, err := s.infra.GetActiveCredentialID()
-	if err != nil {
-		return uuid.Nil, err
-	}
-	if active == nil {
-		return uuid.Nil, ErrNoActiveDNSCredential
-	}
-	if in.ProviderCredentialID != nil && *in.ProviderCredentialID != *active {
-		return uuid.Nil, ErrCredentialNotActive
-	}
-	return *active, nil
+	HostedZoneID *uuid.UUID
+	RecordType   models.DNSRecordType
+	TTL          *int
+	Proxied      bool
 }
 
 // Enable creates the DNS record for a domain and performs a best-effort
-// first reconcile. It fails only on validation (no/mismatched active
-// credential, a record already exists for the domain); reconcile failures
-// are recorded on the returned record's status rather than returned as an
-// error.
+// first reconcile. It fails only on validation (missing hosted zone,
+// invalid record type, a record already exists for the domain); reconcile
+// failures are recorded on the returned record's status rather than
+// returned as an error.
 func (s *DNSRecordService) Enable(domainID, createdBy uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error) {
+	if in.HostedZoneID == nil {
+		return nil, ErrNoHostedZone
+	}
+
 	if _, err := s.repo.GetByDomainID(domainID); err == nil {
 		return nil, ErrDNSRecordExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
-	}
-
-	cred, err := s.resolveActiveCredential(in)
-	if err != nil {
 		return nil, err
 	}
 
@@ -137,21 +118,17 @@ func (s *DNSRecordService) Enable(domainID, createdBy uuid.UUID, in DNSRecordInp
 	}
 
 	rec := &models.DomainDNSRecord{
-		DomainID:             domainID,
-		ProviderCredentialID: cred,
-		RecordType:           rt,
-		TTL:                  in.TTL,
-		Proxied:              in.Proxied,
-		Status:               models.DNSRecordStatusPending,
-		CreatedBy:            createdBy,
+		DomainID:     domainID,
+		HostedZoneID: *in.HostedZoneID,
+		RecordType:   rt,
+		TTL:          in.TTL,
+		Proxied:      in.Proxied,
+		Status:       models.DNSRecordStatusPending,
+		CreatedBy:    createdBy,
 	}
 	if err := s.repo.Create(rec); err != nil {
 		return nil, err
 	}
-	// EndpointName embeds the record's own id, so it is only known once
-	// Create has assigned rec.ID. reconcile persists it (along with the
-	// first-pass status) via repo.Update.
-	rec.EndpointName = "dns-" + rec.ID.String()
 	s.reconcile(rec)
 	return rec, nil
 }
@@ -180,9 +157,6 @@ func (s *DNSRecordService) Update(domainID uuid.UUID, in DNSRecordInput) (*model
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.resolveActiveCredential(in); err != nil {
-		return nil, err
-	}
 	if in.RecordType != "" {
 		if !isValidRecordType(in.RecordType) {
 			return nil, ErrInvalidRecordType
@@ -198,127 +172,28 @@ func (s *DNSRecordService) Update(domainID uuid.UUID, in DNSRecordInput) (*model
 	return rec, nil
 }
 
-// Delete removes the DNSEndpoint (so external-dns tears down the live DNS
-// record) and then the DomainDNSRecord row. A "not found" from the
-// DNSEndpoint delete (it was never applied, or already gone) is ignored --
-// a dangling backend row must never block re-enabling DNS for the domain.
-// Any other delete failure is returned as-is and the row is left in place,
-// so the caller can retry rather than silently orphaning the live
-// DNSEndpoint/DNS record.
+// Delete removes the DomainDNSRecord row. The stub reconcile never writes to
+// a provider, so there is nothing live to tear down yet -- a later task
+// (the direct-provider write path) adds the provider-side DeleteRecord call
+// here, per the design doc's error-handling section (provider delete
+// failure keeps the row; this task has no provider call to fail).
 func (s *DNSRecordService) Delete(domainID uuid.UUID) error {
-	rec, err := s.repo.GetByDomainID(domainID)
-	if err != nil {
+	if _, err := s.repo.GetByDomainID(domainID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		}
 		return err
 	}
-	if err := s.cp.Delete(context.Background(), kubernetes.DNSEndpointGVR, rec.EndpointName, true); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
 	return s.repo.DeleteByDomainID(domainID)
 }
 
-// reconcile resolves the domain's Gateway load-balancer address, applies (or
-// leaves untouched) the DNSEndpoint for the record, and sets status +
-// resolved_target accordingly. It never returns an error -- see the
-// package-level DNSRecordService doc comment on status-on-read.
-//
-// Known v1 limitation: CertInfraApplier.Get reads the Gateway from its fixed
-// control-plane namespace (fastgateway-system). A domain deployed to a
-// different namespace will never resolve an address here and stays
-// "pending" indefinitely. Acceptable for the lazy/best-effort v1 model;
-// intentionally not fixed by this task.
+// reconcile is a STUB: the direct-provider write path (resolving the
+// record's hosted zone, decrypting its credential, and calling the
+// provider's DNSClient to upsert the record) is a later task. For now it
+// just marks the record pending so Enable/Get/Update/Refresh have a
+// consistent, compiling status-on-read shape to build on.
 func (s *DNSRecordService) reconcile(rec *models.DomainDNSRecord) {
-	setErr := func(msg string) {
-		rec.Status = models.DNSRecordStatusError
-		rec.StatusMessage = msg
-		_ = s.repo.Update(rec)
-	}
-
-	domain, err := s.domainRepo.GetByID(rec.DomainID)
-	if err != nil {
-		setErr("domain not found")
-		return
-	}
-
-	gw, err := s.cp.Get(context.Background(), kubernetes.GatewayGVR, gatewayNameForDomain(domain), true)
-	if err != nil {
-		rec.Status = models.DNSRecordStatusPending
-		rec.StatusMessage = "waiting for the gateway to be created"
-		_ = s.repo.Update(rec)
-		return
-	}
-
-	addr, ok := resolveGatewayAddress(gw)
-	if !ok {
-		rec.Status = models.DNSRecordStatusPending
-		rec.StatusMessage = "waiting for the gateway load-balancer address"
-		_ = s.repo.Update(rec)
-		return
-	}
-
-	rt, err := recordTypeForAddress(addr, rec.RecordType)
-	if err != nil {
-		setErr(err.Error())
-		return
-	}
-
-	ep := kubernetes.DNSEndpoint(kubernetes.DNSEndpointConfig{
-		Name:              rec.EndpointName,
-		Hostname:          domain.Hostname,
-		RecordType:        string(rt),
-		Targets:           []string{addr.Value},
-		TTL:               rec.TTL,
-		CloudflareProxied: rec.Proxied,
-	})
-	if err := s.cp.ApplyNamespaced(context.Background(), kubernetes.DNSEndpointGVR, ep); err != nil {
-		setErr(fmt.Sprintf("failed to apply DNSEndpoint: %v", err))
-		return
-	}
-
-	rec.ResolvedTarget = addr.Value
-	// Readiness rule: ready once the live DNSEndpoint carries the desired
-	// target; until external-dns (or, in tests, the fake applier) reflects
-	// that back, the record is syncing.
-	if s.endpointMatches(rec.EndpointName, domain.Hostname, addr.Value) {
-		rec.Status = models.DNSRecordStatusReady
-		rec.StatusMessage = "record submitted to external-dns"
-	} else {
-		rec.Status = models.DNSRecordStatusSyncing
-		rec.StatusMessage = "applying record via external-dns"
-	}
+	rec.Status = models.DNSRecordStatusPending
+	rec.StatusMessage = "pending (reconcile not yet implemented)"
 	_ = s.repo.Update(rec)
-}
-
-// endpointMatches reports whether the live DNSEndpoint named name already
-// carries hostname -> target among its endpoints.
-func (s *DNSRecordService) endpointMatches(name, hostname, target string) bool {
-	obj, err := s.cp.Get(context.Background(), kubernetes.DNSEndpointGVR, name, true)
-	if err != nil {
-		return false
-	}
-	eps, found, err := unstructured.NestedSlice(obj.Object, "spec", "endpoints")
-	if err != nil || !found {
-		return false
-	}
-	for _, e := range eps {
-		m, ok := e.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if dn, _ := m["dnsName"].(string); dn != hostname {
-			continue
-		}
-		targets, ok := m["targets"].([]interface{})
-		if !ok {
-			continue
-		}
-		for _, tgt := range targets {
-			if ts, _ := tgt.(string); ts == target {
-				return true
-			}
-		}
-	}
-	return false
 }

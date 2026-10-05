@@ -13,10 +13,10 @@ DomainDNSRecord:
     domainId:
       type: string
       format: uuid
-    providerCredentialId:
+    hostedZoneId:
       type: string
       format: uuid
-      description: The DNS provider credential this record was created against. Must equal the system-wide active credential.
+      description: The registered hosted zone this record is written into.
     recordType:
       type: string
       enum: [auto, A, AAAA, CNAME]
@@ -33,13 +33,10 @@ DomainDNSRecord:
       description: The gateway load-balancer address (IP or hostname) last resolved for this record, if any.
     status:
       type: string
-      enum: [pending, syncing, ready, error]
+      enum: [pending, ready, error]
     statusMessage:
       type: string
       description: Human-readable detail for the current status.
-    endpointName:
-      type: string
-      description: Name of the underlying DNSEndpoint custom resource external-dns watches.
     createdBy:
       type: string
       format: uuid
@@ -52,11 +49,12 @@ DomainDNSRecord:
 
 CreateDNSRecordRequest:
   type: object
+  required: [hostedZoneId]
   properties:
-    providerCredentialId:
+    hostedZoneId:
       type: string
       format: uuid
-      description: Must equal the system-wide active DNS credential if supplied. Omit to use the active credential implicitly.
+      description: The registered hosted zone to write this record into. Required.
     recordType:
       type: string
       enum: [auto, A, AAAA, CNAME]
@@ -71,10 +69,6 @@ CreateDNSRecordRequest:
 UpdateDNSRecordRequest:
   type: object
   properties:
-    providerCredentialId:
-      type: string
-      format: uuid
-      description: Must equal the system-wide active DNS credential if supplied.
     recordType:
       type: string
       enum: [auto, A, AAAA, CNAME]
@@ -83,20 +77,3 @@ UpdateDNSRecordRequest:
       nullable: true
     proxied:
       type: boolean
-
-ActiveDNSCredential:
-  type: object
-  description: The platform-wide active DNS provider credential for external-dns, or none configured yet.
-  properties:
-    credentialId:
-      type: string
-      format: uuid
-      nullable: true
-
-SetActiveDNSCredentialRequest:
-  type: object
-  required: [credentialId]
-  properties:
-    credentialId:
-      type: string
-      format: uuid

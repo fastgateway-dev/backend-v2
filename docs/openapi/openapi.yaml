@@ -121,8 +121,6 @@ paths:
     $ref: 'paths/dns-credentials.yaml#/dns-credentials'
   /dns/credentials/{dnsCredentialId}:
     $ref: 'paths/dns-credentials.yaml#/dns-credentials_{dnsCredentialId}'
-  /dns/settings/active-credential:
-    $ref: 'paths/dns-records.yaml#/dns-active-credential'
 
   # ============== MANAGED CERTIFICATES (FLEET) ==============
   /certificates:
@@ -1101,10 +1099,6 @@ components:
       $ref: 'schemas/dns-record.yaml#/CreateDNSRecordRequest'
     UpdateDNSRecordRequest:
       $ref: 'schemas/dns-record.yaml#/UpdateDNSRecordRequest'
-    ActiveDNSCredential:
-      $ref: 'schemas/dns-record.yaml#/ActiveDNSCredential'
-    SetActiveDNSCredentialRequest:
-      $ref: 'schemas/dns-record.yaml#/SetActiveDNSCredentialRequest'
 
     # ============== CERTIFICATE ISSUER ==============
     IssuerConfig:

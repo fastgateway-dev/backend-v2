@@ -1367,8 +1367,8 @@ func TestCreateDomain_WithDNS_EnablesRecord(t *testing.T) {
 		DomainTemplateID: dtID.String(),
 		Namespace:        kubernetes.FastGatewayNamespace,
 		DNS: &services.DomainDNSInput{
-			Enabled:              true,
-			ProviderCredentialID: cred.String(),
+			Enabled:      true,
+			HostedZoneID: cred.String(),
 		},
 	}, userID)
 
@@ -1379,8 +1379,8 @@ func TestCreateDomain_WithDNS_EnablesRecord(t *testing.T) {
 	}
 	assert.Equal(t, result.ID, dnsMock.domainID)
 	assert.Equal(t, userID, dnsMock.createdBy)
-	require.NotNil(t, dnsMock.in.ProviderCredentialID)
-	assert.Equal(t, cred, *dnsMock.in.ProviderCredentialID)
+	require.NotNil(t, dnsMock.in.HostedZoneID)
+	assert.Equal(t, cred, *dnsMock.in.HostedZoneID)
 }
 
 // TestCreateDomain_WithDNS_Disabled verifies that an unset or disabled DNS
@@ -1478,10 +1478,9 @@ func expectDomainTeardownMocks(domainRepo *mocks.MockDomainRepository, settingsR
 }
 
 // TestDomainService_Delete_TearsDownDNSRecord is the regression test for the
-// critical review finding: deleting a domain must remove its managed
-// DNSEndpoint (via DNSRecordManager.Delete), not just let the DomainDNSRecord
-// DB row cascade away while the live DNSEndpoint -- and the provider record
-// external-dns created from it -- is orphaned forever.
+// critical review finding: deleting a domain must remove its managed DNS
+// record (via DNSRecordManager.Delete), not just let the DomainDNSRecord DB
+// row cascade away while the live provider record is orphaned forever.
 func TestDomainService_Delete_TearsDownDNSRecord(t *testing.T) {
 	svc, domainRepo, settingsRepo, k8sMock := newTestDomainServiceWithK8s()
 	dnsMock := &mockDNSEnabler{}

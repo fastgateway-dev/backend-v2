@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -375,81 +374,3 @@ func TestSystemSettingsService_Update_LogLevelNormalized(t *testing.T) {
 	mockRepo.AssertExpectations(t)
 }
 
-func TestSystemSettingsService_GetActiveDNSCredentialID_None(t *testing.T) {
-	svc, mockRepo := newTestSystemSettingsService()
-
-	existing := &models.SystemSettings{}
-	mockRepo.On("Get").Return(existing, nil)
-
-	got, err := svc.GetActiveDNSCredentialID()
-
-	require.NoError(t, err)
-	assert.Nil(t, got)
-	mockRepo.AssertExpectations(t)
-}
-
-func TestSystemSettingsService_GetActiveDNSCredentialID_Set(t *testing.T) {
-	svc, mockRepo := newTestSystemSettingsService()
-
-	id := uuid.New()
-	existing := &models.SystemSettings{ActiveDNSCredentialID: &id}
-	mockRepo.On("Get").Return(existing, nil)
-
-	got, err := svc.GetActiveDNSCredentialID()
-
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, id, *got)
-	mockRepo.AssertExpectations(t)
-}
-
-func TestSystemSettingsService_SetActiveDNSCredentialID_PersistsAndRefreshesCache(t *testing.T) {
-	svc, mockRepo := newTestSystemSettingsService()
-
-	existing := &models.SystemSettings{LogLevel: "info"}
-	id := uuid.New()
-	mockRepo.On("Get").Return(existing, nil).Once()
-	mockRepo.On("Update", mock.MatchedBy(func(s *models.SystemSettings) bool {
-		return s.ActiveDNSCredentialID != nil && *s.ActiveDNSCredentialID == id
-	})).Return(nil).Once()
-
-	err := svc.SetActiveDNSCredentialID(&id)
-	require.NoError(t, err)
-
-	// Get should now read from the refreshed cache, not call the repo again.
-	got, err := svc.GetActiveDNSCredentialID()
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, id, *got)
-	mockRepo.AssertExpectations(t)
-}
-
-func TestSystemSettingsService_SetActiveDNSCredentialID_Clear(t *testing.T) {
-	svc, mockRepo := newTestSystemSettingsService()
-
-	id := uuid.New()
-	existing := &models.SystemSettings{ActiveDNSCredentialID: &id}
-	mockRepo.On("Get").Return(existing, nil).Once()
-	mockRepo.On("Update", mock.MatchedBy(func(s *models.SystemSettings) bool {
-		return s.ActiveDNSCredentialID == nil
-	})).Return(nil).Once()
-
-	err := svc.SetActiveDNSCredentialID(nil)
-	require.NoError(t, err)
-
-	got, err := svc.GetActiveDNSCredentialID()
-	require.NoError(t, err)
-	assert.Nil(t, got)
-	mockRepo.AssertExpectations(t)
-}
-
-func TestSystemSettingsService_SetActiveDNSCredentialID_RepoGetError(t *testing.T) {
-	svc, mockRepo := newTestSystemSettingsService()
-
-	mockRepo.On("Get").Return(nil, errors.New("db down")).Once()
-
-	id := uuid.New()
-	err := svc.SetActiveDNSCredentialID(&id)
-	require.Error(t, err)
-	mockRepo.AssertExpectations(t)
-}

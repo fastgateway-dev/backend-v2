@@ -132,34 +132,12 @@ func TestDNSCredentialHandler_Update_NotFound(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
-func TestDNSCredentialHandler_Delete_InUseByDomainDNSRecord_Returns409(t *testing.T) {
+func TestDNSCredentialHandler_Delete_InUseByHostedZone_Returns409(t *testing.T) {
 	mockSvc := new(mocks.MockDNSCredentialService)
 	h := handlers.NewDNSCredentialHandler(mockSvc)
 
 	id := uuid.New()
 	mockSvc.On("Delete", id).Return(services.ErrDNSCredentialInUse)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request, _ = http.NewRequest("DELETE", "/dns/credentials/"+id.String(), nil)
-	c.Params = gin.Params{{Key: "dnsCredentialId", Value: id.String()}}
-
-	h.Delete(c)
-
-	assert.Equal(t, http.StatusConflict, w.Code)
-	mockSvc.AssertExpectations(t)
-}
-
-// TestDNSCredentialHandler_Delete_IsActive_Returns409 is the regression test
-// for final review Fix B: deleting the system-wide active DNS credential
-// must be rejected (409), not silently allowed just because nothing else
-// references it yet.
-func TestDNSCredentialHandler_Delete_IsActive_Returns409(t *testing.T) {
-	mockSvc := new(mocks.MockDNSCredentialService)
-	h := handlers.NewDNSCredentialHandler(mockSvc)
-
-	id := uuid.New()
-	mockSvc.On("Delete", id).Return(services.ErrDNSCredentialIsActive)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

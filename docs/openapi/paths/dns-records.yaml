@@ -31,10 +31,9 @@ domain-dns-record:
     tags: [DNS Records]
     summary: Enable DNS management for a domain
     description: |
-      Creates the domain's DNS record and performs a best-effort first
-      reconcile against external-dns. `providerCredentialId`, if supplied,
-      must equal the system-wide active DNS credential -- callers confirm
-      the already-active credential, they cannot pick an arbitrary one.
+      Creates the domain's DNS record in the given registered hosted zone
+      and performs a best-effort first reconcile against the zone's
+      provider. `hostedZoneId` is required.
       Requires Owner, Project Admin, or domain-manage permission.
     operationId: enableDomainDNSRecord
     security:
@@ -56,7 +55,7 @@ domain-dns-record:
             schema:
               $ref: '../schemas/dns-record.yaml#/DomainDNSRecord'
       '400':
-        description: No active DNS credential is configured, providerCredentialId does not match it, or recordType is not one of auto/A/AAAA/CNAME
+        description: hostedZoneId is missing, or recordType is not one of auto/A/AAAA/CNAME
         content:
           application/json:
             schema:
@@ -96,7 +95,7 @@ domain-dns-record:
             schema:
               $ref: '../schemas/dns-record.yaml#/DomainDNSRecord'
       '400':
-        description: No active DNS credential is configured, providerCredentialId does not match it, or recordType is not one of auto/A/AAAA/CNAME
+        description: recordType is not one of auto/A/AAAA/CNAME
         content:
           application/json:
             schema:
@@ -116,9 +115,8 @@ domain-dns-record:
     tags: [DNS Records]
     summary: Delete a domain's DNS record
     description: |
-      Removes the live DNSEndpoint (so external-dns tears down the DNS
-      record) and the DomainDNSRecord row. Idempotent: deleting when no
-      record exists still returns 204. Requires Owner, Project Admin, or
+      Removes the DomainDNSRecord row. Idempotent: deleting when no record
+      exists still returns 204. Requires Owner, Project Admin, or
       domain-manage permission.
     operationId: deleteDomainDNSRecord
     security:
@@ -138,7 +136,7 @@ domain-dns-record-refresh:
   post:
     tags: [DNS Records]
     summary: Re-reconcile a domain's DNS record
-    description: Re-runs reconciliation against external-dns and returns the fresh record. Requires Owner, Project Admin, or domain-manage permission.
+    description: Re-runs reconciliation against the record's hosted-zone provider and returns the fresh record. Requires Owner, Project Admin, or domain-manage permission.
     operationId: refreshDomainDNSRecord
     security:
       - bearerAuth: []
@@ -162,53 +160,3 @@ domain-dns-record-refresh:
           application/json:
             schema:
               $ref: '../schemas/common.yaml#/Error'
-
-dns-active-credential:
-  get:
-    tags: [DNS Credentials]
-    summary: Get the active DNS provider credential (Owner only)
-    description: Platform-global. There is exactly one active DNS credential at a time, used by every domain's DNS record.
-    operationId: getActiveDNSCredential
-    security:
-      - bearerAuth: []
-    responses:
-      '200':
-        description: The currently active DNS provider credential, or none configured yet
-        content:
-          application/json:
-            schema:
-              $ref: '../schemas/dns-record.yaml#/ActiveDNSCredential'
-      '401':
-        $ref: '../components/responses.yaml#/Unauthorized'
-      '403':
-        $ref: '../components/responses.yaml#/Forbidden'
-
-  put:
-    tags: [DNS Credentials]
-    summary: Set the active DNS provider credential (Owner only)
-    description: |
-      Validates the credential, renders it into the external-dns Secret, and
-      applies that Secret to the control cluster. Only once the apply
-      succeeds is the credential persisted as active.
-    operationId: setActiveDNSCredential
-    security:
-      - bearerAuth: []
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            $ref: '../schemas/dns-record.yaml#/SetActiveDNSCredentialRequest'
-    responses:
-      '200':
-        description: Active DNS provider credential updated
-        content:
-          application/json:
-            schema:
-              $ref: '../schemas/dns-record.yaml#/ActiveDNSCredential'
-      '400':
-        $ref: '../components/responses.yaml#/BadRequest'
-      '401':
-        $ref: '../components/responses.yaml#/Unauthorized'
-      '403':
-        $ref: '../components/responses.yaml#/Forbidden'

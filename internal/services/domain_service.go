@@ -60,11 +60,10 @@ type DomainService struct {
 // needs: enabling a managed DNS record for a domain at Create, and tearing
 // one down at Delete. *DNSRecordService satisfies it structurally.
 //
-// Delete must be included here: the domain's DNSEndpoint is not cleaned up
+// Delete must be included here: the domain's DNS record is not cleaned up
 // by anything else. Deleting the domain cascades its DomainDNSRecord row
-// away in the database, but the live DNSEndpoint custom resource -- and the
-// provider record external-dns created from it -- would otherwise be
-// orphaned forever.
+// away in the database, but the live provider record it was reconciled to
+// would otherwise be orphaned forever.
 type DNSRecordManager interface {
 	Enable(domainID, createdBy uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error)
 	Delete(domainID uuid.UUID) error
@@ -273,15 +272,15 @@ type CreateDomainInput struct {
 }
 
 // DomainDNSInput is the opt-in DNS block on CreateDomainInput. It mirrors
-// DNSRecordInput's fields in wire-friendly form (a string credential ID
+// DNSRecordInput's fields in wire-friendly form (a string hosted zone ID
 // instead of *uuid.UUID), since Create parses it the same way a dedicated
 // DNS-record handler would.
 type DomainDNSInput struct {
-	Enabled              bool   `json:"enabled"`
-	ProviderCredentialID string `json:"providerCredentialId"`
-	RecordType           string `json:"recordType"`
-	TTL                  *int   `json:"ttl"`
-	Proxied              bool   `json:"proxied"`
+	Enabled      bool   `json:"enabled"`
+	HostedZoneID string `json:"hostedZoneId"`
+	RecordType   string `json:"recordType"`
+	TTL          *int   `json:"ttl"`
+	Proxied      bool   `json:"proxied"`
 }
 
 // UpdateDomainInput represents input for updating a domain
@@ -433,9 +432,9 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 			TTL:        input.DNS.TTL,
 			Proxied:    input.DNS.Proxied,
 		}
-		if input.DNS.ProviderCredentialID != "" {
-			if id, err := uuid.Parse(input.DNS.ProviderCredentialID); err == nil {
-				in.ProviderCredentialID = &id
+		if input.DNS.HostedZoneID != "" {
+			if id, err := uuid.Parse(input.DNS.HostedZoneID); err == nil {
+				in.HostedZoneID = &id
 			}
 		}
 		if _, err := s.dnsRecords.Enable(domain.ID, createdBy, in); err != nil {
@@ -676,14 +675,14 @@ func (s *DomainService) Delete(id uuid.UUID) error {
 	// Delete domain settings from database if exists
 	_ = s.settingsRepo.DeleteByDomainID(id)
 
-	// Best-effort: tear down the domain's managed DNS record (DNSEndpoint +
-	// DB row), the same way the K8s teardowns above are best-effort. Only
-	// possible when dnsRecords was wired (see SetDNSRecords -- nil outside a
-	// cluster). Without this step the DomainDNSRecord row would cascade away
-	// with the domain while its DNSEndpoint -- and the live provider record
-	// external-dns created from it -- is never cleaned up, orphaning it
-	// forever. A failure here must not block domain deletion: the Gateway and
-	// every other domain resource are already gone or on their way out.
+	// Best-effort: tear down the domain's managed DNS record (the live
+	// provider record + DB row), the same way the K8s teardowns above are
+	// best-effort. Only possible when dnsRecords was wired (see
+	// SetDNSRecords -- nil outside a cluster). Without this step the
+	// DomainDNSRecord row would cascade away with the domain while its live
+	// provider record is never cleaned up, orphaning it forever. A failure
+	// here must not block domain deletion: the Gateway and every other
+	// domain resource are already gone or on their way out.
 	if s.dnsRecords != nil {
 		if err := s.dnsRecords.Delete(id); err != nil {
 			log.Printf("Failed to delete DNS record for domain %s: %v", id, err)
