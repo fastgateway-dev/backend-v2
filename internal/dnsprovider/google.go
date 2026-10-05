@@ -1,5 +1,7 @@
 package dnsprovider
 
+import "errors"
+
 func init() { register(google{}) }
 
 type google struct{}
@@ -9,7 +11,6 @@ func (google) RequiredFields() []string { return []string{"serviceAccountKey", "
 func (g google) Validate(cred map[string]string) error {
 	return requireFields(cred, g.RequiredFields())
 }
-func (google) RenderSecret(cred map[string]string) map[string][]byte {
-	return map[string][]byte{"credentials.json": []byte(cred["serviceAccountKey"])}
+func (google) NewClient(cred map[string]string) (DNSClient, error) {
+	return nil, errors.New("not implemented")
 }
-func (google) ExternalDNSFlag() string { return "google" }
