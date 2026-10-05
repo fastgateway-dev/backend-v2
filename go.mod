@@ -3,6 +3,9 @@ module github.com/fastgateway-dev/backend-v2
 go 1.25.0
 
 require (
+	github.com/aws/aws-sdk-go-v2 v1.47.1
+	github.com/aws/aws-sdk-go-v2/credentials v1.20.6
+	github.com/aws/aws-sdk-go-v2/service/route53 v1.70.1
 	github.com/cloudflare/cloudflare-go v0.119.0
 	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/getkin/kin-openapi v0.137.0
@@ -27,6 +30,9 @@ require (
 )
 
 require (
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.4 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.4 // indirect
+	github.com/aws/smithy-go v1.28.1 // indirect
 	github.com/bytedance/sonic v1.9.1 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
