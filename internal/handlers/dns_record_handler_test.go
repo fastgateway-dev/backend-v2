@@ -459,4 +459,3 @@ func TestDNSRecordHandler_Refresh_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	mockSvc.AssertExpectations(t)
 }
-
