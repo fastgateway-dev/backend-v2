@@ -10,7 +10,6 @@ type DNSRecordStatus string
 
 const (
 	DNSRecordStatusPending DNSRecordStatus = "pending"
-	DNSRecordStatusSyncing DNSRecordStatus = "syncing"
 	DNSRecordStatusReady   DNSRecordStatus = "ready"
 	DNSRecordStatusError   DNSRecordStatus = "error"
 )
@@ -28,19 +27,18 @@ const (
 // Hostname is always the domain's hostname (not stored). ResolvedTarget is a
 // display cache of the last gateway address we resolved.
 type DomainDNSRecord struct {
-	ID                   uuid.UUID       `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
-	DomainID             uuid.UUID       `gorm:"type:uuid;not null;uniqueIndex" json:"domainId"`
-	ProviderCredentialID uuid.UUID       `gorm:"type:uuid;not null;index" json:"providerCredentialId"`
-	RecordType           DNSRecordType   `gorm:"column:record_type;not null;default:'auto'" json:"recordType"`
-	TTL                  *int            `gorm:"column:ttl" json:"ttl,omitempty"`
-	Proxied              bool            `gorm:"not null;default:false" json:"proxied"`
-	ResolvedTarget       string          `gorm:"column:resolved_target" json:"resolvedTarget,omitempty"`
-	Status               DNSRecordStatus `gorm:"not null;default:'pending'" json:"status"`
-	StatusMessage        string          `gorm:"column:status_message" json:"statusMessage,omitempty"`
-	EndpointName         string          `gorm:"column:endpoint_name" json:"endpointName,omitempty"`
-	CreatedBy            uuid.UUID       `gorm:"type:uuid;not null" json:"createdBy"`
-	CreatedAt            time.Time       `gorm:"not null;default:now()" json:"createdAt"`
-	UpdatedAt            time.Time       `gorm:"not null;default:now()" json:"updatedAt"`
+	ID             uuid.UUID       `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
+	DomainID       uuid.UUID       `gorm:"type:uuid;not null;uniqueIndex" json:"domainId"`
+	HostedZoneID   uuid.UUID       `gorm:"type:uuid;not null;index" json:"hostedZoneId"`
+	RecordType     DNSRecordType   `gorm:"column:record_type;not null;default:'auto'" json:"recordType"`
+	TTL            *int            `gorm:"column:ttl" json:"ttl,omitempty"`
+	Proxied        bool            `gorm:"not null;default:false" json:"proxied"`
+	ResolvedTarget string          `gorm:"column:resolved_target" json:"resolvedTarget,omitempty"`
+	Status         DNSRecordStatus `gorm:"not null;default:'pending'" json:"status"`
+	StatusMessage  string          `gorm:"column:status_message" json:"statusMessage,omitempty"`
+	CreatedBy      uuid.UUID       `gorm:"type:uuid;not null" json:"createdBy"`
+	CreatedAt      time.Time       `gorm:"not null;default:now()" json:"createdAt"`
+	UpdatedAt      time.Time       `gorm:"not null;default:now()" json:"updatedAt"`
 }
 
 func (DomainDNSRecord) TableName() string { return "domain_dns_records" }
