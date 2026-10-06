@@ -305,7 +305,7 @@ paths:
     $ref: 'paths/routes.yaml#/route-version'
   /projects/{projectId}/domains/{domainId}/routes/{routeId}/versions/{version}/rollback:
     $ref: 'paths/routes.yaml#/route-version-rollback'
-  /projects/{projectId}/domains/{domainId}/routes/{routeId}/metrics:
+  /projects/{projectId}/routes/{routeId}/metrics:
     $ref: 'paths/metrics.yaml#/route-metrics'
   /projects/{projectId}/routes:
     $ref: 'paths/routes.yaml#/project-routes'

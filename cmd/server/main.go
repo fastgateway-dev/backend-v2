@@ -951,7 +951,6 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 						routes.POST("", deps.RouteHandler.Create)                         // Permission check in handler
 						routes.POST("/preview", deps.RouteHandler.PreviewCreate)          // Preview create - no auth needed (just generates YAML)
 						routes.POST("/check-conflicts", deps.RouteHandler.CheckConflicts) // Check matcher conflicts - no permission needed
-						routes.GET("/:routeId/metrics", deps.MetricsHandler.GetRouteMetrics)
 						routes.GET("/:routeId", deps.RouteHandler.Get)
 						routes.PUT("/:routeId", deps.RouteHandler.Update)    // Permission check in handler
 						routes.DELETE("/:routeId", deps.RouteHandler.Delete) // Permission check in handler
@@ -1043,6 +1042,9 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 
 				// Project-scoped route listing across all domains; supports backend service+namespace filter.
 				projects.GET("/:projectId/routes", deps.PermChecker.RequireProjectAccess(), deps.RouteHandler.ListByProject)
+
+				// Project-scoped single-route metrics (domain is derived from the route internally).
+				projects.GET("/:projectId/routes/:routeId/metrics", deps.PermChecker.RequireProjectAccess(), deps.MetricsHandler.GetRouteMetrics)
 
 				// Project-scoped topology aggregator (read-only).
 				projects.GET("/:projectId/topology", deps.PermChecker.RequireProjectAccess(), deps.TopologyHandler.GetProjectTopology)

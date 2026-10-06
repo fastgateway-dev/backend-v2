@@ -31,7 +31,7 @@ func TestMetricsRouteReturnsTierAPanels(t *testing.T) {
 	route := fx.Route(cfg)
 
 	var result services.RouteMetricsResult
-	path := "/projects/" + env.ProjectID + "/domains/" + env.DomainID + "/routes/" + route.ID.String() + "/metrics?range=1h"
+	path := "/projects/" + env.ProjectID + "/routes/" + route.ID.String() + "/metrics?range=1h"
 	if _, err := env.Admin.Do(ctx, http.MethodGet, path, nil, &result); err != nil {
 		t.Fatalf("get route %s (%s) metrics: %v", route.Name, route.ID, err)
 	}
@@ -101,7 +101,7 @@ func TestMetricsRouteInvalidRange(t *testing.T) {
 	fx := harness.NewFixture(t, env)
 	route := fx.Route(cfg)
 
-	path := "/projects/" + env.ProjectID + "/domains/" + env.DomainID + "/routes/" + route.ID.String() + "/metrics?range=bogus"
+	path := "/projects/" + env.ProjectID + "/routes/" + route.ID.String() + "/metrics?range=bogus"
 	_, err := env.Admin.Do(ctx, http.MethodGet, path, nil, nil)
 	if err == nil {
 		t.Fatalf("get route %s (%s) metrics with range=bogus: request succeeded, want 400", route.Name, route.ID)

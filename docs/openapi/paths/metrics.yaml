@@ -26,7 +26,6 @@ route-metrics:
       - bearerAuth: []
     parameters:
       - $ref: '../components/parameters.yaml#/projectId'
-      - $ref: '../components/parameters.yaml#/domainId'
       - $ref: '../components/parameters.yaml#/routeId'
       - name: range
         in: query
