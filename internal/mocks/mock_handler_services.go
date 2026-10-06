@@ -6796,6 +6796,68 @@ func (_c *MockDNSRecordService_Get_Call) RunAndReturn(run func(domainID uuid.UUI
 	return _c
 }
 
+// List provides a mock function for the type MockDNSRecordService
+func (_mock *MockDNSRecordService) List(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
+	ret := _mock.Called(projectID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for List")
+	}
+
+	var r0 []models.DNSRecordListItem
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) ([]models.DNSRecordListItem, error)); ok {
+		return returnFunc(projectID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) []models.DNSRecordListItem); ok {
+		r0 = returnFunc(projectID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.DNSRecordListItem)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(projectID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockDNSRecordService_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type MockDNSRecordService_List_Call struct {
+	*mock.Call
+}
+
+// List is a helper method to define mock.On call
+//   - projectID uuid.UUID
+func (_e *MockDNSRecordService_Expecter) List(projectID any) *MockDNSRecordService_List_Call {
+	return &MockDNSRecordService_List_Call{Call: _e.mock.On("List", projectID)}
+}
+
+func (_c *MockDNSRecordService_List_Call) Run(run func(projectID uuid.UUID)) *MockDNSRecordService_List_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockDNSRecordService_List_Call) Return(dNSRecordListItems []models.DNSRecordListItem, err error) *MockDNSRecordService_List_Call {
+	_c.Call.Return(dNSRecordListItems, err)
+	return _c
+}
+
+func (_c *MockDNSRecordService_List_Call) RunAndReturn(run func(projectID uuid.UUID) ([]models.DNSRecordListItem, error)) *MockDNSRecordService_List_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Refresh provides a mock function for the type MockDNSRecordService
 func (_mock *MockDNSRecordService) Refresh(domainID uuid.UUID, projectID uuid.UUID) (*models.DomainDNSRecord, error) {
 	ret := _mock.Called(domainID, projectID)

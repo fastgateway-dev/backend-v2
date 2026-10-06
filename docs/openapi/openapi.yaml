@@ -275,6 +275,8 @@ paths:
     $ref: 'paths/topology.yaml#/domain-topology'
   /projects/{projectId}/domains/{domainId}/import/openapi:
     $ref: 'paths/routes.yaml#/openapi-import'
+  /projects/{projectId}/dns-records:
+    $ref: 'paths/dns-records.yaml#/dns-records-list'
   /projects/{projectId}/domains/{domainId}/dns-record:
     $ref: 'paths/dns-records.yaml#/domain-dns-record'
   /projects/{projectId}/domains/{domainId}/dns-record/refresh:
@@ -1113,6 +1115,8 @@ components:
     # ============== DNS RECORD ==============
     DomainDNSRecord:
       $ref: 'schemas/dns-record.yaml#/DomainDNSRecord'
+    DNSRecordListItem:
+      $ref: 'schemas/dns-record.yaml#/DNSRecordListItem'
     CreateDNSRecordRequest:
       $ref: 'schemas/dns-record.yaml#/CreateDNSRecordRequest'
     UpdateDNSRecordRequest:

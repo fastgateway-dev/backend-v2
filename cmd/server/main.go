@@ -892,6 +892,16 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					projectNamespaces.POST("/:namespaceId/ensure-reference-grant", deps.ProjectNamespaceHandler.EnsureReferenceGrant) // Permission check in handler
 				}
 
+				// Project-wide DNS records list. Aggregates every domain's
+				// managed DNS record for the project. Nil-guarded like the
+				// per-domain dns-record routes below; the handler enforces
+				// canManageDomains, the same permission those routes use.
+				if deps.DNSRecordHandler != nil {
+					dnsRecords := projects.Group("/:projectId/dns-records")
+					dnsRecords.Use(deps.PermChecker.RequireProjectAccess())
+					dnsRecords.GET("", deps.DNSRecordHandler.List)
+				}
+
 				// Domains (view: any team member, manage: Owner/Project Admin)
 				domains := projects.Group("/:projectId/domains")
 				domains.Use(deps.PermChecker.RequireProjectAccess())

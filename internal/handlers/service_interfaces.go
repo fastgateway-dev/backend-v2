@@ -138,6 +138,7 @@ type DNSHostedZoneServiceInterface interface {
 type DNSRecordServiceInterface interface {
 	Enable(domainID, projectID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
 	Get(domainID, projectID uuid.UUID) (*models.DomainDNSRecord, error)
+	List(projectID uuid.UUID) ([]models.DNSRecordListItem, error)
 	Update(domainID, projectID uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
 	Delete(domainID, projectID uuid.UUID) error
 	Refresh(domainID, projectID uuid.UUID) (*models.DomainDNSRecord, error)

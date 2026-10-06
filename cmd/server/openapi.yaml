@@ -2690,6 +2690,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ImportError'
+  /projects/{projectId}/dns-records:
+    get:
+      tags:
+        - DNS Records
+      summary: List all DNS records in a project
+      description: |
+        Returns every domain's FastGateway-managed DNS record for the project,
+        each enriched with the domain hostname (the record name) and the hosted
+        zone name. Read-only aggregation; it does not reconcile against the
+        provider, so `status` is the last persisted value. Requires Owner,
+        Project Admin, or domain-manage permission.
+      operationId: listProjectDNSRecords
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      responses:
+        '200':
+          description: The project's DNS records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DNSRecordListItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /projects/{projectId}/domains/{domainId}/dns-record:
     get:
       tags:
@@ -10911,6 +10940,22 @@ components:
         updatedAt:
           type: string
           format: date-time
+    DNSRecordListItem:
+      description: |
+        A row in the project-wide DNS records list: a domain's managed DNS record
+        plus the domain hostname (the record's name) and the name of the hosted
+        zone it lives in. This is a read-only aggregation and is not reconciled, so
+        `status` reflects the last persisted value.
+      allOf:
+        - $ref: '#/components/schemas/DomainDNSRecord'
+        - type: object
+          properties:
+            domainHostname:
+              type: string
+              description: The record's name — the domain's hostname.
+            zoneName:
+              type: string
+              description: The name of the hosted zone the record lives in (empty if the zone row is gone).
     CreateDNSRecordRequest:
       type: object
       required:

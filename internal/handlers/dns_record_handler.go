@@ -131,6 +131,52 @@ func parseProjectAndDomainID(c *gin.Context) (projectID, domainID uuid.UUID, ok 
 	return projectID, domainID, true
 }
 
+// dnsRecordListItemResponse is a project-wide list row: every DomainDNSRecord
+// field (promoted) plus the record's name (its domain hostname) and the name of
+// the hosted zone it lives in, so the list can be shown without a lookup per row.
+type dnsRecordListItemResponse struct {
+	dnsRecordResponse
+	DomainHostname string `json:"domainHostname"`
+	ZoneName       string `json:"zoneName"`
+}
+
+func toDNSRecordListItemResponse(it models.DNSRecordListItem) dnsRecordListItemResponse {
+	return dnsRecordListItemResponse{
+		dnsRecordResponse: toDNSRecordResponse(&it.DomainDNSRecord),
+		DomainHostname:    it.DomainHostname,
+		ZoneName:          it.ZoneName,
+	}
+}
+
+// List returns every managed DNS record in the project, each enriched with its
+// domain hostname and hosted-zone name. Gated by the same canManageDomains
+// permission as the per-domain record endpoints.
+func (h *DNSRecordHandler) List(c *gin.Context) {
+	user := middleware.GetCurrentUser(c)
+	projectID, err := uuid.Parse(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+
+	if !h.permChecker.CanManageDomains(projectID, user) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: only project admins can manage DNS records"})
+		return
+	}
+
+	items, err := h.service.List(projectID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp := make([]dnsRecordListItemResponse, 0, len(items))
+	for _, it := range items {
+		resp = append(resp, toDNSRecordListItemResponse(it))
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // Get returns the domain's DNS record.
 func (h *DNSRecordHandler) Get(c *gin.Context) {
 	user := middleware.GetCurrentUser(c)
