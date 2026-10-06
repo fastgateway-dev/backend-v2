@@ -179,5 +179,74 @@ func TestDomainDNSRecordRepository_CountByZone(t *testing.T) {
 	assert.Equal(t, int64(0), count3)
 }
 
+// TestDomainDNSRecordRepository_ListByProjectID verifies the project-wide list
+// aggregates every domain's record in the project, enriched with the domain
+// hostname and hosted-zone name, and excludes records from other projects.
+func TestDomainDNSRecordRepository_ListByProjectID(t *testing.T) {
+	db := requirePostgres(t)
+	repo := repository.NewDomainDNSRecordRepository(db)
+
+	// Project 1 with its seeded domain, plus a second domain in the same project.
+	project1, domain1a, _, user1 := seedProject(t, db)
+	domain1b := uuid.New()
+	require.NoError(t, db.Exec(`
+		INSERT INTO domains (id, project_id, name, hostname, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
+		domain1b, project1, "d1b-"+domain1b.String(), "b.example.com", user1).Error)
+
+	// Project 2 with its own domain (must not leak into project 1's list).
+	project2, domain2, _, user2 := seedProject(t, db)
+
+	cred1 := seedDNSProviderCredential(t, db, user1, "cred-"+uuid.NewString())
+	zoneExample := seedDNSHostedZone(t, db, user1, cred1, "example.com")
+	cred2 := seedDNSProviderCredential(t, db, user2, "cred-"+uuid.NewString())
+	zoneOther := seedDNSHostedZone(t, db, user2, cred2, "other.com")
+
+	t.Cleanup(func() {
+		_ = db.Exec(`DELETE FROM domain_dns_records WHERE domain_id IN (?, ?, ?)`, domain1a, domain1b, domain2).Error
+		_ = db.Exec(`DELETE FROM dns_hosted_zones WHERE id IN (?, ?)`, zoneExample, zoneOther).Error
+		_ = db.Exec(`DELETE FROM dns_provider_credentials WHERE id IN (?, ?)`, cred1, cred2).Error
+		_ = db.Exec(`DELETE FROM domains WHERE id = ?`, domain1b).Error
+	})
+
+	require.NoError(t, repo.Create(&models.DomainDNSRecord{
+		DomainID: domain1a, HostedZoneID: zoneExample, RecordType: models.DNSRecordTypeAuto,
+		ResolvedTarget: "192.0.2.1", Status: models.DNSRecordStatusReady, CreatedBy: user1,
+	}))
+	require.NoError(t, repo.Create(&models.DomainDNSRecord{
+		DomainID: domain1b, HostedZoneID: zoneExample, RecordType: models.DNSRecordTypeCNAME,
+		ResolvedTarget: "gw.example.com", Status: models.DNSRecordStatusPending, CreatedBy: user1,
+	}))
+	require.NoError(t, repo.Create(&models.DomainDNSRecord{
+		DomainID: domain2, HostedZoneID: zoneOther, RecordType: models.DNSRecordTypeA,
+		ResolvedTarget: "198.51.100.9", Status: models.DNSRecordStatusReady, CreatedBy: user2,
+	}))
+
+	// Project 1 -> exactly its two records, enriched.
+	items, err := repo.ListByProjectID(project1)
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+
+	byHost := map[string]models.DNSRecordListItem{}
+	for _, it := range items {
+		byHost[it.DomainHostname] = it
+		assert.NotEqual(t, domain2, it.DomainID, "project 2's record must not appear")
+	}
+	b, ok := byHost["b.example.com"]
+	require.True(t, ok, "second domain's record should be listed")
+	assert.Equal(t, domain1b, b.DomainID)
+	assert.Equal(t, "example.com", b.ZoneName)
+	assert.Equal(t, models.DNSRecordTypeCNAME, b.RecordType)
+	assert.Equal(t, "gw.example.com", b.ResolvedTarget)
+	assert.Equal(t, models.DNSRecordStatusPending, b.Status)
+
+	// Project 2 -> its single record, enriched.
+	items2, err := repo.ListByProjectID(project2)
+	require.NoError(t, err)
+	require.Len(t, items2, 1)
+	assert.Equal(t, domain2, items2[0].DomainID)
+	assert.Equal(t, "other.com", items2[0].ZoneName)
+}
+
 // Ensure the models package import is used.
 var _ models.DomainDNSRecord

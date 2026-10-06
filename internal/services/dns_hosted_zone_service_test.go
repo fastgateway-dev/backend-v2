@@ -97,6 +97,10 @@ func (f *fakeZoneRecordRepo) GetByDomainID(domainID uuid.UUID) (*models.DomainDN
 	return nil, gorm.ErrRecordNotFound
 }
 
+func (f *fakeZoneRecordRepo) ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
+	return nil, nil
+}
+
 func (f *fakeZoneRecordRepo) Update(rec *models.DomainDNSRecord) error { return nil }
 
 func (f *fakeZoneRecordRepo) DeleteByDomainID(domainID uuid.UUID) error { return nil }

@@ -164,6 +164,7 @@ type DomainSettingsRepositoryInterface interface {
 type DomainDNSRecordRepositoryInterface interface {
 	Create(rec *models.DomainDNSRecord) error
 	GetByDomainID(domainID uuid.UUID) (*models.DomainDNSRecord, error)
+	ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error)
 	Update(rec *models.DomainDNSRecord) error
 	DeleteByDomainID(domainID uuid.UUID) error
 	CountByZone(zoneID uuid.UUID) (int64, error)

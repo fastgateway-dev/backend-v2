@@ -24,6 +24,26 @@ func (r *DomainDNSRecordRepository) GetByDomainID(domainID uuid.UUID) (*models.D
 	return &rec, nil
 }
 
+// ListByProjectID returns every managed DNS record whose domain belongs to the
+// given project, each joined with its domain hostname (the record name) and the
+// name of the hosted zone it lives in, ordered by hostname. A record whose
+// hosted zone row is missing still appears (LEFT JOIN) with an empty ZoneName.
+func (r *DomainDNSRecordRepository) ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
+	var items []models.DNSRecordListItem
+	err := r.db.
+		Table("domain_dns_records AS rec").
+		Select("rec.*, d.hostname AS domain_hostname, z.name AS zone_name").
+		Joins("JOIN domains d ON d.id = rec.domain_id").
+		Joins("LEFT JOIN dns_hosted_zones z ON z.id = rec.hosted_zone_id").
+		Where("d.project_id = ?", projectID).
+		Order("d.hostname ASC").
+		Scan(&items).Error
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func (r *DomainDNSRecordRepository) Update(rec *models.DomainDNSRecord) error {
 	return r.db.Save(rec).Error
 }

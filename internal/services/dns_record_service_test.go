@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -27,7 +28,10 @@ import (
 // --- fakeRecRepo -------------------------------------------------------------
 
 type fakeRecRepo struct {
-	rec *models.DomainDNSRecord
+	rec        *models.DomainDNSRecord
+	listResult []models.DNSRecordListItem
+	listErr    error
+	listCalled uuid.UUID
 }
 
 func (f *fakeRecRepo) Create(rec *models.DomainDNSRecord) error {
@@ -60,6 +64,11 @@ func (f *fakeRecRepo) CountByZone(zoneID uuid.UUID) (int64, error) {
 		return 1, nil
 	}
 	return 0, nil
+}
+
+func (f *fakeRecRepo) ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
+	f.listCalled = projectID
+	return f.listResult, f.listErr
 }
 
 var _ repository.DomainDNSRecordRepositoryInterface = (*fakeRecRepo)(nil)
@@ -267,6 +276,32 @@ func TestEnable_InvalidRecordType_Errors(t *testing.T) {
 	// Nothing persisted for the rejected input.
 	_, err = h.svc.repo.GetByDomainID(h.domainID)
 	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+}
+
+func TestList_PassesProjectAndReturnsItems(t *testing.T) {
+	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+	h.repo.listResult = []models.DNSRecordListItem{
+		{
+			DomainDNSRecord: models.DomainDNSRecord{DomainID: h.domainID, RecordType: models.DNSRecordTypeA, Status: models.DNSRecordStatusReady},
+			DomainHostname:  "app.example.com",
+			ZoneName:        "example.com",
+		},
+	}
+
+	got, err := h.svc.List(h.projectID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "app.example.com", got[0].DomainHostname)
+	assert.Equal(t, "example.com", got[0].ZoneName)
+	// List is a pure read that scopes by project in the repo query.
+	assert.Equal(t, h.projectID, h.repo.listCalled, "service must pass the project id to the repository")
+}
+
+func TestList_PropagatesRepoError(t *testing.T) {
+	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+	h.repo.listErr = errors.New("db down")
+	_, err := h.svc.List(h.projectID)
+	require.Error(t, err)
 }
 
 func TestEnable_AlreadyExists_Errors(t *testing.T) {

@@ -42,3 +42,12 @@ type DomainDNSRecord struct {
 }
 
 func (DomainDNSRecord) TableName() string { return "domain_dns_records" }
+
+// DNSRecordListItem is a read projection for the project-wide DNS records list:
+// a domain's managed DNS record joined with its domain hostname (the record's
+// name) and the name of the hosted zone it lives in. It is not a table.
+type DNSRecordListItem struct {
+	DomainDNSRecord
+	DomainHostname string `json:"domainHostname"`
+	ZoneName       string `json:"zoneName"`
+}

@@ -226,6 +226,16 @@ func (s *DNSRecordService) deferredRetry(domainID uuid.UUID) {
 	}()
 }
 
+// List returns every managed DNS record whose domain belongs to projectID, each
+// enriched with its domain hostname (the record name) and hosted-zone name,
+// ordered by hostname. It is a pure read: unlike Get/Refresh it does not
+// reconcile against the provider, so Status reflects the last persisted value
+// (the per-domain Get/Refresh path owns reconciliation). The project scoping
+// lives in the repository query, so no per-domain ownership check is needed.
+func (s *DNSRecordService) List(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
+	return s.repo.ListByProjectID(projectID)
+}
+
 // Get returns the domain's DNS record, reconciling only when there is work to
 // do: when the record is still pending, or when the gateway's current
 // load-balancer address has drifted from the one we last wrote

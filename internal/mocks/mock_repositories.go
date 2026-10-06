@@ -6807,6 +6807,68 @@ func (_c *MockDomainDNSRecordRepository_GetByDomainID_Call) RunAndReturn(run fun
 	return _c
 }
 
+// ListByProjectID provides a mock function for the type MockDomainDNSRecordRepository
+func (_mock *MockDomainDNSRecordRepository) ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
+	ret := _mock.Called(projectID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByProjectID")
+	}
+
+	var r0 []models.DNSRecordListItem
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) ([]models.DNSRecordListItem, error)); ok {
+		return returnFunc(projectID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) []models.DNSRecordListItem); ok {
+		r0 = returnFunc(projectID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.DNSRecordListItem)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(projectID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockDomainDNSRecordRepository_ListByProjectID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByProjectID'
+type MockDomainDNSRecordRepository_ListByProjectID_Call struct {
+	*mock.Call
+}
+
+// ListByProjectID is a helper method to define mock.On call
+//   - projectID uuid.UUID
+func (_e *MockDomainDNSRecordRepository_Expecter) ListByProjectID(projectID any) *MockDomainDNSRecordRepository_ListByProjectID_Call {
+	return &MockDomainDNSRecordRepository_ListByProjectID_Call{Call: _e.mock.On("ListByProjectID", projectID)}
+}
+
+func (_c *MockDomainDNSRecordRepository_ListByProjectID_Call) Run(run func(projectID uuid.UUID)) *MockDomainDNSRecordRepository_ListByProjectID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockDomainDNSRecordRepository_ListByProjectID_Call) Return(dNSRecordListItems []models.DNSRecordListItem, err error) *MockDomainDNSRecordRepository_ListByProjectID_Call {
+	_c.Call.Return(dNSRecordListItems, err)
+	return _c
+}
+
+func (_c *MockDomainDNSRecordRepository_ListByProjectID_Call) RunAndReturn(run func(projectID uuid.UUID) ([]models.DNSRecordListItem, error)) *MockDomainDNSRecordRepository_ListByProjectID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Update provides a mock function for the type MockDomainDNSRecordRepository
 func (_mock *MockDomainDNSRecordRepository) Update(rec *models.DomainDNSRecord) error {
 	ret := _mock.Called(rec)
