@@ -366,15 +366,17 @@ func TestEnable_ApexCNAME_Error(t *testing.T) {
 }
 
 func TestEnable_HostedZoneMismatch_Error(t *testing.T) {
-	// Hostname is not contained in the hosted zone.
+	// Hostname is not contained in the hosted zone: Enable's CheckCollision
+	// pre-flight now rejects up-front rather than creating a record in error
+	// status, so nothing is persisted and the provider is never touched.
 	client := &recDNSClient{}
 	h := newRecHarness(t, "app.other.com", "example.com", "203.0.113.5", "faketest", client)
 
-	rec, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
-	require.NoError(t, err)
-	require.Equal(t, models.DNSRecordStatusError, rec.Status)
-	require.Equal(t, ErrHostedZoneMismatch.Error(), rec.StatusMessage)
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	require.ErrorIs(t, err, ErrHostedZoneMismatch)
 	require.Equal(t, 0, client.upsertCalls)
+	_, gerr := h.svc.repo.GetByDomainID(h.domainID)
+	require.ErrorIs(t, gerr, gorm.ErrRecordNotFound, "no record persisted on mismatch")
 }
 
 func TestEnable_WithAddress_UpsertsReady(t *testing.T) {
@@ -630,4 +632,13 @@ func TestCheckCollision(t *testing.T) {
 		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
 		require.NoError(t, h.svc.CheckCollision("App.Example.com.", h.zoneID, uuid.Nil))
 	})
+}
+
+func TestEnable_RejectsCollision(t *testing.T) {
+	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+	h.repo.claimExists = true
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	require.ErrorIs(t, err, ErrHostnameClaimed)
+	_, gerr := h.svc.repo.GetByDomainID(h.domainID)
+	require.ErrorIs(t, gerr, gorm.ErrRecordNotFound, "no record persisted on collision")
 }

@@ -235,6 +235,16 @@ func (s *DNSRecordService) Enable(domainID, projectID, createdBy uuid.UUID, in D
 		return nil, ErrInvalidRecordType
 	}
 
+	// Reject before persisting if the hostname's DNS is already claimed inside
+	// FastGateway (another project) or by a foreign provider record.
+	domain, err := s.domainRepo.GetByID(domainID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.CheckCollision(domain.Hostname, *in.HostedZoneID, domainID); err != nil {
+		return nil, err
+	}
+
 	rec := &models.DomainDNSRecord{
 		DomainID:     domainID,
 		HostedZoneID: *in.HostedZoneID,

@@ -556,3 +556,38 @@ func TestDNSRecordHandler_List_EmptyReturnsArray(t *testing.T) {
 	assert.Equal(t, "[]", strings.TrimSpace(w.Body.String()))
 	mockSvc.AssertExpectations(t)
 }
+
+func TestDNSRecordHandler_Enable_CollisionMapping(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		code int
+	}{
+		{"claimed", services.ErrHostnameClaimed, http.StatusConflict},
+		{"foreign", services.ErrForeignRecordExists, http.StatusConflict},
+		{"unavailable", services.ErrDNSProviderUnavailable, http.StatusBadGateway},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockSvc := new(mocks.MockDNSRecordService)
+			mockAudit := new(mocks.MockAuditService)
+			pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+			h := handlers.NewDNSRecordHandler(mockSvc, pc, mockAudit)
+			user := testUser()
+			projectID := uuid.New()
+			domainID := uuid.New()
+			mockSvc.On("Enable", domainID, projectID, mock.Anything, mock.Anything).Return((*models.DomainDNSRecord)(nil), tc.err)
+
+			router := gin.New()
+			router.POST("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
+				c.Set("user", user)
+				h.Enable(c)
+			})
+			body, _ := json.Marshal(map[string]interface{}{"hostedZoneId": uuid.New().String(), "recordType": "auto"})
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domains/"+domainID.String()+"/dns-record", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+			assert.Equal(t, tc.code, w.Code)
+		})
+	}
+}
