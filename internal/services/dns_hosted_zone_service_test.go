@@ -100,6 +100,9 @@ func (f *fakeZoneRecordRepo) GetByDomainID(domainID uuid.UUID) (*models.DomainDN
 func (f *fakeZoneRecordRepo) ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
 	return nil, nil
 }
+func (f *fakeZoneRecordRepo) HostnameClaimExists(hostname string, zoneID, excludeDomainID uuid.UUID) (bool, error) {
+	return false, nil
+}
 
 func (f *fakeZoneRecordRepo) Update(rec *models.DomainDNSRecord) error { return nil }
 

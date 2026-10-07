@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -41,7 +42,69 @@ var (
 	// write, a record already exists at the provider for this hostname that
 	// FastGateway does not own -- we refuse to overwrite it.
 	ErrRecordClobber = errors.New("a record already exists at the provider for this hostname that FastGateway does not manage")
+	// ErrHostnameClaimed is returned by CheckCollision when another FastGateway
+	// project already manages a DNS record for the hostname in this hosted zone.
+	// The message is intentionally generic -- it must not reveal the other
+	// project's identity to a caller who only administers their own project.
+	ErrHostnameClaimed = errors.New("DNS for this hostname is already managed by another project in this hosted zone")
+	// ErrForeignRecordExists is returned by CheckCollision when a record exists
+	// at the provider for the hostname that FastGateway does not manage.
+	ErrForeignRecordExists = errors.New("a DNS record already exists at the provider for this hostname that FastGateway does not manage")
+	// ErrDNSProviderUnavailable wraps a credential/provider failure during the
+	// create-time outside check: we could not verify the provider, so (fail-safe)
+	// the caller rejects rather than risk a clobber.
+	ErrDNSProviderUnavailable = errors.New("could not verify DNS at the provider; try again")
 )
+
+// normalizeHostname lowercases, trims surrounding space, and strips one trailing
+// dot, so DNS comparisons do not depend on case or FQDN form.
+func normalizeHostname(s string) string {
+	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(s), "."))
+}
+
+// CheckCollision validates that hostname can take a managed DNS record in zoneID
+// without clobbering an existing claim. excludeDomainID is the domain being
+// changed (uuid.Nil at create). It returns, in order: ErrHostedZoneMismatch (the
+// hostname is not apex/subdomain of the zone), ErrHostnameClaimed (another
+// project), ErrForeignRecordExists (a foreign provider record), a wrapped
+// ErrDNSProviderUnavailable (could not verify), or nil when the hostname is free.
+func (s *DNSRecordService) CheckCollision(hostname string, zoneID, excludeDomainID uuid.UUID) error {
+	zone, err := s.zoneRepo.GetByID(zoneID)
+	if err != nil {
+		return err
+	}
+	nh, nz := normalizeHostname(hostname), normalizeHostname(zone.Name)
+	if nh != nz && !strings.HasSuffix(nh, "."+nz) {
+		return ErrHostedZoneMismatch
+	}
+	claimed, err := s.repo.HostnameClaimExists(hostname, zoneID, excludeDomainID)
+	if err != nil {
+		return err
+	}
+	if claimed {
+		return ErrHostnameClaimed
+	}
+	providerType, creds, err := s.creds.DecryptedCredentials(zone.ProviderCredentialID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDNSProviderUnavailable, err)
+	}
+	prov, ok := dnsProviderLookup(providerType)
+	if !ok {
+		return fmt.Errorf("%w: unsupported DNS provider %q", ErrDNSProviderUnavailable, providerType)
+	}
+	client, err := prov.NewClient(creds)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDNSProviderUnavailable, err)
+	}
+	exists, err := client.RecordExistsForName(context.Background(), zone.ProviderZoneID, nh)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDNSProviderUnavailable, err)
+	}
+	if exists {
+		return ErrForeignRecordExists
+	}
+	return nil
+}
 
 // enablePollInterval is the per-iteration sleep of Enable's bounded wait for
 // the gateway load-balancer address. It is a package-level var only so tests
@@ -415,8 +478,9 @@ func (s *DNSRecordService) reconcile(rec *models.DomainDNSRecord) {
 	}
 
 	// Hosted-zone containment: the record's hostname must be the zone apex or
-	// a subdomain of it.
-	if domain.Hostname != zone.Name && !strings.HasSuffix(domain.Hostname, "."+zone.Name) {
+	// a subdomain of it. Normalized (case/trailing-dot) to match CheckCollision.
+	rnh, rnz := normalizeHostname(domain.Hostname), normalizeHostname(zone.Name)
+	if rnh != rnz && !strings.HasSuffix(rnh, "."+rnz) {
 		setErr(ErrHostedZoneMismatch.Error())
 		return
 	}
@@ -443,7 +507,7 @@ func (s *DNSRecordService) reconcile(rec *models.DomainDNSRecord) {
 
 	// Apex + CNAME guard: a CNAME cannot live at a zone apex. (A/AAAA at apex
 	// is fine.)
-	if rt == models.DNSRecordTypeCNAME && domain.Hostname == zone.Name {
+	if rt == models.DNSRecordTypeCNAME && rnh == rnz {
 		setErr(ErrApexCNAME.Error())
 		return
 	}

@@ -28,10 +28,16 @@ import (
 // --- fakeRecRepo -------------------------------------------------------------
 
 type fakeRecRepo struct {
-	rec        *models.DomainDNSRecord
-	listResult []models.DNSRecordListItem
-	listErr    error
-	listCalled uuid.UUID
+	rec         *models.DomainDNSRecord
+	listResult  []models.DNSRecordListItem
+	listErr     error
+	listCalled  uuid.UUID
+	claimExists bool
+	claimErr    error
+}
+
+func (f *fakeRecRepo) HostnameClaimExists(hostname string, zoneID, excludeDomainID uuid.UUID) (bool, error) {
+	return f.claimExists, f.claimErr
 }
 
 func (f *fakeRecRepo) Create(rec *models.DomainDNSRecord) error {
@@ -591,4 +597,37 @@ func TestEnable_CrossProject_Rejected(t *testing.T) {
 	require.Nil(t, rec)
 	require.Equal(t, 0, client.upsertCalls, "cross-project enable must not write at the provider")
 	require.Nil(t, h.repo.rec, "cross-project enable must not create a row")
+}
+
+func TestCheckCollision(t *testing.T) {
+	t.Run("containment mismatch", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+		err := h.svc.CheckCollision("app.other.org", h.zoneID, uuid.Nil)
+		require.ErrorIs(t, err, ErrHostedZoneMismatch)
+	})
+	t.Run("inside claimed does not leak project", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+		h.repo.claimExists = true
+		err := h.svc.CheckCollision("app.example.com", h.zoneID, uuid.Nil)
+		require.ErrorIs(t, err, ErrHostnameClaimed)
+		assert.Equal(t, ErrHostnameClaimed.Error(), err.Error(), "message must be the static sentinel (no project name leaked)")
+	})
+	t.Run("outside foreign record", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{existsForName: true})
+		err := h.svc.CheckCollision("app.example.com", h.zoneID, uuid.Nil)
+		require.ErrorIs(t, err, ErrForeignRecordExists)
+	})
+	t.Run("provider error is unavailable", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{existsErr: errors.New("boom")})
+		err := h.svc.CheckCollision("app.example.com", h.zoneID, uuid.Nil)
+		require.ErrorIs(t, err, ErrDNSProviderUnavailable)
+	})
+	t.Run("clear", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+		require.NoError(t, h.svc.CheckCollision("app.example.com", h.zoneID, uuid.Nil))
+	})
+	t.Run("case and trailing dot pass containment", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+		require.NoError(t, h.svc.CheckCollision("App.Example.com.", h.zoneID, uuid.Nil))
+	})
 }
