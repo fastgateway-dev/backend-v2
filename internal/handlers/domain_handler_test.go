@@ -1448,3 +1448,29 @@ func TestDomainHandler_Create_CollisionMapping(t *testing.T) {
 		})
 	}
 }
+
+func TestDomainHandler_Create_ProviderUnavailableHidesDetail(t *testing.T) {
+	mockDomain := new(mocks.MockDomainService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := domainPermChecker()
+	h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
+	user := testUser()
+	projectID := uuid.New()
+	wrapped := fmt.Errorf("%w: cloudflare 403 secret-token-detail", services.ErrDNSProviderUnavailable)
+	mockDomain.On("Create", projectID, mock.AnythingOfType("*services.CreateDomainInput"), user.ID).Return((*models.Domain)(nil), wrapped)
+
+	body, _ := json.Marshal(map[string]string{"name": "d", "hostname": "x.example.com", "domainTemplateId": uuid.New().String()})
+	router := gin.New()
+	router.POST("/projects/:projectId/domains", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Create(c)
+	})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domains", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadGateway, w.Code)
+	assert.NotContains(t, w.Body.String(), "secret-token-detail")
+	assert.Contains(t, w.Body.String(), services.ErrDNSProviderUnavailable.Error())
+}

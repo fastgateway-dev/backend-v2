@@ -110,7 +110,9 @@ func mapDNSRecordServiceError(c *gin.Context, err error) {
 		errors.Is(err, services.ErrForeignRecordExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, services.ErrDNSProviderUnavailable):
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		// Return only the clean sentinel; the wrapped provider/credential detail
+		// stays server-side and is not exposed to the client.
+		c.JSON(http.StatusBadGateway, gin.H{"error": services.ErrDNSProviderUnavailable.Error()})
 	case errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, services.ErrDomainNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "DNS record not found"})
 	default:

@@ -103,7 +103,8 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		case errors.Is(err, services.ErrHostnameClaimed), errors.Is(err, services.ErrForeignRecordExists):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case errors.Is(err, services.ErrDNSProviderUnavailable):
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			// Return only the clean sentinel; the wrapped provider detail stays server-side.
+			c.JSON(http.StatusBadGateway, gin.H{"error": services.ErrDNSProviderUnavailable.Error()})
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		}

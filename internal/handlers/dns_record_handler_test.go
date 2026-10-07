@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -590,4 +591,31 @@ func TestDNSRecordHandler_Enable_CollisionMapping(t *testing.T) {
 			assert.Equal(t, tc.code, w.Code)
 		})
 	}
+}
+
+func TestDNSRecordHandler_Enable_ProviderUnavailableHidesDetail(t *testing.T) {
+	mockSvc := new(mocks.MockDNSRecordService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewDNSRecordHandler(mockSvc, pc, mockAudit)
+	user := testUser()
+	projectID := uuid.New()
+	domainID := uuid.New()
+	wrapped := fmt.Errorf("%w: cloudflare 403 secret-token-detail", services.ErrDNSProviderUnavailable)
+	mockSvc.On("Enable", domainID, projectID, mock.Anything, mock.Anything).Return((*models.DomainDNSRecord)(nil), wrapped)
+
+	router := gin.New()
+	router.POST("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Enable(c)
+	})
+	body, _ := json.Marshal(map[string]interface{}{"hostedZoneId": uuid.New().String(), "recordType": "auto"})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domains/"+domainID.String()+"/dns-record", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadGateway, w.Code)
+	assert.NotContains(t, w.Body.String(), "secret-token-detail", "502 body must not leak the wrapped provider detail")
+	assert.Contains(t, w.Body.String(), services.ErrDNSProviderUnavailable.Error())
 }

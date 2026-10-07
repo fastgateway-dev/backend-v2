@@ -86,8 +86,6 @@ func (c *googleClient) GetRecord(ctx context.Context, providerZoneID, name, reco
 	return toGoogleRecord(out.Rrsets[0]), true, nil
 }
 
-// UpsertRecord creates or replaces the record via an atomic Changes.Create:
-// the existing rrset (if any) is listed as a deletion alongside the new
 func (c *googleClient) RecordExistsForName(ctx context.Context, providerZoneID, name string) (bool, error) {
 	out, err := c.svc.ResourceRecordSets.List(c.project, providerZoneID).Name(name + ".").Context(ctx).Do()
 	if err != nil {
@@ -102,6 +100,8 @@ func (c *googleClient) RecordExistsForName(ctx context.Context, providerZoneID, 
 	return false, nil
 }
 
+// UpsertRecord creates or replaces the record via an atomic Changes.Create:
+// the existing rrset (if any) is listed as a deletion alongside the new
 // rrset as an addition. Google ignores r.Proxied; it has no such concept.
 func (c *googleClient) UpsertRecord(ctx context.Context, providerZoneID string, r Record) error {
 	fqdn := r.Name + "."
