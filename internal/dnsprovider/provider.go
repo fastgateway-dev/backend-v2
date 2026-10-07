@@ -21,6 +21,10 @@ type DNSClient interface {
 	GetRecord(ctx context.Context, providerZoneID, name, recordType string) (rec Record, found bool, err error)
 	UpsertRecord(ctx context.Context, providerZoneID string, r Record) error
 	DeleteRecord(ctx context.Context, providerZoneID, name, recordType string) error
+	// RecordExistsForName reports whether any A, AAAA, or CNAME record exists at
+	// name in the zone, regardless of type. Used by the create-time collision
+	// check, where the eventual record type (auto -> A/AAAA/CNAME) is not yet known.
+	RecordExistsForName(ctx context.Context, providerZoneID, name string) (bool, error)
 }
 
 type Record struct {

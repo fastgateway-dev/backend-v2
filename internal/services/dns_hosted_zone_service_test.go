@@ -150,6 +150,10 @@ func (c fakeZoneClient) FindZone(ctx context.Context, zoneName string) (string, 
 	return c.d.findZoneID, c.d.findZoneFound, c.d.findZoneErr
 }
 
+func (c fakeZoneClient) RecordExistsForName(ctx context.Context, providerZoneID, name string) (bool, error) {
+	return false, nil
+}
+
 func (c fakeZoneClient) GetRecord(ctx context.Context, providerZoneID, name, recordType string) (dnsprovider.Record, bool, error) {
 	return dnsprovider.Record{}, false, errors.New("fakeZoneClient: GetRecord not implemented")
 }

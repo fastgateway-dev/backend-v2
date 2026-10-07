@@ -238,3 +238,23 @@ func TestGoogleClient_DeleteRecord_DeletesWhenPresent(t *testing.T) {
 		t.Fatalf("expected deletion of existing rrset, got %+v", sawCreate.Deletions)
 	}
 }
+
+func TestGoogleClient_RecordExistsForName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("name") == "app.example.com." {
+			w.Write([]byte(`{"rrsets":[{"name":"app.example.com.","type":"A","ttl":300,"rrdatas":["203.0.113.5"]}]}`))
+			return
+		}
+		w.Write([]byte(`{"rrsets":[]}`))
+	}))
+	defer srv.Close()
+	c := newGoogleTestClient(t, srv)
+	exists, err := c.RecordExistsForName(context.Background(), "example-com", "app.example.com")
+	if err != nil || !exists {
+		t.Fatalf("RecordExistsForName=%v,%v want true,nil", exists, err)
+	}
+	exists, err = c.RecordExistsForName(context.Background(), "example-com", "missing.example.com")
+	if err != nil || exists {
+		t.Fatalf("RecordExistsForName(missing)=%v,%v want false,nil", exists, err)
+	}
+}

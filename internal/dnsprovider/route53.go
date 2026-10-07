@@ -102,6 +102,27 @@ func (c *route53Client) GetRecord(ctx context.Context, providerZoneID, name, rec
 	return toRoute53Record(rrs), true, nil
 }
 
+func (c *route53Client) RecordExistsForName(ctx context.Context, providerZoneID, name string) (bool, error) {
+	out, err := c.api.ListResourceRecordSets(ctx, &r53.ListResourceRecordSetsInput{
+		HostedZoneId:    aws.String(providerZoneID),
+		StartRecordName: aws.String(name),
+		MaxItems:        aws.Int32(10),
+	})
+	if err != nil {
+		return false, err
+	}
+	for _, rrs := range out.ResourceRecordSets {
+		if strings.TrimSuffix(aws.ToString(rrs.Name), ".") != name {
+			continue
+		}
+		switch string(rrs.Type) {
+		case "A", "AAAA", "CNAME":
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (c *route53Client) UpsertRecord(ctx context.Context, providerZoneID string, r Record) error {
 	_, err := c.api.ChangeResourceRecordSets(ctx, &r53.ChangeResourceRecordSetsInput{
 		HostedZoneId: aws.String(providerZoneID),

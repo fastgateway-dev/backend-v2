@@ -148,11 +148,18 @@ type recDNSClient struct {
 	upsertErr error
 	deleteErr error
 
+	existsForName bool
+	existsErr     error
+
 	upsertCalls    int
 	deleteCalls    int
 	getCalls       int
 	lastUpsert     dnsprovider.Record
 	lastDeleteType string
+}
+
+func (c *recDNSClient) RecordExistsForName(_ context.Context, _, _ string) (bool, error) {
+	return c.existsForName, c.existsErr
 }
 
 func (c *recDNSClient) FindZone(context.Context, string) (string, bool, error) {
