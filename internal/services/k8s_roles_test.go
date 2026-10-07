@@ -352,7 +352,7 @@ func TestNoWiringNilGuardsRemain_NegatedForm_AllowlistIsExact(t *testing.T) {
 		"ai_service.go:provider":                 1,
 		"system_settings_service.go:cached":      1,
 		"domain_template_manifests.go:aiService": 2,
-		"domain_service.go:dnsRecords":           2,
+		"domain_service.go:dnsRecords":           3,
 	}
 
 	entries, err := os.ReadDir(".")

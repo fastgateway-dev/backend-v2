@@ -687,6 +687,69 @@ func (_m *MockDNSRecordManager) EXPECT() *MockDNSRecordManager_Expecter {
 	return &MockDNSRecordManager_Expecter{mock: &_m.Mock}
 }
 
+// CheckCollision provides a mock function for the type MockDNSRecordManager
+func (_mock *MockDNSRecordManager) CheckCollision(hostname string, hostedZoneID uuid.UUID, excludeDomainID uuid.UUID) error {
+	ret := _mock.Called(hostname, hostedZoneID, excludeDomainID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CheckCollision")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(string, uuid.UUID, uuid.UUID) error); ok {
+		r0 = returnFunc(hostname, hostedZoneID, excludeDomainID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockDNSRecordManager_CheckCollision_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CheckCollision'
+type MockDNSRecordManager_CheckCollision_Call struct {
+	*mock.Call
+}
+
+// CheckCollision is a helper method to define mock.On call
+//   - hostname string
+//   - hostedZoneID uuid.UUID
+//   - excludeDomainID uuid.UUID
+func (_e *MockDNSRecordManager_Expecter) CheckCollision(hostname any, hostedZoneID any, excludeDomainID any) *MockDNSRecordManager_CheckCollision_Call {
+	return &MockDNSRecordManager_CheckCollision_Call{Call: _e.mock.On("CheckCollision", hostname, hostedZoneID, excludeDomainID)}
+}
+
+func (_c *MockDNSRecordManager_CheckCollision_Call) Run(run func(hostname string, hostedZoneID uuid.UUID, excludeDomainID uuid.UUID)) *MockDNSRecordManager_CheckCollision_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 uuid.UUID
+		if args[2] != nil {
+			arg2 = args[2].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockDNSRecordManager_CheckCollision_Call) Return(err error) *MockDNSRecordManager_CheckCollision_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockDNSRecordManager_CheckCollision_Call) RunAndReturn(run func(hostname string, hostedZoneID uuid.UUID, excludeDomainID uuid.UUID) error) *MockDNSRecordManager_CheckCollision_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Delete provides a mock function for the type MockDNSRecordManager
 func (_mock *MockDNSRecordManager) Delete(domainID uuid.UUID, projectID uuid.UUID) error {
 	ret := _mock.Called(domainID, projectID)

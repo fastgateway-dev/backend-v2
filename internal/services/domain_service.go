@@ -67,6 +67,9 @@ type DomainService struct {
 type DNSRecordManager interface {
 	Enable(domainID, projectID, createdBy uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error)
 	Delete(domainID, projectID uuid.UUID) error
+	// CheckCollision is the create-time pre-flight: excludeDomainID is uuid.Nil
+	// at create (no domain yet).
+	CheckCollision(hostname string, hostedZoneID, excludeDomainID uuid.UUID) error
 }
 
 // DomainTemplateLookup is the only thing DomainService needs from
@@ -300,6 +303,23 @@ type ListTLSSecretsResponse struct {
 
 // Create creates a new domain
 func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, createdBy uuid.UUID) (*models.Domain, error) {
+	// DNS collision pre-flight: when DNS is requested, reject the whole create
+	// up-front (nothing persisted, no Gateway) if the hostname's DNS is already
+	// claimed inside FastGateway (another project) or by a foreign provider
+	// record. Skipped out-of-cluster (dnsRecords nil), like the DNS-enable tail.
+	if input.DNS != nil && input.DNS.Enabled && s.dnsRecords != nil {
+		if input.DNS.HostedZoneID == "" {
+			return nil, ErrNoHostedZone
+		}
+		zoneID, err := uuid.Parse(input.DNS.HostedZoneID)
+		if err != nil {
+			return nil, errors.New("invalid hostedZoneId")
+		}
+		if err := s.dnsRecords.CheckCollision(input.Hostname, zoneID, uuid.Nil); err != nil {
+			return nil, err
+		}
+	}
+
 	// Check if hostname already exists in project
 	exists, err := s.domainRepo.ExistsByHostname(projectID, input.Hostname)
 	if err != nil {

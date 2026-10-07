@@ -1322,6 +1322,14 @@ type mockDNSEnabler struct {
 	deleteDomains  []uuid.UUID
 	deleteProjects []uuid.UUID
 	deleteErr      error
+
+	checkCalled       bool
+	checkCollisionErr error
+}
+
+func (m *mockDNSEnabler) CheckCollision(hostname string, hostedZoneID, excludeDomainID uuid.UUID) error {
+	m.checkCalled = true
+	return m.checkCollisionErr
 }
 
 func (m *mockDNSEnabler) Enable(domainID, projectID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error) {
@@ -1452,7 +1460,8 @@ func TestCreateDomain_WithDNS_EnableFailureIsBestEffort(t *testing.T) {
 		DomainTemplateID: dtID.String(),
 		Namespace:        kubernetes.FastGatewayNamespace,
 		DNS: &services.DomainDNSInput{
-			Enabled: true,
+			Enabled:      true,
+			HostedZoneID: uuid.New().String(),
 		},
 	}, uuid.New())
 
@@ -1555,4 +1564,28 @@ func TestDomainService_Delete_NoDNSRecordsWired(t *testing.T) {
 
 	require.NoError(t, err)
 	domainRepo.AssertExpectations(t)
+}
+
+// TestCreateDomain_WithDNS_CollisionFailsCreate verifies the up-front pre-flight:
+// a DNS collision rejects the whole create before anything is persisted.
+func TestCreateDomain_WithDNS_CollisionFailsCreate(t *testing.T) {
+	svc, domainRepo, _, _, _, _, _ := newTestDomainService()
+	dnsMock := &mockDNSEnabler{checkCollisionErr: services.ErrHostnameClaimed}
+	svc.SetDNSRecords(dnsMock)
+
+	projectID := uuid.New()
+	zoneID := uuid.New()
+
+	_, err := svc.Create(projectID, &services.CreateDomainInput{
+		Name:             "d",
+		Hostname:         "app.example.com",
+		DomainTemplateID: uuid.New().String(),
+		Namespace:        kubernetes.FastGatewayNamespace,
+		DNS:              &services.DomainDNSInput{Enabled: true, HostedZoneID: zoneID.String()},
+	}, uuid.New())
+
+	require.ErrorIs(t, err, services.ErrHostnameClaimed)
+	assert.True(t, dnsMock.checkCalled, "CheckCollision should run")
+	domainRepo.AssertNotCalled(t, "Create", mock.Anything)
+	domainRepo.AssertNotCalled(t, "ExistsByHostname", mock.Anything, mock.Anything)
 }

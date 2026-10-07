@@ -1414,3 +1414,37 @@ func TestDomainHandler_DetachCertificate_Forbidden(t *testing.T) {
 	mockProject.AssertExpectations(t)
 	mockTeam.AssertExpectations(t)
 }
+
+func TestDomainHandler_Create_CollisionMapping(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		code int
+	}{
+		{"claimed", services.ErrHostnameClaimed, http.StatusConflict},
+		{"foreign", services.ErrForeignRecordExists, http.StatusConflict},
+		{"unavailable", services.ErrDNSProviderUnavailable, http.StatusBadGateway},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockDomain := new(mocks.MockDomainService)
+			mockAudit := new(mocks.MockAuditService)
+			pc := domainPermChecker()
+			h := handlers.NewDomainHandler(mockDomain, mockAudit, pc, nil)
+			user := testUser()
+			projectID := uuid.New()
+			mockDomain.On("Create", projectID, mock.AnythingOfType("*services.CreateDomainInput"), user.ID).Return((*models.Domain)(nil), tc.err)
+
+			body, _ := json.Marshal(map[string]string{"name": "d", "hostname": "x.example.com", "domainTemplateId": uuid.New().String()})
+			router := gin.New()
+			router.POST("/projects/:projectId/domains", func(c *gin.Context) {
+				c.Set("user", user)
+				h.Create(c)
+			})
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domains", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+			assert.Equal(t, tc.code, w.Code)
+		})
+	}
+}
