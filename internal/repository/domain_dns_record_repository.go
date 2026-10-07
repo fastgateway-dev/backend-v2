@@ -44,6 +44,23 @@ func (r *DomainDNSRecordRepository) ListByProjectID(projectID uuid.UUID) ([]mode
 	return items, nil
 }
 
+// HostnameClaimExists reports whether any DomainDNSRecord exists for hostname in
+// zoneID on a domain other than excludeDomainID (uuid.Nil excludes nothing).
+// Matching is case- and trailing-dot-insensitive on both sides. Because a
+// hostname is unique within a project, a match is always another project.
+func (r *DomainDNSRecordRepository) HostnameClaimExists(hostname string, zoneID, excludeDomainID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.Raw(`
+		SELECT EXISTS(
+			SELECT 1 FROM domain_dns_records rec
+			JOIN domains d ON d.id = rec.domain_id
+			WHERE LOWER(TRIM(TRAILING '.' FROM d.hostname)) = LOWER(TRIM(TRAILING '.' FROM ?))
+			  AND rec.hosted_zone_id = ?
+			  AND rec.domain_id <> ?)`,
+		hostname, zoneID, excludeDomainID).Scan(&exists).Error
+	return exists, err
+}
+
 func (r *DomainDNSRecordRepository) Update(rec *models.DomainDNSRecord) error {
 	return r.db.Save(rec).Error
 }

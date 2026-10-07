@@ -6807,6 +6807,78 @@ func (_c *MockDomainDNSRecordRepository_GetByDomainID_Call) RunAndReturn(run fun
 	return _c
 }
 
+// HostnameClaimExists provides a mock function for the type MockDomainDNSRecordRepository
+func (_mock *MockDomainDNSRecordRepository) HostnameClaimExists(hostname string, zoneID uuid.UUID, excludeDomainID uuid.UUID) (bool, error) {
+	ret := _mock.Called(hostname, zoneID, excludeDomainID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for HostnameClaimExists")
+	}
+
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(string, uuid.UUID, uuid.UUID) (bool, error)); ok {
+		return returnFunc(hostname, zoneID, excludeDomainID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(string, uuid.UUID, uuid.UUID) bool); ok {
+		r0 = returnFunc(hostname, zoneID, excludeDomainID)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if returnFunc, ok := ret.Get(1).(func(string, uuid.UUID, uuid.UUID) error); ok {
+		r1 = returnFunc(hostname, zoneID, excludeDomainID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockDomainDNSRecordRepository_HostnameClaimExists_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HostnameClaimExists'
+type MockDomainDNSRecordRepository_HostnameClaimExists_Call struct {
+	*mock.Call
+}
+
+// HostnameClaimExists is a helper method to define mock.On call
+//   - hostname string
+//   - zoneID uuid.UUID
+//   - excludeDomainID uuid.UUID
+func (_e *MockDomainDNSRecordRepository_Expecter) HostnameClaimExists(hostname any, zoneID any, excludeDomainID any) *MockDomainDNSRecordRepository_HostnameClaimExists_Call {
+	return &MockDomainDNSRecordRepository_HostnameClaimExists_Call{Call: _e.mock.On("HostnameClaimExists", hostname, zoneID, excludeDomainID)}
+}
+
+func (_c *MockDomainDNSRecordRepository_HostnameClaimExists_Call) Run(run func(hostname string, zoneID uuid.UUID, excludeDomainID uuid.UUID)) *MockDomainDNSRecordRepository_HostnameClaimExists_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 uuid.UUID
+		if args[2] != nil {
+			arg2 = args[2].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockDomainDNSRecordRepository_HostnameClaimExists_Call) Return(b bool, err error) *MockDomainDNSRecordRepository_HostnameClaimExists_Call {
+	_c.Call.Return(b, err)
+	return _c
+}
+
+func (_c *MockDomainDNSRecordRepository_HostnameClaimExists_Call) RunAndReturn(run func(hostname string, zoneID uuid.UUID, excludeDomainID uuid.UUID) (bool, error)) *MockDomainDNSRecordRepository_HostnameClaimExists_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListByProjectID provides a mock function for the type MockDomainDNSRecordRepository
 func (_mock *MockDomainDNSRecordRepository) ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
 	ret := _mock.Called(projectID)

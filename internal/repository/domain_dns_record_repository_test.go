@@ -250,3 +250,55 @@ func TestDomainDNSRecordRepository_ListByProjectID(t *testing.T) {
 
 // Ensure the models package import is used.
 var _ models.DomainDNSRecord
+
+func TestDomainDNSRecordRepository_HostnameClaimExists(t *testing.T) {
+	db := requirePostgres(t)
+	repo := repository.NewDomainDNSRecordRepository(db)
+
+	_, domainA, _, userA := seedProject(t, db)
+
+	// A second project + a domain with the SAME hostname (mixed case + trailing dot).
+	projectB := uuid.New()
+	domainB := uuid.New()
+	require.NoError(t, db.Exec(`
+		INSERT INTO projects (id, name, k8s_api_url, k8s_token_encrypted, created_by, created_at, updated_at)
+		VALUES (?, ?, '', '', ?, NOW(), NOW())`, projectB, "projB-"+projectB.String(), userA).Error)
+	require.NoError(t, db.Exec(`
+		INSERT INTO domains (id, project_id, name, hostname, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
+		domainB, projectB, "dB-"+domainB.String(), "App.Example.com.", userA).Error)
+
+	cred := seedDNSProviderCredential(t, db, userA, "cred-"+uuid.NewString())
+	zone := seedDNSHostedZone(t, db, userA, cred, "example.com")
+	otherZone := seedDNSHostedZone(t, db, userA, cred, "other.com")
+
+	t.Cleanup(func() {
+		_ = db.Exec(`DELETE FROM domain_dns_records WHERE domain_id IN (?, ?)`, domainA, domainB).Error
+		_ = db.Exec(`DELETE FROM dns_hosted_zones WHERE id IN (?, ?)`, zone, otherZone).Error
+		_ = db.Exec(`DELETE FROM dns_provider_credentials WHERE id = ?`, cred).Error
+		_ = db.Exec(`DELETE FROM domains WHERE id = ?`, domainB).Error
+		_ = db.Exec(`DELETE FROM projects WHERE id = ?`, projectB).Error
+	})
+
+	require.NoError(t, repo.Create(&models.DomainDNSRecord{
+		DomainID: domainB, HostedZoneID: zone, RecordType: models.DNSRecordTypeAuto,
+		Status: models.DNSRecordStatusReady, CreatedBy: userA,
+	}))
+
+	// Same hostname (normalized) + same zone, excluding nothing -> claimed.
+	got, err := repo.HostnameClaimExists("app.example.com", zone, uuid.Nil)
+	require.NoError(t, err)
+	assert.True(t, got, "same hostname+zone on another project is a claim (case/dot-insensitive)")
+
+	// Different zone -> not claimed.
+	got, err = repo.HostnameClaimExists("app.example.com", otherZone, uuid.Nil)
+	require.NoError(t, err)
+	assert.False(t, got)
+
+	// Excluding the only claimant -> not claimed.
+	got, err = repo.HostnameClaimExists("app.example.com", zone, domainB)
+	require.NoError(t, err)
+	assert.False(t, got)
+
+	_ = domainA
+}
