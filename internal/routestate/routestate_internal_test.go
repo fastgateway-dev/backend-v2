@@ -629,6 +629,14 @@ func (m *testRouteRepo) CountByStreamID(streamID uuid.UUID) (int64, error) {
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *testRouteRepo) ListActiveByStreamID(streamID uuid.UUID) ([]models.Route, error) {
+	args := m.Called(streamID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]models.Route), args.Error(1)
+}
+
 func TestRouteStateMachine_RejectsIllegalTransition(t *testing.T) {
 	routeRepo := new(testRouteRepo)
 	m := &Machine{repo: routeRepo}

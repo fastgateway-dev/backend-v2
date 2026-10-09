@@ -70,6 +70,13 @@ type RouteVersionRecorder interface {
 	CreateVersion(route *models.Route, approval *models.Approval, deployedBy uuid.UUID) error
 }
 
+// StreamReader resolves the Stream an L4 (TCP/UDP) route belongs to, so the
+// deploy path can recompute that Stream's Gateway. *repository.StreamRepository
+// satisfies it structurally.
+type StreamReader interface {
+	GetByID(id uuid.UUID) (*models.Stream, error)
+}
+
 // RouteServiceDeps carries everything RouteService needs. Every field is
 // required unless its comment says otherwise: before Phase 2E these arrived
 // through fourteen setters, and thirty-seven nil-guards existed across the
@@ -118,6 +125,14 @@ type RouteServiceDeps struct {
 	K8sSecrets       SecretWriter
 	K8sAPIKeys       APIKeySecretApplier
 	K8sRefGrants     ReferenceGrantChecker
+
+	// The L4 (TCP/UDP) deploy path. Streams resolves a route's Stream;
+	// K8sGateways applies the Stream's Gateway (recomputed from the full
+	// listener set on every L4 route change); K8sL4Routes applies/deletes the
+	// TCPRoute/UDPRoute. All three are required.
+	Streams     StreamReader
+	K8sGateways GatewayApplier
+	K8sL4Routes L4RouteApplier
 
 	// IDGen mints route IDs. Optional: nil means uuid.New. Injected so the
 	// preview path is deterministic under test - the first 8 hex characters
@@ -207,6 +222,15 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 	if deps.K8sRefGrants == nil {
 		missing = append(missing, "K8sRefGrants")
 	}
+	if deps.Streams == nil {
+		missing = append(missing, "Streams")
+	}
+	if deps.K8sGateways == nil {
+		missing = append(missing, "K8sGateways")
+	}
+	if deps.K8sL4Routes == nil {
+		missing = append(missing, "K8sL4Routes")
+	}
 	if len(missing) > 0 {
 		panic("services.NewRouteService: missing required dependency: " + strings.Join(missing, ", "))
 	}
@@ -263,6 +287,9 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 		wafPolicyRepo:            deps.WafPolicyRepo,
 		clientAttachmentRepo:     deps.ClientAttachmentRepo,
 		k8sRoutes:                deps.K8sRoutes,
+		streams:                  deps.Streams,
+		k8sGateways:              deps.K8sGateways,
+		k8sL4Routes:              deps.K8sL4Routes,
 		k8sPolicies:              deps.K8sPolicies,
 		k8sBackends:              deps.K8sBackends,
 		k8sBackendReaper:         deps.K8sBackendReaper,

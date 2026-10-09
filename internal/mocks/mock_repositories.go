@@ -10940,6 +10940,68 @@ func (_c *MockRouteRepository_GetByIDs_Call) RunAndReturn(run func(ids []uuid.UU
 	return _c
 }
 
+// ListActiveByStreamID provides a mock function for the type MockRouteRepository
+func (_mock *MockRouteRepository) ListActiveByStreamID(streamID uuid.UUID) ([]models.Route, error) {
+	ret := _mock.Called(streamID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListActiveByStreamID")
+	}
+
+	var r0 []models.Route
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) ([]models.Route, error)); ok {
+		return returnFunc(streamID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) []models.Route); ok {
+		r0 = returnFunc(streamID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.Route)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(streamID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteRepository_ListActiveByStreamID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListActiveByStreamID'
+type MockRouteRepository_ListActiveByStreamID_Call struct {
+	*mock.Call
+}
+
+// ListActiveByStreamID is a helper method to define mock.On call
+//   - streamID uuid.UUID
+func (_e *MockRouteRepository_Expecter) ListActiveByStreamID(streamID any) *MockRouteRepository_ListActiveByStreamID_Call {
+	return &MockRouteRepository_ListActiveByStreamID_Call{Call: _e.mock.On("ListActiveByStreamID", streamID)}
+}
+
+func (_c *MockRouteRepository_ListActiveByStreamID_Call) Run(run func(streamID uuid.UUID)) *MockRouteRepository_ListActiveByStreamID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteRepository_ListActiveByStreamID_Call) Return(routes []models.Route, err error) *MockRouteRepository_ListActiveByStreamID_Call {
+	_c.Call.Return(routes, err)
+	return _c
+}
+
+func (_c *MockRouteRepository_ListActiveByStreamID_Call) RunAndReturn(run func(streamID uuid.UUID) ([]models.Route, error)) *MockRouteRepository_ListActiveByStreamID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListByDomainID provides a mock function for the type MockRouteRepository
 func (_mock *MockRouteRepository) ListByDomainID(domainID uuid.UUID, page int, limit int, teamID *uuid.UUID, status string, search string, searchField string, labels map[string]string) ([]models.Route, int64, error) {
 	ret := _mock.Called(domainID, page, limit, teamID, status, search, searchField, labels)

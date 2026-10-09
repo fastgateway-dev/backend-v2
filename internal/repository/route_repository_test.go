@@ -237,3 +237,48 @@ func TestRouteRepository_CountByStreamID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), n)
 }
+
+func TestRouteRepository_ListActiveByStreamID(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, teamID, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	streams := repository.NewStreamRepository(db)
+	routes := repository.NewRouteRepository(db)
+
+	s := &models.Stream{ProjectID: projectID, Name: "act-gw", Namespace: "fastgateway-system",
+		GatewayTemplateID: tmplID, K8sGatewayName: "str-act-gw", K8sGatewayClass: "public-lb"}
+	require.NoError(t, streams.Create(s))
+	other := &models.Stream{ProjectID: projectID, Name: "act-other", Namespace: "fastgateway-system",
+		GatewayTemplateID: tmplID, K8sGatewayName: "str-act-other", K8sGatewayClass: "public-lb"}
+	require.NoError(t, streams.Create(other))
+
+	insert := func(streamID uuid.UUID, name, status string, port int) {
+		require.NoError(t, db.Exec(`
+			INSERT INTO routes (id, stream_id, team_id, name, protocol, listener_port, status, config, created_by, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'tcp', ?, ?, '{}'::jsonb, ?, NOW(), NOW())`,
+			uuid.New(), streamID, teamID, name, port, status, userID).Error)
+	}
+	// Live in the cluster: active, plus active routes with a pending change.
+	insert(s.ID, "live-active", "active", 5432)
+	insert(s.ID, "live-pending-update", "pending_update", 5433)
+	insert(s.ID, "live-pending-delete", "pending_delete", 5434)
+	insert(s.ID, "live-pending-deploy", "pending_deploy", 5435)
+	// Not yet (or never) deployed.
+	insert(s.ID, "not-pending-create", "pending_create", 6000)
+	insert(s.ID, "not-approved", "approved", 6001)
+	insert(s.ID, "not-rejected", "rejected", 6002)
+	// Another stream's route.
+	insert(other.ID, "other-active", "active", 7000)
+
+	got, err := routes.ListActiveByStreamID(s.ID)
+	require.NoError(t, err)
+	names := make([]string, 0, len(got))
+	for _, r := range got {
+		names = append(names, r.Name)
+	}
+	assert.ElementsMatch(t, []string{"live-active", "live-pending-update", "live-pending-delete", "live-pending-deploy"}, names)
+
+	none, err := routes.ListActiveByStreamID(uuid.New())
+	require.NoError(t, err)
+	assert.Empty(t, none)
+}

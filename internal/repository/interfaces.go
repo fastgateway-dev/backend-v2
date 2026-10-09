@@ -273,6 +273,7 @@ type RouteRepositoryInterface interface {
 	GetActiveRoutesByDomainID(domainID uuid.UUID) ([]models.Route, error)
 	CountByDomainID(domainID uuid.UUID) (int, error)
 	CountByStreamID(streamID uuid.UUID) (int64, error)
+	ListActiveByStreamID(streamID uuid.UUID) ([]models.Route, error)
 }
 
 // RouteVersionRepositoryInterface defines the interface for route version repository operations

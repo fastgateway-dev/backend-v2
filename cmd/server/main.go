@@ -202,6 +202,7 @@ func main() {
 				return routeService.Update(routeID, input, submittedBy)
 			}),
 	})
+	streamRepo := repository.NewStreamRepository(db)
 	routeService = services.NewRouteService(services.RouteServiceDeps{
 		RouteRepo:                routeRepo,
 		ApprovalRepo:             approvalRepo,
@@ -229,6 +230,9 @@ func main() {
 		K8sSecrets:               k8sService,
 		K8sAPIKeys:               k8sService,
 		K8sRefGrants:             k8sService,
+		Streams:                  streamRepo,
+		K8sGateways:              k8sService,
+		K8sL4Routes:              k8sService,
 	})
 	approvalService := services.NewApprovalService(services.ApprovalServiceDeps{
 		ApprovalRepo: approvalRepo,
@@ -306,7 +310,6 @@ func main() {
 	teamHandler := handlers.NewTeamHandler(teamService, permChecker, auditService, emailInviteService)
 	domainTemplateHandler := handlers.NewDomainTemplateHandler(domainTemplateService, auditService, domainTemplateService)
 	domainHandler := handlers.NewDomainHandler(domainService, auditService, permChecker, domainService)
-	streamRepo := repository.NewStreamRepository(db)
 	streamService := services.NewStreamService(streamRepo, domainTemplateRepo, routeRepo, k8sService, projectNamespaceRepo)
 	streamHandler := handlers.NewStreamHandler(streamService, auditService, permChecker)
 	routeHandler := handlers.NewRouteHandler(routeService, auditService, permChecker)

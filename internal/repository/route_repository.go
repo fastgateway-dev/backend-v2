@@ -154,6 +154,26 @@ func (r *RouteRepository) GetActiveRoutesByDomainID(domainID uuid.UUID) ([]model
 	return routes, err
 }
 
+// ListActiveByStreamID lists the L4 routes of a stream that are live in the
+// cluster, i.e. whose listener must be present on the stream's Gateway.
+//
+// "Live" is wider than status = active: a route with a pending update or
+// delete (or an approved change waiting for deployment) is still deployed with
+// its previous config until the change is deployed, so excluding it would let
+// an unrelated route's deploy drop its listener from the recomputed Gateway.
+// Routes that were never deployed (pending_create, approved-for-create,
+// rejected) are excluded.
+func (r *RouteRepository) ListActiveByStreamID(streamID uuid.UUID) ([]models.Route, error) {
+	var routes []models.Route
+	err := r.db.Where("stream_id = ? AND status IN ?", streamID, []models.RouteStatus{
+		models.RouteStatusActive,
+		models.RouteStatusPendingUpdate,
+		models.RouteStatusPendingDelete,
+		models.RouteStatusPendingDeploy,
+	}).Order("created_at ASC, id ASC").Find(&routes).Error
+	return routes, err
+}
+
 // CountByDomainID returns the number of routes in a domain
 func (r *RouteRepository) CountByDomainID(domainID uuid.UUID) (int, error) {
 	var count int64
