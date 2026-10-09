@@ -911,18 +911,18 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 				}
 
 				// L4 Streams (view: any team member, manage: Owner/Project Admin,
-				// the same permission Domains use). Nil-guarded so a RouterDeps
-				// built without a StreamHandler (tests) still routes.
-				if deps.StreamHandler != nil {
-					streams := projects.Group("/:projectId/streams")
-					streams.Use(deps.PermChecker.RequireProjectAccess())
-					{
-						streams.GET("", deps.StreamHandler.List)
-						streams.POST("", deps.StreamHandler.Create) // Permission check in handler
-						streams.GET("/:streamId", deps.StreamHandler.Get)
-						streams.PATCH("/:streamId", deps.StreamHandler.Update)  // Permission check in handler
-						streams.DELETE("/:streamId", deps.StreamHandler.Delete) // Permission check in handler
-					}
+				// the same permission Domains use). Registered unconditionally
+				// like the other route groups; setupRouter runs with zero-value
+				// deps in the route-parity test, so registration must not depend
+				// on a handler being non-nil.
+				streams := projects.Group("/:projectId/streams")
+				streams.Use(deps.PermChecker.RequireProjectAccess())
+				{
+					streams.GET("", deps.StreamHandler.List)
+					streams.POST("", deps.StreamHandler.Create) // Permission check in handler
+					streams.GET("/:streamId", deps.StreamHandler.Get)
+					streams.PATCH("/:streamId", deps.StreamHandler.Update)  // Permission check in handler
+					streams.DELETE("/:streamId", deps.StreamHandler.Delete) // Permission check in handler
 				}
 
 				// Domains (view: any team member, manage: Owner/Project Admin)
