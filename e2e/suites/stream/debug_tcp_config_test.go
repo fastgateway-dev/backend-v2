@@ -45,27 +45,49 @@ func TestZZDebugTCPEnvoyConfig(t *testing.T) {
 		return
 	}
 
-	pf := exec.Command("kubectl", "-n", "envoy-gateway-system", "port-forward", "pod/"+pod, "19000:19000")
+	// Bind the forward on 127.0.0.1 explicitly and dial 127.0.0.1 (not
+	// "localhost", which can resolve to ::1 while port-forward listens on IPv4).
+	pf := exec.Command("kubectl", "-n", "envoy-gateway-system", "port-forward",
+		"--address", "127.0.0.1", "pod/"+pod, "19000:19000")
 	if err := pf.Start(); err != nil {
 		t.Logf("DEBUG port-forward start err: %v", err)
 		return
 	}
 	defer func() { _ = pf.Process.Kill() }()
-	time.Sleep(5 * time.Second)
 
-	for _, res := range []string{"dynamic_listeners", "dynamic_active_clusters", "dynamic_endpoint_configs"} {
+	// Wait for the forward to accept connections (retry the first GET).
+	get := func(res string) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		req, _ := http.NewRequestWithContext(ctx, "GET", "http://localhost:19000/config_dump?resource="+res, nil)
+		defer cancel()
+		req, _ := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:19000/config_dump?resource="+res, nil)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b), nil
+	}
+	var ready bool
+	for i := 0; i < 20; i++ {
+		time.Sleep(1 * time.Second)
+		if _, err := get("bootstrap"); err == nil {
+			ready = true
+			break
+		}
+	}
+	if !ready {
+		t.Logf("DEBUG port-forward never became ready")
+		return
+	}
+
+	for _, res := range []string{"dynamic_listeners", "dynamic_active_clusters", "dynamic_endpoint_configs"} {
+		body, err := get(res)
+		if err != nil {
 			t.Logf("DEBUG config_dump %s err: %v", res, err)
-			cancel()
 			continue
 		}
-		b, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		cancel()
-		t.Logf("DEBUG config_dump %s (%d bytes):\n%s", res, len(b), string(b))
+		t.Logf("DEBUG config_dump %s (%d bytes):\n%s", res, len(body), body)
 	}
 }
 
