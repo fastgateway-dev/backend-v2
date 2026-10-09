@@ -17,7 +17,7 @@
 #     internal/services/certificate_issuer_service.go and
 #     internal/services/managed_certificate_service.go)
 #   - gateway.networking.k8s.io: gateways, httproutes, grpcroutes,
-#     referencegrants, gatewayclasses (internal/cluster/route.go,
+#     tcproutes, udproutes, referencegrants, gatewayclasses (internal/cluster/route.go,
 #     gateway.go, discovery.go)
 #   - gateway.envoyproxy.io: clienttrafficpolicies, backendtrafficpolicies,
 #     envoyextensionpolicies, backends, envoyproxies, httproutefilters,
@@ -74,6 +74,8 @@ rules:
       - gatewayclasses
       - httproutes
       - grpcroutes
+      - tcproutes
+      - udproutes
       - referencegrants
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Envoy Gateway

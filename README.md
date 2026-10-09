@@ -184,7 +184,8 @@ Then test connectivity and create the project.
 | `gateways` | full CRUD | Create/manage Gateway resources |
 | `httproutes` | full CRUD | Create/manage HTTPRoute resources |
 | `grpcroutes` | full CRUD | gRPC route support |
-| `tcproutes` | full CRUD | TCP route support |
+| `tcproutes` | full CRUD | TCP route support (L4 streams) |
+| `udproutes` | full CRUD | UDP route support (L4 streams) |
 | `tlsroutes` | full CRUD | TLS passthrough support |
 | `referencegrants` | full CRUD | Cross-namespace references |
 
