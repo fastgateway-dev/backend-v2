@@ -413,6 +413,24 @@ func TestMetricsService_GetRouteMetrics_Success(t *testing.T) {
 	assert.NotEmpty(t, res.Rps.Class2xx)
 }
 
+// An L4 route has a Stream and no Domain: route metrics are not available for
+// it, and GetRouteMetrics must say so instead of dereferencing its nil DomainID.
+func TestMetricsService_GetRouteMetrics_L4Route_NotAvailable(t *testing.T) {
+	svc, pRepo, rRepo, _ := newMetricsServiceWithRoute(&fakePromClient{})
+
+	projectID, routeID, streamID := uuid.New(), uuid.New(), uuid.New()
+	pRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID, MetricsEndpointURL: "http://prom:9090", MetricsAuthType: "none"}, nil)
+	rRepo.On("GetByID", routeID).Return(&models.Route{
+		ID: routeID, Name: "pg", StreamID: &streamID, Protocol: models.RouteProtocolTCP,
+	}, nil)
+
+	require.NotPanics(t, func() {
+		res, err := svc.GetRouteMetrics(context.Background(), projectID, routeID, "1h")
+		assert.Nil(t, res)
+		assert.ErrorIs(t, err, ErrMetricsNotAvailableForL4)
+	})
+}
+
 func TestMetricsService_GetRouteMetrics_InvalidRange(t *testing.T) {
 	svc, _, _, _ := newMetricsServiceWithRoute(&fakePromClient{})
 	_, err := svc.GetRouteMetrics(context.Background(), uuid.New(), uuid.New(), "bogus")

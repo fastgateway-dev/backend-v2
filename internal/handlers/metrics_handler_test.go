@@ -90,6 +90,31 @@ func TestMetricsHandler_GetRouteMetrics_ServiceError(t *testing.T) {
 	assert.Contains(t, body["message"], "401")
 }
 
+func TestMetricsHandler_GetRouteMetrics_L4Route_Is400(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mockSvc := &mocks.MockMetricsService{}
+	h := NewMetricsHandler(mockSvc)
+
+	projectID := uuid.New()
+	routeID := uuid.New()
+	mockSvc.On("GetRouteMetrics", mock.Anything, projectID, routeID, "1h").Return(
+		nil, services.ErrMetricsNotAvailableForL4,
+	)
+
+	router := gin.New()
+	router.GET("/projects/:projectId/routes/:routeId/metrics", h.GetRouteMetrics)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/projects/"+projectID.String()+"/routes/"+routeID.String()+"/metrics?range=1h", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "metrics_unavailable", body["error"])
+}
+
 func TestMetricsHandler_GetRouteMetrics_InvalidRange(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mockSvc := &mocks.MockMetricsService{}

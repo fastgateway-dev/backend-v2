@@ -166,6 +166,10 @@ func (s *MetricsService) TestConnection(ctx context.Context, projectID uuid.UUID
 	return &TestConnectionResult{OK: true}, nil
 }
 
+// ErrMetricsNotAvailableForL4 is returned by GetRouteMetrics for an L4 (tcp/udp)
+// route: route metrics are HTTP-cluster based and a stream route has no Domain.
+var ErrMetricsNotAvailableForL4 = errors.New("route metrics are not available for L4 routes")
+
 // GetRouteMetrics returns Tier A panels for a single route.
 func (s *MetricsService) GetRouteMetrics(ctx context.Context, projectID, routeID uuid.UUID, rangeSpec string) (*RouteMetricsResult, error) {
 	start, end, step, stepStr, err := resolveTimeRange(rangeSpec)
@@ -184,6 +188,13 @@ func (s *MetricsService) GetRouteMetrics(ctx context.Context, projectID, routeID
 	route, err := s.routeRepo.GetByID(routeID)
 	if err != nil {
 		return nil, fmt.Errorf("get route: %w", err)
+	}
+
+	// An L4 route belongs to a Stream and has no Domain; the route panels are
+	// built from the Domain's HTTP cluster selector. Must precede the
+	// *route.DomainID dereference below.
+	if route.IsL4() || route.DomainID == nil {
+		return nil, ErrMetricsNotAvailableForL4
 	}
 
 	domain, err := s.domainRepo.GetByID(*route.DomainID)

@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -89,6 +91,11 @@ func writeMetricsError(c *gin.Context, err error) {
 	lower := strings.ToLower(msg)
 
 	switch {
+	case errors.Is(err, services.ErrMetricsNotAvailableForL4):
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "metrics_unavailable",
+			"message": msg,
+		})
 	case strings.Contains(lower, "not found"), strings.Contains(lower, "record not found"):
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "not_found",
