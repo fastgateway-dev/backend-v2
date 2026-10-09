@@ -212,7 +212,10 @@ jobs:
           # --server-side: the experimental HTTPRoute CRD is too large for
           # client-side apply (its last-applied-configuration annotation
           # exceeds the 256KB metadata.annotations limit).
-          kubectl apply --server-side -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/experimental-install.yaml"
+          # --force-conflicts: the cluster already ships Gateway API CRDs under
+          # another field manager; take ownership to install the experimental
+          # (authoritative) bundle over them.
+          kubectl apply --server-side --force-conflicts -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/experimental-install.yaml"
 
       # Redis backend for Envoy Gateway's global rate limiting (the same
       # role docker-compose.yaml's now-deleted "ratelimit-redis" service
