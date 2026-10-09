@@ -158,3 +158,70 @@ func TestMetricsHandler_GetDomainMetrics_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 }
+
+func TestMetricsHandler_GetStreamMetrics_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mockSvc := &mocks.MockMetricsService{}
+	h := NewMetricsHandler(mockSvc)
+
+	projectID, streamID := uuid.New(), uuid.New()
+	mockSvc.On("StreamL4Metrics", mock.Anything, projectID.String(), streamID.String()).Return(
+		services.L4Metrics{
+			StreamID:          streamID,
+			ActiveConnections: 7,
+			BytesOut:          4096,
+			Listeners:         []services.L4ListenerMetrics{{Protocol: "tcp", Port: 5432, ActiveConnections: 7, BytesOut: 4096}},
+		}, nil,
+	)
+
+	router := gin.New()
+	router.GET("/projects/:projectId/streams/:streamId/metrics", h.GetStreamMetrics)
+
+	req := httptest.NewRequest(http.MethodGet, "/projects/"+projectID.String()+"/streams/"+streamID.String()+"/metrics", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, float64(7), body["activeConnections"])
+	assert.Equal(t, float64(4096), body["bytesOut"])
+	assert.Contains(t, body, "connectionRate")
+	assert.Contains(t, body, "bytesIn")
+	assert.NotContains(t, body, "latency")
+	listeners, ok := body["listeners"].([]any)
+	require.True(t, ok)
+	assert.Len(t, listeners, 1)
+}
+
+func TestMetricsHandler_GetStreamMetrics_InvalidIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := NewMetricsHandler(&mocks.MockMetricsService{})
+	router := gin.New()
+	router.GET("/projects/:projectId/streams/:streamId/metrics", h.GetStreamMetrics)
+
+	for _, path := range []string{
+		"/projects/nope/streams/" + uuid.NewString() + "/metrics",
+		"/projects/" + uuid.NewString() + "/streams/nope/metrics",
+	} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		assert.Equal(t, http.StatusBadRequest, w.Code, path)
+	}
+}
+
+func TestMetricsHandler_GetStreamMetrics_NotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mockSvc := &mocks.MockMetricsService{}
+	h := NewMetricsHandler(mockSvc)
+	projectID, streamID := uuid.New(), uuid.New()
+	mockSvc.On("StreamL4Metrics", mock.Anything, projectID.String(), streamID.String()).Return(
+		services.L4Metrics{}, services.ErrStreamNotFound,
+	)
+
+	router := gin.New()
+	router.GET("/projects/:projectId/streams/:streamId/metrics", h.GetStreamMetrics)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/projects/"+projectID.String()+"/streams/"+streamID.String()+"/metrics", nil))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}

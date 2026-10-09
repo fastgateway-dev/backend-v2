@@ -85,6 +85,30 @@ func (h *MetricsHandler) GetDomainMetrics(c *gin.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
+// GetStreamMetrics returns L4 metrics (active connections/sessions, connection
+// rate, bytes in/out) per listener of a stream. It is deliberately separate
+// from GetRouteMetrics, which is HTTP-only and rejects L4 routes.
+// GET /projects/:projectId/streams/:streamId/metrics
+func (h *MetricsHandler) GetStreamMetrics(c *gin.Context) {
+	projectID, err := uuid.Parse(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+	streamID, err := uuid.Parse(c.Param("streamId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid stream ID"})
+		return
+	}
+
+	res, err := h.metricsService.StreamL4Metrics(c.Request.Context(), projectID.String(), streamID.String())
+	if err != nil {
+		writeMetricsError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
 // writeMetricsError maps service errors to HTTP status + uniform body.
 func writeMetricsError(c *gin.Context, err error) {
 	msg := err.Error()

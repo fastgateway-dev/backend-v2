@@ -291,6 +291,7 @@ func main() {
 	userHandler := handlers.NewUserHandler(userService, auditService)
 	projectHandler := handlers.NewProjectHandler(projectService, auditService, k8sService)
 	metricsService := services.NewMetricsService(projectRepo, routeRepo, domainRepo, cfg)
+	metricsService.SetStreamRepo(streamRepo)
 	metricsHandler := handlers.NewMetricsHandler(metricsService)
 	topologyService := services.NewTopologyService(
 		domainRepo,
@@ -930,6 +931,8 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					streams.GET("/:streamId", deps.StreamHandler.Get)
 					streams.PATCH("/:streamId", deps.StreamHandler.Update)  // Permission check in handler
 					streams.DELETE("/:streamId", deps.StreamHandler.Delete) // Permission check in handler
+					// L4 metrics (connections/rate/throughput); not the HTTP route-metrics path.
+					streams.GET("/:streamId/metrics", deps.MetricsHandler.GetStreamMetrics)
 
 					// L4 routes of a stream: the stream-scoped counterpart of the
 					// domain routes group below. Registered unconditionally for the

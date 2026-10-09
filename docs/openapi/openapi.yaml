@@ -253,6 +253,8 @@ paths:
     $ref: 'paths/streams.yaml#/streams'
   /projects/{projectId}/streams/{streamId}:
     $ref: 'paths/streams.yaml#/streams_{streamId}'
+  /projects/{projectId}/streams/{streamId}/metrics:
+    $ref: 'paths/metrics.yaml#/stream-metrics'
   /projects/{projectId}/streams/{streamId}/routes:
     $ref: 'paths/stream-routes.yaml#/stream-routes'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}:
@@ -1003,6 +1005,10 @@ components:
       $ref: 'schemas/metrics.yaml#/TopRouteEntry'
     DomainMetricsResult:
       $ref: 'schemas/metrics.yaml#/DomainMetricsResult'
+    L4ListenerMetrics:
+      $ref: 'schemas/metrics.yaml#/L4ListenerMetrics'
+    L4Metrics:
+      $ref: 'schemas/metrics.yaml#/L4Metrics'
 
     # ============== SYSTEM SETTINGS ==============
     EffectiveSettings:

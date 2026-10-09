@@ -227,6 +227,7 @@ type MetricsServiceInterface interface {
 	TestConnection(ctx context.Context, projectID uuid.UUID) (*services.TestConnectionResult, error)
 	GetRouteMetrics(ctx context.Context, projectID, routeID uuid.UUID, rangeSpec string) (*services.RouteMetricsResult, error)
 	GetDomainMetrics(ctx context.Context, projectID, domainID uuid.UUID, rangeSpec string) (*services.DomainMetricsResult, error)
+	StreamL4Metrics(ctx context.Context, projectID, streamID string) (services.L4Metrics, error)
 }
 
 // NotificationServiceInterface defines the public methods of NotificationService

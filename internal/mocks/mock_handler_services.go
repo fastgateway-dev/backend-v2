@@ -9678,6 +9678,78 @@ func (_c *MockMetricsService_GetRouteMetrics_Call) RunAndReturn(run func(ctx con
 	return _c
 }
 
+// StreamL4Metrics provides a mock function for the type MockMetricsService
+func (_mock *MockMetricsService) StreamL4Metrics(ctx context.Context, projectID string, streamID string) (services.L4Metrics, error) {
+	ret := _mock.Called(ctx, projectID, streamID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StreamL4Metrics")
+	}
+
+	var r0 services.L4Metrics
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (services.L4Metrics, error)); ok {
+		return returnFunc(ctx, projectID, streamID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) services.L4Metrics); ok {
+		r0 = returnFunc(ctx, projectID, streamID)
+	} else {
+		r0 = ret.Get(0).(services.L4Metrics)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = returnFunc(ctx, projectID, streamID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockMetricsService_StreamL4Metrics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StreamL4Metrics'
+type MockMetricsService_StreamL4Metrics_Call struct {
+	*mock.Call
+}
+
+// StreamL4Metrics is a helper method to define mock.On call
+//   - ctx context.Context
+//   - projectID string
+//   - streamID string
+func (_e *MockMetricsService_Expecter) StreamL4Metrics(ctx any, projectID any, streamID any) *MockMetricsService_StreamL4Metrics_Call {
+	return &MockMetricsService_StreamL4Metrics_Call{Call: _e.mock.On("StreamL4Metrics", ctx, projectID, streamID)}
+}
+
+func (_c *MockMetricsService_StreamL4Metrics_Call) Run(run func(ctx context.Context, projectID string, streamID string)) *MockMetricsService_StreamL4Metrics_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockMetricsService_StreamL4Metrics_Call) Return(l4Metrics services.L4Metrics, err error) *MockMetricsService_StreamL4Metrics_Call {
+	_c.Call.Return(l4Metrics, err)
+	return _c
+}
+
+func (_c *MockMetricsService_StreamL4Metrics_Call) RunAndReturn(run func(ctx context.Context, projectID string, streamID string) (services.L4Metrics, error)) *MockMetricsService_StreamL4Metrics_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // TestConnection provides a mock function for the type MockMetricsService
 func (_mock *MockMetricsService) TestConnection(ctx context.Context, projectID uuid.UUID) (*services.TestConnectionResult, error) {
 	ret := _mock.Called(ctx, projectID)

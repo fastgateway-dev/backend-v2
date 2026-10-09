@@ -2341,6 +2341,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/metrics:
+    get:
+      tags:
+        - Metrics
+      summary: Get L4 connection, rate and throughput metrics for a stream
+      description: |
+        Current active connections (UDP sessions), connection rate and bytes
+        in/out per listener of an L4 stream, sourced from Envoy tcp_proxy /
+        udp_proxy stats. Separate from the HTTP route-metrics endpoint, which
+        rejects L4 routes.
+      operationId: getStreamMetrics
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+      responses:
+        '200':
+          description: L4 metrics per listener and summed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/L4Metrics'
+        '400':
+          description: Invalid ID, or metrics endpoint not configured for the project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          description: Upstream Prometheus query failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Upstream Prometheus query timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/streams/{streamId}/routes:
     get:
       tags:
@@ -10433,6 +10476,72 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TopRouteEntry'
+    L4ListenerMetrics:
+      type: object
+      description: Current L4 throughput of one stream listener (one L4 route is one Gateway listener port)
+      required:
+        - routeId
+        - routeName
+        - protocol
+        - port
+        - activeConnections
+        - connectionRate
+        - bytesIn
+        - bytesOut
+      properties:
+        routeId:
+          type: string
+          format: uuid
+        routeName:
+          type: string
+        protocol:
+          type: string
+          enum:
+            - tcp
+            - udp
+        port:
+          type: integer
+          description: Gateway listener port
+        activeConnections:
+          type: number
+          description: Open TCP connections, or active UDP sessions for a UDP listener
+        connectionRate:
+          type: number
+          description: New connections (UDP sessions) per second, averaged over 5m
+        bytesIn:
+          type: number
+          description: Bytes per second received from clients, averaged over 5m
+        bytesOut:
+          type: number
+          description: Bytes per second sent to clients, averaged over 5m
+    L4Metrics:
+      type: object
+      description: |
+        L4 metrics for a stream, per listener and summed. There are no HTTP
+        request-rate, latency or error-class series for L4.
+      required:
+        - streamId
+        - listeners
+        - activeConnections
+        - connectionRate
+        - bytesIn
+        - bytesOut
+      properties:
+        streamId:
+          type: string
+          format: uuid
+        listeners:
+          type: array
+          items:
+            $ref: '#/components/schemas/L4ListenerMetrics'
+        activeConnections:
+          type: number
+        connectionRate:
+          type: number
+        bytesIn:
+          type: number
+        bytesOut:
+          type: number
     EffectiveSettings:
       type: object
       description: Resolved settings value for each field (DB override if set, else the env var/config default)
