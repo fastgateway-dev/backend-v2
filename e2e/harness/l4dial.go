@@ -10,24 +10,47 @@ import (
 )
 
 // DialTCP opens a TCP connection to addr, writes payload, and reads back
-// len(payload) bytes (the echo), bounded by timeout.
+// len(payload) bytes (the echo). It retries the whole connect+write+read until
+// the timeout deadline, because on a cold cluster the Stream Gateway's LB port
+// is plumbed a few seconds after the route deploys and the first connects are
+// refused — treating timeout as the overall deadline (not a single attempt)
+// is what keeps the TCP traffic tests from flaking on connection-refused.
 func DialTCP(ctx context.Context, addr string, payload []byte, timeout time.Duration) ([]byte, error) {
-	d := net.Dialer{Timeout: timeout}
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		got, err := dialTCPOnce(ctx, addr, payload)
+		if err == nil {
+			return got, nil
+		}
+		lastErr = err
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("dial tcp %s: no success before deadline: %w", addr, lastErr)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func dialTCPOnce(ctx context.Context, addr string, payload []byte) ([]byte, error) {
+	d := net.Dialer{Timeout: 5 * time.Second}
 	c, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("dial tcp %s: %w", addr, err)
+		return nil, err
 	}
 	defer c.Close()
-	c.SetDeadline(time.Now().Add(timeout))
+	c.SetDeadline(time.Now().Add(5 * time.Second))
 	if _, err := c.Write(payload); err != nil {
-		return nil, fmt.Errorf("write tcp %s: %w", addr, err)
+		return nil, err
 	}
 	buf := make([]byte, len(payload))
 	n := 0
 	for n < len(payload) {
 		m, err := c.Read(buf[n:])
 		if err != nil {
-			return nil, fmt.Errorf("read tcp %s: %w", addr, err)
+			return nil, err
 		}
 		n += m
 	}
