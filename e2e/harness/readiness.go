@@ -20,6 +20,21 @@ var httpRouteGVR = schema.GroupVersionResource{
 	Resource: "httproutes",
 }
 
+// tcpRouteGVR and udpRouteGVR identify the L4 (stream) route resources, which
+// live in the Gateway API v1alpha2 (experimental) channel.
+var (
+	tcpRouteGVR = schema.GroupVersionResource{
+		Group:    "gateway.networking.k8s.io",
+		Version:  "v1alpha2",
+		Resource: "tcproutes",
+	}
+	udpRouteGVR = schema.GroupVersionResource{
+		Group:    "gateway.networking.k8s.io",
+		Version:  "v1alpha2",
+		Resource: "udproutes",
+	}
+)
+
 // SecurityPolicyGVR, BackendTrafficPolicyGVR and EnvoyExtensionPolicyGVR
 // identify the three Envoy Gateway policy CRDs the backend attaches to a
 // route (RouteService.deploySecurityPolicy / deployBackendTrafficPolicy /
@@ -322,8 +337,13 @@ var grpcRouteGVR = schema.GroupVersionResource{
 // RouteGVR returns the Gateway API GVR a route of the given protocol is
 // deployed as: "grpc" produces a GRPCRoute, everything else an HTTPRoute.
 func RouteGVR(protocol string) schema.GroupVersionResource {
-	if strings.EqualFold(protocol, "grpc") {
+	switch {
+	case strings.EqualFold(protocol, "grpc"):
 		return grpcRouteGVR
+	case strings.EqualFold(protocol, "tcp"):
+		return tcpRouteGVR
+	case strings.EqualFold(protocol, "udp"):
+		return udpRouteGVR
 	}
 	return httpRouteGVR
 }

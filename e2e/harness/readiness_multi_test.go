@@ -147,4 +147,14 @@ func TestRouteGVR_PicksKindFromProtocol(t *testing.T) {
 	if got := RouteGVR(""); got.Resource != "httproutes" {
 		t.Errorf(`RouteGVR("").Resource = %q, want "httproutes"`, got.Resource)
 	}
+	// L4 stream routes gate on their TCPRoute/UDPRoute (v1alpha2).
+	if got := RouteGVR("tcp"); got.Resource != "tcproutes" || got.Version != "v1alpha2" {
+		t.Errorf(`RouteGVR("tcp") = %q/%q, want tcproutes/v1alpha2`, got.Version, got.Resource)
+	}
+	if got := RouteGVR("TCP"); got.Resource != "tcproutes" {
+		t.Errorf(`RouteGVR("TCP").Resource = %q, want "tcproutes"`, got.Resource)
+	}
+	if got := RouteGVR("udp"); got.Resource != "udproutes" || got.Version != "v1alpha2" {
+		t.Errorf(`RouteGVR("udp") = %q/%q, want udproutes/v1alpha2`, got.Version, got.Resource)
+	}
 }
