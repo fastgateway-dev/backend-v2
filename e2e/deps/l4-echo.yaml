@@ -1,7 +1,11 @@
-# Two plain TCP+UDP echo backends for the L4 (stream) e2e suite. Built from
-# e2e/servers/l4-echo and loaded into kind. Two distinct Services (not one
-# Service with two replicas) so the health-check test can fail one while the
-# other stays up.
+# Echo backends for the L4 (stream) e2e suite. Built from e2e/servers/l4-echo
+# and loaded into kind. Each Service is SINGLE-PROTOCOL: Envoy Gateway's
+# backendRef port resolution is unreliable for a Service that mixes TCP and UDP
+# ports, so TCP routes target the TCP-only Services (l4-echo-a / l4-echo-b) and
+# UDP routes target the UDP-only Service (l4-echo-udp). Two TCP Services (not
+# one with two replicas) let the health-check test fail one backend while the
+# other stays up. The l4-echo container always listens on both ports; the
+# Services just expose one each.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,10 +49,6 @@ spec:
       protocol: TCP
       port: 9100
       targetPort: 9100
-    - name: udp
-      protocol: UDP
-      port: 9101
-      targetPort: 9101
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -93,6 +93,17 @@ spec:
       protocol: TCP
       port: 9100
       targetPort: 9100
+---
+# UDP-only Service over the l4-echo-a pods, for UDP routes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: l4-echo-udp
+  namespace: default
+spec:
+  selector:
+    app: l4-echo-a
+  ports:
     - name: udp
       protocol: UDP
       port: 9101

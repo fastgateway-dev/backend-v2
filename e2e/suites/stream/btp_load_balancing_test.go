@@ -43,7 +43,7 @@ func TestStreamLoadBalancing(t *testing.T) {
 		Config: models.RouteConfig{
 			ListenerPort: 15701,
 			Backends: []models.RouteBackend{
-				{Type: models.BackendTypeKubernetes, Namespace: "default", Service: "l4-echo-a", Port: 9101, Weight: 100},
+				{Type: models.BackendTypeKubernetes, Namespace: "default", Service: "l4-echo-udp", Port: 9101, Weight: 100},
 			},
 		},
 		BackendTrafficPolicy: lb,
