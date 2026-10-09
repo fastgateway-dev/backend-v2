@@ -16,6 +16,7 @@ type routeQuery struct {
 	envoyExtensionPolicyRepo repository.EnvoyExtensionPolicyRepositoryInterface
 	wafPolicyRepo            repository.WafPolicyRepositoryInterface
 	domainRepo               repository.DomainRepositoryInterface
+	streams                  StreamReader
 	projectNamespaceRepo     repository.ProjectNamespaceRepositoryInterface
 	wafConfig                routeplan.WAFConfig
 

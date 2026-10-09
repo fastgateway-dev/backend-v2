@@ -82,6 +82,12 @@ func (q *routeQuery) GenerateYAML(id uuid.UUID) (string, error) {
 		return "", err
 	}
 
+	// L4 routes have no Domain (DomainID is nil): this branch must stay ahead
+	// of the *route.DomainID deref below.
+	if route.IsL4() {
+		return q.generateL4RouteYAML(route)
+	}
+
 	domain, err := q.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return "", err
@@ -95,6 +101,16 @@ func (q *routeQuery) GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error) {
 	route, err := q.routeRepo.GetByID(id)
 	if err != nil {
 		return nil, err
+	}
+
+	// L4 routes have no Domain and none of the HTTP-only policy resources: the
+	// preview is just the TCPRoute/UDPRoute. Must precede the *route.DomainID deref.
+	if route.IsL4() {
+		l4YAML, err := q.generateL4RouteYAML(route)
+		if err != nil {
+			return nil, err
+		}
+		return &RouteYAMLs{HTTPRouteYAML: l4YAML}, nil
 	}
 
 	domain, err := q.domainRepo.GetByID(*route.DomainID)
@@ -372,6 +388,11 @@ func (q *routeQuery) PreviewUpdate(routeID uuid.UUID, input *UpdateRouteInput) (
 		return nil, errors.New("route not found")
 	}
 
+	// L4 routes have no Domain; must precede the *route.DomainID deref.
+	if route.IsL4() {
+		return q.previewUpdateL4(route, input)
+	}
+
 	// Get domain
 	domain, err := q.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
@@ -478,6 +499,15 @@ func (q *routeQuery) PreviewDelete(routeID uuid.UUID) (*PreviewDeleteResult, err
 		return nil, errors.New("route not found")
 	}
 
+	// L4 routes have no Domain; must precede the *route.DomainID deref.
+	if route.IsL4() {
+		currentYAML, err := q.generateL4RouteYAML(route)
+		if err != nil {
+			return nil, err
+		}
+		return &PreviewDeleteResult{CurrentYAML: currentYAML}, nil
+	}
+
 	// Get domain
 	domain, err := q.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
@@ -552,4 +582,53 @@ func (q *routeQuery) generateEnvoyExtensionPolicyYAMLFromDBWithWaf(route *models
 	}
 
 	return string(yamlBytes)
+}
+
+// generateL4RouteYAML renders the v1alpha2 TCPRoute/UDPRoute for an L4 route.
+// The route's Stream (not a Domain) supplies the namespace and parent Gateway.
+func (q *routeQuery) generateL4RouteYAML(route *models.Route) (string, error) {
+	if route.StreamID == nil {
+		return "", fmt.Errorf("L4 route %s has no stream", route.ID)
+	}
+	stream, err := q.streams.GetByID(*route.StreamID)
+	if err != nil {
+		return "", fmt.Errorf("failed to load stream for L4 route: %w", err)
+	}
+
+	var obj any
+	switch route.Protocol {
+	case models.RouteProtocolTCP:
+		obj = kubernetes.BuildTCPRouteObject(routeplan.BuildTCPRouteConfig(*route, *stream))
+	case models.RouteProtocolUDP:
+		obj = kubernetes.BuildUDPRouteObject(routeplan.BuildUDPRouteConfig(*route, *stream))
+	default:
+		return "", fmt.Errorf("unsupported L4 protocol %q", route.Protocol)
+	}
+
+	yamlBytes, err := yaml.Marshal(obj)
+	if err != nil {
+		return "", fmt.Errorf("marshal L4 route YAML: %w", err)
+	}
+	return string(yamlBytes), nil
+}
+
+// previewUpdateL4 compares the current and proposed TCPRoute/UDPRoute for an
+// L4 route. Only the route object is previewed, matching the HTTP/gRPC preview.
+func (q *routeQuery) previewUpdateL4(route *models.Route, input *UpdateRouteInput) (*PreviewUpdateResult, error) {
+	currentYAML, err := q.generateL4RouteYAML(route)
+	if err != nil {
+		return nil, err
+	}
+
+	proposed := *route
+	proposed.Config = input.Config
+	if input.Description != "" {
+		proposed.Description = input.Description
+	}
+	proposedYAML, err := q.generateL4RouteYAML(&proposed)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PreviewUpdateResult{CurrentYAML: currentYAML, ProposedYAML: proposedYAML}, nil
 }

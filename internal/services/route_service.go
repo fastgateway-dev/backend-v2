@@ -257,6 +257,7 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 		envoyExtensionPolicyRepo: deps.EnvoyExtensionPolicyRepo,
 		wafPolicyRepo:            deps.WafPolicyRepo,
 		domainRepo:               deps.DomainRepo,
+		streams:                  deps.Streams,
 		projectNamespaceRepo:     deps.ProjectNamespaceRepo,
 		wafConfig:                deps.WafConfig,
 		assembler:                svc.assembler,
