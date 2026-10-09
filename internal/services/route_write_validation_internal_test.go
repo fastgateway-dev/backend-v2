@@ -148,13 +148,13 @@ func TestValidateRouteShape_L4_RejectsHTTPOnlyBackendTrafficPolicy(t *testing.T)
 }
 
 func TestValidateL4PolicyInputs(t *testing.T) {
-	assert.NoError(t, validateL4PolicyInputs("", nil, nil, nil, nil))
-	assert.NoError(t, validateL4PolicyInputs(models.SecurityModeGeneral, nil, &routeplan.EnvoyExtensionPolicyInput{}, nil, nil))
-	assert.ErrorIs(t, validateL4PolicyInputs(models.SecurityModeClient, nil, nil, nil, nil), ErrL4RejectsL7Field)
-	assert.ErrorIs(t, validateL4PolicyInputs("", &routeplan.SecurityPolicyInput{}, nil, nil, nil), ErrL4RejectsL7Field)
-	assert.ErrorIs(t, validateL4PolicyInputs("", nil, &routeplan.EnvoyExtensionPolicyInput{Lua: &models.LuaExtensionConfig{}}, nil, nil), ErrL4RejectsL7Field)
-	assert.ErrorIs(t, validateL4PolicyInputs("", nil, nil, &routeplan.WafPolicyInput{}, nil), ErrL4RejectsL7Field)
-	assert.ErrorIs(t, validateL4PolicyInputs("", nil, nil, nil, &routeplan.BackendTrafficPolicyInput{Retry: &models.RetryConfig{}}), ErrL4RejectsL7Field)
+	assert.NoError(t, validateL4PolicyInputs(models.RouteProtocolTCP, "", nil, nil, nil, nil))
+	assert.NoError(t, validateL4PolicyInputs(models.RouteProtocolTCP, models.SecurityModeGeneral, nil, &routeplan.EnvoyExtensionPolicyInput{}, nil, nil))
+	assert.ErrorIs(t, validateL4PolicyInputs(models.RouteProtocolTCP, models.SecurityModeClient, nil, nil, nil, nil), ErrL4RejectsL7Field)
+	assert.ErrorIs(t, validateL4PolicyInputs(models.RouteProtocolTCP, "", &routeplan.SecurityPolicyInput{}, nil, nil, nil), ErrL4RejectsL7Field)
+	assert.ErrorIs(t, validateL4PolicyInputs(models.RouteProtocolTCP, "", nil, &routeplan.EnvoyExtensionPolicyInput{Lua: &models.LuaExtensionConfig{}}, nil, nil), ErrL4RejectsL7Field)
+	assert.ErrorIs(t, validateL4PolicyInputs(models.RouteProtocolTCP, "", nil, nil, &routeplan.WafPolicyInput{}, nil), ErrL4RejectsL7Field)
+	assert.ErrorIs(t, validateL4PolicyInputs(models.RouteProtocolTCP, "", nil, nil, nil, &routeplan.BackendTrafficPolicyInput{Retry: &models.RetryConfig{}}), ErrL4RejectsL7Field)
 }
 
 func TestValidateRouteOwner_ExactlyOne(t *testing.T) {
@@ -165,3 +165,74 @@ func TestValidateRouteOwner_ExactlyOne(t *testing.T) {
 	assert.ErrorIs(t, validateRouteOwner(&d, &s), ErrRouteOwnerAmbiguous, "both set")
 	assert.ErrorIs(t, validateRouteOwner(nil, nil), ErrRouteOwnerAmbiguous, "neither set")
 }
+
+func TestValidate_TCP_RejectsRequestOrientedCB(t *testing.T) {
+	for name, cb := range map[string]*models.CircuitBreakerConfig{
+		"maxPendingRequests":  {MaxPendingRequests: l4i64(10)},
+		"maxParallelRequests": {MaxParallelRequests: l4i64(10)},
+		"maxParallelRetries":  {MaxParallelRetries: l4i64(3)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validateL4BackendTrafficPolicy(&routeplan.BackendTrafficPolicyInput{CircuitBreaker: cb}, models.RouteProtocolTCP)
+			assert.ErrorIs(t, err, ErrL4RejectsL7Field)
+		})
+	}
+}
+
+func TestValidate_TCP_AllowsMaxConnections(t *testing.T) {
+	err := validateL4BackendTrafficPolicy(&routeplan.BackendTrafficPolicyInput{
+		CircuitBreaker: &models.CircuitBreakerConfig{MaxConnections: l4i64(100), MaxRequestsPerConnection: l4i64(10)},
+		LoadBalancer:   &models.LoadBalancerConfig{Type: models.LoadBalancerTypeRoundRobin},
+		HealthCheck: &models.HealthCheckConfig{
+			Passive: &models.PassiveHealthCheckConfig{},
+			Active:  &models.ActiveHealthCheckConfig{Type: "TCP"},
+		},
+		Timeout: &models.BTPTimeoutConfig{TCP: &models.BTPTCPTimeoutConfig{ConnectTimeout: "5s"}},
+	}, models.RouteProtocolTCP)
+	assert.NoError(t, err)
+}
+
+func TestValidate_TCP_RejectsHTTPActiveHealthCheckAndHTTPTimeout(t *testing.T) {
+	err := validateL4BackendTrafficPolicy(&routeplan.BackendTrafficPolicyInput{
+		HealthCheck: &models.HealthCheckConfig{Active: &models.ActiveHealthCheckConfig{Type: "HTTP"}},
+	}, models.RouteProtocolTCP)
+	assert.ErrorIs(t, err, ErrL4RejectsL7Field)
+
+	err = validateL4BackendTrafficPolicy(&routeplan.BackendTrafficPolicyInput{
+		HealthCheck: &models.HealthCheckConfig{Active: &models.ActiveHealthCheckConfig{Type: "GRPC"}},
+	}, models.RouteProtocolTCP)
+	assert.ErrorIs(t, err, ErrL4RejectsL7Field)
+
+	err = validateL4BackendTrafficPolicy(&routeplan.BackendTrafficPolicyInput{
+		Timeout: &models.BTPTimeoutConfig{HTTP: &models.BTPHTTPTimeoutConfig{RequestTimeout: "5s"}},
+	}, models.RouteProtocolTCP)
+	assert.ErrorIs(t, err, ErrL4RejectsL7Field)
+}
+
+func TestValidate_UDP_RejectsHealthCheck(t *testing.T) {
+	err := validateL4BackendTrafficPolicy(&routeplan.BackendTrafficPolicyInput{
+		HealthCheck: &models.HealthCheckConfig{Passive: &models.PassiveHealthCheckConfig{}},
+	}, models.RouteProtocolUDP)
+	assert.ErrorIs(t, err, ErrL4RejectsL7Field)
+}
+
+func TestValidate_UDP_RejectsCircuitBreakerAndTimeout(t *testing.T) {
+	err := validateL4BackendTrafficPolicy(&routeplan.BackendTrafficPolicyInput{
+		CircuitBreaker: &models.CircuitBreakerConfig{MaxConnections: l4i64(100)},
+	}, models.RouteProtocolUDP)
+	assert.ErrorIs(t, err, ErrL4RejectsL7Field)
+
+	err = validateL4BackendTrafficPolicy(&routeplan.BackendTrafficPolicyInput{
+		Timeout: &models.BTPTimeoutConfig{TCP: &models.BTPTCPTimeoutConfig{ConnectTimeout: "5s"}},
+	}, models.RouteProtocolUDP)
+	assert.ErrorIs(t, err, ErrL4RejectsL7Field)
+}
+
+func TestValidate_UDP_AllowsLoadBalancerOnly(t *testing.T) {
+	err := validateL4BackendTrafficPolicy(&routeplan.BackendTrafficPolicyInput{
+		LoadBalancer: &models.LoadBalancerConfig{Type: models.LoadBalancerTypeRandom},
+	}, models.RouteProtocolUDP)
+	assert.NoError(t, err)
+}
+
+func l4i64(v int64) *int64 { return &v }

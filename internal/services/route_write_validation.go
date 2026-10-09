@@ -184,7 +184,7 @@ func (w *routeWrite) validateRouteShapeAndConflicts(config *models.RouteConfig, 
 		if err := validateRouteConfig(config, protocol); err != nil {
 			return err
 		}
-		if err := validateL4BackendTrafficPolicy(btp); err != nil {
+		if err := validateL4BackendTrafficPolicy(btp, protocol); err != nil {
 			return err
 		}
 		return w.validateL4Listener(config, protocol, streamID, excludeRouteID)

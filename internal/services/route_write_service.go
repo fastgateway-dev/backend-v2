@@ -239,7 +239,7 @@ func (w *routeWrite) create(domainID uuid.UUID, input *CreateRouteInput, created
 	}
 
 	if protocol == models.RouteProtocolTCP || protocol == models.RouteProtocolUDP {
-		if err := validateL4PolicyInputs(securityMode, input.SecurityPolicy, input.ExtensionPolicy, input.WafPolicy, input.BackendTrafficPolicy); err != nil {
+		if err := validateL4PolicyInputs(protocol, securityMode, input.SecurityPolicy, input.ExtensionPolicy, input.WafPolicy, input.BackendTrafficPolicy); err != nil {
 			return nil, err
 		}
 	}
@@ -387,7 +387,7 @@ func (w *routeWrite) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy u
 	}
 
 	if route.IsL4() {
-		if err := validateL4PolicyInputs(route.SecurityMode, input.SecurityPolicy, input.ExtensionPolicy, input.WafPolicy, input.BackendTrafficPolicy); err != nil {
+		if err := validateL4PolicyInputs(route.Protocol, route.SecurityMode, input.SecurityPolicy, input.ExtensionPolicy, input.WafPolicy, input.BackendTrafficPolicy); err != nil {
 			return nil, err
 		}
 	}

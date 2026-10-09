@@ -732,10 +732,10 @@ func ValidateL4RouteConfig(route models.Route) error {
 // L4 equivalent: a client/OIDC security mode or security policy, WAF,
 // extension policies, and the HTTP-only BackendTrafficPolicy features
 // (rate limit, retry, compression, fault injection, request buffer, response
-// override). Client attachments are only possible in securityMode "client",
-// which is rejected here. Load balancer, circuit breaker, health check and
-// timeout remain allowed.
-func validateL4PolicyInputs(securityMode models.SecurityMode, sp *routeplan.SecurityPolicyInput, ext *routeplan.EnvoyExtensionPolicyInput, waf *routeplan.WafPolicyInput, btp *routeplan.BackendTrafficPolicyInput) error {
+// override), plus whatever is not valid for the specific L4 transport (see
+// validateL4BackendTrafficPolicy). Client attachments are only possible in
+// securityMode "client", which is rejected here.
+func validateL4PolicyInputs(protocol models.RouteProtocol, securityMode models.SecurityMode, sp *routeplan.SecurityPolicyInput, ext *routeplan.EnvoyExtensionPolicyInput, waf *routeplan.WafPolicyInput, btp *routeplan.BackendTrafficPolicyInput) error {
 	if securityMode != "" && securityMode != models.SecurityModeGeneral {
 		return l4RejectsField("securityMode " + string(securityMode))
 	}
@@ -748,11 +748,21 @@ func validateL4PolicyInputs(securityMode models.SecurityMode, sp *routeplan.Secu
 	if waf != nil {
 		return l4RejectsField("wafPolicy")
 	}
-	return validateL4BackendTrafficPolicy(btp)
+	return validateL4BackendTrafficPolicy(btp, protocol)
 }
 
-// validateL4BackendTrafficPolicy rejects HTTP-only BackendTrafficPolicy features.
-func validateL4BackendTrafficPolicy(btp *routeplan.BackendTrafficPolicyInput) error {
+// validateL4BackendTrafficPolicy rejects the BackendTrafficPolicy features that
+// do not apply to an L4 route of the given protocol. The HTTP-only features
+// (rate limit, retry, compression, fault injection, request buffer, response
+// override) are rejected for both. Beyond that:
+//   - TCP keeps the load balancer, passive and active-TCP health checks, TCP
+//     timeouts and the connection-oriented circuit-breaker counters
+//     (maxConnections, maxRequestsPerConnection); the request-oriented
+//     counters (maxPendingRequests, maxParallelRequests, maxParallelRetries),
+//     HTTP/gRPC active health checks and HTTP timeouts are rejected.
+//   - UDP keeps the load balancer only; circuit breaker, health check and
+//     timeout do not apply to datagrams and are rejected.
+func validateL4BackendTrafficPolicy(btp *routeplan.BackendTrafficPolicyInput, protocol models.RouteProtocol) error {
 	if btp == nil {
 		return nil
 	}
@@ -769,6 +779,35 @@ func validateL4BackendTrafficPolicy(btp *routeplan.BackendTrafficPolicyInput) er
 		return l4RejectsField("backendTrafficPolicy.requestBuffer")
 	case len(btp.ResponseOverride) > 0:
 		return l4RejectsField("backendTrafficPolicy.responseOverride")
+	}
+
+	if protocol == models.RouteProtocolUDP {
+		switch {
+		case btp.CircuitBreaker != nil:
+			return l4RejectsField("backendTrafficPolicy.circuitBreaker (UDP)")
+		case btp.HealthCheck != nil:
+			return l4RejectsField("backendTrafficPolicy.healthCheck (UDP)")
+		case btp.Timeout != nil:
+			return l4RejectsField("backendTrafficPolicy.timeout (UDP)")
+		}
+		return nil
+	}
+
+	if cb := btp.CircuitBreaker; cb != nil {
+		switch {
+		case cb.MaxPendingRequests != nil:
+			return l4RejectsField("backendTrafficPolicy.circuitBreaker.maxPendingRequests")
+		case cb.MaxParallelRequests != nil:
+			return l4RejectsField("backendTrafficPolicy.circuitBreaker.maxParallelRequests")
+		case cb.MaxParallelRetries != nil:
+			return l4RejectsField("backendTrafficPolicy.circuitBreaker.maxParallelRetries")
+		}
+	}
+	if hc := btp.HealthCheck; hc != nil && hc.Active != nil && hc.Active.Type != "TCP" {
+		return l4RejectsField("backendTrafficPolicy.healthCheck.active." + hc.Active.Type)
+	}
+	if t := btp.Timeout; t != nil && t.HTTP != nil {
+		return l4RejectsField("backendTrafficPolicy.timeout.http")
 	}
 	return nil
 }
