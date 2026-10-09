@@ -15,15 +15,25 @@ import (
 )
 
 // StreamGatewayAddr resolves the LoadBalancer ingress IP of the Stream's
-// Gateway. Envoy Gateway creates that Service in envoy-gateway-system, labelled
-// with the owning Gateway's name and namespace (the same way CI resolves the
-// seeded HTTP GATEWAY_IP). Distinct from the shared HTTP GATEWAY_IP.
+// Gateway AND waits for that Gateway's Envoy proxy pod to be Ready. Envoy
+// Gateway creates the Service (and a per-stream proxy Deployment) in
+// envoy-gateway-system, labelled with the owning Gateway's name and namespace.
+// The LB IP is assigned before the proxy pod is Running, so this also gates on
+// pod readiness — dialing a not-ready proxy resets the connection, which is why
+// TCP traffic failed intermittently while the pod was still starting.
 func (e *Env) StreamGatewayAddr(ctx context.Context, s models.Stream, timeout time.Duration) (string, error) {
 	sel := fmt.Sprintf(
 		"gateway.envoyproxy.io/owning-gateway-name=%s,gateway.envoyproxy.io/owning-gateway-namespace=%s",
 		s.K8sGatewayName, s.Namespace,
 	)
-	return e.Kube.LoadBalancerIPByLabels(ctx, "envoy-gateway-system", sel, timeout)
+	ip, err := e.Kube.LoadBalancerIPByLabels(ctx, "envoy-gateway-system", sel, timeout)
+	if err != nil {
+		return "", err
+	}
+	if err := e.Kube.WaitPodsReadyByLabel(ctx, "envoy-gateway-system", sel, timeout); err != nil {
+		return "", fmt.Errorf("stream gateway %s proxy not ready: %w", s.K8sGatewayName, err)
+	}
+	return ip, nil
 }
 
 // DeleteStreamRoute deletes an L4 route under a stream (approval-gated, same as

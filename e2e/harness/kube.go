@@ -108,6 +108,35 @@ func (k *Kube) LoadBalancerIPByLabels(ctx context.Context, namespace, selector s
 	return "", fmt.Errorf("no LoadBalancer IP for services matching %q in %s within %s", selector, namespace, timeout)
 }
 
+// WaitPodsReadyByLabel polls, up to timeout, for at least one pod matching
+// selector in namespace to report the Ready condition. A Stream Gateway's LB IP
+// is assigned before its (per-stream) Envoy proxy pod is Running, so dialing
+// before the pod is Ready resets the connection — callers must gate on this.
+func (k *Kube) WaitPodsReadyByLabel(ctx context.Context, namespace, selector string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	last := "no pods found"
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		pods, err := k.Clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+		if err != nil {
+			last = err.Error()
+		} else {
+			for _, p := range pods.Items {
+				for _, c := range p.Status.Conditions {
+					if c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue {
+						return nil
+					}
+				}
+			}
+			last = fmt.Sprintf("%d pod(s), none Ready", len(pods.Items))
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("no Ready pod matching %q in %s within %s (%s)", selector, namespace, timeout, last)
+}
+
 // PodLogs returns the concatenated tail of logs from every pod matching
 // selector in ns, each section prefixed with the pod's name.
 func (k *Kube) PodLogs(ctx context.Context, ns, selector string, tailLines int64) (string, error) {
