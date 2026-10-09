@@ -163,6 +163,15 @@ func (r *RouteRepository) CountByDomainID(domainID uuid.UUID) (int, error) {
 	return int(count), nil
 }
 
+// CountByStreamID returns the number of routes attached to a stream
+func (r *RouteRepository) CountByStreamID(streamID uuid.UUID) (int64, error) {
+	var count int64
+	if err := r.db.Model(&models.Route{}).Where("stream_id = ?", streamID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // ListByProjectID lists routes across all domains in a project with optional
 // filters. When BackendService/BackendNamespace are set, it matches against
 // the JSONB config.backends array (and optionally config.mirrors).

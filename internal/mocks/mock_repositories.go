@@ -10464,6 +10464,66 @@ func (_c *MockRouteRepository_CountByDomainID_Call) RunAndReturn(run func(domain
 	return _c
 }
 
+// CountByStreamID provides a mock function for the type MockRouteRepository
+func (_mock *MockRouteRepository) CountByStreamID(streamID uuid.UUID) (int64, error) {
+	ret := _mock.Called(streamID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountByStreamID")
+	}
+
+	var r0 int64
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) (int64, error)); ok {
+		return returnFunc(streamID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) int64); ok {
+		r0 = returnFunc(streamID)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(streamID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteRepository_CountByStreamID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountByStreamID'
+type MockRouteRepository_CountByStreamID_Call struct {
+	*mock.Call
+}
+
+// CountByStreamID is a helper method to define mock.On call
+//   - streamID uuid.UUID
+func (_e *MockRouteRepository_Expecter) CountByStreamID(streamID any) *MockRouteRepository_CountByStreamID_Call {
+	return &MockRouteRepository_CountByStreamID_Call{Call: _e.mock.On("CountByStreamID", streamID)}
+}
+
+func (_c *MockRouteRepository_CountByStreamID_Call) Run(run func(streamID uuid.UUID)) *MockRouteRepository_CountByStreamID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteRepository_CountByStreamID_Call) Return(n int64, err error) *MockRouteRepository_CountByStreamID_Call {
+	_c.Call.Return(n, err)
+	return _c
+}
+
+func (_c *MockRouteRepository_CountByStreamID_Call) RunAndReturn(run func(streamID uuid.UUID) (int64, error)) *MockRouteRepository_CountByStreamID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Create provides a mock function for the type MockRouteRepository
 func (_mock *MockRouteRepository) Create(route *models.Route) error {
 	ret := _mock.Called(route)

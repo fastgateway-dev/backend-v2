@@ -205,3 +205,35 @@ func TestRouteRepository_ListByProjectID_ProjectScoping(t *testing.T) {
 // via repo return values — this blank import silences any "imported and not used" errors
 // if the compiler decides the models import is indirect only).
 var _ models.Route
+
+func TestRouteRepository_CountByStreamID(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, teamID, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	streams := repository.NewStreamRepository(db)
+	routes := repository.NewRouteRepository(db)
+
+	s := &models.Stream{ProjectID: projectID, Name: "cnt-gw", Namespace: "fastgateway-system",
+		GatewayTemplateID: tmplID, K8sGatewayName: "str-cnt-gw", K8sGatewayClass: "public-lb"}
+	require.NoError(t, streams.Create(s))
+
+	n, err := routes.CountByStreamID(s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), n)
+
+	for i, port := range []int{5432, 6379} {
+		require.NoError(t, db.Exec(`
+			INSERT INTO routes (id, stream_id, team_id, name, protocol, listener_port, status, config, created_by, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'tcp', ?, 'active', '{}'::jsonb, ?, NOW(), NOW())`,
+			uuid.New(), s.ID, teamID, "l4-route-"+string(rune('a'+i)), port, userID).Error)
+	}
+
+	n, err = routes.CountByStreamID(s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), n)
+
+	// A different stream is unaffected.
+	n, err = routes.CountByStreamID(uuid.New())
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), n)
+}

@@ -265,6 +265,11 @@ func (m *metricsTestRouteRepo) CountByDomainID(domainID uuid.UUID) (int, error) 
 	return args.Int(0), args.Error(1)
 }
 
+func (m *metricsTestRouteRepo) CountByStreamID(streamID uuid.UUID) (int64, error) {
+	args := m.Called(streamID)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 // metricsTestDomainRepo is a local stub satisfying repository.DomainRepositoryInterface.
 type metricsTestDomainRepo struct{ mock.Mock }
 
