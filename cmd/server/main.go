@@ -307,7 +307,7 @@ func main() {
 	domainTemplateHandler := handlers.NewDomainTemplateHandler(domainTemplateService, auditService, domainTemplateService)
 	domainHandler := handlers.NewDomainHandler(domainService, auditService, permChecker, domainService)
 	streamRepo := repository.NewStreamRepository(db)
-	streamService := services.NewStreamService(streamRepo, domainTemplateRepo, routeRepo, k8sService)
+	streamService := services.NewStreamService(streamRepo, domainTemplateRepo, routeRepo, k8sService, projectNamespaceRepo)
 	streamHandler := handlers.NewStreamHandler(streamService, auditService, permChecker)
 	routeHandler := handlers.NewRouteHandler(routeService, auditService, permChecker)
 	routeVersionHandler := handlers.NewRouteVersionHandler(routeVersionService, auditService)

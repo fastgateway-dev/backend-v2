@@ -55,6 +55,15 @@ func (f *fakeStreamStore) ListByProjectID(projectID uuid.UUID) ([]models.Stream,
 	return out, nil
 }
 
+func (f *fakeStreamStore) ExistsByName(projectID uuid.UUID, name string) (bool, error) {
+	for _, s := range f.streams {
+		if s.ProjectID == projectID && s.Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (f *fakeStreamStore) Update(s *models.Stream) error {
 	f.streams[s.ID] = s
 	return nil
@@ -82,6 +91,23 @@ type fakeRouteCounter struct {
 
 func (f *fakeRouteCounter) CountByStreamID(uuid.UUID) (int64, error) { return f.n, f.err }
 
+// allowAllNamespaces whitelists every namespace with the deploy_gateway capability.
+type allowAllNamespaces struct{}
+
+func (allowAllNamespaces) GetByProjectAndNamespace(projectID uuid.UUID, ns string) (*models.ProjectNamespace, error) {
+	return &models.ProjectNamespace{ProjectID: projectID, Namespace: ns, Capabilities: []string{models.NamespaceCapabilityDeployGateway}}, nil
+}
+
+// fakeNamespaces returns a fixed namespace/error.
+type fakeNamespaces struct {
+	ns  *models.ProjectNamespace
+	err error
+}
+
+func (f fakeNamespaces) GetByProjectAndNamespace(uuid.UUID, string) (*models.ProjectNamespace, error) {
+	return f.ns, f.err
+}
+
 func TestStreamGatewayName_KindPrefixed(t *testing.T) {
 	assert.Equal(t, "str-foo", services.StreamGatewayName("foo"))
 	assert.Equal(t, "str-my-gw", services.StreamGatewayName("My_GW"))
@@ -99,7 +125,7 @@ func TestStreamGatewayName_KindPrefixed(t *testing.T) {
 func newStreamSvc(t *testing.T, store *fakeStreamStore, tmpl *fakeTemplateReader, routes *fakeRouteCounter) *services.StreamService {
 	applier := mocks.NewMockGatewayApplier(t)
 	applier.EXPECT().CreateGateway(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	return services.NewStreamService(store, tmpl, routes, applier)
+	return services.NewStreamService(store, tmpl, routes, applier, allowAllNamespaces{})
 }
 
 func TestStreamService_Create_RejectsNonStreamTemplate(t *testing.T) {
@@ -219,7 +245,7 @@ func TestStreamService_Create_DeploysPlaceholderGatewayAndActivates(t *testing.T
 	applier.EXPECT().CreateGateway(mock.Anything, projectID, mock.Anything).
 		Run(func(_ context.Context, _ uuid.UUID, cfg *kubernetes.GatewayConfig) { got = cfg }).
 		Return(nil).Once()
-	svc := services.NewStreamService(store, tmpl, &fakeRouteCounter{}, applier)
+	svc := services.NewStreamService(store, tmpl, &fakeRouteCounter{}, applier, allowAllNamespaces{})
 
 	stream, err := svc.Create(projectID, services.CreateStreamInput{Name: "db", Namespace: "ns", GatewayTemplateID: tmplID}, &models.User{ID: uuid.New()})
 	require.NoError(t, err)
@@ -244,11 +270,97 @@ func TestStreamService_Create_DeployFailureMarksError(t *testing.T) {
 
 	applier := mocks.NewMockGatewayApplier(t)
 	applier.EXPECT().CreateGateway(mock.Anything, projectID, mock.Anything).Return(errors.New("boom")).Once()
-	svc := services.NewStreamService(store, tmpl, &fakeRouteCounter{}, applier)
+	svc := services.NewStreamService(store, tmpl, &fakeRouteCounter{}, applier, allowAllNamespaces{})
 
 	stream, err := svc.Create(projectID, services.CreateStreamInput{Name: "db", Namespace: "ns", GatewayTemplateID: tmplID}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "error", stream.Status)
 	assert.Contains(t, stream.StatusMessage, "boom")
 	assert.Equal(t, "error", store.streams[stream.ID].Status)
+}
+
+func streamEnabledSetup() (*fakeStreamStore, *fakeTemplateReader, uuid.UUID, uuid.UUID) {
+	projectID, tmplID := uuid.New(), uuid.New()
+	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ID: tmplID, ProjectID: projectID, EnableStream: true, K8sGatewayClassName: "gc"}}
+	return newFakeStreamStore(), tmpl, projectID, tmplID
+}
+
+func newStreamSvcWithNS(t *testing.T, store *fakeStreamStore, tmpl *fakeTemplateReader, ns services.StreamNamespaceReader) *services.StreamService {
+	applier := mocks.NewMockGatewayApplier(t)
+	applier.EXPECT().CreateGateway(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	return services.NewStreamService(store, tmpl, &fakeRouteCounter{}, applier, ns)
+}
+
+func TestStreamService_Create_RejectsUnregisteredNamespace(t *testing.T) {
+	store, tmpl, projectID, tmplID := streamEnabledSetup()
+	svc := newStreamSvcWithNS(t, store, tmpl, fakeNamespaces{err: gorm.ErrRecordNotFound})
+	_, err := svc.Create(projectID, services.CreateStreamInput{Name: "db", Namespace: "other", GatewayTemplateID: tmplID}, nil)
+	assert.ErrorIs(t, err, services.ErrStreamNamespaceNotRegistered)
+	assert.Empty(t, store.created)
+}
+
+func TestStreamService_Create_RejectsNamespaceWithoutDeployCapability(t *testing.T) {
+	store, tmpl, projectID, tmplID := streamEnabledSetup()
+	ns := &models.ProjectNamespace{Capabilities: []string{models.NamespaceCapabilityBackendService}}
+	svc := newStreamSvcWithNS(t, store, tmpl, fakeNamespaces{ns: ns})
+	_, err := svc.Create(projectID, services.CreateStreamInput{Name: "db", Namespace: "other", GatewayTemplateID: tmplID}, nil)
+	assert.ErrorIs(t, err, services.ErrStreamNamespaceNotDeployable)
+	assert.Empty(t, store.created)
+}
+
+func TestStreamService_Create_DefaultNamespaceNeedsNoRegistration(t *testing.T) {
+	store, tmpl, projectID, tmplID := streamEnabledSetup()
+	svc := newStreamSvcWithNS(t, store, tmpl, fakeNamespaces{err: gorm.ErrRecordNotFound})
+	_, err := svc.Create(projectID, services.CreateStreamInput{Name: "db", Namespace: kubernetes.FastGatewayNamespace, GatewayTemplateID: tmplID}, nil)
+	require.NoError(t, err)
+}
+
+func TestStreamService_Create_DuplicateNameRejected(t *testing.T) {
+	store, tmpl, projectID, tmplID := streamEnabledSetup()
+	store.streams[uuid.New()] = &models.Stream{ProjectID: projectID, Name: "db"}
+	svc := newStreamSvcWithNS(t, store, tmpl, allowAllNamespaces{})
+	_, err := svc.Create(projectID, services.CreateStreamInput{Name: "db", Namespace: "ns", GatewayTemplateID: tmplID}, nil)
+	assert.ErrorIs(t, err, services.ErrStreamNameTaken)
+	assert.Empty(t, store.created)
+}
+
+type pgDupErr struct{}
+
+func (pgDupErr) Error() string {
+	return "ERROR: duplicate key value violates unique constraint (SQLSTATE 23505)"
+}
+func (pgDupErr) SQLState() string { return "23505" }
+
+type racingStore struct {
+	*fakeStreamStore
+	createErr error
+}
+
+func (r racingStore) Create(*models.Stream) error { return r.createErr }
+
+func TestStreamService_Create_RaceDuplicateMapsToNameTaken(t *testing.T) {
+	for _, dup := range []error{pgDupErr{}, gorm.ErrDuplicatedKey} {
+		store, tmpl, projectID, tmplID := streamEnabledSetup()
+		applier := mocks.NewMockGatewayApplier(t)
+		svc := services.NewStreamService(racingStore{store, dup}, tmpl, &fakeRouteCounter{}, applier, allowAllNamespaces{})
+		_, err := svc.Create(projectID, services.CreateStreamInput{Name: "db", Namespace: "ns", GatewayTemplateID: tmplID}, nil)
+		assert.ErrorIs(t, err, services.ErrStreamNameTaken)
+	}
+}
+
+func TestStreamService_Update_RenameToTakenNameRejected(t *testing.T) {
+	store := newFakeStreamStore()
+	projectID := uuid.New()
+	id := uuid.New()
+	store.streams[id] = &models.Stream{ID: id, ProjectID: projectID, Name: "old"}
+	store.streams[uuid.New()] = &models.Stream{ProjectID: projectID, Name: "taken"}
+	svc := newStreamSvc(t, store, &fakeTemplateReader{}, &fakeRouteCounter{})
+
+	taken := "taken"
+	_, err := svc.Update(id, services.UpdateStreamInput{Name: &taken})
+	assert.ErrorIs(t, err, services.ErrStreamNameTaken)
+
+	same := "old"
+	_, err = svc.Update(id, services.UpdateStreamInput{Name: &same})
+	assert.NoError(t, err)
 }

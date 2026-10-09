@@ -37,6 +37,13 @@ func (r *StreamRepository) ListByProjectID(projectID uuid.UUID) ([]models.Stream
 	return streams, err
 }
 
+// ExistsByName reports whether a stream with the given name exists in the project
+func (r *StreamRepository) ExistsByName(projectID uuid.UUID, name string) (bool, error) {
+	var count int64
+	err := r.db.Model(&models.Stream{}).Where("project_id = ? AND name = ?", projectID, name).Count(&count).Error
+	return count > 0, err
+}
+
 // Update saves all fields of a stream
 func (r *StreamRepository) Update(stream *models.Stream) error {
 	return r.db.Save(stream).Error

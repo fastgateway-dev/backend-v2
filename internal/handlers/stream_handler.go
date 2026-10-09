@@ -39,9 +39,9 @@ func NewStreamHandler(streamService StreamServiceInterface, auditService AuditSe
 // streamError maps service errors to HTTP responses. Unknown errors are 500.
 func streamError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, services.ErrTemplateNotStreamEnabled), errors.Is(err, services.ErrInvalidStreamName), errors.Is(err, services.ErrStreamTemplateImmutable):
+	case errors.Is(err, services.ErrTemplateNotStreamEnabled), errors.Is(err, services.ErrInvalidStreamName), errors.Is(err, services.ErrStreamNamespaceNotRegistered), errors.Is(err, services.ErrStreamNamespaceNotDeployable), errors.Is(err, services.ErrStreamTemplateImmutable):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-	case errors.Is(err, services.ErrStreamHasRoutes):
+	case errors.Is(err, services.ErrStreamHasRoutes), errors.Is(err, services.ErrStreamNameTaken):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, services.ErrStreamNotFound), errors.Is(err, services.ErrStreamTemplateNotFound), errors.Is(err, services.ErrStreamTemplateWrongProject):
 		// Cross-project template references are reported as not-found.

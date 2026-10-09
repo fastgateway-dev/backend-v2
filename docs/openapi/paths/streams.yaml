@@ -45,7 +45,7 @@ streams:
             schema:
               $ref: '../schemas/stream.yaml#/Stream'
       '400':
-        description: Invalid name, or the Gateway Template is not enabled for streams
+        description: Invalid name, namespace not registered for the project or lacking the deploy_gateway capability, or the Gateway Template is not enabled for streams
         content:
           application/json:
             schema:
@@ -54,6 +54,12 @@ streams:
         $ref: '../components/responses.yaml#/Forbidden'
       '404':
         description: Gateway Template not found (including templates of other projects)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '409':
+        description: A stream with this name already exists in the project
         content:
           application/json:
             schema:
@@ -107,6 +113,12 @@ streams_{streamId}:
         $ref: '../components/responses.yaml#/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: A stream with this name already exists in the project
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
 
   delete:
     tags: [Streams]

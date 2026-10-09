@@ -92,6 +92,42 @@ func TestStreamHandler_Create_TemplateNotFound_404(t *testing.T) {
 	}
 }
 
+func TestStreamHandler_Create_DuplicateName_409(t *testing.T) {
+	h, svc, _ := newStreamHandler()
+	projectID := uuid.New()
+	svc.On("Create", projectID, mock.Anything, mock.Anything).Return(nil, services.ErrStreamNameTaken)
+
+	w := doStream(streamRouter(h, testUser()), "POST", "/projects/"+projectID.String()+"/streams",
+		map[string]any{"name": "db", "namespace": "ns", "gatewayTemplateId": uuid.New().String()})
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestStreamHandler_Create_NamespaceRejected_400(t *testing.T) {
+	for _, sentinel := range []error{services.ErrStreamNamespaceNotRegistered, services.ErrStreamNamespaceNotDeployable} {
+		h, svc, _ := newStreamHandler()
+		projectID := uuid.New()
+		svc.On("Create", projectID, mock.Anything, mock.Anything).Return(nil, sentinel)
+
+		w := doStream(streamRouter(h, testUser()), "POST", "/projects/"+projectID.String()+"/streams",
+			map[string]any{"name": "db", "namespace": "kube-system", "gatewayTemplateId": uuid.New().String()})
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, sentinel.Error())
+	}
+}
+
+func TestStreamHandler_Update_DuplicateName_409(t *testing.T) {
+	h, svc, _ := newStreamHandler()
+	projectID, streamID := uuid.New(), uuid.New()
+	newName := "taken"
+	svc.On("Get", streamID).Return(&models.Stream{ID: streamID, ProjectID: projectID, Name: "db"}, nil)
+	svc.On("Update", streamID, services.UpdateStreamInput{Name: &newName}).Return(nil, services.ErrStreamNameTaken)
+
+	w := doStream(streamRouter(h, testUser()), "PATCH", "/projects/"+projectID.String()+"/streams/"+streamID.String(), map[string]any{"name": newName})
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
 func TestStreamHandler_Create_BadName_400(t *testing.T) {
 	for _, name := range []string{"", "-", "---", "-db", "db-", "DB", "my_stream", "a--b", "has space", "dot.name",
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} {

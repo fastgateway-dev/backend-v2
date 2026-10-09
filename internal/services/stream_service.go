@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/streamplan"
 	"github.com/google/uuid"
@@ -39,6 +40,15 @@ var (
 	// Gateway Template belongs to a different project. Callers should report
 	// it as not-found so template existence is not leaked across projects.
 	ErrStreamTemplateWrongProject = errors.New("gateway template does not belong to this project")
+	// ErrStreamNameTaken is returned when another stream in the project
+	// already has the requested name.
+	ErrStreamNameTaken = errors.New("a stream with this name already exists in this project")
+	// ErrStreamNamespaceNotRegistered is returned by Create when the namespace
+	// is not whitelisted for the project (Project Settings > Namespaces).
+	ErrStreamNamespaceNotRegistered = errors.New("namespace is not registered for this project")
+	// ErrStreamNamespaceNotDeployable is returned by Create when the namespace
+	// is whitelisted but lacks the deploy-gateway capability.
+	ErrStreamNamespaceNotDeployable = errors.New("namespace is not enabled for gateway deployment")
 	// ErrInvalidStreamName is returned (wrapped) by ValidateStreamName.
 	ErrInvalidStreamName = errors.New("invalid stream name")
 )
@@ -99,6 +109,7 @@ type StreamStore interface {
 	Create(stream *models.Stream) error
 	GetByID(id uuid.UUID) (*models.Stream, error)
 	ListByProjectID(projectID uuid.UUID) ([]models.Stream, error)
+	ExistsByName(projectID uuid.UUID, name string) (bool, error)
 	Update(stream *models.Stream) error
 	Delete(id uuid.UUID) error
 }
@@ -107,6 +118,12 @@ type StreamStore interface {
 // repository.DomainTemplateRepositoryInterface satisfies it structurally.
 type StreamTemplateReader interface {
 	GetByID(id uuid.UUID) (*models.DomainTemplate, error)
+}
+
+// StreamNamespaceReader resolves a project's whitelisted namespace.
+// repository.ProjectNamespaceRepositoryInterface satisfies it structurally.
+type StreamNamespaceReader interface {
+	GetByProjectAndNamespace(projectID uuid.UUID, namespace string) (*models.ProjectNamespace, error)
 }
 
 // StreamRouteCounter counts the routes attached to a stream.
@@ -121,15 +138,16 @@ type StreamService struct {
 	templateRepo StreamTemplateReader
 	routeRepo    StreamRouteCounter
 	k8sGateways  GatewayApplier
+	namespaces   StreamNamespaceReader
 }
 
 // NewStreamService builds a StreamService. It panics if a dependency is nil,
 // matching NewDomainService.
-func NewStreamService(streamRepo StreamStore, templateRepo StreamTemplateReader, routeRepo StreamRouteCounter, k8sGateways GatewayApplier) *StreamService {
-	if streamRepo == nil || templateRepo == nil || routeRepo == nil || k8sGateways == nil {
+func NewStreamService(streamRepo StreamStore, templateRepo StreamTemplateReader, routeRepo StreamRouteCounter, k8sGateways GatewayApplier, namespaces StreamNamespaceReader) *StreamService {
+	if streamRepo == nil || templateRepo == nil || routeRepo == nil || k8sGateways == nil || namespaces == nil {
 		panic("services.NewStreamService: missing required dependency")
 	}
-	return &StreamService{streamRepo: streamRepo, templateRepo: templateRepo, routeRepo: routeRepo, k8sGateways: k8sGateways}
+	return &StreamService{streamRepo: streamRepo, templateRepo: templateRepo, routeRepo: routeRepo, k8sGateways: k8sGateways, namespaces: namespaces}
 }
 
 // StreamGatewayName returns the Kubernetes Gateway name for a stream: "str-"
@@ -174,6 +192,29 @@ func (s *StreamService) Create(projectID uuid.UUID, in CreateStreamInput, user *
 		return nil, ErrTemplateNotStreamEnabled
 	}
 
+	// Streams deploy a Gateway into the namespace, so it must be one the
+	// project manages (same rule as DomainService.Create).
+	if in.Namespace != kubernetes.FastGatewayNamespace {
+		ns, err := s.namespaces.GetByProjectAndNamespace(projectID, in.Namespace)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf("%w: '%s'", ErrStreamNamespaceNotRegistered, in.Namespace)
+			}
+			return nil, fmt.Errorf("failed to validate namespace: %w", err)
+		}
+		if !ns.HasCapability(models.NamespaceCapabilityDeployGateway) {
+			return nil, fmt.Errorf("%w: '%s' (missing capability '%s')", ErrStreamNamespaceNotDeployable, in.Namespace, models.NamespaceCapabilityDeployGateway)
+		}
+	}
+
+	exists, err := s.streamRepo.ExistsByName(projectID, in.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check stream name: %w", err)
+	}
+	if exists {
+		return nil, ErrStreamNameTaken
+	}
+
 	stream := &models.Stream{
 		ProjectID:         projectID,
 		Name:              in.Name,
@@ -187,7 +228,7 @@ func (s *StreamService) Create(projectID uuid.UUID, in CreateStreamInput, user *
 		stream.CreatedBy = &id
 	}
 	if err := s.streamRepo.Create(stream); err != nil {
-		return nil, err
+		return nil, mapStreamWriteError(err)
 	}
 	if err := s.Deploy(context.Background(), stream); err != nil {
 		log.Printf("Failed to deploy Stream Gateway %s/%s: %v", stream.Namespace, stream.K8sGatewayName, err)
@@ -230,11 +271,18 @@ func (s *StreamService) Update(id uuid.UUID, in UpdateStreamInput) (*models.Stre
 	if err != nil {
 		return nil, err
 	}
-	if in.Name != nil {
+	if in.Name != nil && *in.Name != stream.Name {
+		exists, err := s.streamRepo.ExistsByName(stream.ProjectID, *in.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check stream name: %w", err)
+		}
+		if exists {
+			return nil, ErrStreamNameTaken
+		}
 		stream.Name = *in.Name
 	}
 	if err := s.streamRepo.Update(stream); err != nil {
-		return nil, err
+		return nil, mapStreamWriteError(err)
 	}
 	return stream, nil
 }
@@ -262,6 +310,21 @@ func (s *StreamService) Delete(id uuid.UUID) error {
 		return ErrStreamHasRoutes
 	}
 	return s.streamRepo.Delete(id)
+}
+
+// mapStreamWriteError turns a unique-violation on (project_id, name) into
+// ErrStreamNameTaken, covering the race between the ExistsByName pre-check and
+// the write. It matches gorm.ErrDuplicatedKey (when gorm error translation is
+// on) and Postgres SQLSTATE 23505 (pgconn.PgError implements SQLState()).
+func mapStreamWriteError(err error) error {
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return ErrStreamNameTaken
+	}
+	var sqlErr interface{ SQLState() string }
+	if errors.As(err, &sqlErr) && sqlErr.SQLState() == "23505" {
+		return ErrStreamNameTaken
+	}
+	return err
 }
 
 func (s *StreamService) getStream(id uuid.UUID) (*models.Stream, error) {

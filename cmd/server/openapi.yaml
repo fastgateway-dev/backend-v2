@@ -2243,7 +2243,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Stream'
         '400':
-          description: Invalid name, or the Gateway Template is not enabled for streams
+          description: Invalid name, namespace not registered for the project or lacking the deploy_gateway capability, or the Gateway Template is not enabled for streams
           content:
             application/json:
               schema:
@@ -2252,6 +2252,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           description: Gateway Template not found (including templates of other projects)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: A stream with this name already exists in the project
           content:
             application/json:
               schema:
@@ -2305,6 +2311,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: A stream with this name already exists in the project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - Streams
