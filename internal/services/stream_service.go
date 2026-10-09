@@ -139,6 +139,10 @@ type StreamService struct {
 	routeRepo    StreamRouteCounter
 	k8sGateways  GatewayApplier
 	namespaces   StreamNamespaceReader
+
+	// Port sources for CheckPortCollision; set via SetPortSources.
+	portStore   StreamPortStore
+	domainPorts DomainPortReader
 }
 
 // NewStreamService builds a StreamService. It panics if a dependency is nil,

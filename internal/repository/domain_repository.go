@@ -125,6 +125,25 @@ func (r *DomainRepository) ListByTemplateID(templateID uuid.UUID) ([]models.Doma
 	return domains, err
 }
 
+// UsedPortsByTemplate returns the listener ports of every domain on the given
+// gateway template: each domain's HTTP and HTTPS port, both as TCP-transport
+// (HTTP/HTTPS/TLS listeners run over TCP). It is the domain half of the
+// merged-Gateways port-collision scope.
+func (r *DomainRepository) UsedPortsByTemplate(templateID uuid.UUID) ([]PortUse, error) {
+	var domains []models.Domain
+	if err := r.db.Select("http_port", "https_port").
+		Where("domain_template_id = ?", templateID).Find(&domains).Error; err != nil {
+		return nil, err
+	}
+	uses := make([]PortUse, 0, len(domains)*2)
+	for _, d := range domains {
+		uses = append(uses,
+			PortUse{Transport: "TCP", Port: d.HTTPPort},
+			PortUse{Transport: "TCP", Port: d.HTTPSPort})
+	}
+	return uses, nil
+}
+
 // CountByProjectID returns the number of domains in a project
 func (r *DomainRepository) CountByProjectID(projectID uuid.UUID) (int, error) {
 	var count int64
