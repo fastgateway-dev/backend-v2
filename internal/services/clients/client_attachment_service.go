@@ -193,7 +193,7 @@ func (s *ClientAttachmentService) AttachFromRoute(
 	// domain. AttachFromRoute and AttachFromClient carried byte-identical
 	// copies of this check before Phase 2D; validateMTLSPairing is the one
 	// implementation.
-	if err := s.validateMTLSPairing(input.EnableMTLS, client, route.DomainID); err != nil {
+	if err := s.validateMTLSPairing(input.EnableMTLS, client, *route.DomainID); err != nil {
 		return nil, err
 	}
 
@@ -222,7 +222,7 @@ func (s *ClientAttachmentService) AttachFromRoute(
 	}
 
 	// Get project ID via the route's domain
-	domain, err := s.domainRepo.GetByID(route.DomainID)
+	domain, err := s.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, errors.New("domain not found")
 	}
@@ -343,7 +343,7 @@ func (s *ClientAttachmentService) AttachFromClient(
 	}
 
 	// Verify route belongs to the specified project
-	domain, err := s.domainRepo.GetByID(route.DomainID)
+	domain, err := s.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, errors.New("domain not found")
 	}
@@ -377,7 +377,7 @@ func (s *ClientAttachmentService) AttachFromClient(
 	// domain. AttachFromRoute and AttachFromClient carried byte-identical
 	// copies of this check before Phase 2D; validateMTLSPairing is the one
 	// implementation.
-	if err := s.validateMTLSPairing(input.EnableMTLS, client, route.DomainID); err != nil {
+	if err := s.validateMTLSPairing(input.EnableMTLS, client, *route.DomainID); err != nil {
 		return nil, err
 	}
 
@@ -513,7 +513,7 @@ func (s *ClientAttachmentService) RequestDetach(attachmentID uuid.UUID, submitte
 	if err != nil {
 		return nil, errors.New("route not found")
 	}
-	domain, err := s.domainRepo.GetByID(route.DomainID)
+	domain, err := s.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, errors.New("domain not found")
 	}

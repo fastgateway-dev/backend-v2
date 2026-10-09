@@ -71,7 +71,7 @@ func (d *routeDeploy) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route,
 		return nil, errors.New("no approved request found for this route")
 	}
 
-	domain, err := d.domainRepo.GetByID(route.DomainID)
+	domain, err := d.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, err
 	}

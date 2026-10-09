@@ -186,7 +186,7 @@ func (s *MetricsService) GetRouteMetrics(ctx context.Context, projectID, routeID
 		return nil, fmt.Errorf("get route: %w", err)
 	}
 
-	domain, err := s.domainRepo.GetByID(route.DomainID)
+	domain, err := s.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, fmt.Errorf("get domain: %w", err)
 	}

@@ -382,3 +382,9 @@ func TestBackendTLSConfig_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestRoute_IsL4_Transport(t *testing.T) {
+	assert.True(t, (Route{Protocol: RouteProtocolTCP}).IsL4())
+	assert.False(t, (Route{Protocol: RouteProtocolHTTP}).IsL4())
+	assert.Equal(t, "UDP", (Route{Protocol: RouteProtocolUDP}).Transport())
+}

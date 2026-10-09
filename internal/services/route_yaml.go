@@ -82,7 +82,7 @@ func (q *routeQuery) GenerateYAML(id uuid.UUID) (string, error) {
 		return "", err
 	}
 
-	domain, err := q.domainRepo.GetByID(route.DomainID)
+	domain, err := q.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return "", err
 	}
@@ -97,7 +97,7 @@ func (q *routeQuery) GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error) {
 		return nil, err
 	}
 
-	domain, err := q.domainRepo.GetByID(route.DomainID)
+	domain, err := q.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +323,7 @@ func (q *routeQuery) PreviewCreate(domainID uuid.UUID, input *CreateRouteInput) 
 	// Create a temporary route object for YAML generation
 	tempRoute := &models.Route{
 		ID:           tempRouteID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		TeamID:       input.TeamID,
 		Name:         input.Name,
 		Description:  input.Description,
@@ -373,7 +373,7 @@ func (q *routeQuery) PreviewUpdate(routeID uuid.UUID, input *UpdateRouteInput) (
 	}
 
 	// Get domain
-	domain, err := q.domainRepo.GetByID(route.DomainID)
+	domain, err := q.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, errors.New("domain not found")
 	}
@@ -479,7 +479,7 @@ func (q *routeQuery) PreviewDelete(routeID uuid.UUID) (*PreviewDeleteResult, err
 	}
 
 	// Get domain
-	domain, err := q.domainRepo.GetByID(route.DomainID)
+	domain, err := q.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, errors.New("domain not found")
 	}

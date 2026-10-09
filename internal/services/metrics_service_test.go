@@ -371,7 +371,7 @@ func TestMetricsService_GetRouteMetrics_Success(t *testing.T) {
 	rRepo.On("GetByID", routeID).Return(&models.Route{
 		ID:       routeID,
 		Name:     "api-users",
-		DomainID: domainID,
+		DomainID: &domainID,
 	}, nil)
 	dRepo.On("GetByID", domainID).Return(&models.Domain{
 		ID:        domainID,
@@ -402,7 +402,7 @@ func TestMetricsService_GetRouteMetrics_ProjectNotConfigured(t *testing.T) {
 	domainID := uuid.New()
 
 	pRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID}, nil)
-	rRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, Name: "x", DomainID: domainID}, nil)
+	rRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, Name: "x", DomainID: &domainID}, nil)
 	dRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, Namespace: "fastgateway-system"}, nil)
 
 	_, err := svc.GetRouteMetrics(context.Background(), projectID, routeID, "1h")
@@ -452,8 +452,8 @@ func TestMetricsService_GetDomainMetrics_Success(t *testing.T) {
 
 	rRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
 		Return([]models.Route{
-			{ID: routeID1, Name: "api-users", DomainID: domainID},
-			{ID: routeID2, Name: "checkout", DomainID: domainID},
+			{ID: routeID1, Name: "api-users", DomainID: &domainID},
+			{ID: routeID2, Name: "checkout", DomainID: &domainID},
 		}, int64(2), nil)
 
 	res, err := svc.GetDomainMetrics(context.Background(), projectID, domainID, "1h")

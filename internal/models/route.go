@@ -109,6 +109,8 @@ type RouteProtocol string
 const (
 	RouteProtocolHTTP RouteProtocol = "http"
 	RouteProtocolGRPC RouteProtocol = "grpc"
+	RouteProtocolTCP  RouteProtocol = "tcp"
+	RouteProtocolUDP  RouteProtocol = "udp"
 )
 
 // SecurityStatus represents the security status of a route
@@ -134,7 +136,8 @@ const (
 // Route represents an API route (maps to K8s HTTPRoute/GRPCRoute)
 type Route struct {
 	ID           uuid.UUID     `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
-	DomainID     uuid.UUID     `gorm:"type:uuid;not null;uniqueIndex:idx_route_domain_name" json:"domainId"`
+	DomainID     *uuid.UUID    `gorm:"type:uuid;uniqueIndex:idx_route_domain_name" json:"domainId"` // nil for L4 (tcp/udp) routes, which use StreamID
+	StreamID     *uuid.UUID    `gorm:"type:uuid" json:"streamId,omitempty"`                         // set for L4 (tcp/udp) routes
 	TeamID       uuid.UUID     `gorm:"type:uuid;not null" json:"teamId"`
 	Name         string        `gorm:"not null;uniqueIndex:idx_route_domain_name" json:"name"`
 	Description  string        `json:"description"`
@@ -164,6 +167,22 @@ type Route struct {
 // TableName returns the table name for Route
 func (Route) TableName() string {
 	return "routes"
+}
+
+// IsL4 returns true for layer-4 (TCP/UDP) stream routes.
+func (r Route) IsL4() bool {
+	return r.Protocol == RouteProtocolTCP || r.Protocol == RouteProtocolUDP
+}
+
+// Transport returns the Kubernetes transport name for an L4 route ("TCP" or "UDP").
+func (r Route) Transport() string {
+	switch r.Protocol {
+	case RouteProtocolUDP:
+		return "UDP"
+	case RouteProtocolTCP:
+		return "TCP"
+	}
+	return ""
 }
 
 // RouteType represents the type of route (backend or redirect)
@@ -198,6 +217,9 @@ type RouteConfig struct {
 	RequestHeaderModifier  *HeaderModifier       `json:"requestHeaderModifier,omitempty"`
 	ResponseHeaderModifier *HeaderModifier       `json:"responseHeaderModifier,omitempty"`
 	URLRewrite             *URLRewrite           `json:"urlRewrite,omitempty"`
+
+	// ListenerPort is the Gateway listener port for L4 (tcp/udp) routes
+	ListenerPort int `json:"listenerPort,omitempty"`
 
 	// Default traffic policy for requests without x-client-id header (when clients are attached)
 	DefaultTrafficPolicy DefaultTrafficPolicy `json:"defaultTrafficPolicy,omitempty"` // "allow_all", "deny", "require_ip_allowlist"

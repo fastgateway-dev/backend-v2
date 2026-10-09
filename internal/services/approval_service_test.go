@@ -248,7 +248,7 @@ func TestApprovalService_ListByProjectID_WithRouteEnrichment(t *testing.T) {
 	}
 	approvalRepo.On("ListByProjectID", projectID, 1, 10, "", "").Return(approvals, int64(1), nil)
 	routeRepo.On("GetByIDs", mock.AnythingOfType("[]uuid.UUID")).Return([]models.Route{
-		{ID: routeID, Name: "my-route", DomainID: domainID},
+		{ID: routeID, Name: "my-route", DomainID: &domainID},
 	}, nil)
 	domainRepo.On("GetByIDs", mock.AnythingOfType("[]uuid.UUID")).Return([]models.Domain{
 		{ID: domainID, Hostname: "example.com"},
@@ -1152,7 +1152,7 @@ func TestApprovalService_GetDiff_CreateAction(t *testing.T) {
 
 	route := &models.Route{
 		ID:           entityID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "test-route",
 		K8sRouteName: "test-route",
 	}
@@ -1210,7 +1210,7 @@ func TestApprovalService_GetDiff_UpdateAction(t *testing.T) {
 
 	route := &models.Route{
 		ID:           entityID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "test-route",
 		K8sRouteName: "test-route",
 	}
@@ -1273,7 +1273,7 @@ func TestApprovalService_GetDiff_DeleteAction(t *testing.T) {
 
 	route := &models.Route{
 		ID:           entityID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "test-route",
 		K8sRouteName: "test-route",
 	}

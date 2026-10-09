@@ -132,7 +132,7 @@ func (w *routeWrite) Create(domainID uuid.UUID, input *CreateRouteInput, created
 	}
 
 	route := &models.Route{
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		TeamID:       input.TeamID,
 		Name:         input.Name,
 		Description:  input.Description,
@@ -231,7 +231,7 @@ func (w *routeWrite) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy u
 	}
 
 	// Get domain to validate namespaces
-	domain, err := w.domainRepo.GetByID(route.DomainID)
+	domain, err := w.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, errors.New("domain not found")
 	}
@@ -244,7 +244,7 @@ func (w *routeWrite) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy u
 		return nil, err
 	}
 
-	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, route.Protocol, route.DomainID, &id); err != nil {
+	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, route.Protocol, *route.DomainID, &id); err != nil {
 		return nil, err
 	}
 
@@ -417,7 +417,7 @@ func (w *routeWrite) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Route,
 	}
 
 	// Get domain for project ID
-	domain, err := w.domainRepo.GetByID(route.DomainID)
+	domain, err := w.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, err
 	}

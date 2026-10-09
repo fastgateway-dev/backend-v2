@@ -499,7 +499,7 @@ func TestRouteService_Create_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "user-api", result.Name)
-	assert.Equal(t, domainID, result.DomainID)
+	assert.Equal(t, &domainID, result.DomainID)
 	assert.Equal(t, models.RouteStatusPendingCreate, result.Status)
 	assert.NotNil(t, result.PendingApproval)
 	routeRepo.AssertExpectations(t)
@@ -608,7 +608,7 @@ func TestRouteService_Delete_Success(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 		Status:   models.RouteStatusActive,
 	}
@@ -713,7 +713,7 @@ func TestRouteService_Update_Success(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		Status:       models.RouteStatusActive,
 		SecurityMode: models.SecurityModeGeneral,
@@ -799,7 +799,7 @@ func TestRouteService_Update_DomainNotFound(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 		Status:   models.RouteStatusActive,
 	}
@@ -830,7 +830,7 @@ func TestRouteService_Update_AlreadyPendingApproval(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 		Status:   models.RouteStatusActive,
 		Config:   makeBasicHTTPRouteConfig(),
@@ -870,7 +870,7 @@ func TestRouteService_Update_UnknownSecurityMode_IsAccepted(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		Status:       models.RouteStatusActive,
 		SecurityMode: models.SecurityMode("invalid"),
@@ -909,7 +909,7 @@ func TestRouteService_Update_NoBackends(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 		Status:   models.RouteStatusActive,
 	}
@@ -946,7 +946,7 @@ func TestRouteService_Update_BackendMissingNamespace(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 		Status:   models.RouteStatusActive,
 	}
@@ -985,7 +985,7 @@ func TestRouteService_Update_WithSecurityPolicy(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		Status:       models.RouteStatusActive,
 		SecurityMode: models.SecurityModeGeneral,
@@ -1047,7 +1047,7 @@ func TestRouteService_Update_ClientMode_RejectsGeneralSecurityFields(t *testing.
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		Status:       models.RouteStatusActive,
 		SecurityMode: models.SecurityModeClient,
@@ -1281,7 +1281,7 @@ func TestRouteService_GenerateYAMLs_Success(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		K8sRouteName: "user-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -1357,7 +1357,7 @@ func TestRouteService_GenerateYAMLs_APIKeyDecodeFailurePropagatesError(t *testin
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		K8sRouteName: "user-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -1421,7 +1421,7 @@ func TestRouteService_GenerateYAMLs_WithSecurityPolicy(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		K8sRouteName: "user-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -1659,7 +1659,7 @@ func TestRouteService_PreviewUpdate_Success(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		K8sRouteName: "user-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -1733,7 +1733,7 @@ func TestRouteService_PreviewUpdate_DomainNotFound(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 	}
 
@@ -1762,7 +1762,7 @@ func TestRouteService_PreviewDelete_Success(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		K8sRouteName: "user-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -1816,7 +1816,7 @@ func TestRouteService_PreviewDelete_DomainNotFound(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 	}
 
@@ -2115,7 +2115,7 @@ func TestRouteService_GenerateYAML_Success(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		K8sRouteName: "user-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -2164,7 +2164,7 @@ func TestRouteService_Update_WithBackendTrafficPolicy(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		Status:       models.RouteStatusActive,
 		SecurityMode: models.SecurityModeGeneral,
@@ -2220,7 +2220,7 @@ func TestRouteService_Update_GRPCRoute_RejectsRedirect(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "grpc-route",
 		Status:   models.RouteStatusActive,
 		Protocol: models.RouteProtocolGRPC,
@@ -2259,7 +2259,7 @@ func TestRouteService_Update_HTTPRoute_RejectsGRPCFields(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "http-route",
 		Status:   models.RouteStatusActive,
 		Protocol: models.RouteProtocolHTTP,
@@ -2301,7 +2301,7 @@ func TestRouteService_Delete_WithPolicies(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 		Status:   models.RouteStatusActive,
 		Config:   makeBasicHTTPRouteConfig(),
@@ -2377,7 +2377,7 @@ func TestRouteService_PreviewDelete_WithPolicies(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		K8sRouteName: "user-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -2419,7 +2419,7 @@ func TestRouteService_Update_DescriptionUpdated(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		Description:  "old description",
 		Status:       models.RouteStatusActive,
@@ -2465,7 +2465,7 @@ func TestRouteService_Update_ApprovalHasConfigSnapshot(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		Status:       models.RouteStatusActive,
 		Config:       makeBasicHTTPRouteConfig(),
@@ -2555,7 +2555,7 @@ func TestRouteService_Update_ApprovalSnapshot_PreservesExtProc(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		Status:       models.RouteStatusActive,
 		Config:       makeBasicHTTPRouteConfig(),
@@ -2714,7 +2714,7 @@ func TestRouteService_Update_WithLabels(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		Status:       models.RouteStatusActive,
 		Config:       makeBasicHTTPRouteConfig(),
@@ -2760,7 +2760,7 @@ func TestRouteService_Update_DirectResponse_CannotHaveBackends(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "dr-route",
 		Status:   models.RouteStatusActive,
 		Config:   makeBasicHTTPRouteConfig(),
@@ -2803,7 +2803,7 @@ func TestRouteService_GenerateYAMLs_WithBTP(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		K8sRouteName: "user-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -2842,7 +2842,7 @@ func TestRouteService_PreviewUpdate_WithSecurityPolicyChanges(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		K8sRouteName: "user-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -3974,7 +3974,7 @@ func TestRouteService_GenerateYAML_DomainNotFound(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 	}
 
@@ -3999,7 +3999,7 @@ func TestRouteService_GenerateYAMLs_DomainNotFound(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 	}
 
@@ -4051,7 +4051,7 @@ func TestRouteService_PreviewUpdate_WithBTPChanges(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		K8sRouteName: "user-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -4094,7 +4094,7 @@ func TestRouteService_PreviewDelete_WithBTP(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "user-api",
 		K8sRouteName: "user-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -4189,7 +4189,7 @@ func TestRouteService_Delete_PendingCreateRoute(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 		Status:   models.RouteStatusPendingCreate,
 	}
@@ -4228,7 +4228,7 @@ func TestRouteService_GenerateYAMLs_WithCORS(t *testing.T) {
 
 	route := &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "cors-api",
 		K8sRouteName: "cors-api-12345678",
 		Config:       makeBasicHTTPRouteConfig(),
@@ -4735,7 +4735,7 @@ func TestRouteService_Deploy_DomainNotFound(t *testing.T) {
 	domainID := uuid.New()
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "user-api",
 		Status:   models.RouteStatusApproved,
 	}
@@ -5755,7 +5755,7 @@ func newTestRouteServiceWithK8s() (
 func makeTestRoute(routeID, domainID uuid.UUID) *models.Route {
 	return &models.Route{
 		ID:           routeID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "test-route",
 		K8sRouteName: "test-route-abcd1234",
 		Protocol:     models.RouteProtocolHTTP,
@@ -5793,7 +5793,7 @@ func setupDeployMocksForCreate(
 	routeRepo.On("GetByID", route.ID).Return(route, nil)
 	approvalRepo.On("GetLatestApprovedByEntityID", models.ApprovalEntityRoute, route.ID).
 		Return(&models.Approval{Action: models.ApprovalActionCreate}, nil)
-	domainRepo.On("GetByID", route.DomainID).Return(domain, nil)
+	domainRepo.On("GetByID", *route.DomainID).Return(domain, nil)
 
 	// Policy repos return nothing (no policies)
 	secRepo.On("GetByRouteID", route.ID).Return(nil, gorm.ErrRecordNotFound)
@@ -6510,7 +6510,7 @@ func TestRouteService_Delete_WithK8s_Success(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "test-route",
 		Status:   models.RouteStatusActive,
 		Config:   makeBasicHTTPRouteConfig(),
@@ -6584,7 +6584,7 @@ func TestRouteService_Delete_WithExistingPolicies(t *testing.T) {
 
 	route := &models.Route{
 		ID:       routeID,
-		DomainID: domainID,
+		DomainID: &domainID,
 		Name:     "test-route",
 		Status:   models.RouteStatusActive,
 		Config:   makeBasicHTTPRouteConfig(),
@@ -8297,7 +8297,7 @@ func TestRouteService_Update_ApprovalsDisabled_GoesToPendingDeploy(t *testing.T)
 	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
 
 	routeRepo.On("GetByID", routeID).Return(&models.Route{
-		ID: routeID, DomainID: domainID, Name: "user-api",
+		ID: routeID, DomainID: &domainID, Name: "user-api",
 		Status: models.RouteStatusActive, SecurityMode: models.SecurityModeGeneral,
 		Config: makeBasicHTTPRouteConfig(), K8sRouteName: "user-api-12345678",
 	}, nil)
@@ -8330,7 +8330,7 @@ func TestRouteService_Update_OrphanedPendingUpdate_StillPersistsFieldEdits(t *te
 	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
 
 	routeRepo.On("GetByID", routeID).Return(&models.Route{
-		ID: routeID, DomainID: domainID, Name: "user-api",
+		ID: routeID, DomainID: &domainID, Name: "user-api",
 		Status: models.RouteStatusPendingUpdate, SecurityMode: models.SecurityModeGeneral,
 		Config: makeBasicHTTPRouteConfig(), K8sRouteName: "user-api-12345678",
 	}, nil)
@@ -8370,7 +8370,7 @@ func TestRouteService_Delete_ApprovalsDisabled_GoesToPendingDeploy(t *testing.T)
 	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
 
 	routeRepo.On("GetByID", routeID).Return(&models.Route{
-		ID: routeID, DomainID: domainID, Name: "user-api", Status: models.RouteStatusActive,
+		ID: routeID, DomainID: &domainID, Name: "user-api", Status: models.RouteStatusActive,
 	}, nil)
 	approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, routeID).Return(nil, errors.New("not found"))
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
@@ -8408,7 +8408,7 @@ func TestRouteService_Delete_OrphanedPendingUpdateRoute(t *testing.T) {
 	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
 
 	route := &models.Route{
-		ID: routeID, DomainID: domainID, Name: "user-api",
+		ID: routeID, DomainID: &domainID, Name: "user-api",
 		Status: models.RouteStatusPendingUpdate,
 	}
 
@@ -8436,7 +8436,7 @@ func TestRouteService_Update_OrphanedPendingDeleteRoute(t *testing.T) {
 	routeID, domainID, projectID := uuid.New(), uuid.New(), uuid.New()
 
 	route := &models.Route{
-		ID: routeID, DomainID: domainID, Name: "user-api",
+		ID: routeID, DomainID: &domainID, Name: "user-api",
 		Status: models.RouteStatusPendingDelete, SecurityMode: models.SecurityModeGeneral,
 		Config: makeBasicHTTPRouteConfig(), K8sRouteName: "user-api-12345678",
 	}

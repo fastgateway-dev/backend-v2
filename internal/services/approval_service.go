@@ -124,7 +124,9 @@ func (s *ApprovalService) ListByProjectID(projectID uuid.UUID, page, limit int, 
 	domainIDSet := make(map[uuid.UUID]struct{})
 	for _, r := range routes {
 		routeMap[r.ID] = r
-		domainIDSet[r.DomainID] = struct{}{}
+		if r.DomainID != nil {
+			domainIDSet[*r.DomainID] = struct{}{}
+		}
 	}
 
 	// Batch-fetch domains
@@ -146,8 +148,10 @@ func (s *ApprovalService) ListByProjectID(projectID uuid.UUID, page, limit int, 
 		if approvals[i].EntityType == models.ApprovalEntityRoute {
 			if route, ok := routeMap[approvals[i].EntityID]; ok {
 				approvals[i].EntityName = route.Name
-				if domain, ok := domainMap[route.DomainID]; ok {
-					approvals[i].DomainName = domain.Hostname
+				if route.DomainID != nil {
+					if domain, ok := domainMap[*route.DomainID]; ok {
+						approvals[i].DomainName = domain.Hostname
+					}
 				}
 			}
 		}
@@ -231,7 +235,7 @@ func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 		return nil, err
 	}
 
-	domain, err := s.domainRepo.GetByID(route.DomainID)
+	domain, err := s.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, err
 	}
