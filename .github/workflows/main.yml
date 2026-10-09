@@ -206,16 +206,21 @@ jobs:
       # (see that script's header comment).
       - name: Install Gateway API CRDs
         run: |
-          # Experimental channel: a superset of standard that also ships the
-          # TCPRoute/UDPRoute CRDs the L4 (stream) suite needs. Standard omits
-          # them, so without this the backend's CreateTCPRoute fails.
-          # --server-side: the experimental HTTPRoute CRD is too large for
-          # client-side apply (its last-applied-configuration annotation
-          # exceeds the 256KB metadata.annotations limit).
-          # --force-conflicts: the cluster already ships Gateway API CRDs under
-          # another field manager; take ownership to install the experimental
-          # (authoritative) bundle over them.
-          kubectl apply --server-side --force-conflicts -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/experimental-install.yaml"
+          # The L4 (stream) suite needs the experimental TCPRoute/UDPRoute CRDs,
+          # but only runs on Envoy Gateway >= 1.8 (Gateway API >= 1.5). Older
+          # arms skip the suite, so standard-install is enough there -- and the
+          # experimental bundle for Gateway API 1.4.x fails to install on this
+          # runner. Pick the channel by the minor version.
+          MINOR="$(echo "$GATEWAY_API_VERSION" | cut -d. -f2)"
+          if [ "$MINOR" -ge 5 ]; then
+            # --server-side: the large experimental HTTPRoute CRD exceeds the
+            # 256KB client-side apply annotation limit. --force-conflicts: the
+            # cluster already ships Gateway API CRDs under another field manager.
+            kubectl apply --server-side --force-conflicts \
+              -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/experimental-install.yaml"
+          else
+            kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/standard-install.yaml"
+          fi
 
       # Redis backend for Envoy Gateway's global rate limiting (the same
       # role docker-compose.yaml's now-deleted "ratelimit-redis" service
