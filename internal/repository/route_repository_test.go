@@ -416,6 +416,15 @@ func TestRouteRepository_ExistsByStreamAndName_And_ListByStreamID(t *testing.T) 
 	assert.Equal(t, int64(2), total, "total counts all pages")
 	require.Len(t, got, 1)
 	assert.Equal(t, "redis", got[0].Name)
+
+	// Out-of-range pagination is clamped like ListByProjectID (page<1 -> 1,
+	// limit<1 -> 50) instead of producing a negative OFFSET or LIMIT 0.
+	got, total, err = routes.ListByStreamID(s1.ID, 0, 0, nil, "")
+	require.NoError(t, err, "page=0/limit=0 must not error")
+	assert.Equal(t, int64(2), total)
+	require.Len(t, got, 2, "clamped to page 1, limit 50")
+	assert.Equal(t, "pg", got[0].Name)
+	assert.Equal(t, "redis", got[1].Name)
 }
 
 // The concurrent-create race loses at idx_route_stream_proto_port with a

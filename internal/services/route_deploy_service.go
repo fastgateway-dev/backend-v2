@@ -343,11 +343,16 @@ func (d *routeDeploy) finishDeploy(route *models.Route, approval *models.Approva
 //
 // Every L4 route change recomputes the Stream's FULL listener set from the
 // routes that are live on it and re-applies the whole Gateway, rather than
-// adding or removing one listener. That is idempotent and cannot lose a
-// listener to a partial write or a concurrent deploy. A create/update deploy
-// includes the current route (it is about to be live, with its new config); a
-// delete deploy excludes it. The Gateway is applied before the route so a
-// route never references a listener that does not exist yet.
+// adding or removing one listener. That is idempotent and protects against a
+// single route's own stale or partially-written listener set. It does NOT make
+// concurrent deploys safe: there is no per-stream deploy serialization, so two
+// concurrent deploys of DIFFERENT routes on the same stream can each read a
+// stale live-route set, and the second UpdateGateway is last-writer-wins and
+// can drop the other route's listener. Closing that race needs per-stream
+// deploy serialization (a known follow-up). A create/update deploy includes the
+// current route (it is about to be live, with its new config); a delete deploy
+// excludes it. The Gateway is applied before the route so a route never
+// references a listener that does not exist yet.
 //
 // The GatewayConfig is built and applied in-process: its L4 Listeners are
 // json:"-" and would be lost if the config were serialized or queued.

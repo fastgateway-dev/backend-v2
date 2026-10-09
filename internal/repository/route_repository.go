@@ -176,6 +176,12 @@ func (r *RouteRepository) ListByStreamID(streamID uuid.UUID, page, limit int, te
 		return nil, 0, err
 	}
 
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
 	offset := (page - 1) * limit
 	if err := query.Preload("Team").Offset(offset).Limit(limit).Order("name ASC").Find(&routes).Error; err != nil {
 		return nil, 0, err
