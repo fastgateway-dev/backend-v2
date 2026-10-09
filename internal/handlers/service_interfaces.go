@@ -205,7 +205,7 @@ type DomainTemplateServiceInterface interface {
 	Create(projectID uuid.UUID, input *services.CreateDomainTemplateInput, createdBy uuid.UUID) (*models.DomainTemplate, error)
 	GetByID(id uuid.UUID) (*models.DomainTemplate, error)
 	GetByName(projectID uuid.UUID, name string) (*models.DomainTemplate, error)
-	ListByProjectID(projectID uuid.UUID, page, limit int) ([]models.DomainTemplate, int64, error)
+	ListByProjectID(projectID uuid.UUID, page, limit int, capability string) ([]models.DomainTemplate, int64, error)
 	Update(id uuid.UUID, input *services.UpdateDomainTemplateInput) (*models.DomainTemplate, error)
 	Delete(id uuid.UUID) error
 	GetManifests(id uuid.UUID) (*services.DomainTemplateManifests, error)

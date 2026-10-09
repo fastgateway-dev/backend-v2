@@ -28,7 +28,7 @@ func TestDomainTemplateHandler_List_Success(t *testing.T) {
 		{ID: uuid.New(), ProjectID: projectID, Name: "template1"},
 		{ID: uuid.New(), ProjectID: projectID, Name: "template2"},
 	}
-	mockDT.On("ListByProjectID", projectID, 1, 20).Return(templates, int64(2), nil)
+	mockDT.On("ListByProjectID", projectID, 1, 20, "").Return(templates, int64(2), nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -43,6 +43,40 @@ func TestDomainTemplateHandler_List_Success(t *testing.T) {
 	data := resp["data"].([]interface{})
 	assert.Len(t, data, 2)
 	mockDT.AssertExpectations(t)
+}
+
+func TestDomainTemplateHandler_List_CapabilityPassedThrough(t *testing.T) {
+	mockDT := new(mocks.MockDomainTemplateService)
+	h := handlers.NewDomainTemplateHandler(mockDT, new(mocks.MockAuditService), new(mocks.MockTemplateDomainLister))
+
+	projectID := uuid.New()
+	mockDT.On("ListByProjectID", projectID, 1, 20, "stream").Return([]models.DomainTemplate{}, int64(0), nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/projects/"+projectID.String()+"/domain-templates?capability=stream", nil)
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}}
+
+	h.List(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockDT.AssertExpectations(t)
+}
+
+func TestDomainTemplateHandler_List_InvalidCapability(t *testing.T) {
+	mockDT := new(mocks.MockDomainTemplateService)
+	h := handlers.NewDomainTemplateHandler(mockDT, new(mocks.MockAuditService), new(mocks.MockTemplateDomainLister))
+
+	projectID := uuid.New()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/projects/"+projectID.String()+"/domain-templates?capability=bogus", nil)
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}}
+
+	h.List(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	mockDT.AssertNotCalled(t, "ListByProjectID", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestDomainTemplateHandler_Get_Success(t *testing.T) {

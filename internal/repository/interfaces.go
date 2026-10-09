@@ -176,7 +176,7 @@ type DomainTemplateRepositoryInterface interface {
 	Create(dt *models.DomainTemplate) error
 	GetByID(id uuid.UUID) (*models.DomainTemplate, error)
 	GetByName(projectID uuid.UUID, name string) (*models.DomainTemplate, error)
-	ListByProjectID(projectID uuid.UUID, page, limit int) ([]models.DomainTemplate, int64, error)
+	ListByProjectID(projectID uuid.UUID, page, limit int, capability string) ([]models.DomainTemplate, int64, error)
 	ListByExposureType(projectID uuid.UUID, exposureType models.ExposureType) ([]models.DomainTemplate, error)
 	Update(dt *models.DomainTemplate) error
 	Delete(id uuid.UUID) error

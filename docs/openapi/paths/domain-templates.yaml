@@ -9,6 +9,13 @@ domain-templates:
       - $ref: '../components/parameters.yaml#/projectId'
       - $ref: '../components/parameters.yaml#/page'
       - $ref: '../components/parameters.yaml#/limit'
+      - name: capability
+        in: query
+        required: false
+        description: Only return templates with this capability enabled (enableDomain for domain, enableStream for stream). Omit to return all templates.
+        schema:
+          type: string
+          enum: [domain, stream]
     responses:
       '200':
         description: List of domain templates

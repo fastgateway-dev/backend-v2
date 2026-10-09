@@ -6,6 +6,7 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -57,9 +58,9 @@ func TestDomainTemplateService_ListByProjectID_Success(t *testing.T) {
 		{ID: uuid.New(), Name: "tpl-a"},
 		{ID: uuid.New(), Name: "tpl-b"},
 	}
-	dtRepo.On("ListByProjectID", projectID, 1, 20).Return(templates, int64(2), nil)
+	dtRepo.On("ListByProjectID", projectID, 1, 20, "").Return(templates, int64(2), nil)
 
-	result, total, err := svc.ListByProjectID(projectID, 1, 20)
+	result, total, err := svc.ListByProjectID(projectID, 1, 20, "")
 
 	require.NoError(t, err)
 	assert.Len(t, result, 2)
@@ -72,9 +73,9 @@ func TestDomainTemplateService_ListByProjectID_Empty(t *testing.T) {
 	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
 	projectID := uuid.New()
-	dtRepo.On("ListByProjectID", projectID, 1, 10).Return([]models.DomainTemplate{}, int64(0), nil)
+	dtRepo.On("ListByProjectID", projectID, 1, 10, "").Return([]models.DomainTemplate{}, int64(0), nil)
 
-	result, total, err := svc.ListByProjectID(projectID, 1, 10)
+	result, total, err := svc.ListByProjectID(projectID, 1, 10, "")
 
 	require.NoError(t, err)
 	assert.Empty(t, result)
@@ -578,4 +579,71 @@ func TestDomainTemplateService_Create_CapabilityBothFalse_Error(t *testing.T) {
 
 	assert.Nil(t, result)
 	assert.ErrorIs(t, err, services.ErrNoTemplateCapability)
+}
+
+// ---------------------------------------------------------------------------
+// ListByProjectID capability filter (integration; needs INTEGRATION_DB_URL)
+// ---------------------------------------------------------------------------
+
+func TestDomainTemplateService_List_CapabilityFilter(t *testing.T) {
+	db := requireTopologyDB(t)
+
+	userID := uuid.New()
+	projectID := uuid.New()
+	suffix := projectID.String()
+	require.NoError(t, db.Exec(`INSERT INTO users (id, username, email, password_hash, role, is_active, created_at, updated_at)
+		VALUES (?, ?, ?, '', 'owner', true, NOW(), NOW())`,
+		userID, "u-"+suffix, "u-"+suffix+"@example.com").Error)
+	require.NoError(t, db.Exec(`INSERT INTO projects (id, name, k8s_api_url, k8s_token_encrypted, created_by, created_at, updated_at)
+		VALUES (?, ?, '', '', ?, NOW(), NOW())`, projectID, "p-"+suffix, userID).Error)
+	t.Cleanup(func() {
+		_ = db.Exec(`DELETE FROM domain_templates WHERE project_id = ?`, projectID).Error
+		_ = db.Exec(`DELETE FROM projects WHERE id = ?`, projectID).Error
+		_ = db.Exec(`DELETE FROM users WHERE id = ?`, userID).Error
+	})
+
+	// Flags are set explicitly: EnableDomain has no GORM default, so an unset
+	// field would persist false.
+	fixtures := []struct {
+		name           string
+		domain, stream bool
+	}{
+		{"tmplA", true, false},
+		{"tmplB", false, true},
+		{"tmplC", true, true},
+	}
+	for _, f := range fixtures {
+		require.NoError(t, db.Create(&models.DomainTemplate{
+			ProjectID:    projectID,
+			Name:         f.name,
+			EnableDomain: f.domain,
+			EnableStream: f.stream,
+			CreatedBy:    userID,
+		}).Error)
+	}
+
+	svc := services.NewDomainTemplateService(repository.NewDomainTemplateRepository(db), nil, nil, nil, nil)
+
+	names := func(ts []models.DomainTemplate) []string {
+		out := make([]string, 0, len(ts))
+		for _, tmpl := range ts {
+			out = append(out, tmpl.Name)
+		}
+		return out
+	}
+
+	stream, total, err := svc.ListByProjectID(projectID, 1, 100, "stream")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"tmplB", "tmplC"}, names(stream))
+	assert.Equal(t, int64(2), total)
+
+	domain, total, err := svc.ListByProjectID(projectID, 1, 100, "domain")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"tmplA", "tmplC"}, names(domain))
+	assert.Equal(t, int64(2), total)
+
+	all, total, err := svc.ListByProjectID(projectID, 1, 100, "")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"tmplA", "tmplB", "tmplC"}, names(all))
+	assert.Equal(t, int64(3), total)
 }

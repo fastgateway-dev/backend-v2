@@ -7386,8 +7386,8 @@ func (_c *MockDomainTemplateRepository_ListByExposureType_Call) RunAndReturn(run
 }
 
 // ListByProjectID provides a mock function for the type MockDomainTemplateRepository
-func (_mock *MockDomainTemplateRepository) ListByProjectID(projectID uuid.UUID, page int, limit int) ([]models.DomainTemplate, int64, error) {
-	ret := _mock.Called(projectID, page, limit)
+func (_mock *MockDomainTemplateRepository) ListByProjectID(projectID uuid.UUID, page int, limit int, capability string) ([]models.DomainTemplate, int64, error) {
+	ret := _mock.Called(projectID, page, limit, capability)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListByProjectID")
@@ -7396,23 +7396,23 @@ func (_mock *MockDomainTemplateRepository) ListByProjectID(projectID uuid.UUID, 
 	var r0 []models.DomainTemplate
 	var r1 int64
 	var r2 error
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int) ([]models.DomainTemplate, int64, error)); ok {
-		return returnFunc(projectID, page, limit)
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int, string) ([]models.DomainTemplate, int64, error)); ok {
+		return returnFunc(projectID, page, limit, capability)
 	}
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int) []models.DomainTemplate); ok {
-		r0 = returnFunc(projectID, page, limit)
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int, string) []models.DomainTemplate); ok {
+		r0 = returnFunc(projectID, page, limit, capability)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]models.DomainTemplate)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, int, int) int64); ok {
-		r1 = returnFunc(projectID, page, limit)
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, int, int, string) int64); ok {
+		r1 = returnFunc(projectID, page, limit, capability)
 	} else {
 		r1 = ret.Get(1).(int64)
 	}
-	if returnFunc, ok := ret.Get(2).(func(uuid.UUID, int, int) error); ok {
-		r2 = returnFunc(projectID, page, limit)
+	if returnFunc, ok := ret.Get(2).(func(uuid.UUID, int, int, string) error); ok {
+		r2 = returnFunc(projectID, page, limit, capability)
 	} else {
 		r2 = ret.Error(2)
 	}
@@ -7428,11 +7428,12 @@ type MockDomainTemplateRepository_ListByProjectID_Call struct {
 //   - projectID uuid.UUID
 //   - page int
 //   - limit int
-func (_e *MockDomainTemplateRepository_Expecter) ListByProjectID(projectID any, page any, limit any) *MockDomainTemplateRepository_ListByProjectID_Call {
-	return &MockDomainTemplateRepository_ListByProjectID_Call{Call: _e.mock.On("ListByProjectID", projectID, page, limit)}
+//   - capability string
+func (_e *MockDomainTemplateRepository_Expecter) ListByProjectID(projectID any, page any, limit any, capability any) *MockDomainTemplateRepository_ListByProjectID_Call {
+	return &MockDomainTemplateRepository_ListByProjectID_Call{Call: _e.mock.On("ListByProjectID", projectID, page, limit, capability)}
 }
 
-func (_c *MockDomainTemplateRepository_ListByProjectID_Call) Run(run func(projectID uuid.UUID, page int, limit int)) *MockDomainTemplateRepository_ListByProjectID_Call {
+func (_c *MockDomainTemplateRepository_ListByProjectID_Call) Run(run func(projectID uuid.UUID, page int, limit int, capability string)) *MockDomainTemplateRepository_ListByProjectID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 uuid.UUID
 		if args[0] != nil {
@@ -7446,10 +7447,15 @@ func (_c *MockDomainTemplateRepository_ListByProjectID_Call) Run(run func(projec
 		if args[2] != nil {
 			arg2 = args[2].(int)
 		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -7460,7 +7466,7 @@ func (_c *MockDomainTemplateRepository_ListByProjectID_Call) Return(domainTempla
 	return _c
 }
 
-func (_c *MockDomainTemplateRepository_ListByProjectID_Call) RunAndReturn(run func(projectID uuid.UUID, page int, limit int) ([]models.DomainTemplate, int64, error)) *MockDomainTemplateRepository_ListByProjectID_Call {
+func (_c *MockDomainTemplateRepository_ListByProjectID_Call) RunAndReturn(run func(projectID uuid.UUID, page int, limit int, capability string) ([]models.DomainTemplate, int64, error)) *MockDomainTemplateRepository_ListByProjectID_Call {
 	_c.Call.Return(run)
 	return _c
 }

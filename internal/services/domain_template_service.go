@@ -324,9 +324,10 @@ func (s *DomainTemplateService) GetByName(projectID uuid.UUID, name string) (*mo
 	return s.dtRepo.GetByName(projectID, name)
 }
 
-// ListByProjectID lists domain templates in a project
-func (s *DomainTemplateService) ListByProjectID(projectID uuid.UUID, page, limit int) ([]models.DomainTemplate, int64, error) {
-	return s.dtRepo.ListByProjectID(projectID, page, limit)
+// ListByProjectID lists domain templates in a project. capability is ""
+// (all), "domain" or "stream" and filters to templates with that flag enabled.
+func (s *DomainTemplateService) ListByProjectID(projectID uuid.UUID, page, limit int, capability string) ([]models.DomainTemplate, int64, error) {
+	return s.dtRepo.ListByProjectID(projectID, page, limit, capability)
 }
 
 // Update updates a domain template
