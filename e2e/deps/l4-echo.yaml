@@ -1,0 +1,99 @@
+# Two plain TCP+UDP echo backends for the L4 (stream) e2e suite. Built from
+# e2e/servers/l4-echo and loaded into kind. Two distinct Services (not one
+# Service with two replicas) so the health-check test can fail one while the
+# other stays up.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: l4-echo-a
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: l4-echo-a
+  template:
+    metadata:
+      labels:
+        app: l4-echo-a
+    spec:
+      containers:
+        - name: l4-echo
+          image: fastgateway-l4-echo:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 9100
+              protocol: TCP
+            - containerPort: 9101
+              protocol: UDP
+          env:
+            - name: TCP_PORT
+              value: "9100"
+            - name: UDP_PORT
+              value: "9101"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: l4-echo-a
+  namespace: default
+spec:
+  selector:
+    app: l4-echo-a
+  ports:
+    - name: tcp
+      protocol: TCP
+      port: 9100
+      targetPort: 9100
+    - name: udp
+      protocol: UDP
+      port: 9101
+      targetPort: 9101
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: l4-echo-b
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: l4-echo-b
+  template:
+    metadata:
+      labels:
+        app: l4-echo-b
+    spec:
+      containers:
+        - name: l4-echo
+          image: fastgateway-l4-echo:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 9100
+              protocol: TCP
+            - containerPort: 9101
+              protocol: UDP
+          env:
+            - name: TCP_PORT
+              value: "9100"
+            - name: UDP_PORT
+              value: "9101"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: l4-echo-b
+  namespace: default
+spec:
+  selector:
+    app: l4-echo-b
+  ports:
+    - name: tcp
+      protocol: TCP
+      port: 9100
+      targetPort: 9100
+    - name: udp
+      protocol: UDP
+      port: 9101
+      targetPort: 9101

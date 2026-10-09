@@ -91,7 +91,10 @@ jobs:
 
       - name: Install Gateway API CRDs
         run: |
-          kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/standard-install.yaml"
+          # Experimental channel: a superset of standard that also ships the
+          # TCPRoute/UDPRoute CRDs the L4 (stream) suite needs. Standard omits
+          # them, so without this the backend's CreateTCPRoute fails.
+          kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/experimental-install.yaml"
 
       - name: Deploy Redis for Envoy Gateway rate limiting
         run: |
@@ -175,9 +178,9 @@ jobs:
           kubectl -n default rollout status deployment/backend-tls-server-1 --timeout=120s
           kubectl -n default rollout status deployment/backend-mtls-server-1 --timeout=120s
 
-      - name: Build and load the four test doubles into kind
+      - name: Build and load the test doubles into kind
         run: |
-          for svc in jwt-server external-auth grpc-external-auth ext-proc-server wasm-host; do
+          for svc in jwt-server external-auth grpc-external-auth ext-proc-server wasm-host l4-echo; do
             docker build -t "fastgateway-${svc}:latest" "e2e/servers/${svc}"
             kind load docker-image "fastgateway-${svc}:latest" --name "$KIND_CLUSTER"
           done
@@ -198,6 +201,9 @@ jobs:
           kubectl -n default rollout status deployment/grpc-external-auth --timeout=120s
           kubectl -n default rollout status deployment/ext-proc-server --timeout=120s
           kubectl -n default rollout status deployment/wasm-host-deployment --timeout=120s
+          kubectl apply -f e2e/deps/l4-echo.yaml
+          kubectl -n default rollout status deployment/l4-echo-a --timeout=120s
+          kubectl -n default rollout status deployment/l4-echo-b --timeout=120s
 
       - name: Resolve kind API server URL and FastGateway service-account token
         id: kube-creds
