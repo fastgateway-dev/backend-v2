@@ -312,6 +312,12 @@ func main() {
 	domainHandler := handlers.NewDomainHandler(domainService, auditService, permChecker, domainService)
 	streamService := services.NewStreamService(streamRepo, domainTemplateRepo, routeRepo, k8sService, projectNamespaceRepo)
 	streamService.SetPortSources(streamRepo, domainRepo)
+	// Route L4 create/update, domain create (merged template) and template
+	// capability enablement all enforce the same (transport, port) collision
+	// rules; wire their sources now that the repos and StreamService exist.
+	routeService.SetL4PortChecker(streamService)
+	domainService.SetStreamPorts(streamRepo)
+	domainTemplateService.SetPortSources(streamRepo, domainRepo)
 	streamHandler := handlers.NewStreamHandler(streamService, auditService, permChecker)
 	routeHandler := handlers.NewRouteHandler(routeService, auditService, permChecker)
 	routeVersionHandler := handlers.NewRouteVersionHandler(routeVersionService, auditService)

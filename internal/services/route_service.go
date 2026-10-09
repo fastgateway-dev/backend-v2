@@ -394,6 +394,14 @@ func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, creat
 	return s.write.Create(domainID, input, createdBy)
 }
 
+// SetL4PortChecker wires the L4 listener-port collision check used by route
+// create/update validation. It arrives after construction because the
+// StreamService that implements it depends on repositories built later in
+// cmd/server/main.go. Never calling it makes L4 route writes fail closed.
+func (s *RouteService) SetL4PortChecker(c L4PortChecker) {
+	s.write.l4Ports = c
+}
+
 // Update updates a route (submits for approval)
 func (s *RouteService) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy uuid.UUID) (*models.Route, error) {
 	return s.write.Update(id, input, submittedBy)

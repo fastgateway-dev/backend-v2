@@ -138,6 +138,7 @@ type Route struct {
 	ID           uuid.UUID     `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
 	DomainID     *uuid.UUID    `gorm:"type:uuid;uniqueIndex:idx_route_domain_name" json:"domainId"` // nil for L4 (tcp/udp) routes, which use StreamID
 	StreamID     *uuid.UUID    `gorm:"type:uuid" json:"streamId,omitempty"`                         // set for L4 (tcp/udp) routes
+	ListenerPort *int          `gorm:"column:listener_port" json:"-"`                               // mirrors Config.ListenerPort for L4 routes (see SyncListenerPort)
 	TeamID       uuid.UUID     `gorm:"type:uuid;not null" json:"teamId"`
 	Name         string        `gorm:"not null;uniqueIndex:idx_route_domain_name" json:"name"`
 	Description  string        `json:"description"`
@@ -172,6 +173,18 @@ func (Route) TableName() string {
 // IsL4 returns true for layer-4 (TCP/UDP) stream routes.
 func (r Route) IsL4() bool {
 	return r.Protocol == RouteProtocolTCP || r.Protocol == RouteProtocolUDP
+}
+
+// SyncListenerPort copies Config.ListenerPort into the ListenerPort column
+// field for L4 routes (and clears it otherwise). Persistence paths call it so
+// the listener_port column and its unique index track the config.
+func (r *Route) SyncListenerPort() {
+	if r.IsL4() && r.Config.ListenerPort != 0 {
+		port := r.Config.ListenerPort
+		r.ListenerPort = &port
+		return
+	}
+	r.ListenerPort = nil
 }
 
 // Transport returns the Kubernetes transport name for an L4 route ("TCP" or "UDP").

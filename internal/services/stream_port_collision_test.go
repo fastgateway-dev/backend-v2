@@ -8,6 +8,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
+	"github.com/fastgateway-dev/backend-v2/internal/streamplan"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -196,4 +197,89 @@ func TestCheckPortCollision_InvalidTransport(t *testing.T) {
 	e := newCollisionEnv(t)
 	streamID := e.stream(t, e.template(t, false))
 	assert.Error(t, e.svc.CheckPortCollision(streamID, "HTTP", 80, nil))
+}
+
+// templateWithDomain inserts a Gateway Template with explicit MergeGateways
+// and EnableDomain (EnableStream is always on so the template stays valid).
+func (e *collisionEnv) templateWithDomain(t *testing.T, merge, enableDomain bool, httpPort, httpsPort int) uuid.UUID {
+	t.Helper()
+	tmpl := &models.DomainTemplate{
+		ProjectID: e.projectID, Name: "tmpl-" + uuid.NewString(), CreatedBy: e.userID,
+		EnableDomain: enableDomain, EnableStream: true, MergeGateways: merge,
+		HTTPPort: httpPort, HTTPSPort: httpsPort,
+	}
+	require.NoError(t, e.db.Create(tmpl).Error)
+	return tmpl.ID
+}
+
+var defaultReserved = services.DefaultReservedPorts
+
+func TestValidateListenerPort_RejectsEnvoyInternal(t *testing.T) {
+	assert.ErrorIs(t, services.ValidateListenerPort(19000, defaultReserved), services.ErrReservedPort)
+	assert.ErrorIs(t, services.ValidateListenerPort(19001, defaultReserved), services.ErrReservedPort)
+}
+
+func TestValidateListenerPort_RejectsPlaceholder(t *testing.T) {
+	assert.ErrorIs(t, services.ValidateListenerPort(streamplan.PlaceholderPort, defaultReserved), services.ErrReservedPort)
+}
+
+func TestValidateListenerPort_RejectsOutOfRange(t *testing.T) {
+	assert.ErrorIs(t, services.ValidateListenerPort(0, defaultReserved), services.ErrInvalidListenerPort)
+	assert.ErrorIs(t, services.ValidateListenerPort(-1, defaultReserved), services.ErrInvalidListenerPort)
+	assert.ErrorIs(t, services.ValidateListenerPort(70000, defaultReserved), services.ErrInvalidListenerPort)
+}
+
+func TestValidateListenerPort_RejectsDomainDefaults(t *testing.T) {
+	reserved := services.ReservedPorts{DomainDefaults: []int{80, 443}}
+	assert.ErrorIs(t, services.ValidateListenerPort(443, reserved), services.ErrReservedPort)
+	assert.ErrorIs(t, services.ValidateListenerPort(80, reserved), services.ErrReservedPort)
+}
+
+func TestValidateListenerPort_AcceptsOrdinaryPorts(t *testing.T) {
+	assert.NoError(t, services.ValidateListenerPort(5432, defaultReserved))
+	assert.NoError(t, services.ValidateListenerPort(1, defaultReserved))
+	assert.NoError(t, services.ValidateListenerPort(65535, defaultReserved))
+	// 80/443 are free unless the caller reserves them (merged+domain-enabled).
+	assert.NoError(t, services.ValidateListenerPort(443, defaultReserved))
+}
+
+func TestCheckPortCollision_MergedDomainEnabled_Reserves80And443(t *testing.T) {
+	e := newCollisionEnv(t)
+	streamID := e.stream(t, e.templateWithDomain(t, true, true, 80, 443))
+
+	// No Domain exists yet, but the template's default ports are reserved.
+	assert.ErrorIs(t, e.svc.CheckPortCollision(streamID, "TCP", 443, nil), services.ErrReservedPort)
+	assert.ErrorIs(t, e.svc.CheckPortCollision(streamID, "TCP", 80, nil), services.ErrReservedPort)
+	// UDP is a different transport; ordinary TCP ports are free.
+	assert.NoError(t, e.svc.CheckPortCollision(streamID, "UDP", 443, nil))
+	assert.NoError(t, e.svc.CheckPortCollision(streamID, "TCP", 5432, nil))
+}
+
+func TestCheckPortCollision_MergedDomainEnabled_ReservesCustomTemplatePorts(t *testing.T) {
+	e := newCollisionEnv(t)
+	streamID := e.stream(t, e.templateWithDomain(t, true, true, 8080, 8443))
+
+	assert.ErrorIs(t, e.svc.CheckPortCollision(streamID, "TCP", 8443, nil), services.ErrReservedPort)
+	assert.ErrorIs(t, e.svc.CheckPortCollision(streamID, "TCP", 8080, nil), services.ErrReservedPort)
+	assert.NoError(t, e.svc.CheckPortCollision(streamID, "TCP", 443, nil))
+}
+
+func TestCheckPortCollision_MergedDomainDisabled_Allows443(t *testing.T) {
+	e := newCollisionEnv(t)
+	streamID := e.stream(t, e.templateWithDomain(t, true, false, 80, 443))
+	assert.NoError(t, e.svc.CheckPortCollision(streamID, "TCP", 443, nil))
+}
+
+func TestCheckPortCollision_NotMerged_Allows443(t *testing.T) {
+	e := newCollisionEnv(t)
+	streamID := e.stream(t, e.templateWithDomain(t, false, true, 80, 443))
+	assert.NoError(t, e.svc.CheckPortCollision(streamID, "TCP", 443, nil))
+}
+
+func TestCheckPortCollision_RejectsStaticReserved(t *testing.T) {
+	e := newCollisionEnv(t)
+	streamID := e.stream(t, e.template(t, false))
+	assert.ErrorIs(t, e.svc.CheckPortCollision(streamID, "TCP", 19001, nil), services.ErrReservedPort)
+	assert.ErrorIs(t, e.svc.CheckPortCollision(streamID, "UDP", streamplan.PlaceholderPort, nil), services.ErrReservedPort)
+	assert.ErrorIs(t, e.svc.CheckPortCollision(streamID, "TCP", 0, nil), services.ErrInvalidListenerPort)
 }

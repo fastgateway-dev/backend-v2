@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -1167,4 +1168,45 @@ func TestRouteHandler_ListByProject_InvalidTeamID(t *testing.T) {
 		"/projects/"+projectID.String()+"/routes?team_id=not-a-uuid", nil)
 	h.ListByProject(c)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// L4 listener-port rejections surface as 409 (collision) / 400 (reserved,
+// out of range) on route create and update.
+func TestRouteHandler_CreateUpdate_PortErrorMapping(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		code int
+	}{
+		{"collision", fmt.Errorf("%w: TCP/5432", services.ErrPortCollision), http.StatusConflict},
+		{"reserved", fmt.Errorf("%w: 19000", services.ErrReservedPort), http.StatusBadRequest},
+		{"out of range", fmt.Errorf("%w: got 70000", services.ErrInvalidListenerPort), http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockRoute := new(mocks.MockRouteService)
+			h := handlers.NewRouteHandler(mockRoute, new(mocks.MockAuditService), routePermChecker())
+			user := testUser()
+			projectID, domainID, routeID := uuid.New(), uuid.New(), uuid.New()
+			mockRoute.On("Create", domainID, mock.AnythingOfType("*services.CreateRouteInput"), user.ID).Return(nil, tc.err)
+			mockRoute.On("Update", routeID, mock.AnythingOfType("*services.UpdateRouteInput"), user.ID).Return(nil, tc.err)
+
+			router := gin.New()
+			router.POST("/projects/:projectId/domains/:domainId/routes", func(c *gin.Context) { c.Set("user", user); h.Create(c) })
+			router.PUT("/projects/:projectId/domains/:domainId/routes/:routeId", func(c *gin.Context) { c.Set("user", user); h.Update(c) })
+
+			createBody, _ := json.Marshal(map[string]interface{}{"name": "r", "teamId": uuid.New().String(), "config": map[string]interface{}{}})
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domains/"+domainID.String()+"/routes", bytes.NewReader(createBody))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+			assert.Equal(t, tc.code, w.Code, "create")
+
+			updateBody, _ := json.Marshal(map[string]interface{}{"config": map[string]interface{}{}})
+			w = httptest.NewRecorder()
+			req, _ = http.NewRequest("PUT", "/projects/"+projectID.String()+"/domains/"+domainID.String()+"/routes/"+routeID.String(), bytes.NewReader(updateBody))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+			assert.Equal(t, tc.code, w.Code, "update")
+		})
+	}
 }

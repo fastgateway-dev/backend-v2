@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +12,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+// routeWriteErrorStatus maps a route create/update error to its HTTP status:
+// an L4 listener-port collision is a 409; everything else (including reserved
+// or out-of-range ports) stays a 400.
+func routeWriteErrorStatus(err error) int {
+	if errors.Is(err, services.ErrPortCollision) {
+		return http.StatusConflict
+	}
+	return http.StatusBadRequest
+}
 
 // RouteHandler handles route endpoints
 type RouteHandler struct {
@@ -103,7 +114,7 @@ func (h *RouteHandler) Create(c *gin.Context) {
 
 	route, err := h.routeService.Create(domainID, &input, user.ID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(routeWriteErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 
@@ -235,7 +246,7 @@ func (h *RouteHandler) Update(c *gin.Context) {
 
 	route, err := h.routeService.Update(id, &input, user.ID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(routeWriteErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 

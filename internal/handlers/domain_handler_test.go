@@ -1424,6 +1424,7 @@ func TestDomainHandler_Create_CollisionMapping(t *testing.T) {
 		{"claimed", services.ErrHostnameClaimed, http.StatusConflict},
 		{"foreign", services.ErrForeignRecordExists, http.StatusConflict},
 		{"unavailable", services.ErrDNSProviderUnavailable, http.StatusBadGateway},
+		{"stream port collision", fmt.Errorf("%w: TCP/443", services.ErrPortCollision), http.StatusConflict},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mockDomain := new(mocks.MockDomainService)

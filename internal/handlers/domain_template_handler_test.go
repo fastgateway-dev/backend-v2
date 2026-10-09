@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -311,4 +312,25 @@ func TestDomainTemplateHandler_PreviewChanges_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	mockDT.AssertExpectations(t)
+}
+
+func TestDomainTemplateHandler_Update_PortCollisionIs409(t *testing.T) {
+	mockDT := new(mocks.MockDomainTemplateService)
+	h := handlers.NewDomainTemplateHandler(mockDT, new(mocks.MockAuditService), new(mocks.MockTemplateDomainLister))
+
+	user := testUser()
+	projectID, dtID := uuid.New(), uuid.New()
+	mockDT.On("Update", dtID, mock.AnythingOfType("*services.UpdateDomainTemplateInput")).
+		Return(nil, fmt.Errorf("%w: TCP/443", services.ErrPortCollision))
+
+	body, _ := json.Marshal(map[string]bool{"enableDomain": true})
+	router := gin.New()
+	router.PUT("/projects/:projectId/domain-templates/:domainTemplateId", func(c *gin.Context) { c.Set("user", user); h.Update(c) })
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/projects/"+projectID.String()+"/domain-templates/"+dtID.String(), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
 }

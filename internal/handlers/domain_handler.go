@@ -100,7 +100,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 	domain, err := h.domainService.Create(projectID, &input, user.ID)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrHostnameClaimed), errors.Is(err, services.ErrForeignRecordExists):
+		case errors.Is(err, services.ErrHostnameClaimed), errors.Is(err, services.ErrForeignRecordExists), errors.Is(err, services.ErrPortCollision):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case errors.Is(err, services.ErrDNSProviderUnavailable):
 			// Return only the clean sentinel; the wrapped provider detail stays server-side.

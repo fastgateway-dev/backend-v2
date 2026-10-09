@@ -21,6 +21,13 @@ type DomainTemplateService struct {
 	domainRepo  repository.DomainRepositoryInterface
 	k8sService  GatewayClassApplier
 	aiService   *AIService
+
+	// streamPorts/domainPorts are wired after construction (SetPortSources) to
+	// keep the positional constructor unchanged. Enabling a capability flag on
+	// a merged template re-validates the merged listener set and fails closed
+	// (error) if they were never wired.
+	streamPorts L4PortReader
+	domainPorts DomainPortReader
 }
 
 // NewDomainTemplateService creates a new domain template service
@@ -38,6 +45,13 @@ func NewDomainTemplateService(
 		k8sService:  k8sService,
 		aiService:   aiService,
 	}
+}
+
+// SetPortSources wires the readers Update uses to validate the merged listener
+// set when a capability flag is enabled. Called from main.go.
+func (s *DomainTemplateService) SetPortSources(streams L4PortReader, domains DomainPortReader) {
+	s.streamPorts = streams
+	s.domainPorts = domains
 }
 
 // ListDomainsByTemplateID returns the domains built from a template.
@@ -384,6 +398,22 @@ func (s *DomainTemplateService) Update(id uuid.UUID, input *UpdateDomainTemplate
 		ed, es, err := NormalizeTemplateCapabilities(&enableDomain, &enableStream)
 		if err != nil {
 			return nil, err
+		}
+		// Enabling a capability on a merged template grows its shared listener
+		// set (domain ports + stream L4 ports on one Gateway): reject if the
+		// newly-merged set has a (transport, port) clash. mergeGateways itself
+		// is immutable after create, so enabling a flag is the only way an
+		// existing template's merged set changes.
+		newlyEnabled := (ed && !dt.EnableDomain) || (es && !dt.EnableStream)
+		if dt.MergeGateways && newlyEnabled {
+			if s.streamPorts == nil || s.domainPorts == nil {
+				return nil, errors.New("stream port sources are not configured")
+			}
+			prospective := *dt
+			prospective.EnableDomain, prospective.EnableStream = ed, es
+			if err := checkMergedTemplateSet(s.streamPorts, s.domainPorts, &prospective); err != nil {
+				return nil, err
+			}
 		}
 		dt.EnableDomain, dt.EnableStream = ed, es
 	}

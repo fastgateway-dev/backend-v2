@@ -282,3 +282,54 @@ func TestRouteRepository_ListActiveByStreamID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, none)
 }
+
+func TestRouteRepository_L4PersistWritesListenerPortColumn(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, domainID, teamID, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	streams := repository.NewStreamRepository(db)
+	routes := repository.NewRouteRepository(db)
+
+	s := &models.Stream{ProjectID: projectID, Name: "lp-gw", Namespace: "fastgateway-system",
+		GatewayTemplateID: tmplID, K8sGatewayName: "str-lp-gw", K8sGatewayClass: "public-lb"}
+	require.NoError(t, streams.Create(s))
+
+	columnOf := func(id uuid.UUID) *int {
+		var port *int
+		require.NoError(t, db.Raw(`SELECT listener_port FROM routes WHERE id = ?`, id).Scan(&port).Error)
+		return port
+	}
+	newL4 := func(name string, port int) *models.Route {
+		return &models.Route{StreamID: &s.ID, TeamID: teamID, Name: name, Protocol: models.RouteProtocolTCP,
+			Status: models.RouteStatusPendingCreate, CreatedBy: userID,
+			Config: models.RouteConfig{ListenerPort: port}}
+	}
+
+	// Create mirrors Config.ListenerPort into the column.
+	r := newL4("lp-a", 5432)
+	require.NoError(t, routes.Create(r))
+	got := columnOf(r.ID)
+	require.NotNil(t, got, "listener_port column must be written on L4 create")
+	assert.Equal(t, 5432, *got)
+
+	// Update keeps the column in step with the config.
+	r.Config.ListenerPort = 5433
+	require.NoError(t, routes.Update(r))
+	got = columnOf(r.ID)
+	require.NotNil(t, got, "listener_port column must be written on L4 update")
+	assert.Equal(t, 5433, *got)
+
+	// The unique index (stream_id, protocol, listener_port) is now live.
+	dup := newL4("lp-b", 5433)
+	assert.Error(t, routes.Create(dup), "same stream/protocol/port must violate idx_route_stream_proto_port")
+	// ...but the same port on the other transport is fine.
+	udp := newL4("lp-c", 5433)
+	udp.Protocol = models.RouteProtocolUDP
+	assert.NoError(t, routes.Create(udp))
+
+	// Domain-owned (HTTP) routes leave the column NULL.
+	httpRoute := &models.Route{DomainID: &domainID, TeamID: teamID, Name: "lp-http", Protocol: models.RouteProtocolHTTP,
+		Status: models.RouteStatusPendingCreate, CreatedBy: userID}
+	require.NoError(t, routes.Create(httpRoute))
+	assert.Nil(t, columnOf(httpRoute.ID))
+}

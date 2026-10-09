@@ -21,6 +21,7 @@ func NewRouteRepository(db *gorm.DB) *RouteRepository {
 
 // Create creates a new route
 func (r *RouteRepository) Create(route *models.Route) error {
+	route.SyncListenerPort() // keep the listener_port column (unique index) in step with Config
 	return r.db.Create(route).Error
 }
 
@@ -130,6 +131,7 @@ func (r *RouteRepository) ListByDomainID(domainID uuid.UUID, page, limit int, te
 
 // Update updates a route
 func (r *RouteRepository) Update(route *models.Route) error {
+	route.SyncListenerPort() // keep the listener_port column (unique index) in step with Config
 	return r.db.Save(route).Error
 }
 

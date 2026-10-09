@@ -34,6 +34,11 @@ type routeWrite struct {
 
 	assembler *routeAssembler
 	query     *routeQuery
+
+	// l4Ports guards L4 listener-port collisions (see validateL4Listener).
+	// It is wired after construction (SetL4PortChecker) because the
+	// StreamService that implements it is built after RouteService.
+	l4Ports L4PortChecker
 }
 
 // ensureReferenceGrantsForDomain verifies backend namespace ReferenceGrants include
@@ -111,7 +116,7 @@ func (w *routeWrite) Create(domainID uuid.UUID, input *CreateRouteInput, created
 		return nil, err
 	}
 
-	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, protocol, domainID, nil); err != nil {
+	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, protocol, domainID, nil, nil); err != nil {
 		return nil, err
 	}
 
@@ -244,7 +249,7 @@ func (w *routeWrite) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy u
 		return nil, err
 	}
 
-	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, route.Protocol, *route.DomainID, &id); err != nil {
+	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, route.Protocol, *route.DomainID, route.StreamID, &id); err != nil {
 		return nil, err
 	}
 
