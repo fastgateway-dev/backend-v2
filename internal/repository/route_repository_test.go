@@ -333,3 +333,37 @@ func TestRouteRepository_L4PersistWritesListenerPortColumn(t *testing.T) {
 	require.NoError(t, routes.Create(httpRoute))
 	assert.Nil(t, columnOf(httpRoute.ID))
 }
+
+// The unique index must agree with the service-level collision check: a
+// rejected route never reaches the cluster, so it does not hold its port.
+func TestRouteRepository_L4UniqueIndex_RejectedRouteDoesNotHoldPort(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, teamID, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	streams := repository.NewStreamRepository(db)
+	routes := repository.NewRouteRepository(db)
+
+	s := &models.Stream{ProjectID: projectID, Name: "rej-gw", Namespace: "fastgateway-system",
+		GatewayTemplateID: tmplID, K8sGatewayName: "str-rej-gw", K8sGatewayClass: "public-lb"}
+	require.NoError(t, streams.Create(s))
+	newL4 := func(name string, status models.RouteStatus) *models.Route {
+		return &models.Route{StreamID: &s.ID, TeamID: teamID, Name: name, Protocol: models.RouteProtocolTCP,
+			Status: status, CreatedBy: userID, Config: models.RouteConfig{ListenerPort: 5432}}
+	}
+
+	rejected := newL4("rej-a", models.RouteStatusRejected)
+	require.NoError(t, routes.Create(rejected))
+
+	// A rejected route does not block an active route on the same port...
+	active := newL4("rej-b", models.RouteStatusActive)
+	require.NoError(t, routes.Create(active), "rejected route must not hold the port in the unique index")
+	// ...nor a second rejected one.
+	require.NoError(t, routes.Create(newL4("rej-c", models.RouteStatusRejected)))
+
+	// Two non-rejected routes on the same (stream, protocol, port) still conflict.
+	assert.Error(t, routes.Create(newL4("rej-d", models.RouteStatusPendingCreate)))
+
+	// A rejected route moving back to a live status re-claims the port.
+	rejected.Status = models.RouteStatusPendingUpdate
+	assert.Error(t, routes.Update(rejected), "un-rejecting onto a held port must violate the index")
+}
