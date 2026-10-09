@@ -166,6 +166,15 @@ func l4LoadBalancer(lb *models.LoadBalancerConfig) *models.LoadBalancerConfig {
 // function). Deploy is authoritative where the four pre-collapse bodies
 // disagreed.
 func BuildBackendTrafficPolicyConfig(route *models.Route, domain *models.Domain, policy *models.BackendTrafficPolicy) *kubernetes.BackendTrafficPolicyConfig {
+	return BuildBackendTrafficPolicyConfigForNamespace(route, domain.Namespace, domain.ID.String(), policy)
+}
+
+// BuildBackendTrafficPolicyConfigForNamespace is BuildBackendTrafficPolicyConfig
+// for callers that have no Domain: an L4 route lives in a Stream, so its
+// policy takes the stream's namespace and the stream ID as the gateway label.
+// HTTP/gRPC deploys reach it through BuildBackendTrafficPolicyConfig with the
+// domain's values, so both paths share one assembler.
+func BuildBackendTrafficPolicyConfigForNamespace(route *models.Route, namespace, gatewayID string, policy *models.BackendTrafficPolicy) *kubernetes.BackendTrafficPolicyConfig {
 	if policy == nil {
 		return nil
 	}
@@ -175,7 +184,7 @@ func BuildBackendTrafficPolicyConfig(route *models.Route, domain *models.Domain,
 		return nil
 	}
 
-	return buildBackendTrafficPolicyConfigFromInput(route.K8sRouteName, route.Protocol, route.ID.String(), domain.Namespace, domain.ID.String(), MapBackendTrafficPolicyConfigToInput(&policy.Config))
+	return buildBackendTrafficPolicyConfigFromInput(route.K8sRouteName, route.Protocol, route.ID.String(), namespace, gatewayID, MapBackendTrafficPolicyConfigToInput(&policy.Config))
 }
 
 // GenerateAPIKeyBackendTrafficPolicyYAML generates BTP YAML for a per-client HTTPRoute

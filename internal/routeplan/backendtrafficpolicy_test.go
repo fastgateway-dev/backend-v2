@@ -136,3 +136,27 @@ func TestBuildBackendTrafficPolicyConfig_HTTP_Unaffected(t *testing.T) {
 	assert.NotNil(t, cfg.CircuitBreaker.MaxPendingRequests)
 	assert.NotNil(t, cfg.Timeout.HTTP)
 }
+
+func TestBuildBackendTrafficPolicyConfigForNamespace_UsesGivenNamespaceAndGatewayID(t *testing.T) {
+	route := l4TestRoute(models.RouteProtocolTCP, 5432)
+	policy := &models.BackendTrafficPolicy{Config: kitchenSinkBTP()}
+
+	cfg := routeplan.BuildBackendTrafficPolicyConfigForNamespace(&route, "fastgateway-system", "stream-id-1", policy)
+	require.NotNil(t, cfg)
+
+	assert.Equal(t, "fastgateway-system", cfg.Namespace)
+	assert.Equal(t, "stream-id-1", cfg.GatewayID)
+	assert.Equal(t, route.ID.String(), cfg.RouteID)
+	assert.Equal(t, "TCPRoute", cfg.TargetRef.Kind)
+	assert.Equal(t, route.K8sRouteName, cfg.TargetRef.Name)
+	// L4 gating still applies on this entry point.
+	assert.Empty(t, cfg.Compression)
+	require.NotNil(t, cfg.CircuitBreaker)
+	assert.Nil(t, cfg.CircuitBreaker.MaxPendingRequests)
+}
+
+func TestBuildBackendTrafficPolicyConfigForNamespace_NilOrEmptyPolicy(t *testing.T) {
+	route := l4TestRoute(models.RouteProtocolUDP, 53)
+	assert.Nil(t, routeplan.BuildBackendTrafficPolicyConfigForNamespace(&route, "ns", "gw", nil))
+	assert.Nil(t, routeplan.BuildBackendTrafficPolicyConfigForNamespace(&route, "ns", "gw", &models.BackendTrafficPolicy{}))
+}

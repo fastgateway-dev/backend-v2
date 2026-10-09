@@ -9,6 +9,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -170,6 +171,20 @@ func (d *routeDeploy) deleteSecurityPolicy(ctx context.Context, route *models.Ro
 
 // deployBackendTrafficPolicy deploys BackendTrafficPolicy to Kubernetes if configured
 func (d *routeDeploy) deployBackendTrafficPolicy(ctx context.Context, route *models.Route, domain *models.Domain) error {
+	return d.applyBackendTrafficPolicy(ctx, route, domain.ProjectID, domain.Namespace, domain.ID.String())
+}
+
+// deleteBackendTrafficPolicy deletes BackendTrafficPolicy from Kubernetes
+func (d *routeDeploy) deleteBackendTrafficPolicy(ctx context.Context, route *models.Route, domain *models.Domain) error {
+	return d.removeBackendTrafficPolicy(ctx, route, domain.ProjectID, domain.Namespace)
+}
+
+// applyBackendTrafficPolicy builds and applies the route's stored
+// BackendTrafficPolicy into namespace. It is shared by the HTTP/gRPC path
+// (domain namespace) and the L4 path (stream namespace); the targetRef kind
+// and the per-protocol field gating are decided by the plan builder from the
+// route's protocol, so nothing here is protocol-specific.
+func (d *routeDeploy) applyBackendTrafficPolicy(ctx context.Context, route *models.Route, projectID uuid.UUID, namespace, gatewayID string) error {
 	// Get BackendTrafficPolicy from database
 	policy, err := d.backendTrafficPolicyRepo.GetByRouteID(route.ID)
 	if err != nil {
@@ -178,20 +193,22 @@ func (d *routeDeploy) deployBackendTrafficPolicy(ctx context.Context, route *mod
 	}
 
 	// Build BackendTrafficPolicy config for Kubernetes
-	btpConfig := routeplan.BuildBackendTrafficPolicyConfig(route, domain, policy)
+	btpConfig := routeplan.BuildBackendTrafficPolicyConfigForNamespace(route, namespace, gatewayID, policy)
 	if btpConfig == nil {
 		return nil
 	}
 
 	// Create or update BackendTrafficPolicy in Kubernetes
-	return d.k8sPolicies.UpdateBackendTrafficPolicy(ctx, domain.ProjectID, btpConfig)
+	return d.k8sPolicies.UpdateBackendTrafficPolicy(ctx, projectID, btpConfig)
 }
 
-// deleteBackendTrafficPolicy deletes BackendTrafficPolicy from Kubernetes
-func (d *routeDeploy) deleteBackendTrafficPolicy(ctx context.Context, route *models.Route, domain *models.Domain) error {
+// removeBackendTrafficPolicy deletes the route's BackendTrafficPolicy from
+// namespace in Kubernetes (a missing object is not an error: the applier
+// tolerates NotFound) and its database record.
+func (d *routeDeploy) removeBackendTrafficPolicy(ctx context.Context, route *models.Route, projectID uuid.UUID, namespace string) error {
 	// Check if BackendTrafficPolicy exists for this route
 	policy, err := d.backendTrafficPolicyRepo.GetByRouteID(route.ID)
-	if err != nil {
+	if err != nil || policy == nil {
 		// No BackendTrafficPolicy to delete
 		return nil
 	}
@@ -200,7 +217,7 @@ func (d *routeDeploy) deleteBackendTrafficPolicy(ctx context.Context, route *mod
 	btpName := kubernetes.BackendTrafficPolicyName(route.K8sRouteName)
 
 	// Delete from Kubernetes
-	if err := d.k8sPolicies.DeleteBackendTrafficPolicy(ctx, domain.ProjectID, domain.Namespace, btpName); err != nil {
+	if err := d.k8sPolicies.DeleteBackendTrafficPolicy(ctx, projectID, namespace, btpName); err != nil {
 		return err
 	}
 

@@ -24,6 +24,8 @@ type l4Fixture struct {
 	approvalRepo *mocks.MockUnifiedApprovalRepository
 	streamRepo   *mocks.MockStreamReader
 	k8s          *mocks.MockKubernetesService
+	btpRepo      *mocks.MockBackendTrafficPolicyRepository
+	btp          map[uuid.UUID]*models.BackendTrafficPolicy
 	stream       *models.Stream
 }
 
@@ -32,11 +34,15 @@ func newL4Fixture(t *testing.T) *l4Fixture {
 	f := &l4Fixture{
 		streamRepo: new(mocks.MockStreamReader),
 		k8s:        new(mocks.MockKubernetesService),
+		btpRepo:    new(mocks.MockBackendTrafficPolicyRepository),
+		btp:        map[uuid.UUID]*models.BackendTrafficPolicy{},
 	}
 	f.svc, f.routeRepo, f.approvalRepo, _, _, _ = newTestRouteServiceWith(func(d *services.RouteServiceDeps) {
 		d.Streams = f.streamRepo
 		d.K8sGateways = f.k8s
 		d.K8sL4Routes = f.k8s
+		d.K8sPolicies = f.k8s
+		d.BackendTrafficPolicyRepo = f.btpRepo
 	})
 	f.stream = &models.Stream{
 		ID: uuid.New(), ProjectID: uuid.New(), Name: "db", Namespace: "fastgateway-system",
@@ -58,7 +64,20 @@ func (f *l4Fixture) route(name string, proto models.RouteProtocol, port int, sta
 	}
 }
 
+// withBTP gives the route a stored BackendTrafficPolicy; call it before
+// expectDeploy. Routes without one see "no policy" from the repository.
+func (f *l4Fixture) withBTP(route *models.Route, cfg models.BackendTrafficPolicyConfig) *models.BackendTrafficPolicy {
+	p := &models.BackendTrafficPolicy{ID: uuid.New(), RouteID: &route.ID, Config: cfg}
+	f.btp[route.ID] = p
+	return p
+}
+
 func (f *l4Fixture) expectDeploy(route *models.Route, action models.ApprovalAction) {
+	if p, ok := f.btp[route.ID]; ok {
+		f.btpRepo.On("GetByRouteID", route.ID).Return(p, nil).Maybe()
+	} else {
+		f.btpRepo.On("GetByRouteID", route.ID).Return(nil, nil).Maybe()
+	}
 	f.routeRepo.On("GetByID", route.ID).Return(route, nil)
 	f.approvalRepo.On("GetLatestApprovedByEntityID", models.ApprovalEntityRoute, route.ID).
 		Return(&models.Approval{Action: action}, nil)
@@ -241,4 +260,142 @@ func TestRouteDeploy_L4_MissingStreamID(t *testing.T) {
 
 	_, err := f.svc.Deploy(route.ID, uuid.New())
 	require.Error(t, err)
+}
+
+func tcpBTPConfig() models.BackendTrafficPolicyConfig {
+	maxConns := int64(100)
+	return models.BackendTrafficPolicyConfig{
+		CircuitBreaker: &models.CircuitBreakerConfig{MaxConnections: &maxConns},
+		Timeout:        &models.BTPTimeoutConfig{TCP: &models.BTPTCPTimeoutConfig{ConnectTimeout: "5s"}},
+	}
+}
+
+func TestRouteDeploy_L4_CreateTCPWithBTP_AppliesBackendTrafficPolicy(t *testing.T) {
+	f := newL4Fixture(t)
+	route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusApproved)
+	f.withBTP(route, tcpBTPConfig())
+	f.expectDeploy(route, models.ApprovalActionCreate)
+	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
+	f.routeRepo.On("Update", mock.Anything).Return(nil)
+
+	var order []string
+	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	f.k8s.On("CreateTCPRoute", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(mock.Arguments) { order = append(order, "route") }).Return(nil)
+	var btp *kubernetes.BackendTrafficPolicyConfig
+	f.k8s.On("UpdateBackendTrafficPolicy", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.BackendTrafficPolicyConfig")).
+		Run(func(args mock.Arguments) {
+			order = append(order, "btp")
+			btp = args.Get(2).(*kubernetes.BackendTrafficPolicyConfig)
+		}).Return(nil)
+
+	_, err := f.svc.Deploy(route.ID, uuid.New())
+	require.NoError(t, err)
+
+	require.NotNil(t, btp)
+	assert.Equal(t, []string{"route", "btp"}, order, "the policy is applied after the route it targets")
+	assert.Equal(t, f.stream.Namespace, btp.Namespace, "the policy lives in the stream namespace, next to the TCPRoute")
+	assert.Equal(t, "TCPRoute", btp.TargetRef.Kind)
+	assert.Equal(t, route.K8sRouteName, btp.TargetRef.Name)
+	require.NotNil(t, btp.CircuitBreaker)
+	assert.Equal(t, int64(100), *btp.CircuitBreaker.MaxConnections)
+	require.NotNil(t, btp.Timeout)
+	require.NotNil(t, btp.Timeout.TCP)
+	assert.Equal(t, "5s", btp.Timeout.TCP.ConnectTimeout)
+}
+
+func TestRouteDeploy_L4_UpdateUDPWithBTP_AppliesLoadBalancerOnly(t *testing.T) {
+	f := newL4Fixture(t)
+	route := f.route("dns", models.RouteProtocolUDP, 53, models.RouteStatusPendingDeploy)
+	f.withBTP(route, models.BackendTrafficPolicyConfig{
+		LoadBalancer: &models.LoadBalancerConfig{Type: models.LoadBalancerTypeRoundRobin},
+		Timeout:      &models.BTPTimeoutConfig{TCP: &models.BTPTCPTimeoutConfig{ConnectTimeout: "5s"}},
+	})
+	f.expectDeploy(route, models.ApprovalActionUpdate)
+	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
+	f.routeRepo.On("Update", mock.Anything).Return(nil)
+	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	f.k8s.On("UpdateUDPRoute", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	var btp *kubernetes.BackendTrafficPolicyConfig
+	f.k8s.On("UpdateBackendTrafficPolicy", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.BackendTrafficPolicyConfig")).
+		Run(func(args mock.Arguments) { btp = args.Get(2).(*kubernetes.BackendTrafficPolicyConfig) }).Return(nil)
+
+	_, err := f.svc.Deploy(route.ID, uuid.New())
+	require.NoError(t, err)
+
+	require.NotNil(t, btp)
+	assert.Equal(t, f.stream.Namespace, btp.Namespace)
+	assert.Equal(t, "UDPRoute", btp.TargetRef.Kind)
+	require.NotNil(t, btp.LoadBalancer)
+	assert.Nil(t, btp.Timeout, "UDP carries the load balancer only")
+}
+
+func TestRouteDeploy_L4_WithoutBTP_AppliesNone(t *testing.T) {
+	for _, action := range []models.ApprovalAction{models.ApprovalActionCreate, models.ApprovalActionUpdate} {
+		t.Run(string(action), func(t *testing.T) {
+			f := newL4Fixture(t)
+			route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusApproved)
+			f.expectDeploy(route, action)
+			f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
+			f.routeRepo.On("Update", mock.Anything).Return(nil)
+			f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			f.k8s.On("CreateTCPRoute", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			f.k8s.On("UpdateTCPRoute", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+			_, err := f.svc.Deploy(route.ID, uuid.New())
+			require.NoError(t, err)
+			f.k8s.AssertNotCalled(t, "UpdateBackendTrafficPolicy", mock.Anything, mock.Anything, mock.Anything)
+			f.k8s.AssertNotCalled(t, "CreateBackendTrafficPolicy", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}
+
+func TestRouteDeploy_L4_BTPApplyFailureFailsDeploy(t *testing.T) {
+	f := newL4Fixture(t)
+	route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusApproved)
+	f.withBTP(route, tcpBTPConfig())
+	f.expectDeploy(route, models.ApprovalActionCreate)
+	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
+	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	f.k8s.On("CreateTCPRoute", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	f.k8s.On("UpdateBackendTrafficPolicy", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("boom"))
+
+	_, err := f.svc.Deploy(route.ID, uuid.New())
+	require.Error(t, err)
+	f.routeRepo.AssertNotCalled(t, "Update", mock.Anything)
+	assert.Equal(t, models.RouteStatusApproved, route.Status)
+}
+
+func TestRouteDeploy_L4_DeleteRemovesBackendTrafficPolicy(t *testing.T) {
+	f := newL4Fixture(t)
+	removing := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusPendingDeploy)
+	policy := f.withBTP(removing, tcpBTPConfig())
+	f.expectDeploy(removing, models.ApprovalActionDelete)
+	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{*removing}, nil)
+	f.approvalRepo.On("DeleteByEntityID", models.ApprovalEntityRoute, removing.ID).Return(nil)
+	f.routeRepo.On("Delete", removing.ID).Return(nil)
+	f.btpRepo.On("Delete", policy.ID).Return(nil)
+	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	f.k8s.On("DeleteTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	f.k8s.On("DeleteBackendTrafficPolicy", mock.Anything, f.stream.ProjectID, f.stream.Namespace, kubernetes.BackendTrafficPolicyName(removing.K8sRouteName)).Return(nil)
+
+	_, err := f.svc.Deploy(removing.ID, uuid.New())
+	require.NoError(t, err)
+	f.k8s.AssertCalled(t, "DeleteBackendTrafficPolicy", mock.Anything, f.stream.ProjectID, f.stream.Namespace, kubernetes.BackendTrafficPolicyName(removing.K8sRouteName))
+	f.btpRepo.AssertCalled(t, "Delete", policy.ID)
+}
+
+func TestRouteDeploy_L4_DeleteWithoutBTP_DeletesNone(t *testing.T) {
+	f := newL4Fixture(t)
+	removing := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusPendingDeploy)
+	f.expectDeploy(removing, models.ApprovalActionDelete)
+	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{*removing}, nil)
+	f.approvalRepo.On("DeleteByEntityID", models.ApprovalEntityRoute, removing.ID).Return(nil)
+	f.routeRepo.On("Delete", removing.ID).Return(nil)
+	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	f.k8s.On("DeleteTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	_, err := f.svc.Deploy(removing.ID, uuid.New())
+	require.NoError(t, err)
+	f.k8s.AssertNotCalled(t, "DeleteBackendTrafficPolicy", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }

@@ -387,10 +387,25 @@ func (d *routeDeploy) deployL4(ctx context.Context, route *models.Route, approva
 	case models.ApprovalActionUpdate:
 		err = d.applyL4Route(ctx, route, stream, false)
 	case models.ApprovalActionDelete:
+		// Remove the BackendTrafficPolicy before the route it targets, as the
+		// HTTP path does. A failure here must not strand the route's CRD.
+		if btpErr := d.removeBackendTrafficPolicy(ctx, route, stream.ProjectID, stream.Namespace); btpErr != nil {
+			log.Printf("Failed to delete BackendTrafficPolicy from Kubernetes: %v", btpErr)
+		}
 		err = d.deleteL4Route(ctx, route, stream)
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	// The BackendTrafficPolicy targets the TCPRoute/UDPRoute, so it is applied
+	// once that route exists. The plan builder has already restricted its
+	// fields to what the route's transport supports.
+	if approval.Action != models.ApprovalActionDelete {
+		if err := d.applyBackendTrafficPolicy(ctx, route, stream.ProjectID, stream.Namespace, stream.ID.String()); err != nil {
+			log.Printf("Failed to apply BackendTrafficPolicy in Kubernetes: %v", err)
+			return nil, fmt.Errorf("failed to apply BackendTrafficPolicy in Kubernetes: %w", err)
+		}
 	}
 
 	if approval.Action == models.ApprovalActionDelete {
