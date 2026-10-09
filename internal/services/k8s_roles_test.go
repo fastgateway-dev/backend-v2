@@ -232,6 +232,10 @@ func TestNoWiringNilGuardsRemain(t *testing.T) {
 		// silent `!= nil` skips.
 		"stream_port_collision.go:portStore":     "L4 port source wired via SetPortSources; unwired fails closed",
 		"domain_template_service.go:streamPorts": "L4 port source wired via SetPortSources; unwired fails closed",
+		// The L4 metrics stream reader is wired after construction
+		// (MetricsService.SetStreamRepo) so the positional constructor stays
+		// unchanged. The guard FAILS CLOSED (returns an error), never skips.
+		"metrics_service.go:streamRepo": "L4 stream reader wired via SetStreamRepo; unwired fails closed",
 	}
 
 	entries, err := os.ReadDir(".")
