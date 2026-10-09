@@ -45,15 +45,23 @@ func TestZZDebugTCPEnvoyConfig(t *testing.T) {
 		return
 	}
 
+	// Pod state + container ports, to confirm the admin port.
+	t.Logf("DEBUG pod describe ports:\n%s", runKubectl("-n", "envoy-gateway-system", "get", "pod", pod,
+		"-o", "jsonpath={range .spec.containers[*]}{.name}:{range .ports[*]}{.containerPort}/{.protocol} {end}{'\\n'}{end}"))
+	t.Logf("DEBUG pod phase: %s", runKubectl("-n", "envoy-gateway-system", "get", "pod", pod, "-o", "jsonpath={.status.phase}"))
+
 	// Bind the forward on 127.0.0.1 explicitly and dial 127.0.0.1 (not
 	// "localhost", which can resolve to ::1 while port-forward listens on IPv4).
 	pf := exec.Command("kubectl", "-n", "envoy-gateway-system", "port-forward",
 		"--address", "127.0.0.1", "pod/"+pod, "19000:19000")
+	var pfOut strings.Builder
+	pf.Stdout = &pfOut
+	pf.Stderr = &pfOut
 	if err := pf.Start(); err != nil {
 		t.Logf("DEBUG port-forward start err: %v", err)
 		return
 	}
-	defer func() { _ = pf.Process.Kill() }()
+	defer func() { _ = pf.Process.Kill(); t.Logf("DEBUG port-forward output:\n%s", pfOut.String()) }()
 
 	// Wait for the forward to accept connections (retry the first GET).
 	get := func(res string) (string, error) {
