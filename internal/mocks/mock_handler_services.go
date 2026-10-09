@@ -12459,6 +12459,80 @@ func (_c *MockRouteReader_GetEnvoyExtensionPolicy_Call) RunAndReturn(run func(ro
 	return _c
 }
 
+// GetForStream provides a mock function for the type MockRouteReader
+func (_mock *MockRouteReader) GetForStream(projectID uuid.UUID, streamID uuid.UUID, routeID uuid.UUID) (*models.Route, error) {
+	ret := _mock.Called(projectID, streamID, routeID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetForStream")
+	}
+
+	var r0 *models.Route
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, uuid.UUID) (*models.Route, error)); ok {
+		return returnFunc(projectID, streamID, routeID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, uuid.UUID) *models.Route); ok {
+		r0 = returnFunc(projectID, streamID, routeID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.Route)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID, uuid.UUID) error); ok {
+		r1 = returnFunc(projectID, streamID, routeID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteReader_GetForStream_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetForStream'
+type MockRouteReader_GetForStream_Call struct {
+	*mock.Call
+}
+
+// GetForStream is a helper method to define mock.On call
+//   - projectID uuid.UUID
+//   - streamID uuid.UUID
+//   - routeID uuid.UUID
+func (_e *MockRouteReader_Expecter) GetForStream(projectID any, streamID any, routeID any) *MockRouteReader_GetForStream_Call {
+	return &MockRouteReader_GetForStream_Call{Call: _e.mock.On("GetForStream", projectID, streamID, routeID)}
+}
+
+func (_c *MockRouteReader_GetForStream_Call) Run(run func(projectID uuid.UUID, streamID uuid.UUID, routeID uuid.UUID)) *MockRouteReader_GetForStream_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 uuid.UUID
+		if args[2] != nil {
+			arg2 = args[2].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteReader_GetForStream_Call) Return(route *models.Route, err error) *MockRouteReader_GetForStream_Call {
+	_c.Call.Return(route, err)
+	return _c
+}
+
+func (_c *MockRouteReader_GetForStream_Call) RunAndReturn(run func(projectID uuid.UUID, streamID uuid.UUID, routeID uuid.UUID) (*models.Route, error)) *MockRouteReader_GetForStream_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSecurityPolicy provides a mock function for the type MockRouteReader
 func (_mock *MockRouteReader) GetSecurityPolicy(routeID uuid.UUID) (*models.SecurityPolicy, error) {
 	ret := _mock.Called(routeID)
@@ -12779,6 +12853,104 @@ func (_c *MockRouteReader_ListByProjectID_Call) RunAndReturn(run func(projectID 
 	return _c
 }
 
+// ListByStreamID provides a mock function for the type MockRouteReader
+func (_mock *MockRouteReader) ListByStreamID(projectID uuid.UUID, streamID uuid.UUID, page int, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error) {
+	ret := _mock.Called(projectID, streamID, page, limit, teamID, status)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByStreamID")
+	}
+
+	var r0 []models.Route
+	var r1 int64
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, int, int, *uuid.UUID, string) ([]models.Route, int64, error)); ok {
+		return returnFunc(projectID, streamID, page, limit, teamID, status)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, int, int, *uuid.UUID, string) []models.Route); ok {
+		r0 = returnFunc(projectID, streamID, page, limit, teamID, status)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.Route)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID, int, int, *uuid.UUID, string) int64); ok {
+		r1 = returnFunc(projectID, streamID, page, limit, teamID, status)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+	if returnFunc, ok := ret.Get(2).(func(uuid.UUID, uuid.UUID, int, int, *uuid.UUID, string) error); ok {
+		r2 = returnFunc(projectID, streamID, page, limit, teamID, status)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+// MockRouteReader_ListByStreamID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByStreamID'
+type MockRouteReader_ListByStreamID_Call struct {
+	*mock.Call
+}
+
+// ListByStreamID is a helper method to define mock.On call
+//   - projectID uuid.UUID
+//   - streamID uuid.UUID
+//   - page int
+//   - limit int
+//   - teamID *uuid.UUID
+//   - status string
+func (_e *MockRouteReader_Expecter) ListByStreamID(projectID any, streamID any, page any, limit any, teamID any, status any) *MockRouteReader_ListByStreamID_Call {
+	return &MockRouteReader_ListByStreamID_Call{Call: _e.mock.On("ListByStreamID", projectID, streamID, page, limit, teamID, status)}
+}
+
+func (_c *MockRouteReader_ListByStreamID_Call) Run(run func(projectID uuid.UUID, streamID uuid.UUID, page int, limit int, teamID *uuid.UUID, status string)) *MockRouteReader_ListByStreamID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 int
+		if args[2] != nil {
+			arg2 = args[2].(int)
+		}
+		var arg3 int
+		if args[3] != nil {
+			arg3 = args[3].(int)
+		}
+		var arg4 *uuid.UUID
+		if args[4] != nil {
+			arg4 = args[4].(*uuid.UUID)
+		}
+		var arg5 string
+		if args[5] != nil {
+			arg5 = args[5].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+			arg4,
+			arg5,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteReader_ListByStreamID_Call) Return(routes []models.Route, n int64, err error) *MockRouteReader_ListByStreamID_Call {
+	_c.Call.Return(routes, n, err)
+	return _c
+}
+
+func (_c *MockRouteReader_ListByStreamID_Call) RunAndReturn(run func(projectID uuid.UUID, streamID uuid.UUID, page int, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error)) *MockRouteReader_ListByStreamID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockRouteWriter creates a new instance of MockRouteWriter. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockRouteWriter(t interface {
@@ -12876,6 +13048,86 @@ func (_c *MockRouteWriter_Create_Call) Return(route *models.Route, err error) *M
 }
 
 func (_c *MockRouteWriter_Create_Call) RunAndReturn(run func(domainID uuid.UUID, input *services.CreateRouteInput, createdBy uuid.UUID) (*models.Route, error)) *MockRouteWriter_Create_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateForStream provides a mock function for the type MockRouteWriter
+func (_mock *MockRouteWriter) CreateForStream(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput, createdBy uuid.UUID) (*models.Route, error) {
+	ret := _mock.Called(projectID, streamID, input, createdBy)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateForStream")
+	}
+
+	var r0 *models.Route
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput, uuid.UUID) (*models.Route, error)); ok {
+		return returnFunc(projectID, streamID, input, createdBy)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput, uuid.UUID) *models.Route); ok {
+		r0 = returnFunc(projectID, streamID, input, createdBy)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.Route)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput, uuid.UUID) error); ok {
+		r1 = returnFunc(projectID, streamID, input, createdBy)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteWriter_CreateForStream_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateForStream'
+type MockRouteWriter_CreateForStream_Call struct {
+	*mock.Call
+}
+
+// CreateForStream is a helper method to define mock.On call
+//   - projectID uuid.UUID
+//   - streamID uuid.UUID
+//   - input *services.CreateRouteInput
+//   - createdBy uuid.UUID
+func (_e *MockRouteWriter_Expecter) CreateForStream(projectID any, streamID any, input any, createdBy any) *MockRouteWriter_CreateForStream_Call {
+	return &MockRouteWriter_CreateForStream_Call{Call: _e.mock.On("CreateForStream", projectID, streamID, input, createdBy)}
+}
+
+func (_c *MockRouteWriter_CreateForStream_Call) Run(run func(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput, createdBy uuid.UUID)) *MockRouteWriter_CreateForStream_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 *services.CreateRouteInput
+		if args[2] != nil {
+			arg2 = args[2].(*services.CreateRouteInput)
+		}
+		var arg3 uuid.UUID
+		if args[3] != nil {
+			arg3 = args[3].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteWriter_CreateForStream_Call) Return(route *models.Route, err error) *MockRouteWriter_CreateForStream_Call {
+	_c.Call.Return(route, err)
+	return _c
+}
+
+func (_c *MockRouteWriter_CreateForStream_Call) RunAndReturn(run func(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput, createdBy uuid.UUID) (*models.Route, error)) *MockRouteWriter_CreateForStream_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -13612,6 +13864,86 @@ func (_c *MockRouteService_Create_Call) RunAndReturn(run func(domainID uuid.UUID
 	return _c
 }
 
+// CreateForStream provides a mock function for the type MockRouteService
+func (_mock *MockRouteService) CreateForStream(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput, createdBy uuid.UUID) (*models.Route, error) {
+	ret := _mock.Called(projectID, streamID, input, createdBy)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateForStream")
+	}
+
+	var r0 *models.Route
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput, uuid.UUID) (*models.Route, error)); ok {
+		return returnFunc(projectID, streamID, input, createdBy)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput, uuid.UUID) *models.Route); ok {
+		r0 = returnFunc(projectID, streamID, input, createdBy)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.Route)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput, uuid.UUID) error); ok {
+		r1 = returnFunc(projectID, streamID, input, createdBy)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteService_CreateForStream_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateForStream'
+type MockRouteService_CreateForStream_Call struct {
+	*mock.Call
+}
+
+// CreateForStream is a helper method to define mock.On call
+//   - projectID uuid.UUID
+//   - streamID uuid.UUID
+//   - input *services.CreateRouteInput
+//   - createdBy uuid.UUID
+func (_e *MockRouteService_Expecter) CreateForStream(projectID any, streamID any, input any, createdBy any) *MockRouteService_CreateForStream_Call {
+	return &MockRouteService_CreateForStream_Call{Call: _e.mock.On("CreateForStream", projectID, streamID, input, createdBy)}
+}
+
+func (_c *MockRouteService_CreateForStream_Call) Run(run func(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput, createdBy uuid.UUID)) *MockRouteService_CreateForStream_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 *services.CreateRouteInput
+		if args[2] != nil {
+			arg2 = args[2].(*services.CreateRouteInput)
+		}
+		var arg3 uuid.UUID
+		if args[3] != nil {
+			arg3 = args[3].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteService_CreateForStream_Call) Return(route *models.Route, err error) *MockRouteService_CreateForStream_Call {
+	_c.Call.Return(route, err)
+	return _c
+}
+
+func (_c *MockRouteService_CreateForStream_Call) RunAndReturn(run func(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput, createdBy uuid.UUID) (*models.Route, error)) *MockRouteService_CreateForStream_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Delete provides a mock function for the type MockRouteService
 func (_mock *MockRouteService) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Route, error) {
 	ret := _mock.Called(id, submittedBy)
@@ -14246,6 +14578,80 @@ func (_c *MockRouteService_GetEnvoyExtensionPolicy_Call) RunAndReturn(run func(r
 	return _c
 }
 
+// GetForStream provides a mock function for the type MockRouteService
+func (_mock *MockRouteService) GetForStream(projectID uuid.UUID, streamID uuid.UUID, routeID uuid.UUID) (*models.Route, error) {
+	ret := _mock.Called(projectID, streamID, routeID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetForStream")
+	}
+
+	var r0 *models.Route
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, uuid.UUID) (*models.Route, error)); ok {
+		return returnFunc(projectID, streamID, routeID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, uuid.UUID) *models.Route); ok {
+		r0 = returnFunc(projectID, streamID, routeID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.Route)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID, uuid.UUID) error); ok {
+		r1 = returnFunc(projectID, streamID, routeID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteService_GetForStream_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetForStream'
+type MockRouteService_GetForStream_Call struct {
+	*mock.Call
+}
+
+// GetForStream is a helper method to define mock.On call
+//   - projectID uuid.UUID
+//   - streamID uuid.UUID
+//   - routeID uuid.UUID
+func (_e *MockRouteService_Expecter) GetForStream(projectID any, streamID any, routeID any) *MockRouteService_GetForStream_Call {
+	return &MockRouteService_GetForStream_Call{Call: _e.mock.On("GetForStream", projectID, streamID, routeID)}
+}
+
+func (_c *MockRouteService_GetForStream_Call) Run(run func(projectID uuid.UUID, streamID uuid.UUID, routeID uuid.UUID)) *MockRouteService_GetForStream_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 uuid.UUID
+		if args[2] != nil {
+			arg2 = args[2].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteService_GetForStream_Call) Return(route *models.Route, err error) *MockRouteService_GetForStream_Call {
+	_c.Call.Return(route, err)
+	return _c
+}
+
+func (_c *MockRouteService_GetForStream_Call) RunAndReturn(run func(projectID uuid.UUID, streamID uuid.UUID, routeID uuid.UUID) (*models.Route, error)) *MockRouteService_GetForStream_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSecurityPolicy provides a mock function for the type MockRouteService
 func (_mock *MockRouteService) GetSecurityPolicy(routeID uuid.UUID) (*models.SecurityPolicy, error) {
 	ret := _mock.Called(routeID)
@@ -14562,6 +14968,104 @@ func (_c *MockRouteService_ListByProjectID_Call) Return(routes []models.Route, n
 }
 
 func (_c *MockRouteService_ListByProjectID_Call) RunAndReturn(run func(projectID uuid.UUID, page int, limit int, filters services.RouteListFilters) ([]models.Route, int64, error)) *MockRouteService_ListByProjectID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByStreamID provides a mock function for the type MockRouteService
+func (_mock *MockRouteService) ListByStreamID(projectID uuid.UUID, streamID uuid.UUID, page int, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error) {
+	ret := _mock.Called(projectID, streamID, page, limit, teamID, status)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByStreamID")
+	}
+
+	var r0 []models.Route
+	var r1 int64
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, int, int, *uuid.UUID, string) ([]models.Route, int64, error)); ok {
+		return returnFunc(projectID, streamID, page, limit, teamID, status)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, int, int, *uuid.UUID, string) []models.Route); ok {
+		r0 = returnFunc(projectID, streamID, page, limit, teamID, status)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.Route)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID, int, int, *uuid.UUID, string) int64); ok {
+		r1 = returnFunc(projectID, streamID, page, limit, teamID, status)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+	if returnFunc, ok := ret.Get(2).(func(uuid.UUID, uuid.UUID, int, int, *uuid.UUID, string) error); ok {
+		r2 = returnFunc(projectID, streamID, page, limit, teamID, status)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+// MockRouteService_ListByStreamID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByStreamID'
+type MockRouteService_ListByStreamID_Call struct {
+	*mock.Call
+}
+
+// ListByStreamID is a helper method to define mock.On call
+//   - projectID uuid.UUID
+//   - streamID uuid.UUID
+//   - page int
+//   - limit int
+//   - teamID *uuid.UUID
+//   - status string
+func (_e *MockRouteService_Expecter) ListByStreamID(projectID any, streamID any, page any, limit any, teamID any, status any) *MockRouteService_ListByStreamID_Call {
+	return &MockRouteService_ListByStreamID_Call{Call: _e.mock.On("ListByStreamID", projectID, streamID, page, limit, teamID, status)}
+}
+
+func (_c *MockRouteService_ListByStreamID_Call) Run(run func(projectID uuid.UUID, streamID uuid.UUID, page int, limit int, teamID *uuid.UUID, status string)) *MockRouteService_ListByStreamID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 int
+		if args[2] != nil {
+			arg2 = args[2].(int)
+		}
+		var arg3 int
+		if args[3] != nil {
+			arg3 = args[3].(int)
+		}
+		var arg4 *uuid.UUID
+		if args[4] != nil {
+			arg4 = args[4].(*uuid.UUID)
+		}
+		var arg5 string
+		if args[5] != nil {
+			arg5 = args[5].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+			arg4,
+			arg5,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteService_ListByStreamID_Call) Return(routes []models.Route, n int64, err error) *MockRouteService_ListByStreamID_Call {
+	_c.Call.Return(routes, n, err)
+	return _c
+}
+
+func (_c *MockRouteService_ListByStreamID_Call) RunAndReturn(run func(projectID uuid.UUID, streamID uuid.UUID, page int, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error)) *MockRouteService_ListByStreamID_Call {
 	_c.Call.Return(run)
 	return _c
 }

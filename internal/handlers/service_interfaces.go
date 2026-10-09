@@ -299,6 +299,8 @@ type RouteReader interface {
 	GetWafPolicy(routeID uuid.UUID) (*models.WafPolicy, error)
 	ListByDomainID(domainID uuid.UUID, page, limit int, teamID *uuid.UUID, status string, search string, searchField string, labels map[string]string) ([]models.Route, int64, error)
 	ListByProjectID(projectID uuid.UUID, page, limit int, filters services.RouteListFilters) ([]models.Route, int64, error)
+	ListByStreamID(projectID, streamID uuid.UUID, page, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error)
+	GetForStream(projectID, streamID, routeID uuid.UUID) (*models.Route, error)
 	GetEffectiveIPAllowlist(routeID uuid.UUID) ([]services.EffectiveIPEntry, error)
 	CheckMatcherConflicts(domainID uuid.UUID, match models.RouteMatch, excludeRouteID *uuid.UUID) ([]services.ConflictResult, error)
 }
@@ -308,6 +310,7 @@ type RouteReader interface {
 // Deploy.
 type RouteWriter interface {
 	Create(domainID uuid.UUID, input *services.CreateRouteInput, createdBy uuid.UUID) (*models.Route, error)
+	CreateForStream(projectID, streamID uuid.UUID, input *services.CreateRouteInput, createdBy uuid.UUID) (*models.Route, error)
 	Update(id uuid.UUID, input *services.UpdateRouteInput, submittedBy uuid.UUID) (*models.Route, error)
 	Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Route, error)
 	Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route, error)

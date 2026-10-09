@@ -255,6 +255,19 @@ func (m *metricsTestRouteRepo) ExistsByName(domainID uuid.UUID, name string) (bo
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *metricsTestRouteRepo) ExistsByStreamAndName(streamID uuid.UUID, name string) (bool, error) {
+	args := m.Called(streamID, name)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *metricsTestRouteRepo) ListByStreamID(streamID uuid.UUID, page, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error) {
+	args := m.Called(streamID, page, limit, teamID, status)
+	if args.Get(0) == nil {
+		return nil, 0, args.Error(2)
+	}
+	return args.Get(0).([]models.Route), args.Get(1).(int64), args.Error(2)
+}
+
 func (m *metricsTestRouteRepo) GetActiveRoutesByDomainID(domainID uuid.UUID) ([]models.Route, error) {
 	args := m.Called(domainID)
 	return args.Get(0).([]models.Route), args.Error(1)

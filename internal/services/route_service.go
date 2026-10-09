@@ -273,6 +273,7 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 		envoyExtensionPolicyRepo: deps.EnvoyExtensionPolicyRepo,
 		wafPolicyRepo:            deps.WafPolicyRepo,
 		k8sRefGrants:             deps.K8sRefGrants,
+		streams:                  deps.Streams,
 		approvals:                deps.Approvals,
 		state:                    svc.state,
 		assembler:                svc.assembler,
@@ -392,6 +393,26 @@ func (s *RouteService) PreviewDelete(routeID uuid.UUID) (*PreviewDeleteResult, e
 // Create creates a new route (submits for approval)
 func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID) (*models.Route, error) {
 	return s.write.Create(domainID, input, createdBy)
+}
+
+// CreateForStream creates an L4 (tcp/udp) route under a Stream (submits for
+// approval). streamID must belong to projectID; a stream of another project is
+// reported as ErrStreamNotFound.
+func (s *RouteService) CreateForStream(projectID, streamID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID) (*models.Route, error) {
+	return s.write.CreateForStream(projectID, streamID, input, createdBy)
+}
+
+// ListByStreamID lists the L4 routes of a stream
+// (streamID must belong to projectID, else ErrStreamNotFound).
+func (s *RouteService) ListByStreamID(projectID, streamID uuid.UUID, page, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error) {
+	return s.query.ListByStreamID(projectID, streamID, page, limit, teamID, status)
+}
+
+// GetForStream gets an L4 route by ID, verifying it belongs to streamID and the
+// stream to projectID: ErrStreamNotFound / ErrRouteNotFound otherwise, so IDs
+// cannot be probed across streams or projects.
+func (s *RouteService) GetForStream(projectID, streamID, routeID uuid.UUID) (*models.Route, error) {
+	return s.query.GetForStream(projectID, streamID, routeID)
 }
 
 // SetL4PortChecker wires the L4 listener-port collision check used by route

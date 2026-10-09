@@ -231,9 +231,9 @@ func (w *routeWrite) persistUpdatePolicies(route *models.Route, projectID uuid.U
 	return nil
 }
 
-func (w *routeWrite) submitCreateApproval(route *models.Route, domain *models.Domain, input *CreateRouteInput, createdBy uuid.UUID, snapshotSP *models.SecurityPolicyConfig, snapshotBTP *models.BackendTrafficPolicyConfig, snapshotEEP *models.EnvoyExtensionPolicyConfig, snapshotWaf *models.WafPolicyConfig) (*models.Approval, bool, error) {
+func (w *routeWrite) submitCreateApproval(route *models.Route, projectID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID, snapshotSP *models.SecurityPolicyConfig, snapshotBTP *models.BackendTrafficPolicyConfig, snapshotEEP *models.EnvoyExtensionPolicyConfig, snapshotWaf *models.WafPolicyConfig) (*models.Approval, bool, error) {
 	// Check if approvals are disabled for this project
-	project, err := w.projectRepo.GetByID(domain.ProjectID)
+	project, err := w.projectRepo.GetByID(projectID)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to check project approval settings: %w", err)
 	}
@@ -254,7 +254,7 @@ func (w *routeWrite) submitCreateApproval(route *models.Route, domain *models.Do
 	// Submit plans the stages and persists the approval; the service no
 	// longer builds either.
 	approval, err := w.approvals.Submit(approvalpkg.Spec{
-		ProjectID:         domain.ProjectID,
+		ProjectID:         projectID,
 		EntityType:        models.ApprovalEntityRoute,
 		EntityID:          route.ID,
 		Action:            models.ApprovalActionCreate,
@@ -270,9 +270,9 @@ func (w *routeWrite) submitCreateApproval(route *models.Route, domain *models.Do
 	return approval, false, nil
 }
 
-func (w *routeWrite) submitUpdateApproval(route *models.Route, domain *models.Domain, input *UpdateRouteInput, submittedBy uuid.UUID, snaps updateApprovalSnapshots) (*models.Approval, bool, error) {
+func (w *routeWrite) submitUpdateApproval(route *models.Route, projectID uuid.UUID, input *UpdateRouteInput, submittedBy uuid.UUID, snaps updateApprovalSnapshots) (*models.Approval, bool, error) {
 	// Check if approvals are disabled for this project
-	project, err := w.projectRepo.GetByID(domain.ProjectID)
+	project, err := w.projectRepo.GetByID(projectID)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to check project approval settings: %w", err)
 	}
@@ -293,7 +293,7 @@ func (w *routeWrite) submitUpdateApproval(route *models.Route, domain *models.Do
 	prevConfigSnapshot := marshalRouteSnapshot(&snaps.PreviousConfig, snaps.PreviousSecurityPolicy, snaps.PreviousBackendTrafficPolicy, snaps.PreviousEnvoyExtensionPolicy, snaps.PreviousWafPolicy)
 
 	approval, err := w.approvals.Submit(approvalpkg.Spec{
-		ProjectID:         domain.ProjectID,
+		ProjectID:         projectID,
 		EntityType:        models.ApprovalEntityRoute,
 		EntityID:          route.ID,
 		Action:            models.ApprovalActionUpdate,
@@ -310,9 +310,9 @@ func (w *routeWrite) submitUpdateApproval(route *models.Route, domain *models.Do
 	return approval, false, nil
 }
 
-func (w *routeWrite) submitDeleteApproval(route *models.Route, domain *models.Domain, submittedBy uuid.UUID, deletePrevSP *models.SecurityPolicyConfig, deletePrevBTP *models.BackendTrafficPolicyConfig, deletePrevEEP *models.EnvoyExtensionPolicyConfig, deletePrevWaf *models.WafPolicyConfig) (*models.Approval, bool, error) {
+func (w *routeWrite) submitDeleteApproval(route *models.Route, projectID uuid.UUID, submittedBy uuid.UUID, deletePrevSP *models.SecurityPolicyConfig, deletePrevBTP *models.BackendTrafficPolicyConfig, deletePrevEEP *models.EnvoyExtensionPolicyConfig, deletePrevWaf *models.WafPolicyConfig) (*models.Approval, bool, error) {
 	// Check if approvals are disabled for this project
-	project, err := w.projectRepo.GetByID(domain.ProjectID)
+	project, err := w.projectRepo.GetByID(projectID)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to check project approval settings: %w", err)
 	}
@@ -330,7 +330,7 @@ func (w *routeWrite) submitDeleteApproval(route *models.Route, domain *models.Do
 	configSnapshot := marshalRouteSnapshot(&route.Config, deletePrevSP, deletePrevBTP, deletePrevEEP, deletePrevWaf)
 
 	approval, err := w.approvals.Submit(approvalpkg.Spec{
-		ProjectID:      domain.ProjectID,
+		ProjectID:      projectID,
 		EntityType:     models.ApprovalEntityRoute,
 		EntityID:       route.ID,
 		Action:         models.ApprovalActionDelete,

@@ -270,6 +270,8 @@ type RouteRepositoryInterface interface {
 	Update(route *models.Route) error
 	Delete(id uuid.UUID) error
 	ExistsByName(domainID uuid.UUID, name string) (bool, error)
+	ExistsByStreamAndName(streamID uuid.UUID, name string) (bool, error)
+	ListByStreamID(streamID uuid.UUID, page, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error)
 	GetActiveRoutesByDomainID(domainID uuid.UUID) ([]models.Route, error)
 	CountByDomainID(domainID uuid.UUID) (int, error)
 	CountByStreamID(streamID uuid.UUID) (int64, error)

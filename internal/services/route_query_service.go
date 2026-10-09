@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"log"
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -146,6 +147,41 @@ func (q *routeQuery) GetEnvoyExtensionPolicy(routeID uuid.UUID) (*models.EnvoyEx
 // GetWafPolicy gets the WAF policy for a route
 func (q *routeQuery) GetWafPolicy(routeID uuid.UUID) (*models.WafPolicy, error) {
 	return q.wafPolicyRepo.GetByRouteID(routeID)
+}
+
+// ErrRouteNotFound is returned when a route does not exist, or is not owned by
+// the stream it was looked up under.
+var ErrRouteNotFound = errors.New("route not found")
+
+// streamInProject loads a stream and requires it to belong to projectID; a
+// missing stream and one in another project are both ErrStreamNotFound.
+func (q *routeQuery) streamInProject(projectID, streamID uuid.UUID) (*models.Stream, error) {
+	stream, err := q.streams.GetByID(streamID)
+	if err != nil || stream == nil || stream.ProjectID != projectID {
+		return nil, ErrStreamNotFound
+	}
+	return stream, nil
+}
+
+// ListByStreamID lists the L4 routes of a stream
+func (q *routeQuery) ListByStreamID(projectID, streamID uuid.UUID, page, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error) {
+	if _, err := q.streamInProject(projectID, streamID); err != nil {
+		return nil, 0, err
+	}
+	return q.routeRepo.ListByStreamID(streamID, page, limit, teamID, status)
+}
+
+// GetForStream gets a route by ID, requiring it to be an L4 route of streamID
+// (and the stream of projectID).
+func (q *routeQuery) GetForStream(projectID, streamID, routeID uuid.UUID) (*models.Route, error) {
+	if _, err := q.streamInProject(projectID, streamID); err != nil {
+		return nil, err
+	}
+	route, err := q.GetByID(routeID)
+	if err != nil || route == nil || route.StreamID == nil || *route.StreamID != streamID {
+		return nil, ErrRouteNotFound
+	}
+	return route, nil
 }
 
 // ListByDomainID lists routes for a domain

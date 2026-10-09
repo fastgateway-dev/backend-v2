@@ -930,6 +930,20 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					streams.GET("/:streamId", deps.StreamHandler.Get)
 					streams.PATCH("/:streamId", deps.StreamHandler.Update)  // Permission check in handler
 					streams.DELETE("/:streamId", deps.StreamHandler.Delete) // Permission check in handler
+
+					// L4 routes of a stream: the stream-scoped counterpart of the
+					// domain routes group below. Registered unconditionally for the
+					// same zero-value-deps parity reason as the group itself.
+					streamRoutes := streams.Group("/:streamId/routes")
+					{
+						streamRoutes.GET("", deps.RouteHandler.ListByStream)
+						streamRoutes.POST("", deps.RouteHandler.CreateForStream) // Permission check in handler
+						streamRoutes.GET("/:routeId", deps.RouteHandler.GetForStream)
+						streamRoutes.PUT("/:routeId", deps.RouteHandler.UpdateForStream)    // Permission check in handler
+						streamRoutes.DELETE("/:routeId", deps.RouteHandler.DeleteForStream) // Permission check in handler
+						streamRoutes.GET("/:routeId/yaml", deps.RouteHandler.GetYAMLForStream)
+						streamRoutes.POST("/:routeId/deploy", deps.RouteHandler.DeployForStream) // Deploy to K8s - permission check in handler
+					}
 				}
 
 				// Domains (view: any team member, manage: Owner/Project Admin)

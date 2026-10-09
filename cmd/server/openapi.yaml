@@ -2341,6 +2341,236 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/routes:
+    get:
+      tags:
+        - Streams
+      summary: List L4 routes of a stream
+      operationId: listStreamRoutes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: teamId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter by team
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - pending_create
+              - pending_update
+              - pending_delete
+              - approved
+              - pending_deploy
+              - active
+              - rejected
+          description: Filter by a single status value
+      responses:
+        '200':
+          description: List of L4 routes, ordered by name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteList'
+        '404':
+          description: Stream not found (including streams of other projects)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - Streams
+      summary: Create L4 route (submits for approval)
+      description: |
+        Creates a TCP or UDP route on the stream's Gateway and submits it through
+        the same approval flow as HTTP routes. Requires Owner, Project Admin or
+        Editor.
+      operationId: createStreamRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStreamRouteRequest'
+      responses:
+        '201':
+          description: Route created and pending approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteResponse'
+        '400':
+          description: Invalid route (non-L4 protocol, L7 field, external backend, missing listener port or backend, reserved or out-of-range port, duplicate name)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Stream not found (including streams of other projects)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The listener port is already used by another route on the stream (same protocol), or by a merged Gateway Template's HTTP/HTTPS port
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}:
+    get:
+      tags:
+        - Streams
+      summary: Get L4 route by ID
+      operationId: getStreamRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+      responses:
+        '200':
+          description: Route details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteWithPolicies'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Streams
+      summary: Update L4 route (submits for approval)
+      operationId: updateStreamRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRouteRequest'
+      responses:
+        '200':
+          description: Route update pending approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteResponse'
+        '400':
+          description: Invalid route configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The new listener port is already used by another route on the stream
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - Streams
+      summary: Delete L4 route (submits for approval)
+      operationId: deleteStreamRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+      responses:
+        '200':
+          description: Route deletion pending approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/yaml:
+    get:
+      tags:
+        - Streams
+      summary: Get L4 route as Kubernetes YAML (TCPRoute or UDPRoute)
+      operationId: getStreamRouteYaml
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+      responses:
+        '200':
+          description: Route as YAML
+          content:
+            text/yaml:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/deploy:
+    post:
+      tags:
+        - Streams
+      summary: Deploy approved L4 route to Kubernetes
+      description: |
+        Applies the stream's Gateway (recomputed from every live route's
+        listener) and then the route's TCPRoute/UDPRoute.
+      operationId: deployStreamRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+      responses:
+        '200':
+          description: Route deployed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+        '400':
+          description: Route not in deployable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /projects/{projectId}/domains:
     get:
       tags:
@@ -7567,6 +7797,11 @@ components:
         domainId:
           type: string
           format: uuid
+          description: Owning domain of an HTTP/gRPC route; null for an L4 (tcp/udp) route, which has a streamId instead
+        streamId:
+          type: string
+          format: uuid
+          description: Owning stream of an L4 (tcp/udp) route; absent for an HTTP/gRPC route, which has a domainId instead
         teamId:
           type: string
           format: uuid
@@ -7581,6 +7816,8 @@ components:
           enum:
             - http
             - grpc
+            - tcp
+            - udp
         status:
           type: string
           enum:
@@ -7635,6 +7872,14 @@ components:
             - redirect
             - directResponse
           default: backend
+        listenerPort:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: |
+            Gateway listener port of an L4 (tcp/udp) route (required for L4; unused
+            by HTTP/gRPC). Unique per stream and transport; reserved ports are
+            rejected with 400 and a port already in use with 409.
         matches:
           type: array
           items:
@@ -7977,6 +8222,40 @@ components:
           $ref: '#/components/schemas/EnvoyExtensionPolicyInput'
         wafPolicy:
           $ref: '#/components/schemas/WafPolicyConfig'
+        changeDescription:
+          type: string
+          description: Optional description of the changes for approval
+        aiReview:
+          $ref: '#/components/schemas/AIReviewResult'
+        labels:
+          $ref: '#/components/schemas/Labels'
+    CreateStreamRouteRequest:
+      type: object
+      description: |
+        Create an L4 (tcp/udp) route under a stream. The owning stream is taken
+        from the URL path. L4 routes carry no L7 fields (matches, redirects, header
+        modifiers, ...) and only in-cluster Kubernetes backends; the config needs a
+        listenerPort and at least one backend.
+      required:
+        - name
+        - teamId
+        - protocol
+        - config
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        protocol:
+          type: string
+          enum:
+            - tcp
+            - udp
+        teamId:
+          type: string
+          format: uuid
+        config:
+          $ref: '#/components/schemas/RouteConfig'
         changeDescription:
           type: string
           description: Optional description of the changes for approval
@@ -11654,6 +11933,41 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/NamespaceCapability'
+    ApprovalStageReview:
+      type: object
+      description: An individual reviewer decision on a multi-approver stage
+      properties:
+        id:
+          type: string
+          format: uuid
+        stageId:
+          type: string
+          format: uuid
+        reviewerId:
+          type: string
+          format: uuid
+        reviewer:
+          $ref: '#/components/schemas/User'
+        decision:
+          type: string
+          enum:
+            - approved
+            - rejected
+        createdAt:
+          type: string
+          format: date-time
+    RouteResponse:
+      type: object
+      description: Route returned by createRoute/updateRoute, with any non-fatal warnings generated while assembling the route.
+      allOf:
+        - $ref: '#/components/schemas/Route'
+        - type: object
+          properties:
+            warnings:
+              type: array
+              items:
+                type: string
+              description: Non-fatal warnings (e.g. backend TLS configuration, direct-response percentage) generated while creating/updating the route
     ExtProcBackendRef:
       type: object
       required:
@@ -11716,6 +12030,62 @@ components:
           $ref: '#/components/schemas/WasmExtensionConfig'
         extProc:
           $ref: '#/components/schemas/ExtProcExtensionConfig'
+    EnvoyExtensionPolicy:
+      type: object
+      description: Envoy Gateway EnvoyExtensionPolicy resource (Lua, Wasm, and/or ext_proc extensions configured on a route)
+      properties:
+        id:
+          type: string
+          format: uuid
+        routeId:
+          type: string
+          format: uuid
+        domainId:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        config:
+          $ref: '#/components/schemas/EnvoyExtensionPolicyConfig'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RouteWithPolicies:
+      type: object
+      description: |
+        Route detail response (GET /routes/{routeId} only) - the plain Route plus
+        its associated policies, each only present when configured for the route.
+      allOf:
+        - $ref: '#/components/schemas/Route'
+        - type: object
+          properties:
+            securityPolicy:
+              $ref: '#/components/schemas/SecurityPolicy'
+            backendTrafficPolicy:
+              $ref: '#/components/schemas/BackendTrafficPolicy'
+            extensionPolicy:
+              $ref: '#/components/schemas/EnvoyExtensionPolicy'
+            wafPolicy:
+              $ref: '#/components/schemas/WafPolicy'
+    AuthorizationHeaderMatch:
+      type: object
+      required:
+        - name
+        - values
+      description: Required header match rule for general-mode authorization
+      properties:
+        name:
+          type: string
+          description: Header name to match
+        values:
+          type: array
+          items:
+            type: string
+          description: Allowed values for the header
     DefaultBackend:
       type: object
       required:
@@ -11866,97 +12236,6 @@ components:
             - spec_too_large
         message:
           type: string
-    ApprovalStageReview:
-      type: object
-      description: An individual reviewer decision on a multi-approver stage
-      properties:
-        id:
-          type: string
-          format: uuid
-        stageId:
-          type: string
-          format: uuid
-        reviewerId:
-          type: string
-          format: uuid
-        reviewer:
-          $ref: '#/components/schemas/User'
-        decision:
-          type: string
-          enum:
-            - approved
-            - rejected
-        createdAt:
-          type: string
-          format: date-time
-    AuthorizationHeaderMatch:
-      type: object
-      required:
-        - name
-        - values
-      description: Required header match rule for general-mode authorization
-      properties:
-        name:
-          type: string
-          description: Header name to match
-        values:
-          type: array
-          items:
-            type: string
-          description: Allowed values for the header
-    RouteResponse:
-      type: object
-      description: Route returned by createRoute/updateRoute, with any non-fatal warnings generated while assembling the route.
-      allOf:
-        - $ref: '#/components/schemas/Route'
-        - type: object
-          properties:
-            warnings:
-              type: array
-              items:
-                type: string
-              description: Non-fatal warnings (e.g. backend TLS configuration, direct-response percentage) generated while creating/updating the route
-    EnvoyExtensionPolicy:
-      type: object
-      description: Envoy Gateway EnvoyExtensionPolicy resource (Lua, Wasm, and/or ext_proc extensions configured on a route)
-      properties:
-        id:
-          type: string
-          format: uuid
-        routeId:
-          type: string
-          format: uuid
-        domainId:
-          type: string
-          format: uuid
-        projectId:
-          type: string
-          format: uuid
-        config:
-          $ref: '#/components/schemas/EnvoyExtensionPolicyConfig'
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-    RouteWithPolicies:
-      type: object
-      description: |
-        Route detail response (GET /routes/{routeId} only) - the plain Route plus
-        its associated policies, each only present when configured for the route.
-      allOf:
-        - $ref: '#/components/schemas/Route'
-        - type: object
-          properties:
-            securityPolicy:
-              $ref: '#/components/schemas/SecurityPolicy'
-            backendTrafficPolicy:
-              $ref: '#/components/schemas/BackendTrafficPolicy'
-            extensionPolicy:
-              $ref: '#/components/schemas/EnvoyExtensionPolicy'
-            wafPolicy:
-              $ref: '#/components/schemas/WafPolicy'
     APIKeyClientResourceYAMLs:
       type: object
       required:

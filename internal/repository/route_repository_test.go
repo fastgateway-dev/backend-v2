@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"testing"
 
@@ -366,4 +367,79 @@ func TestRouteRepository_L4UniqueIndex_RejectedRouteDoesNotHoldPort(t *testing.T
 	// A rejected route moving back to a live status re-claims the port.
 	rejected.Status = models.RouteStatusPendingUpdate
 	assert.Error(t, routes.Update(rejected), "un-rejecting onto a held port must violate the index")
+}
+
+func TestRouteRepository_ExistsByStreamAndName_And_ListByStreamID(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, teamID, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	streams := repository.NewStreamRepository(db)
+	routes := repository.NewRouteRepository(db)
+
+	mk := func(name string) *models.Stream {
+		s := &models.Stream{ProjectID: projectID, Name: name, Namespace: "fastgateway-system",
+			GatewayTemplateID: tmplID, K8sGatewayName: "str-" + name, K8sGatewayClass: "public-lb"}
+		require.NoError(t, streams.Create(s))
+		return s
+	}
+	s1, s2 := mk("ls-one"), mk("ls-two")
+	add := func(s *models.Stream, name string, port int, status models.RouteStatus) {
+		require.NoError(t, routes.Create(&models.Route{StreamID: &s.ID, TeamID: teamID, Name: name,
+			Protocol: models.RouteProtocolTCP, Status: status, CreatedBy: userID,
+			Config: models.RouteConfig{ListenerPort: port}}))
+	}
+	add(s1, "pg", 5432, models.RouteStatusActive)
+	add(s1, "redis", 6379, models.RouteStatusPendingCreate)
+	add(s2, "pg", 5432, models.RouteStatusActive)
+
+	ok, err := routes.ExistsByStreamAndName(s1.ID, "pg")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	ok, err = routes.ExistsByStreamAndName(s1.ID, "kafka")
+	require.NoError(t, err)
+	assert.False(t, ok)
+
+	got, total, err := routes.ListByStreamID(s1.ID, 1, 20, nil, "")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	require.Len(t, got, 2)
+	assert.Equal(t, "pg", got[0].Name, "ordered by name; other streams excluded")
+	assert.Equal(t, "redis", got[1].Name)
+
+	got, total, err = routes.ListByStreamID(s1.ID, 1, 20, nil, string(models.RouteStatusActive))
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, got, 1)
+
+	got, total, err = routes.ListByStreamID(s1.ID, 2, 1, nil, "")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total, "total counts all pages")
+	require.Len(t, got, 1)
+	assert.Equal(t, "redis", got[0].Name)
+}
+
+// The concurrent-create race loses at idx_route_stream_proto_port with a
+// Postgres unique violation; the service maps it by SQLSTATE 23505, so the
+// real driver error must expose it.
+func TestRouteRepository_L4UniqueViolation_ExposesSQLState23505(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, teamID, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	streams := repository.NewStreamRepository(db)
+	routes := repository.NewRouteRepository(db)
+
+	s := &models.Stream{ProjectID: projectID, Name: "race-gw", Namespace: "fastgateway-system",
+		GatewayTemplateID: tmplID, K8sGatewayName: "str-race-gw", K8sGatewayClass: "public-lb"}
+	require.NoError(t, streams.Create(s))
+	newL4 := func(name string) *models.Route {
+		return &models.Route{StreamID: &s.ID, TeamID: teamID, Name: name, Protocol: models.RouteProtocolTCP,
+			Status: models.RouteStatusPendingCreate, CreatedBy: userID, Config: models.RouteConfig{ListenerPort: 5432}}
+	}
+	require.NoError(t, routes.Create(newL4("race-a")))
+
+	err := routes.Create(newL4("race-b"))
+	require.Error(t, err)
+	var sqlErr interface{ SQLState() string }
+	require.True(t, errors.As(err, &sqlErr), "driver error must expose SQLState(): %T", err)
+	assert.Equal(t, "23505", sqlErr.SQLState())
 }

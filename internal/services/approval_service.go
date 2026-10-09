@@ -218,6 +218,9 @@ type ApprovalDiffResult struct {
 	AIReview                         json.RawMessage `json:"aiReview,omitempty"`
 }
 
+// ErrDiffNotAvailableForL4 is returned by GetDiff for an L4 (tcp/udp) route.
+var ErrDiffNotAvailableForL4 = errors.New("YAML diff is not available for L4 routes")
+
 // GetDiff generates YAML diff for an approval request
 func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 	approval, err := s.approvalRepo.GetByID(id)
@@ -233,6 +236,12 @@ func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 	route, err := s.routeRepo.GetByID(approval.EntityID)
 	if err != nil {
 		return nil, err
+	}
+
+	// An L4 route belongs to a Stream and has no Domain; the diff is built
+	// from Domain-scoped HTTPRoute/policy YAML, which does not apply to it.
+	if route.IsL4() || route.DomainID == nil {
+		return nil, ErrDiffNotAvailableForL4
 	}
 
 	domain, err := s.domainRepo.GetByID(*route.DomainID)

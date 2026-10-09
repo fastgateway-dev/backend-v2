@@ -253,6 +253,14 @@ paths:
     $ref: 'paths/streams.yaml#/streams'
   /projects/{projectId}/streams/{streamId}:
     $ref: 'paths/streams.yaml#/streams_{streamId}'
+  /projects/{projectId}/streams/{streamId}/routes:
+    $ref: 'paths/stream-routes.yaml#/stream-routes'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}:
+    $ref: 'paths/stream-routes.yaml#/stream-routes_{routeId}'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/yaml:
+    $ref: 'paths/stream-routes.yaml#/stream-route-yaml'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/deploy:
+    $ref: 'paths/stream-routes.yaml#/stream-route-deploy'
   /projects/{projectId}/domains:
     $ref: 'paths/domains.yaml#/domains'
   /projects/{projectId}/domains/tls-secrets:
@@ -763,6 +771,8 @@ components:
       $ref: 'schemas/route.yaml#/PathRewrite'
     CreateRouteRequest:
       $ref: 'schemas/route.yaml#/CreateRouteRequest'
+    CreateStreamRouteRequest:
+      $ref: 'schemas/route.yaml#/CreateStreamRouteRequest'
     UpdateRouteRequest:
       $ref: 'schemas/route.yaml#/UpdateRouteRequest'
     SecurityPolicyInput:

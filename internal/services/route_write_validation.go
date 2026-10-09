@@ -9,6 +9,25 @@ import (
 	"github.com/google/uuid"
 )
 
+// ErrRouteOwnerAmbiguous is returned when a route would have neither or both of
+// a Domain and a Stream owner. A route has exactly one: HTTP/gRPC routes belong
+// to a Domain, L4 (tcp/udp) routes to a Stream. The database CHECK
+// chk_route_single_owner enforces the same rule; this is the defense-in-depth
+// check that fails before anything is persisted.
+var ErrRouteOwnerAmbiguous = errors.New("a route must belong to exactly one of a domain or a stream")
+
+// validateRouteOwner enforces the exactly-one-owner rule.
+func validateRouteOwner(domainID, streamID *uuid.UUID) error {
+	if (domainID != nil) == (streamID != nil) {
+		return ErrRouteOwnerAmbiguous
+	}
+	return nil
+}
+
+// ErrRouteProtocolNotL4 is returned when a route created under a Stream is not
+// tcp or udp: streams carry only L4 routes.
+var ErrRouteProtocolNotL4 = errors.New("a stream route must use protocol tcp or udp")
+
 // validateDirectResponseInput enforces the directResponse route-type rules.
 func validateDirectResponseInput(config *models.RouteConfig, btp *routeplan.BackendTrafficPolicyInput) error {
 	// Validate direct response configuration if provided

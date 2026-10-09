@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/fastgateway-dev/backend-v2/internal/routestate"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type routeWrite struct {
@@ -27,6 +29,11 @@ type routeWrite struct {
 	wafPolicyRepo            repository.WafPolicyRepositoryInterface
 
 	k8sRefGrants ReferenceGrantChecker
+
+	// streams resolves the Stream an L4 (tcp/udp) route belongs to; its
+	// ProjectID is the project an L4 route's approval is submitted under
+	// (a domain route uses its Domain's).
+	streams StreamReader
 
 	approvals *approvalpkg.Engine
 
@@ -60,8 +67,101 @@ func (w *routeWrite) ensureReferenceGrantsForDomain(ctx context.Context, route *
 	}
 }
 
-// Create creates a new route (submits for approval)
+// Create creates a new route (submits for approval).
+//
+// An HTTP/gRPC route is created under domainID. An L4 (tcp/udp) route is
+// created under input.StreamID with domainID == uuid.Nil (see
+// CreateForStream). Exactly one owner must be given.
 func (w *routeWrite) Create(domainID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID) (*models.Route, error) {
+	return w.create(domainID, input, createdBy, nil)
+}
+
+// CreateForStream creates an L4 route under streamID, which must exist and
+// belong to projectID (a stream of another project is reported as
+// ErrStreamNotFound so IDs cannot be probed across projects). It overrides any
+// input.StreamID with streamID.
+func (w *routeWrite) CreateForStream(projectID, streamID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID) (*models.Route, error) {
+	in := *input
+	in.StreamID = &streamID
+	return w.create(uuid.Nil, &in, createdBy, &projectID)
+}
+
+// resolveStream loads a Stream, mapping any lookup failure to ErrStreamNotFound
+// (like the domain path's "domain not found") and, when wantProject is set,
+// requiring the stream to belong to it.
+func (w *routeWrite) resolveStream(streamID uuid.UUID, wantProject *uuid.UUID) (*models.Stream, error) {
+	stream, err := w.streams.GetByID(streamID)
+	if err != nil || stream == nil {
+		return nil, ErrStreamNotFound
+	}
+	if wantProject != nil && stream.ProjectID != *wantProject {
+		return nil, ErrStreamNotFound
+	}
+	return stream, nil
+}
+
+// routeProjectID returns the project a persisted route belongs to - its
+// Stream's for an L4 route, its Domain's otherwise - together with the
+// Domain (nil for an L4 route, which has none). It is the single place that
+// branches on the owner before any *route.DomainID dereference in the write
+// path.
+func (w *routeWrite) routeProjectID(route *models.Route) (uuid.UUID, *models.Domain, error) {
+	if err := validateRouteOwner(route.DomainID, route.StreamID); err != nil {
+		return uuid.Nil, nil, err
+	}
+	if route.IsL4() {
+		if route.StreamID == nil {
+			return uuid.Nil, nil, errors.New("an L4 route must belong to a stream")
+		}
+		stream, err := w.resolveStream(*route.StreamID, nil)
+		if err != nil {
+			return uuid.Nil, nil, err
+		}
+		return stream.ProjectID, nil, nil
+	}
+	if route.DomainID == nil {
+		return uuid.Nil, nil, errors.New("a non-L4 route must belong to a domain")
+	}
+	domain, err := w.domainRepo.GetByID(*route.DomainID)
+	if err != nil {
+		return uuid.Nil, nil, errors.New("domain not found")
+	}
+	return domain.ProjectID, domain, nil
+}
+
+// mapL4PersistError turns a unique violation at the L4 route insert into
+// ErrPortCollision. The collision pre-check (validateL4Listener) and the insert
+// are not atomic, so two concurrent creates of the same (stream, protocol,
+// port) both pass the pre-check and one loses at idx_route_stream_proto_port.
+// That index is the only unique constraint a fresh L4 insert can violate (the
+// route ID is newly minted and the domain-name index ignores NULL domain_id),
+// so any unique violation here is that collision; it must be a 409, not a 500.
+// It matches gorm.ErrDuplicatedKey (when gorm error translation is on) and
+// Postgres SQLSTATE 23505.
+func mapL4PersistError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return fmt.Errorf("%w: another route on this stream already uses that protocol and port", ErrPortCollision)
+	}
+	var sqlErr interface{ SQLState() string }
+	if errors.As(err, &sqlErr) && sqlErr.SQLState() == "23505" {
+		return fmt.Errorf("%w: another route on this stream already uses that protocol and port", ErrPortCollision)
+	}
+	return err
+}
+
+func (w *routeWrite) create(domainID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID, wantProject *uuid.UUID) (*models.Route, error) {
+	var domainPtr *uuid.UUID
+	if domainID != uuid.Nil {
+		domainPtr = &domainID
+	}
+	if err := validateRouteOwner(domainPtr, input.StreamID); err != nil {
+		return nil, err
+	}
+	isStream := input.StreamID != nil
+
 	// Validate route name - no spaces allowed
 	if strings.Contains(input.Name, " ") {
 		return nil, errors.New("route name cannot contain spaces")
@@ -72,22 +172,45 @@ func (w *routeWrite) Create(domainID uuid.UUID, input *CreateRouteInput, created
 		return nil, errors.New("route name must be lowercase alphanumeric with dashes only (e.g., 'user-api')")
 	}
 
-	// Check if route name already exists in domain
-	exists, err := w.routeRepo.ExistsByName(domainID, input.Name)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return nil, errors.New("route name already exists in this domain")
+	// Resolve the owner (domain or stream) and its project, and check the
+	// route name is free within it.
+	var projectID uuid.UUID
+	if isStream {
+		if input.Protocol != models.RouteProtocolTCP && input.Protocol != models.RouteProtocolUDP {
+			return nil, ErrRouteProtocolNotL4
+		}
+		stream, err := w.resolveStream(*input.StreamID, wantProject)
+		if err != nil {
+			return nil, err
+		}
+		projectID = stream.ProjectID
+
+		exists, err := w.routeRepo.ExistsByStreamAndName(stream.ID, input.Name)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			return nil, errors.New("route name already exists in this stream")
+		}
+	} else {
+		// Check if route name already exists in domain
+		exists, err := w.routeRepo.ExistsByName(domainID, input.Name)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			return nil, errors.New("route name already exists in this domain")
+		}
+
+		// Verify domain exists
+		domain, err := w.domainRepo.GetByID(domainID)
+		if err != nil {
+			return nil, errors.New("domain not found")
+		}
+		projectID = domain.ProjectID
 	}
 
-	// Verify domain exists
-	domain, err := w.domainRepo.GetByID(domainID)
-	if err != nil {
-		return nil, errors.New("domain not found")
-	}
-
-	if err := w.validateRouteTrafficPolicies(&input.Config, input.BackendTrafficPolicy, domain.ProjectID); err != nil {
+	if err := w.validateRouteTrafficPolicies(&input.Config, input.BackendTrafficPolicy, projectID); err != nil {
 		return nil, err
 	}
 
@@ -96,8 +219,7 @@ func (w *routeWrite) Create(domainID uuid.UUID, input *CreateRouteInput, created
 	}
 
 	// Verify team exists
-	_, err = w.teamRepo.GetByID(input.TeamID)
-	if err != nil {
+	if _, err := w.teamRepo.GetByID(input.TeamID); err != nil {
 		return nil, errors.New("team not found")
 	}
 
@@ -122,7 +244,7 @@ func (w *routeWrite) Create(domainID uuid.UUID, input *CreateRouteInput, created
 		}
 	}
 
-	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, protocol, domainID, nil, nil); err != nil {
+	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, protocol, domainID, input.StreamID, nil); err != nil {
 		return nil, err
 	}
 
@@ -143,7 +265,8 @@ func (w *routeWrite) Create(domainID uuid.UUID, input *CreateRouteInput, created
 	}
 
 	route := &models.Route{
-		DomainID:     &domainID,
+		DomainID:     domainPtr,
+		StreamID:     input.StreamID,
 		TeamID:       input.TeamID,
 		Name:         input.Name,
 		Description:  input.Description,
@@ -158,6 +281,9 @@ func (w *routeWrite) Create(domainID uuid.UUID, input *CreateRouteInput, created
 	route.ID = routeID // Set the pre-generated UUID
 
 	if err := w.routeRepo.Create(route); err != nil {
+		if isStream {
+			err = mapL4PersistError(err)
+		}
 		return nil, err
 	}
 
@@ -218,7 +344,7 @@ func (w *routeWrite) Create(domainID uuid.UUID, input *CreateRouteInput, created
 		}
 	}
 
-	approval, fastPath, err := w.submitCreateApproval(route, domain, input, createdBy, snapshotSP, snapshotBTP, snapshotEEP, snapshotWaf)
+	approval, fastPath, err := w.submitCreateApproval(route, projectID, input, createdBy, snapshotSP, snapshotBTP, snapshotEEP, snapshotWaf)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +352,7 @@ func (w *routeWrite) Create(domainID uuid.UUID, input *CreateRouteInput, created
 		return route, nil
 	}
 
-	if err := w.persistCreatePolicies(route, domain.ProjectID, securityMode, input); err != nil {
+	if err := w.persistCreatePolicies(route, projectID, securityMode, input); err != nil {
 		return nil, err
 	}
 
@@ -241,13 +367,18 @@ func (w *routeWrite) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy u
 		return nil, err
 	}
 
-	// Get domain to validate namespaces
-	domain, err := w.domainRepo.GetByID(*route.DomainID)
+	// Resolve the owning project to validate namespaces. An L4 route has a
+	// Stream and no Domain, so this must precede every *route.DomainID use.
+	projectID, _, err := w.routeProjectID(route)
 	if err != nil {
-		return nil, errors.New("domain not found")
+		return nil, err
+	}
+	var domainID uuid.UUID // zero for an L4 route, which has no matcher domain
+	if route.DomainID != nil {
+		domainID = *route.DomainID
 	}
 
-	if err := w.validateRouteTrafficPolicies(&input.Config, input.BackendTrafficPolicy, domain.ProjectID); err != nil {
+	if err := w.validateRouteTrafficPolicies(&input.Config, input.BackendTrafficPolicy, projectID); err != nil {
 		return nil, err
 	}
 
@@ -261,7 +392,7 @@ func (w *routeWrite) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy u
 		}
 	}
 
-	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, route.Protocol, *route.DomainID, route.StreamID, &id); err != nil {
+	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, route.Protocol, domainID, route.StreamID, &id); err != nil {
 		return nil, err
 	}
 
@@ -393,7 +524,7 @@ func (w *routeWrite) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy u
 		previousWafPolicy = &prevWaf
 	}
 
-	approval, fastPath, err := w.submitUpdateApproval(route, domain, input, submittedBy, updateApprovalSnapshots{
+	approval, fastPath, err := w.submitUpdateApproval(route, projectID, input, submittedBy, updateApprovalSnapshots{
 		ProposedSecurityPolicy:       updateSnapshotSP,
 		ProposedBackendTrafficPolicy: updateSnapshotBTP,
 		ProposedEnvoyExtensionPolicy: updateSnapshotEEP,
@@ -412,7 +543,7 @@ func (w *routeWrite) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy u
 		return route, nil
 	}
 
-	if err := w.persistUpdatePolicies(route, domain.ProjectID, input); err != nil {
+	if err := w.persistUpdatePolicies(route, projectID, input); err != nil {
 		return nil, err
 	}
 
@@ -433,8 +564,9 @@ func (w *routeWrite) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Route,
 		return nil, errors.New("there is already a pending approval for this route")
 	}
 
-	// Get domain for project ID
-	domain, err := w.domainRepo.GetByID(*route.DomainID)
+	// Resolve the owning project (the Stream's for an L4 route, which has no
+	// Domain).
+	projectID, _, err := w.routeProjectID(route)
 	if err != nil {
 		return nil, err
 	}
@@ -471,7 +603,7 @@ func (w *routeWrite) Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Route,
 		deletePrevWaf = &wafConfig
 	}
 
-	approval, fastPath, err := w.submitDeleteApproval(route, domain, submittedBy, deletePrevSP, deletePrevBTP, deletePrevEEP, deletePrevWaf)
+	approval, fastPath, err := w.submitDeleteApproval(route, projectID, submittedBy, deletePrevSP, deletePrevBTP, deletePrevEEP, deletePrevWaf)
 	if err != nil {
 		return nil, err
 	}

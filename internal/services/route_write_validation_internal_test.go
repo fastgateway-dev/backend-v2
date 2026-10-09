@@ -156,3 +156,12 @@ func TestValidateL4PolicyInputs(t *testing.T) {
 	assert.ErrorIs(t, validateL4PolicyInputs("", nil, nil, &routeplan.WafPolicyInput{}, nil), ErrL4RejectsL7Field)
 	assert.ErrorIs(t, validateL4PolicyInputs("", nil, nil, nil, &routeplan.BackendTrafficPolicyInput{Retry: &models.RetryConfig{}}), ErrL4RejectsL7Field)
 }
+
+func TestValidateRouteOwner_ExactlyOne(t *testing.T) {
+	d, s := uuid.New(), uuid.New()
+
+	assert.NoError(t, validateRouteOwner(&d, nil), "domain only (HTTP/gRPC)")
+	assert.NoError(t, validateRouteOwner(nil, &s), "stream only (L4)")
+	assert.ErrorIs(t, validateRouteOwner(&d, &s), ErrRouteOwnerAmbiguous, "both set")
+	assert.ErrorIs(t, validateRouteOwner(nil, nil), ErrRouteOwnerAmbiguous, "neither set")
+}

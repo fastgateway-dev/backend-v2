@@ -23,6 +23,13 @@ type CreateRouteInput struct {
 	ChangeDescription    string                               `json:"changeDescription,omitempty"`
 	AIReview             json.RawMessage                      `json:"aiReview,omitempty"`
 	Labels               models.Labels                        `json:"labels,omitempty"`
+
+	// StreamID is the owning Stream of an L4 (tcp/udp) route. A route has
+	// exactly one owner: HTTP/gRPC routes are created under a Domain (the
+	// domainID argument of RouteService.Create), L4 routes under a Stream
+	// (this field, or RouteService.CreateForStream, which sets it). Supplying
+	// both or neither is ErrRouteOwnerAmbiguous.
+	StreamID *uuid.UUID `json:"streamId,omitempty"`
 }
 
 // UpdateRouteInput represents input for updating a route

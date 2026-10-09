@@ -149,6 +149,40 @@ func (r *RouteRepository) ExistsByName(domainID uuid.UUID, name string) (bool, e
 	return count > 0, err
 }
 
+// ExistsByStreamAndName checks if a route with the given name exists in the stream
+func (r *RouteRepository) ExistsByStreamAndName(streamID uuid.UUID, name string) (bool, error) {
+	var count int64
+	err := r.db.Model(&models.Route{}).
+		Where("stream_id = ? AND name = ?", streamID, name).
+		Count(&count).Error
+	return count > 0, err
+}
+
+// ListByStreamID lists the L4 routes of a stream with pagination, optionally
+// filtered by owner team and status.
+func (r *RouteRepository) ListByStreamID(streamID uuid.UUID, page, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error) {
+	var routes []models.Route
+	var total int64
+
+	query := r.db.Model(&models.Route{}).Where("stream_id = ?", streamID)
+	if teamID != nil {
+		query = query.Where("team_id = ?", *teamID)
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * limit
+	if err := query.Preload("Team").Offset(offset).Limit(limit).Order("name ASC").Find(&routes).Error; err != nil {
+		return nil, 0, err
+	}
+	return routes, total, nil
+}
+
 // GetActiveRoutesByDomainID gets all active routes for a domain
 func (r *RouteRepository) GetActiveRoutesByDomainID(domainID uuid.UUID) ([]models.Route, error) {
 	var routes []models.Route

@@ -14,13 +14,16 @@ import (
 )
 
 // routeWriteErrorStatus maps a route create/update error to its HTTP status:
-// an L4 listener-port collision is a 409; L4 shape violations (L7 field,
+// an L4 listener-port collision is a 409; a missing (or other-project) stream
+// is a 404; L4 shape violations (L7 field,
 // external backend, missing port/backend), reserved and out-of-range ports are
 // 400, as is everything else.
 func routeWriteErrorStatus(err error) int {
 	switch {
 	case errors.Is(err, services.ErrPortCollision):
 		return http.StatusConflict
+	case errors.Is(err, services.ErrStreamNotFound), errors.Is(err, services.ErrRouteNotFound):
+		return http.StatusNotFound
 	case errors.Is(err, services.ErrL4RejectsL7Field),
 		errors.Is(err, services.ErrL4ExternalBackend),
 		errors.Is(err, services.ErrL4MissingListenerPort),
