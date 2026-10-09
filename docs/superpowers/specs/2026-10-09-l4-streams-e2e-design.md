@@ -12,8 +12,11 @@ tests (stream repo, L4 listener-port index, 23505→409), but **no end-to-end te
 TCP/UDP traffic through a provisioned Stream Gateway to a backend.** This adds that coverage,
 mirroring the existing `e2e/suites/grpcroute` layout and the `e2e/suites/certificate` precedent.
 
-Scope decision (brainstorm): **Standard** — core traffic + the feature's capabilities. CI
-placement: **existing matrix, gated to the verified EG line** (skip 1.6.6/1.7.5, run 1.8.4/1.9.1).
+Scope decision (brainstorm + grilling): **Standard** — core traffic + the feature's capabilities,
+**excluding metrics** (L4 metrics are PromQL-backed and only mockable in e2e, so they stay
+unit-tested; see §9). CI placement: **existing matrix, gated to the verified EG line**
+(skip 1.6.6/1.7.5, run 1.8.4/1.9.1). Execution method: **native** (in-session implementation with
+one final whole-branch review — test code following established suite patterns).
 
 ## 2. Topology
 
@@ -25,14 +28,18 @@ per-test through the control-plane API (not the seed), then deployed.
 
 ## 3. Test-double backend — `e2e/servers/l4-echo`
 
-One small Go binary that listens on **both TCP and UDP** and echoes the received payload back,
-prefixed with an instance identifier read from `POD_NAME` (downward API), so load-balancing
-distribution across replicas is assertable — the L4 analogue of nginx/podinfo for the HTTP suites.
+One small Go binary that listens on **both TCP and UDP** and echoes the received payload back
+verbatim — the L4 analogue of nginx/podinfo for the HTTP suites. No instance identifier: the suite
+does not assert traffic distribution (§5 weighted-backends matches the HTTP precedent), so a plain
+echo is sufficient.
 
 - Built and loaded into kind exactly like the other `e2e/servers/*` doubles (own `go.mod`,
   Dockerfile, `docker build` + `kind load`).
-- Deployed as a Deployment (**2 replicas**) + a ClusterIP Service exposing the TCP and UDP ports,
-  in the e2e dependency namespace. Manifest lives beside the other static deps.
+- Deployed as **two distinct Services** (`l4-echo-a`, `l4-echo-b`), each its own Deployment
+  (1 replica) from the single `l4-echo` image, each exposing the TCP and UDP ports, in the e2e
+  dependency namespace. Two Services (rather than one Service with two replicas) let the
+  health-check test fail one backend while the other stays up (§5). Manifests live beside the
+  other static deps.
 - UDP echo uses a per-datagram read/write loop; TCP echo a per-connection copy loop.
 
 ## 4. Harness additions (`e2e/harness/`)
@@ -56,23 +63,28 @@ by CI) and performs **version gating** (see §6). Test files follow the `grpcrou
 |---|---|
 | `traffic_tcp_test.go` | `tcp:<port>` route → echo backend; `DialTCP` round-trip returns the sent payload. |
 | `traffic_udp_test.go` | `udp:<port>` route → echo backend; `DialUDP` round-trip (retry-to-deadline). |
-| `match_weighted_backends_test.go` | Two weighted K8s-Service backends; repeated dials hit >1 echo instance (distribution). |
-| `btp_circuit_breaker_test.go` | TCP `maxConnections` enforced (excess concurrent conns rejected/queued). |
-| `btp_load_balancing_test.go` | TCP + UDP LB algorithm applied; distribution shifts as configured. |
-| `btp_health_check_test.go` | TCP passive + active-TCP health check marks a dead backend unhealthy; traffic avoids it. |
+| `match_weighted_backends_test.go` | Two weighted K8s-Service backendRefs on an L4 route; assert the route goes live and a dial round-trips (serves). **No distribution assertion** — matches the HTTP/gRPC precedent, which deliberately does not observe weighting. |
+| `btp_circuit_breaker_test.go` | TCP `maxConnections`: fire N concurrent connections past the limit, assert **≥1 is rejected** (behavioral-with-tolerance, mirroring grpcroute). |
+| `btp_load_balancing_test.go` | TCP + UDP LB algorithm is **Accepted/programmed** on the route (config-level; no distribution assertion, consistent with the weighted-backends decision). |
+| `btp_health_check_test.go` | TCP passive + active-TCP health check: fail `l4-echo-b`, assert dials still succeed because the unhealthy backend is ejected (behavioral). |
 | `btp_timeout_test.go` | TCP connection/idle timeout applied. |
 | `validation_reject_l7_test.go` | An L4 route carrying hostname/matches/filters is rejected (400) at write time. |
 | `validation_port_collision_test.go` | A second `tcp:<port>` on the same stream → 409. |
-| `metrics_test.go` | **Lenient**: the L4 metrics endpoint returns a populated structure whose connection/throughput counters increase after traffic — presence/shape, not exact EG metric names (the EG L4 metric-name mapping is a known open item; strict matching would be brittle). |
+
+(No `metrics_test.go` — metrics are out of scope for e2e; see §9.)
 
 Each traffic/BTP test provisions its own stream (unique name/port) so cases are independent and the
 suite can run with `-p 1` like the others. Readiness: after deploy, wait for the route to be
-Accepted and the Stream Gateway LB to have an address before dialing.
+Accepted and the Stream Gateway LB to have an address before dialing. The behavioral BTP tests
+(circuit breaker, health check) fall back to a **config-Accepted** assertion for any individual
+signal that proves flaky through the kind LoadBalancer during implementation, rather than being
+dropped.
 
 ## 6. Version gating
 
-The e2e matrix injects the EG version per arm. `main_test.go` reads it (same env the workflow
-already sets) and `t.Skip`s the whole suite when the version is below the verified line
+The e2e matrix injects the EG version per arm as the `ENVOY_GATEWAY_VERSION` job env var (verified
+present in `main.yml`/`e2e.yml`). `main_test.go` reads it and `t.Skip`s the whole suite when the
+version is below the verified line
 (**skip 1.6.6 and 1.7.5; run 1.8.4 and 1.9.1**), with an explicit skip message naming the reason.
 TCP/UDP routing is standard Gateway API, but the BTP subset is version-sensitive, so the gate is
 keyed on the feature's verified support, not on raw route support.
@@ -104,6 +116,11 @@ grants `tcproutes`/`udproutes` (added with the feature), so no RBAC change is ne
 
 - Merged-template / `mergeGateways` mixed HTTP+TCP+UDP-on-one-LB scenarios, reserved-port rejection,
   and multi-listener-per-stream (the brainstorm "Full" tier — not chosen).
-- Exact EG L4 metric-name assertions (kept lenient here; tightening is a follow-up once the EG L4
-  metric mapping is validated against a live cluster).
+- **L4 metrics entirely** (grilling decision). L4 metrics are PromQL-backed, so an e2e test could
+  only validate the stream→cluster-name→PromQL→API plumbing against a `mock-prometheus` fixture
+  (as the HTTP metrics e2e does) — it cannot exercise real Envoy L4 metrics. That plumbing is
+  already unit-tested; a live-Prometheus L4 metrics check is a separate follow-up. No
+  `mock-prometheus` extension is made here.
+- Traffic **distribution/weighting** assertions (matches the HTTP/gRPC precedent, which does not
+  observe weighting); the weighted-backends test only asserts the route serves.
 - TLS/TLSRoute on L4 (the feature is plain TCP/UDP only).
