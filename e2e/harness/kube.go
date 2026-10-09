@@ -84,6 +84,30 @@ func (k *Kube) ScaleDeployment(ctx context.Context, ns, name string, replicas in
 	return nil
 }
 
+// LoadBalancerIPByLabels polls, up to timeout, for the first LoadBalancer
+// ingress IP of a Service matching selector in namespace. Used to resolve a
+// Stream Gateway's Envoy-Gateway-created LB Service address.
+func (k *Kube) LoadBalancerIPByLabels(ctx context.Context, namespace, selector string, timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		svcs, err := k.Clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+		if err == nil {
+			for _, s := range svcs.Items {
+				for _, ing := range s.Status.LoadBalancer.Ingress {
+					if ing.IP != "" {
+						return ing.IP, nil
+					}
+				}
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return "", fmt.Errorf("no LoadBalancer IP for services matching %q in %s within %s", selector, namespace, timeout)
+}
+
 // PodLogs returns the concatenated tail of logs from every pod matching
 // selector in ns, each section prefixed with the pod's name.
 func (k *Kube) PodLogs(ctx context.Context, ns, selector string, tailLines int64) (string, error) {
