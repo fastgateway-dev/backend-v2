@@ -19,6 +19,40 @@ type GatewayConfig struct {
 	TLSSecretNamespace string
 	TLSPolicy          string
 	Annotations        map[string]string
+
+	// Listeners, when non-empty, switches the Gateway to L4 (TCP/UDP) mode:
+	// exactly these listeners are emitted and the HTTP/HTTPS fields above
+	// (Hostname, TLSMode, HTTPPort, HTTPSPort, TLS*) are ignored. Domain
+	// gateways leave this nil and keep the HTTP/HTTPS behavior. Excluded from
+	// JSON/YAML (json:"-") so the Domain gateway goldens, which serialize this
+	// struct, stay byte-identical.
+	Listeners []L4Listener `json:"-"`
+}
+
+// L4Listener is a TCP or UDP Gateway listener (no hostname, no TLS).
+type L4Listener struct {
+	Name     string
+	Protocol string // "TCP" or "UDP"
+	Port     int
+}
+
+// buildL4Listener renders an L4 listener whose allowedRoutes is restricted to
+// the matching route kind (TCPRoute or UDPRoute).
+func buildL4Listener(l L4Listener) map[string]interface{} {
+	kind := "TCPRoute"
+	if strings.ToUpper(l.Protocol) == "UDP" {
+		kind = "UDPRoute"
+	}
+	return map[string]interface{}{
+		"name":     l.Name,
+		"port":     int64(l.Port),
+		"protocol": strings.ToUpper(l.Protocol),
+		"allowedRoutes": map[string]interface{}{
+			"kinds": []interface{}{
+				map[string]interface{}{"kind": kind},
+			},
+		},
+	}
 }
 
 // BuildGatewayObject builds a Gateway unstructured object from the given config.
@@ -86,6 +120,14 @@ func BuildGatewayObject(config *GatewayConfig) *unstructured.Unstructured {
 			listeners = []interface{}{buildHTTPSListener()}
 		} else {
 			listeners = []interface{}{buildHTTPListener()}
+		}
+	}
+
+	// L4 (stream) gateways: explicit TCP/UDP listeners replace the HTTP/HTTPS ones.
+	if len(config.Listeners) > 0 {
+		listeners = make([]interface{}, 0, len(config.Listeners))
+		for _, l := range config.Listeners {
+			listeners = append(listeners, buildL4Listener(l))
 		}
 	}
 
