@@ -70,6 +70,10 @@ type CreateDomainTemplateInput struct {
 	ScalingConfig         *models.ScalingConfig            `json:"scalingConfig"`
 	MergeGateways         bool                             `json:"mergeGateways"`
 
+	// Capability flags. Omitted = default (enableDomain true, enableStream false).
+	EnableDomain *bool `json:"enableDomain,omitempty"`
+	EnableStream *bool `json:"enableStream,omitempty"`
+
 	// Telemetry settings
 	TelemetryAccessLog *models.TelemetryAccessLogConfig `json:"telemetryAccessLog,omitempty"`
 	TelemetryTracing   *models.TelemetryTracingConfig   `json:"telemetryTracing,omitempty"`
@@ -91,6 +95,10 @@ type UpdateDomainTemplateInput struct {
 	ContainerResources    *models.ContainerResourcesConfig `json:"containerResources"`
 	ScalingConfig         *models.ScalingConfig            `json:"scalingConfig"`
 
+	// Capability flags. Omitted = keep the current persisted value.
+	EnableDomain *bool `json:"enableDomain,omitempty"`
+	EnableStream *bool `json:"enableStream,omitempty"`
+
 	// Telemetry settings
 	TelemetryAccessLog *models.TelemetryAccessLogConfig `json:"telemetryAccessLog,omitempty"`
 	TelemetryTracing   *models.TelemetryTracingConfig   `json:"telemetryTracing,omitempty"`
@@ -110,6 +118,25 @@ type UpdateDomainTemplateInput struct {
 	ClearPodPlacement       bool `json:"clearPodPlacement,omitempty"`
 	ClearPDBConfig          bool `json:"clearPdbConfig,omitempty"`
 	ClearDeploymentStrategy bool `json:"clearDeploymentStrategy,omitempty"`
+}
+
+// ErrNoTemplateCapability is returned when a template would be enabled for neither domains nor streams.
+var ErrNoTemplateCapability = errors.New("template must be enabled for at least one of domain or stream")
+
+// NormalizeTemplateCapabilities resolves optional flags to concrete values
+// (enable_domain default true, enable_stream default false) and rejects both-false.
+func NormalizeTemplateCapabilities(enableDomain, enableStream *bool) (ed, es bool, err error) {
+	ed = true
+	if enableDomain != nil {
+		ed = *enableDomain
+	}
+	if enableStream != nil {
+		es = *enableStream
+	}
+	if !ed && !es {
+		return false, false, ErrNoTemplateCapability
+	}
+	return ed, es, nil
 }
 
 // Create creates a new domain template
@@ -140,6 +167,12 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 	// Validate name is a valid K8s name
 	if !isValidK8sName(input.Name) {
 		return nil, errors.New("name must be lowercase, contain only letters, numbers, and dashes, and start with a letter")
+	}
+
+	// Resolve capability flags (domain/stream); at least one must be enabled
+	enableDomain, enableStream, err := NormalizeTemplateCapabilities(input.EnableDomain, input.EnableStream)
+	if err != nil {
+		return nil, err
 	}
 
 	// Check if name already exists in project
@@ -218,6 +251,8 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 		ContainerResources:    input.ContainerResources,
 		ScalingConfig:         input.ScalingConfig,
 		MergeGateways:         input.MergeGateways,
+		EnableDomain:          enableDomain,
+		EnableStream:          enableStream,
 		Status:                models.DomainTemplateStatusPending,
 		K8sGatewayClassName:   k8sGatewayClassName,
 		K8sEnvoyProxyName:     k8sEnvoyProxyName,
@@ -334,6 +369,22 @@ func (s *DomainTemplateService) Update(id uuid.UUID, input *UpdateDomainTemplate
 			return nil, err
 		}
 		dt.ScalingConfig = input.ScalingConfig
+	}
+
+	// Capability flags: omitted pointers keep the current persisted value.
+	if input.EnableDomain != nil || input.EnableStream != nil {
+		enableDomain, enableStream := dt.EnableDomain, dt.EnableStream
+		if input.EnableDomain != nil {
+			enableDomain = *input.EnableDomain
+		}
+		if input.EnableStream != nil {
+			enableStream = *input.EnableStream
+		}
+		ed, es, err := NormalizeTemplateCapabilities(&enableDomain, &enableStream)
+		if err != nil {
+			return nil, err
+		}
+		dt.EnableDomain, dt.EnableStream = ed, es
 	}
 
 	if input.ClearTelemetryAccessLog {

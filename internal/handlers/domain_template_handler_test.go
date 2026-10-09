@@ -114,6 +114,38 @@ func TestDomainTemplateHandler_Create_Success(t *testing.T) {
 	mockDT.AssertExpectations(t)
 }
 
+func TestDomainTemplateHandler_Create_NoCapability_BadRequest(t *testing.T) {
+	mockDT := new(mocks.MockDomainTemplateService)
+	mockAudit := new(mocks.MockAuditService)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
+
+	user := testUser()
+	projectID := uuid.New()
+	mockDT.On("Create", projectID, mock.AnythingOfType("*services.CreateDomainTemplateInput"), user.ID).Return(nil, services.ErrNoTemplateCapability)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":         "new-template",
+		"exposureType": "ClusterIP",
+		"tlsMode":      "tls_only",
+		"enableDomain": false,
+		"enableStream": false,
+	})
+	router := gin.New()
+	router.POST("/projects/:projectId/domain-templates", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Create(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domain-templates", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), services.ErrNoTemplateCapability.Error())
+}
+
 func TestDomainTemplateHandler_Delete_Success(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)
