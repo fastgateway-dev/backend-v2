@@ -56,6 +56,20 @@ type RouteApplier interface {
 	DeleteDirectResponseConfigMap(ctx context.Context, projectID uuid.UUID, namespace, name string) error
 }
 
+// L4RouteApplier writes the Gateway API v1alpha2 TCPRoute and UDPRoute objects
+// that back an L4 stream route. It is a role of its own rather than part of
+// RouteApplier because RouteApplier is already at the twelve-method cap.
+//
+// Consumer: RouteService (L4 stream route deploy).
+type L4RouteApplier interface {
+	CreateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error
+	UpdateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error
+	DeleteTCPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error
+	CreateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error
+	UpdateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error
+	DeleteUDPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error
+}
+
 // TrafficPolicyApplier writes the two Envoy Gateway policies that attach to a
 // backend rather than to a listener: BackendTrafficPolicy and
 // EnvoyExtensionPolicy.
@@ -249,6 +263,7 @@ type VersionDetector interface {
 // cannot satisfy fails the build rather than a test.
 var (
 	_ RouteApplier           = (*cluster.Client)(nil)
+	_ L4RouteApplier         = (*cluster.Client)(nil)
 	_ TrafficPolicyApplier   = (*cluster.Client)(nil)
 	_ PolicyApplier          = (*cluster.Client)(nil)
 	_ BackendApplier         = (*cluster.Client)(nil)

@@ -211,6 +211,174 @@ func (s *Client) DeleteGRPCRoute(ctx context.Context, projectID uuid.UUID, names
 	return nil
 }
 
+// CreateTCPRoute creates a TCPRoute in Kubernetes.
+// If the resource already exists, it falls back to update.
+func (s *Client) CreateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error {
+	client, err := s.getClient(projectID)
+	if err != nil {
+		return err
+	}
+
+	gvr := kubernetes.TCPRouteGVR
+
+	route := kubernetes.BuildTCPRouteObject(*config)
+	if route == nil {
+		return fmt.Errorf("failed to build TCPRoute object")
+	}
+
+	unstructuredObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(route)
+	if err != nil {
+		return fmt.Errorf("failed to convert TCPRoute to unstructured: %w", err)
+	}
+
+	obj := &unstructured.Unstructured{Object: unstructuredObj}
+	_, err = client.Resource(gvr).Namespace(config.Namespace).Create(ctx, obj, metav1.CreateOptions{})
+	if err != nil {
+		if k8serrors.IsAlreadyExists(err) {
+			return s.UpdateTCPRoute(ctx, projectID, config)
+		}
+		return fmt.Errorf("failed to create TCPRoute: %w", err)
+	}
+	return nil
+}
+
+// UpdateTCPRoute updates a TCPRoute in Kubernetes
+func (s *Client) UpdateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error {
+	client, err := s.getClient(projectID)
+	if err != nil {
+		return err
+	}
+
+	gvr := kubernetes.TCPRouteGVR
+
+	existing, err := client.Resource(gvr).Namespace(config.Namespace).Get(ctx, config.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get existing TCPRoute: %w", err)
+	}
+
+	route := kubernetes.BuildTCPRouteObject(*config)
+	if route == nil {
+		return fmt.Errorf("failed to build TCPRoute object")
+	}
+
+	unstructuredObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(route)
+	if err != nil {
+		return fmt.Errorf("failed to convert TCPRoute to unstructured: %w", err)
+	}
+
+	obj := &unstructured.Unstructured{Object: unstructuredObj}
+	obj.SetResourceVersion(existing.GetResourceVersion())
+	obj.SetUID(existing.GetUID())
+
+	_, err = client.Resource(gvr).Namespace(config.Namespace).Update(ctx, obj, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update TCPRoute: %w", err)
+	}
+	return nil
+}
+
+// DeleteTCPRoute deletes a TCPRoute from Kubernetes
+func (s *Client) DeleteTCPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error {
+	client, err := s.getClient(projectID)
+	if err != nil {
+		return err
+	}
+
+	err = client.Resource(kubernetes.TCPRouteGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			// TCPRoute not found, already deleted
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// CreateUDPRoute creates a UDPRoute in Kubernetes.
+// If the resource already exists, it falls back to update.
+func (s *Client) CreateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error {
+	client, err := s.getClient(projectID)
+	if err != nil {
+		return err
+	}
+
+	gvr := kubernetes.UDPRouteGVR
+
+	route := kubernetes.BuildUDPRouteObject(*config)
+	if route == nil {
+		return fmt.Errorf("failed to build UDPRoute object")
+	}
+
+	unstructuredObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(route)
+	if err != nil {
+		return fmt.Errorf("failed to convert UDPRoute to unstructured: %w", err)
+	}
+
+	obj := &unstructured.Unstructured{Object: unstructuredObj}
+	_, err = client.Resource(gvr).Namespace(config.Namespace).Create(ctx, obj, metav1.CreateOptions{})
+	if err != nil {
+		if k8serrors.IsAlreadyExists(err) {
+			return s.UpdateUDPRoute(ctx, projectID, config)
+		}
+		return fmt.Errorf("failed to create UDPRoute: %w", err)
+	}
+	return nil
+}
+
+// UpdateUDPRoute updates a UDPRoute in Kubernetes
+func (s *Client) UpdateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error {
+	client, err := s.getClient(projectID)
+	if err != nil {
+		return err
+	}
+
+	gvr := kubernetes.UDPRouteGVR
+
+	existing, err := client.Resource(gvr).Namespace(config.Namespace).Get(ctx, config.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get existing UDPRoute: %w", err)
+	}
+
+	route := kubernetes.BuildUDPRouteObject(*config)
+	if route == nil {
+		return fmt.Errorf("failed to build UDPRoute object")
+	}
+
+	unstructuredObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(route)
+	if err != nil {
+		return fmt.Errorf("failed to convert UDPRoute to unstructured: %w", err)
+	}
+
+	obj := &unstructured.Unstructured{Object: unstructuredObj}
+	obj.SetResourceVersion(existing.GetResourceVersion())
+	obj.SetUID(existing.GetUID())
+
+	_, err = client.Resource(gvr).Namespace(config.Namespace).Update(ctx, obj, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update UDPRoute: %w", err)
+	}
+	return nil
+}
+
+// DeleteUDPRoute deletes a UDPRoute from Kubernetes
+func (s *Client) DeleteUDPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error {
+	client, err := s.getClient(projectID)
+	if err != nil {
+		return err
+	}
+
+	err = client.Resource(kubernetes.UDPRouteGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			// UDPRoute not found, already deleted
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
 // ReferenceGrantConfig represents ReferenceGrant configuration
 type ReferenceGrantConfig struct {
 	Name           string   // Name of the ReferenceGrant
@@ -240,6 +408,8 @@ func (s *Client) CreateReferenceGrant(ctx context.Context, projectID uuid.UUID, 
 	kinds := []fromEntry{
 		{"gateway.networking.k8s.io", "HTTPRoute"},
 		{"gateway.networking.k8s.io", "GRPCRoute"},
+		{"gateway.networking.k8s.io", "TCPRoute"},
+		{"gateway.networking.k8s.io", "UDPRoute"},
 		{"gateway.envoyproxy.io", "SecurityPolicy"},
 		{"gateway.envoyproxy.io", "EnvoyExtensionPolicy"},
 		{"gateway.networking.k8s.io", "Gateway"},
