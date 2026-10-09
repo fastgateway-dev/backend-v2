@@ -12,7 +12,7 @@ Two directories hold runnable programs, and the rule is **who consumes it**
 | Consumer | **Envoy** (JWKS fetch, ext-authz, ext-proc) | the **backend**, or it is a one-shot job |
 | Runs | inside the kind cluster, as a Deployment | on the CI runner, via `go run` |
 | Packaging | own `go.mod` + `Dockerfile`, `docker build` + `kind load`, plus a manifest in `e2e/deps/` | part of this module — no `go.mod`, no image |
-| Members | `jwt-server`, `external-auth`, `grpc-external-auth`, `ext-proc-server` | `e2e-seed`, `mock-prometheus` |
+| Members | `jwt-server`, `external-auth`, `grpc-external-auth`, `ext-proc-server`, `l4-echo` | `e2e-seed`, `mock-prometheus` |
 
 Envoy can only reach in-cluster addresses, so anything Envoy talks to has to
 be a pod. The backend runs on the runner, so anything only the backend talks
