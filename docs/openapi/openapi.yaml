@@ -24,6 +24,8 @@ tags:
     description: Domain template management
   - name: Domains
     description: Domain (Gateway) management
+  - name: Streams
+    description: L4 (TCP/UDP) stream management
   - name: Project Namespaces
     description: Project namespace whitelist management
   - name: Routes
@@ -247,6 +249,10 @@ paths:
     $ref: 'paths/namespaces.yaml#/ensure-reference-grant'
 
   # ============== DOMAINS ==============
+  /projects/{projectId}/streams:
+    $ref: 'paths/streams.yaml#/streams'
+  /projects/{projectId}/streams/{streamId}:
+    $ref: 'paths/streams.yaml#/streams_{streamId}'
   /projects/{projectId}/domains:
     $ref: 'paths/domains.yaml#/domains'
   /projects/{projectId}/domains/tls-secrets:
@@ -645,6 +651,14 @@ components:
       $ref: 'schemas/namespace.yaml#/ProjectNamespace'
     CreateProjectNamespaceRequest:
       $ref: 'schemas/namespace.yaml#/CreateProjectNamespaceRequest'
+
+    # ============== STREAM ==============
+    Stream:
+      $ref: 'schemas/stream.yaml#/Stream'
+    CreateStreamRequest:
+      $ref: 'schemas/stream.yaml#/CreateStreamRequest'
+    UpdateStreamRequest:
+      $ref: 'schemas/stream.yaml#/UpdateStreamRequest'
 
     # ============== DOMAIN ==============
     Domain:

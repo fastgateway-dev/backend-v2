@@ -45,6 +45,16 @@ func (f *fakeStreamStore) GetByID(id uuid.UUID) (*models.Stream, error) {
 	return &cp, nil
 }
 
+func (f *fakeStreamStore) ListByProjectID(projectID uuid.UUID) ([]models.Stream, error) {
+	var out []models.Stream
+	for _, s := range f.streams {
+		if s.ProjectID == projectID {
+			out = append(out, *s)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeStreamStore) Update(s *models.Stream) error {
 	f.streams[s.ID] = s
 	return nil

@@ -306,6 +306,9 @@ func main() {
 	teamHandler := handlers.NewTeamHandler(teamService, permChecker, auditService, emailInviteService)
 	domainTemplateHandler := handlers.NewDomainTemplateHandler(domainTemplateService, auditService, domainTemplateService)
 	domainHandler := handlers.NewDomainHandler(domainService, auditService, permChecker, domainService)
+	streamRepo := repository.NewStreamRepository(db)
+	streamService := services.NewStreamService(streamRepo, domainTemplateRepo, routeRepo, k8sService)
+	streamHandler := handlers.NewStreamHandler(streamService, auditService, permChecker)
 	routeHandler := handlers.NewRouteHandler(routeService, auditService, permChecker)
 	routeVersionHandler := handlers.NewRouteVersionHandler(routeVersionService, auditService)
 	approvalPolicyService := services.NewApprovalPolicyService(approvalPolicyRepo)
@@ -495,6 +498,7 @@ func main() {
 		DomainTemplateHandler:     domainTemplateHandler,
 		ProjectNamespaceHandler:   projectNamespaceHandler,
 		DomainHandler:             domainHandler,
+		StreamHandler:             streamHandler,
 		TopologyHandler:           topologyHandler,
 		OpenAPIImportHandler:      openapiImportHandler,
 		RouteHandler:              routeHandler,
@@ -559,6 +563,7 @@ type RouterDeps struct {
 	DomainTemplateHandler     *handlers.DomainTemplateHandler
 	ProjectNamespaceHandler   *handlers.ProjectNamespaceHandler
 	DomainHandler             *handlers.DomainHandler
+	StreamHandler             *handlers.StreamHandler
 	TopologyHandler           *handlers.TopologyHandler
 	OpenAPIImportHandler      *handlers.OpenAPIImportHandler
 	RouteHandler              *handlers.RouteHandler
@@ -900,6 +905,21 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					dnsRecords := projects.Group("/:projectId/dns-records")
 					dnsRecords.Use(deps.PermChecker.RequireProjectAccess())
 					dnsRecords.GET("", deps.DNSRecordHandler.List)
+				}
+
+				// L4 Streams (view: any team member, manage: Owner/Project Admin,
+				// the same permission Domains use). Nil-guarded so a RouterDeps
+				// built without a StreamHandler (tests) still routes.
+				if deps.StreamHandler != nil {
+					streams := projects.Group("/:projectId/streams")
+					streams.Use(deps.PermChecker.RequireProjectAccess())
+					{
+						streams.GET("", deps.StreamHandler.List)
+						streams.POST("", deps.StreamHandler.Create) // Permission check in handler
+						streams.GET("/:streamId", deps.StreamHandler.Get)
+						streams.PATCH("/:streamId", deps.StreamHandler.Update)  // Permission check in handler
+						streams.DELETE("/:streamId", deps.StreamHandler.Delete) // Permission check in handler
+					}
 				}
 
 				// Domains (view: any team member, manage: Owner/Project Admin)

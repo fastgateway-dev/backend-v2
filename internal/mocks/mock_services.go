@@ -6694,6 +6694,68 @@ func (_c *MockStreamStore_GetByID_Call) RunAndReturn(run func(id uuid.UUID) (*mo
 	return _c
 }
 
+// ListByProjectID provides a mock function for the type MockStreamStore
+func (_mock *MockStreamStore) ListByProjectID(projectID uuid.UUID) ([]models.Stream, error) {
+	ret := _mock.Called(projectID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByProjectID")
+	}
+
+	var r0 []models.Stream
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) ([]models.Stream, error)); ok {
+		return returnFunc(projectID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) []models.Stream); ok {
+		r0 = returnFunc(projectID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.Stream)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(projectID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockStreamStore_ListByProjectID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByProjectID'
+type MockStreamStore_ListByProjectID_Call struct {
+	*mock.Call
+}
+
+// ListByProjectID is a helper method to define mock.On call
+//   - projectID uuid.UUID
+func (_e *MockStreamStore_Expecter) ListByProjectID(projectID any) *MockStreamStore_ListByProjectID_Call {
+	return &MockStreamStore_ListByProjectID_Call{Call: _e.mock.On("ListByProjectID", projectID)}
+}
+
+func (_c *MockStreamStore_ListByProjectID_Call) Run(run func(projectID uuid.UUID)) *MockStreamStore_ListByProjectID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStreamStore_ListByProjectID_Call) Return(streams []models.Stream, err error) *MockStreamStore_ListByProjectID_Call {
+	_c.Call.Return(streams, err)
+	return _c
+}
+
+func (_c *MockStreamStore_ListByProjectID_Call) RunAndReturn(run func(projectID uuid.UUID) ([]models.Stream, error)) *MockStreamStore_ListByProjectID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Update provides a mock function for the type MockStreamStore
 func (_mock *MockStreamStore) Update(stream *models.Stream) error {
 	ret := _mock.Called(stream)

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -31,7 +32,40 @@ var (
 	ErrStreamTemplateImmutable = errors.New("stream gateway template cannot be changed after creation")
 	// ErrStreamNotFound is returned when the stream does not exist.
 	ErrStreamNotFound = errors.New("stream not found")
+	// ErrStreamTemplateNotFound is returned by Create when the chosen Gateway
+	// Template does not exist.
+	ErrStreamTemplateNotFound = errors.New("gateway template not found")
+	// ErrStreamTemplateWrongProject is returned by Create when the chosen
+	// Gateway Template belongs to a different project. Callers should report
+	// it as not-found so template existence is not leaked across projects.
+	ErrStreamTemplateWrongProject = errors.New("gateway template does not belong to this project")
+	// ErrInvalidStreamName is returned (wrapped) by ValidateStreamName.
+	ErrInvalidStreamName = errors.New("invalid stream name")
 )
+
+// maxStreamNameLen keeps "str-" + name within the 63-char DNS-label limit.
+const maxStreamNameLen = 63 - len(streamGatewayPrefix)
+
+// streamNameRE: lowercase alphanumerics separated by single dashes, starting
+// and ending alphanumeric. Single dashes only, so StreamGatewayName (which
+// collapses dash runs) is injective over valid names.
+var streamNameRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// ValidateStreamName checks that name is a DNS-label-safe stream name, so the
+// derived Gateway name is never just "str-" and two distinct valid names can
+// never map to the same Gateway.
+func ValidateStreamName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: name is required", ErrInvalidStreamName)
+	}
+	if len(name) > maxStreamNameLen {
+		return fmt.Errorf("%w: must be at most %d characters", ErrInvalidStreamName, maxStreamNameLen)
+	}
+	if !streamNameRE.MatchString(name) {
+		return fmt.Errorf("%w: must be lowercase alphanumerics and single dashes, starting and ending with an alphanumeric", ErrInvalidStreamName)
+	}
+	return nil
+}
 
 // streamGatewayPrefix namespaces Stream Gateways away from Domain Gateways
 // (which are named from the hostname) so the two kinds can never collide.
@@ -64,6 +98,7 @@ type UpdateStreamInput struct {
 type StreamStore interface {
 	Create(stream *models.Stream) error
 	GetByID(id uuid.UUID) (*models.Stream, error)
+	ListByProjectID(projectID uuid.UUID) ([]models.Stream, error)
 	Update(stream *models.Stream) error
 	Delete(id uuid.UUID) error
 }
@@ -128,12 +163,12 @@ func (s *StreamService) Create(projectID uuid.UUID, in CreateStreamInput, user *
 	tmpl, err := s.templateRepo.GetByID(in.GatewayTemplateID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("gateway template not found")
+			return nil, ErrStreamTemplateNotFound
 		}
 		return nil, fmt.Errorf("failed to load gateway template: %w", err)
 	}
 	if tmpl.ProjectID != projectID {
-		return nil, errors.New("gateway template does not belong to this project")
+		return nil, ErrStreamTemplateWrongProject
 	}
 	if !tmpl.EnableStream {
 		return nil, ErrTemplateNotStreamEnabled
@@ -202,6 +237,16 @@ func (s *StreamService) Update(id uuid.UUID, in UpdateStreamInput) (*models.Stre
 		return nil, err
 	}
 	return stream, nil
+}
+
+// Get returns a stream by ID, or ErrStreamNotFound.
+func (s *StreamService) Get(id uuid.UUID) (*models.Stream, error) {
+	return s.getStream(id)
+}
+
+// List returns all streams in a project, ordered by name.
+func (s *StreamService) List(projectID uuid.UUID) ([]models.Stream, error) {
+	return s.streamRepo.ListByProjectID(projectID)
 }
 
 // Delete removes a stream, refusing while it still has routes.

@@ -23,6 +23,8 @@ tags:
     description: Domain template management
   - name: Domains
     description: Domain (Gateway) management
+  - name: Streams
+    description: L4 (TCP/UDP) stream management
   - name: Project Namespaces
     description: Project namespace whitelist management
   - name: Routes
@@ -2193,6 +2195,140 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/streams:
+    get:
+      tags:
+        - Streams
+      summary: List streams in a project
+      operationId: listStreams
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      responses:
+        '200':
+          description: List of streams, ordered by name
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Stream'
+    post:
+      tags:
+        - Streams
+      summary: Create a stream
+      description: |
+        Creates a stream from a Gateway Template that has the stream capability
+        and eagerly deploys its Gateway. Requires Owner or Project Admin.
+      operationId: createStream
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStreamRequest'
+      responses:
+        '201':
+          description: Stream created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stream'
+        '400':
+          description: Invalid name, or the Gateway Template is not enabled for streams
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Gateway Template not found (including templates of other projects)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}:
+    get:
+      tags:
+        - Streams
+      summary: Get a stream
+      operationId: getStream
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+      responses:
+        '200':
+          description: Stream details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stream'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - Streams
+      summary: Rename a stream
+      operationId: updateStream
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStreamRequest'
+      responses:
+        '200':
+          description: Updated stream
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stream'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Streams
+      summary: Delete a stream
+      description: Fails with 409 while the stream still has routes.
+      operationId: deleteStream
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+      responses:
+        '204':
+          description: Stream deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Stream still has routes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/domains:
     get:
       tags:
@@ -5389,6 +5525,13 @@ components:
       schema:
         type: string
         format: uuid
+    streamId:
+      name: streamId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     certificateId:
       name: certificateId
       in: path
@@ -6731,6 +6874,69 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/NamespaceCapability'
+    Stream:
+      type: object
+      description: An L4 (TCP/UDP) stream. One stream maps to one Kubernetes Gateway.
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        namespace:
+          type: string
+        gatewayTemplateId:
+          type: string
+          format: uuid
+          description: Gateway Template (with the stream capability) this stream was created from. Immutable.
+        k8sGatewayName:
+          type: string
+          description: Kubernetes Gateway name, "str-" followed by the DNS-label-safe stream name.
+        k8sGatewayClass:
+          type: string
+        status:
+          type: string
+          description: pending, active or error.
+        statusMessage:
+          type: string
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateStreamRequest:
+      type: object
+      required:
+        - name
+        - namespace
+        - gatewayTemplateId
+      properties:
+        name:
+          type: string
+          maxLength: 59
+          pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+          description: Lowercase alphanumerics separated by single dashes; starts and ends alphanumeric.
+        namespace:
+          type: string
+        gatewayTemplateId:
+          type: string
+          format: uuid
+          description: Must belong to the project and have the stream capability enabled.
+    UpdateStreamRequest:
+      type: object
+      description: Only the name is updatable; the Gateway Template is immutable.
+      properties:
+        name:
+          type: string
+          maxLength: 59
+          pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
     Domain:
       type: object
       properties:

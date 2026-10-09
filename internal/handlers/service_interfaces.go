@@ -188,6 +188,15 @@ type DomainServiceInterface interface {
 	DetachCertificate(domainID, projectID uuid.UUID) (*models.Domain, error)
 }
 
+// StreamServiceInterface defines the public methods of StreamService used by StreamHandler
+type StreamServiceInterface interface {
+	Create(projectID uuid.UUID, in services.CreateStreamInput, user *models.User) (*models.Stream, error)
+	Get(id uuid.UUID) (*models.Stream, error)
+	List(projectID uuid.UUID) ([]models.Stream, error)
+	Update(id uuid.UUID, in services.UpdateStreamInput) (*models.Stream, error)
+	Delete(id uuid.UUID) error
+}
+
 // TemplateDomainLister is the slice of DomainTemplateService that
 // DomainTemplateHandler uses to answer "which domains use this template".
 // Named for the capability and satisfied structurally, following Phase 2E's
@@ -407,6 +416,7 @@ var _ ApprovalServiceInterface = (*services.ApprovalService)(nil)
 var _ AuditServiceInterface = (*services.AuditService)(nil)
 var _ AuthServiceInterface = (*services.AuthService)(nil)
 var _ CertificateIssuerServiceInterface = (*services.CertificateIssuerService)(nil)
+var _ StreamServiceInterface = (*services.StreamService)(nil)
 var _ CommentServiceInterface = (*services.CommentService)(nil)
 var _ DNSCredentialServiceInterface = (*services.DNSCredentialService)(nil)
 var _ DNSHostedZoneServiceInterface = (*services.DNSHostedZoneService)(nil)
