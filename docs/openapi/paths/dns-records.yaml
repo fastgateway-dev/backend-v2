@@ -1,3 +1,32 @@
+dns-records-list:
+  get:
+    tags: [DNS Records]
+    summary: List all DNS records in a project
+    description: |
+      Returns every domain's FastGateway-managed DNS record for the project,
+      each enriched with the domain hostname (the record name) and the hosted
+      zone name. Read-only aggregation; it does not reconcile against the
+      provider, so `status` is the last persisted value. Requires Owner,
+      Project Admin, or domain-manage permission.
+    operationId: listProjectDNSRecords
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: The project's DNS records
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/dns-record.yaml#/DNSRecordListItem'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+
 domain-dns-record:
   get:
     tags: [DNS Records]

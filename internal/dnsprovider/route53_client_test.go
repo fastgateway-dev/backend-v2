@@ -202,3 +202,26 @@ func TestRoute53Client_DeleteRecord_DeletesWhenPresentWithExactValues(t *testing
 		t.Fatal("expected DeleteRecord to send the exact existing record values (Value/TTL)")
 	}
 }
+
+func TestRoute53Client_RecordExistsForName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("name") == "app.example.com" {
+			w.Write([]byte(route53RRSetXML(true)))
+			return
+		}
+		w.Write([]byte(route53RRSetXML(false)))
+	}))
+	defer srv.Close()
+	c, err := route53{}.newClientWithBaseURL(route53TestCreds(), srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exists, err := c.RecordExistsForName(context.Background(), "zone123", "app.example.com")
+	if err != nil || !exists {
+		t.Fatalf("RecordExistsForName=%v,%v want true,nil", exists, err)
+	}
+	exists, err = c.RecordExistsForName(context.Background(), "zone123", "missing.example.com")
+	if err != nil || exists {
+		t.Fatalf("RecordExistsForName(missing)=%v,%v want false,nil", exists, err)
+	}
+}

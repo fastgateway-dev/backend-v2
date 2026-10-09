@@ -84,9 +84,19 @@ type MetricsService struct {
 	projectRepo   repository.ProjectRepositoryInterface
 	routeRepo     repository.RouteRepositoryInterface
 	domainRepo    repository.DomainRepositoryInterface
+	streamRepo    MetricsStreamReader
 	config        *config.Config
 	clientFactory promClientFactory
 }
+
+// MetricsStreamReader resolves a Stream for StreamL4Metrics.
+// *repository.StreamRepository satisfies it structurally.
+type MetricsStreamReader interface {
+	GetByID(id uuid.UUID) (*models.Stream, error)
+}
+
+// SetStreamRepo wires the stream lookup used by StreamL4Metrics.
+func (s *MetricsService) SetStreamRepo(r MetricsStreamReader) { s.streamRepo = r }
 
 // NewMetricsService constructs a MetricsService using real PromClients.
 func NewMetricsService(
@@ -166,6 +176,10 @@ func (s *MetricsService) TestConnection(ctx context.Context, projectID uuid.UUID
 	return &TestConnectionResult{OK: true}, nil
 }
 
+// ErrMetricsNotAvailableForL4 is returned by GetRouteMetrics for an L4 (tcp/udp)
+// route: route metrics are HTTP-cluster based and a stream route has no Domain.
+var ErrMetricsNotAvailableForL4 = errors.New("route metrics are not available for L4 routes")
+
 // GetRouteMetrics returns Tier A panels for a single route.
 func (s *MetricsService) GetRouteMetrics(ctx context.Context, projectID, routeID uuid.UUID, rangeSpec string) (*RouteMetricsResult, error) {
 	start, end, step, stepStr, err := resolveTimeRange(rangeSpec)
@@ -186,7 +200,14 @@ func (s *MetricsService) GetRouteMetrics(ctx context.Context, projectID, routeID
 		return nil, fmt.Errorf("get route: %w", err)
 	}
 
-	domain, err := s.domainRepo.GetByID(route.DomainID)
+	// An L4 route belongs to a Stream and has no Domain; the route panels are
+	// built from the Domain's HTTP cluster selector. Must precede the
+	// *route.DomainID dereference below.
+	if route.IsL4() || route.DomainID == nil {
+		return nil, ErrMetricsNotAvailableForL4
+	}
+
+	domain, err := s.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, fmt.Errorf("get domain: %w", err)
 	}
@@ -480,4 +501,185 @@ func errorRatePercent(r2, r3, r4, r5 *PromRangeResult) float64 {
 	}
 	errorsCount := sumAllPoints(r4, r5)
 	return (errorsCount / total) * 100
+}
+
+// L4ListenerMetrics is the current L4 throughput of one stream listener (one
+// L4 route = one Gateway listener port).
+type L4ListenerMetrics struct {
+	RouteID   uuid.UUID `json:"routeId"`
+	RouteName string    `json:"routeName"`
+	Protocol  string    `json:"protocol"` // "tcp" or "udp"
+	Port      int       `json:"port"`
+	// ActiveConnections is the number of open TCP connections, or active UDP
+	// sessions for a UDP listener.
+	ActiveConnections float64 `json:"activeConnections"`
+	// ConnectionRate is new TCP connections (UDP sessions) per second over 5m.
+	ConnectionRate float64 `json:"connectionRate"`
+	// BytesIn / BytesOut are bytes per second received from / sent to the
+	// downstream client over 5m.
+	BytesIn  float64 `json:"bytesIn"`
+	BytesOut float64 `json:"bytesOut"`
+}
+
+// L4Metrics is the response for StreamL4Metrics: per-listener values plus the
+// stream-wide sum. L4 has no HTTP request, latency or error-class series.
+type L4Metrics struct {
+	StreamID          uuid.UUID           `json:"streamId"`
+	Listeners         []L4ListenerMetrics `json:"listeners"`
+	ActiveConnections float64             `json:"activeConnections"`
+	ConnectionRate    float64             `json:"connectionRate"`
+	BytesIn           float64             `json:"bytesIn"`
+	BytesOut          float64             `json:"bytesOut"`
+}
+
+// StreamL4Metrics returns the current connection/session count, connection
+// rate and byte throughput of every active listener of a stream, from the
+// Envoy tcp_proxy / udp_proxy stats in the project's Prometheus. It is
+// separate from GetRouteMetrics, which is HTTP-cluster based and rejects L4.
+func (s *MetricsService) StreamL4Metrics(ctx context.Context, projectID, streamID string) (L4Metrics, error) {
+	pid, err := uuid.Parse(projectID)
+	if err != nil {
+		return L4Metrics{}, fmt.Errorf("invalid project ID: %w", err)
+	}
+	sid, err := uuid.Parse(streamID)
+	if err != nil {
+		return L4Metrics{}, fmt.Errorf("invalid stream ID: %w", err)
+	}
+
+	project, err := s.projectRepo.GetByID(pid)
+	if err != nil {
+		return L4Metrics{}, fmt.Errorf("get project: %w", err)
+	}
+	if project.MetricsEndpointURL == "" {
+		return L4Metrics{}, errors.New("metrics endpoint not configured for project")
+	}
+
+	if s.streamRepo == nil {
+		return L4Metrics{}, errors.New("stream repository not configured")
+	}
+	stream, err := s.streamRepo.GetByID(sid)
+	if err != nil {
+		return L4Metrics{}, fmt.Errorf("get stream: %w", err)
+	}
+	// A stream in another project is reported as not found.
+	if stream.ProjectID != pid {
+		return L4Metrics{}, ErrStreamNotFound
+	}
+
+	routes, err := s.routeRepo.ListActiveByStreamID(sid)
+	if err != nil {
+		return L4Metrics{}, fmt.Errorf("list stream routes: %w", err)
+	}
+
+	client, err := s.clientFactory(project, s.config.EncryptionKey)
+	if err != nil {
+		return L4Metrics{}, err
+	}
+
+	queries := make(map[string]string, len(routes)*4)
+	for i, r := range routes {
+		for stat, q := range buildL4Queries(stream.Namespace, r) {
+			queries[fmt.Sprintf("%d/%s", i, stat)] = q
+		}
+	}
+	results, err := fanOutInstant(ctx, client, queries)
+	if err != nil {
+		return L4Metrics{}, err
+	}
+
+	out := L4Metrics{StreamID: sid, Listeners: make([]L4ListenerMetrics, 0, len(routes))}
+	for i, r := range routes {
+		l := L4ListenerMetrics{
+			RouteID:           r.ID,
+			RouteName:         r.Name,
+			Protocol:          string(r.Protocol),
+			ActiveConnections: firstSampleValue(results[fmt.Sprintf("%d/active", i)]),
+			ConnectionRate:    firstSampleValue(results[fmt.Sprintf("%d/rate", i)]),
+			BytesIn:           firstSampleValue(results[fmt.Sprintf("%d/bytes_in", i)]),
+			BytesOut:          firstSampleValue(results[fmt.Sprintf("%d/bytes_out", i)]),
+		}
+		if r.ListenerPort != nil {
+			l.Port = *r.ListenerPort
+		}
+		out.Listeners = append(out.Listeners, l)
+		out.ActiveConnections += l.ActiveConnections
+		out.ConnectionRate += l.ConnectionRate
+		out.BytesIn += l.BytesIn
+		out.BytesOut += l.BytesOut
+	}
+	return out, nil
+}
+
+// buildL4Queries returns the four instant PromQL queries (active, rate,
+// bytes_in, bytes_out) for one L4 route's listener.
+//
+// Envoy Gateway names a TCP/UDP route's xDS objects "<kind>/<ns>/<k8s name>/...":
+// the tcp_proxy / udp_proxy stat prefix (labels envoy_tcp_prefix /
+// envoy_udp_prefix) and, for TCP, the upstream cluster. The trailing "(/.*)?"
+// tolerates any rule suffix. The stat prefix is the route's own, so the
+// queries are scoped to the stream's listener without a gateway label.
+//
+// tcp_proxy has no active-connection gauge of its own, so TCP active
+// connections come from the route's upstream cluster (1:1 with downstream
+// connections for a TCP proxy); udp_proxy exposes downstream_sess_active.
+func buildL4Queries(namespace string, route models.Route) map[string]string {
+	name := route.K8sRouteName
+	if name == "" {
+		name = route.Name
+	}
+	if route.Protocol == models.RouteProtocolUDP {
+		sel := fmt.Sprintf(`envoy_udp_prefix=~"udproute/%s/%s(/.*)?"`, namespace, name)
+		return map[string]string{
+			"active":    fmt.Sprintf(`sum(envoy_udp_downstream_sess_active{%s})`, sel),
+			"rate":      fmt.Sprintf(`sum(rate(envoy_udp_downstream_sess_total{%s}[5m]))`, sel),
+			"bytes_in":  fmt.Sprintf(`sum(rate(envoy_udp_downstream_sess_rx_bytes{%s}[5m]))`, sel),
+			"bytes_out": fmt.Sprintf(`sum(rate(envoy_udp_downstream_sess_tx_bytes{%s}[5m]))`, sel),
+		}
+	}
+	sel := fmt.Sprintf(`envoy_tcp_prefix=~"tcproute/%s/%s(/.*)?"`, namespace, name)
+	return map[string]string{
+		"active":    fmt.Sprintf(`sum(envoy_cluster_upstream_cx_active{envoy_cluster_name=~"tcproute/%s/%s/rule/.*"})`, namespace, name),
+		"rate":      fmt.Sprintf(`sum(rate(envoy_tcp_downstream_cx_total{%s}[5m]))`, sel),
+		"bytes_in":  fmt.Sprintf(`sum(rate(envoy_tcp_downstream_cx_rx_bytes_total{%s}[5m]))`, sel),
+		"bytes_out": fmt.Sprintf(`sum(rate(envoy_tcp_downstream_cx_tx_bytes_total{%s}[5m]))`, sel),
+	}
+}
+
+// fanOutInstant runs all instant queries concurrently with a shared 10s timeout.
+func fanOutInstant(ctx context.Context, client PromQueryClient, queries map[string]string) (map[string]*PromInstantResult, error) {
+	type result struct {
+		key string
+		res *PromInstantResult
+		err error
+	}
+	ch := make(chan result, len(queries))
+
+	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	for k, q := range queries {
+		go func(key, query string) {
+			res, err := client.QueryInstant(queryCtx, query)
+			ch <- result{key: key, res: res, err: err}
+		}(k, q)
+	}
+
+	out := make(map[string]*PromInstantResult, len(queries))
+	for i := 0; i < len(queries); i++ {
+		r := <-ch
+		if r.err != nil {
+			return nil, fmt.Errorf("query %s: %w", r.key, r.err)
+		}
+		out[r.key] = r.res
+	}
+	return out, nil
+}
+
+// firstSampleValue is the value of an aggregated instant query's one sample,
+// or 0 when the series does not exist yet (no traffic).
+func firstSampleValue(r *PromInstantResult) float64 {
+	if r == nil || len(r.Samples) == 0 {
+		return 0
+	}
+	return r.Samples[0].Value
 }

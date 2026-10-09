@@ -202,6 +202,7 @@ func main() {
 				return routeService.Update(routeID, input, submittedBy)
 			}),
 	})
+	streamRepo := repository.NewStreamRepository(db)
 	routeService = services.NewRouteService(services.RouteServiceDeps{
 		RouteRepo:                routeRepo,
 		ApprovalRepo:             approvalRepo,
@@ -229,6 +230,9 @@ func main() {
 		K8sSecrets:               k8sService,
 		K8sAPIKeys:               k8sService,
 		K8sRefGrants:             k8sService,
+		Streams:                  streamRepo,
+		K8sGateways:              k8sService,
+		K8sL4Routes:              k8sService,
 	})
 	approvalService := services.NewApprovalService(services.ApprovalServiceDeps{
 		ApprovalRepo: approvalRepo,
@@ -287,6 +291,7 @@ func main() {
 	userHandler := handlers.NewUserHandler(userService, auditService)
 	projectHandler := handlers.NewProjectHandler(projectService, auditService, k8sService)
 	metricsService := services.NewMetricsService(projectRepo, routeRepo, domainRepo, cfg)
+	metricsService.SetStreamRepo(streamRepo)
 	metricsHandler := handlers.NewMetricsHandler(metricsService)
 	topologyService := services.NewTopologyService(
 		domainRepo,
@@ -306,6 +311,15 @@ func main() {
 	teamHandler := handlers.NewTeamHandler(teamService, permChecker, auditService, emailInviteService)
 	domainTemplateHandler := handlers.NewDomainTemplateHandler(domainTemplateService, auditService, domainTemplateService)
 	domainHandler := handlers.NewDomainHandler(domainService, auditService, permChecker, domainService)
+	streamService := services.NewStreamService(streamRepo, domainTemplateRepo, routeRepo, k8sService, projectNamespaceRepo)
+	streamService.SetPortSources(streamRepo, domainRepo)
+	// Route L4 create/update, domain create (merged template) and template
+	// capability enablement all enforce the same (transport, port) collision
+	// rules; wire their sources now that the repos and StreamService exist.
+	routeService.SetL4PortChecker(streamService)
+	domainService.SetStreamPorts(streamRepo)
+	domainTemplateService.SetPortSources(streamRepo, domainRepo)
+	streamHandler := handlers.NewStreamHandler(streamService, auditService, permChecker)
 	routeHandler := handlers.NewRouteHandler(routeService, auditService, permChecker)
 	routeVersionHandler := handlers.NewRouteVersionHandler(routeVersionService, auditService)
 	approvalPolicyService := services.NewApprovalPolicyService(approvalPolicyRepo)
@@ -495,6 +509,7 @@ func main() {
 		DomainTemplateHandler:     domainTemplateHandler,
 		ProjectNamespaceHandler:   projectNamespaceHandler,
 		DomainHandler:             domainHandler,
+		StreamHandler:             streamHandler,
 		TopologyHandler:           topologyHandler,
 		OpenAPIImportHandler:      openapiImportHandler,
 		RouteHandler:              routeHandler,
@@ -559,6 +574,7 @@ type RouterDeps struct {
 	DomainTemplateHandler     *handlers.DomainTemplateHandler
 	ProjectNamespaceHandler   *handlers.ProjectNamespaceHandler
 	DomainHandler             *handlers.DomainHandler
+	StreamHandler             *handlers.StreamHandler
 	TopologyHandler           *handlers.TopologyHandler
 	OpenAPIImportHandler      *handlers.OpenAPIImportHandler
 	RouteHandler              *handlers.RouteHandler
@@ -890,6 +906,47 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					projectNamespaces.PATCH("/:namespaceId", deps.ProjectNamespaceHandler.Update)                                     // Permission check in handler
 					projectNamespaces.DELETE("/:namespaceId", deps.ProjectNamespaceHandler.Delete)                                    // Permission check in handler
 					projectNamespaces.POST("/:namespaceId/ensure-reference-grant", deps.ProjectNamespaceHandler.EnsureReferenceGrant) // Permission check in handler
+				}
+
+				// Project-wide DNS records list. Aggregates every domain's
+				// managed DNS record for the project. Nil-guarded like the
+				// per-domain dns-record routes below; the handler enforces
+				// canManageDomains, the same permission those routes use.
+				if deps.DNSRecordHandler != nil {
+					dnsRecords := projects.Group("/:projectId/dns-records")
+					dnsRecords.Use(deps.PermChecker.RequireProjectAccess())
+					dnsRecords.GET("", deps.DNSRecordHandler.List)
+				}
+
+				// L4 Streams (view: any team member, manage: Owner/Project Admin,
+				// the same permission Domains use). Registered unconditionally
+				// like the other route groups; setupRouter runs with zero-value
+				// deps in the route-parity test, so registration must not depend
+				// on a handler being non-nil.
+				streams := projects.Group("/:projectId/streams")
+				streams.Use(deps.PermChecker.RequireProjectAccess())
+				{
+					streams.GET("", deps.StreamHandler.List)
+					streams.POST("", deps.StreamHandler.Create) // Permission check in handler
+					streams.GET("/:streamId", deps.StreamHandler.Get)
+					streams.PATCH("/:streamId", deps.StreamHandler.Update)  // Permission check in handler
+					streams.DELETE("/:streamId", deps.StreamHandler.Delete) // Permission check in handler
+					// L4 metrics (connections/rate/throughput); not the HTTP route-metrics path.
+					streams.GET("/:streamId/metrics", deps.MetricsHandler.GetStreamMetrics)
+
+					// L4 routes of a stream: the stream-scoped counterpart of the
+					// domain routes group below. Registered unconditionally for the
+					// same zero-value-deps parity reason as the group itself.
+					streamRoutes := streams.Group("/:streamId/routes")
+					{
+						streamRoutes.GET("", deps.RouteHandler.ListByStream)
+						streamRoutes.POST("", deps.RouteHandler.CreateForStream) // Permission check in handler
+						streamRoutes.GET("/:routeId", deps.RouteHandler.GetForStream)
+						streamRoutes.PUT("/:routeId", deps.RouteHandler.UpdateForStream)    // Permission check in handler
+						streamRoutes.DELETE("/:routeId", deps.RouteHandler.DeleteForStream) // Permission check in handler
+						streamRoutes.GET("/:routeId/yaml", deps.RouteHandler.GetYAMLForStream)
+						streamRoutes.POST("/:routeId/deploy", deps.RouteHandler.DeployForStream) // Deploy to K8s - permission check in handler
+					}
 				}
 
 				// Domains (view: any team member, manage: Owner/Project Admin)

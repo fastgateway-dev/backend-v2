@@ -85,6 +85,20 @@ var (
 		Resource: "httproutes",
 	}
 
+	// TCPRouteGVR represents the v1alpha2 TCPRoute resource
+	TCPRouteGVR = schema.GroupVersionResource{
+		Group:    "gateway.networking.k8s.io",
+		Version:  "v1alpha2",
+		Resource: "tcproutes",
+	}
+
+	// UDPRouteGVR represents the v1alpha2 UDPRoute resource
+	UDPRouteGVR = schema.GroupVersionResource{
+		Group:    "gateway.networking.k8s.io",
+		Version:  "v1alpha2",
+		Resource: "udproutes",
+	}
+
 	// ReferenceGrantGVR represents the ReferenceGrant resource
 	ReferenceGrantGVR = schema.GroupVersionResource{
 		Group:    "gateway.networking.k8s.io",

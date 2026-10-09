@@ -9,6 +9,25 @@ import (
 	"github.com/google/uuid"
 )
 
+// ErrRouteOwnerAmbiguous is returned when a route would have neither or both of
+// a Domain and a Stream owner. A route has exactly one: HTTP/gRPC routes belong
+// to a Domain, L4 (tcp/udp) routes to a Stream. The database CHECK
+// chk_route_single_owner enforces the same rule; this is the defense-in-depth
+// check that fails before anything is persisted.
+var ErrRouteOwnerAmbiguous = errors.New("a route must belong to exactly one of a domain or a stream")
+
+// validateRouteOwner enforces the exactly-one-owner rule.
+func validateRouteOwner(domainID, streamID *uuid.UUID) error {
+	if (domainID != nil) == (streamID != nil) {
+		return ErrRouteOwnerAmbiguous
+	}
+	return nil
+}
+
+// ErrRouteProtocolNotL4 is returned when a route created under a Stream is not
+// tcp or udp: streams carry only L4 routes.
+var ErrRouteProtocolNotL4 = errors.New("a stream route must use protocol tcp or udp")
+
 // validateDirectResponseInput enforces the directResponse route-type rules.
 func validateDirectResponseInput(config *models.RouteConfig, btp *routeplan.BackendTrafficPolicyInput) error {
 	// Validate direct response configuration if provided
@@ -135,9 +154,42 @@ func (w *routeWrite) validateRouteTrafficPolicies(config *models.RouteConfig, bt
 	return nil
 }
 
+// validateL4Listener enforces the listener-port rules of an L4 (tcp/udp)
+// route: the static reserved/range check first (no DB), then the merge-aware
+// collision check, which also reserves a merged template's HTTP/HTTPS ports.
+// Errors wrap ErrInvalidListenerPort/ErrReservedPort (-> 400) or
+// ErrPortCollision (-> 409); an unwired checker or missing stream fails closed.
+func (w *routeWrite) validateL4Listener(config *models.RouteConfig, protocol models.RouteProtocol, streamID *uuid.UUID, excludeRouteID *uuid.UUID) error {
+	if streamID == nil {
+		return errors.New("an L4 route must belong to a stream")
+	}
+	if err := ValidateListenerPort(config.ListenerPort, DefaultReservedPorts); err != nil {
+		return err
+	}
+	if w.l4Ports == nil {
+		return errors.New("L4 port collision checker is not configured")
+	}
+	transport := models.Route{Protocol: protocol}.Transport()
+	return w.l4Ports.CheckPortCollision(*streamID, transport, config.ListenerPort, excludeRouteID)
+}
+
 // validateRouteShapeAndConflicts runs the protocol, essential-config and
-// matcher-conflict checks shared by Create and Update.
-func (w *routeWrite) validateRouteShapeAndConflicts(config *models.RouteConfig, btp *routeplan.BackendTrafficPolicyInput, protocol models.RouteProtocol, domainID uuid.UUID, excludeRouteID *uuid.UUID) error {
+// matcher-conflict checks shared by Create and Update. streamID is the owning
+// stream of an L4 (tcp/udp) route and nil for domain routes.
+func (w *routeWrite) validateRouteShapeAndConflicts(config *models.RouteConfig, btp *routeplan.BackendTrafficPolicyInput, protocol models.RouteProtocol, domainID uuid.UUID, streamID *uuid.UUID, excludeRouteID *uuid.UUID) error {
+	// L4 routes have no paths/hostnames to shape-check or match-conflict on;
+	// their only conflict domain is the listener (transport, port).
+	if protocol == models.RouteProtocolTCP || protocol == models.RouteProtocolUDP {
+		// Shape first (static, no DB), then the listener-port rules.
+		if err := validateRouteConfig(config, protocol); err != nil {
+			return err
+		}
+		if err := validateL4BackendTrafficPolicy(btp, protocol); err != nil {
+			return err
+		}
+		return w.validateL4Listener(config, protocol, streamID, excludeRouteID)
+	}
+
 	// Validate protocol-specific config
 	if protocol == models.RouteProtocolGRPC {
 		if err := validateGRPCRouteConfig(config); err != nil {

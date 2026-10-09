@@ -166,6 +166,16 @@ type DomainTemplate struct {
 	ScalingConfig         *ScalingConfig            `gorm:"column:scaling_config;type:jsonb" json:"scalingConfig,omitempty"`
 	MergeGateways         bool                      `gorm:"column:merge_gateways;not null;default:false" json:"mergeGateways"`
 
+	// Capability flags: which kinds of resources this template can host.
+	// At least one must be true (enforced in the service layer).
+	// NOTE: EnableDomain intentionally has no gorm `default:true` tag. GORM treats a
+	// zero-value (false) field with a default tag as "unset" on Create and would
+	// insert the DB default (true), making a stream-only template impossible.
+	// The service always sets both values explicitly; the DB column default
+	// (migration 000047) still covers raw inserts.
+	EnableDomain bool `gorm:"column:enable_domain;not null" json:"enableDomain"`
+	EnableStream bool `gorm:"column:enable_stream;not null;default:false" json:"enableStream"`
+
 	// Telemetry (per spec.telemetry on EnvoyProxy CRD)
 	TelemetryAccessLog *TelemetryAccessLogConfig `gorm:"column:telemetry_access_log;type:jsonb" json:"telemetryAccessLog,omitempty"`
 	TelemetryTracing   *TelemetryTracingConfig   `gorm:"column:telemetry_tracing;type:jsonb"   json:"telemetryTracing,omitempty"`

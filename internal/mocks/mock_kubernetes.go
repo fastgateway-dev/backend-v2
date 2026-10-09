@@ -752,6 +752,132 @@ func (_c *MockKubernetesService_CreateReferenceGrant_Call) RunAndReturn(run func
 	return _c
 }
 
+// CreateTCPRoute provides a mock function for the type MockKubernetesService
+func (_mock *MockKubernetesService) CreateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error {
+	ret := _mock.Called(ctx, projectID, config)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateTCPRoute")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, *kubernetes.TCPRouteConfig) error); ok {
+		r0 = returnFunc(ctx, projectID, config)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockKubernetesService_CreateTCPRoute_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateTCPRoute'
+type MockKubernetesService_CreateTCPRoute_Call struct {
+	*mock.Call
+}
+
+// CreateTCPRoute is a helper method to define mock.On call
+//   - ctx context.Context
+//   - projectID uuid.UUID
+//   - config *kubernetes.TCPRouteConfig
+func (_e *MockKubernetesService_Expecter) CreateTCPRoute(ctx any, projectID any, config any) *MockKubernetesService_CreateTCPRoute_Call {
+	return &MockKubernetesService_CreateTCPRoute_Call{Call: _e.mock.On("CreateTCPRoute", ctx, projectID, config)}
+}
+
+func (_c *MockKubernetesService_CreateTCPRoute_Call) Run(run func(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig)) *MockKubernetesService_CreateTCPRoute_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 *kubernetes.TCPRouteConfig
+		if args[2] != nil {
+			arg2 = args[2].(*kubernetes.TCPRouteConfig)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockKubernetesService_CreateTCPRoute_Call) Return(err error) *MockKubernetesService_CreateTCPRoute_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockKubernetesService_CreateTCPRoute_Call) RunAndReturn(run func(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error) *MockKubernetesService_CreateTCPRoute_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateUDPRoute provides a mock function for the type MockKubernetesService
+func (_mock *MockKubernetesService) CreateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error {
+	ret := _mock.Called(ctx, projectID, config)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateUDPRoute")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, *kubernetes.UDPRouteConfig) error); ok {
+		r0 = returnFunc(ctx, projectID, config)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockKubernetesService_CreateUDPRoute_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateUDPRoute'
+type MockKubernetesService_CreateUDPRoute_Call struct {
+	*mock.Call
+}
+
+// CreateUDPRoute is a helper method to define mock.On call
+//   - ctx context.Context
+//   - projectID uuid.UUID
+//   - config *kubernetes.UDPRouteConfig
+func (_e *MockKubernetesService_Expecter) CreateUDPRoute(ctx any, projectID any, config any) *MockKubernetesService_CreateUDPRoute_Call {
+	return &MockKubernetesService_CreateUDPRoute_Call{Call: _e.mock.On("CreateUDPRoute", ctx, projectID, config)}
+}
+
+func (_c *MockKubernetesService_CreateUDPRoute_Call) Run(run func(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig)) *MockKubernetesService_CreateUDPRoute_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 *kubernetes.UDPRouteConfig
+		if args[2] != nil {
+			arg2 = args[2].(*kubernetes.UDPRouteConfig)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockKubernetesService_CreateUDPRoute_Call) Return(err error) *MockKubernetesService_CreateUDPRoute_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockKubernetesService_CreateUDPRoute_Call) RunAndReturn(run func(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error) *MockKubernetesService_CreateUDPRoute_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DeleteAPIKeySecret provides a mock function for the type MockKubernetesService
 func (_mock *MockKubernetesService) DeleteAPIKeySecret(ctx context.Context, projectID uuid.UUID, clientID uuid.UUID) error {
 	ret := _mock.Called(ctx, projectID, clientID)
@@ -2000,6 +2126,144 @@ func (_c *MockKubernetesService_DeleteStaleBackendsByRoute_Call) RunAndReturn(ru
 	return _c
 }
 
+// DeleteTCPRoute provides a mock function for the type MockKubernetesService
+func (_mock *MockKubernetesService) DeleteTCPRoute(ctx context.Context, projectID uuid.UUID, namespace string, name string) error {
+	ret := _mock.Called(ctx, projectID, namespace, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteTCPRoute")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, string) error); ok {
+		r0 = returnFunc(ctx, projectID, namespace, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockKubernetesService_DeleteTCPRoute_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteTCPRoute'
+type MockKubernetesService_DeleteTCPRoute_Call struct {
+	*mock.Call
+}
+
+// DeleteTCPRoute is a helper method to define mock.On call
+//   - ctx context.Context
+//   - projectID uuid.UUID
+//   - namespace string
+//   - name string
+func (_e *MockKubernetesService_Expecter) DeleteTCPRoute(ctx any, projectID any, namespace any, name any) *MockKubernetesService_DeleteTCPRoute_Call {
+	return &MockKubernetesService_DeleteTCPRoute_Call{Call: _e.mock.On("DeleteTCPRoute", ctx, projectID, namespace, name)}
+}
+
+func (_c *MockKubernetesService_DeleteTCPRoute_Call) Run(run func(ctx context.Context, projectID uuid.UUID, namespace string, name string)) *MockKubernetesService_DeleteTCPRoute_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockKubernetesService_DeleteTCPRoute_Call) Return(err error) *MockKubernetesService_DeleteTCPRoute_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockKubernetesService_DeleteTCPRoute_Call) RunAndReturn(run func(ctx context.Context, projectID uuid.UUID, namespace string, name string) error) *MockKubernetesService_DeleteTCPRoute_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteUDPRoute provides a mock function for the type MockKubernetesService
+func (_mock *MockKubernetesService) DeleteUDPRoute(ctx context.Context, projectID uuid.UUID, namespace string, name string) error {
+	ret := _mock.Called(ctx, projectID, namespace, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteUDPRoute")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, string) error); ok {
+		r0 = returnFunc(ctx, projectID, namespace, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockKubernetesService_DeleteUDPRoute_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteUDPRoute'
+type MockKubernetesService_DeleteUDPRoute_Call struct {
+	*mock.Call
+}
+
+// DeleteUDPRoute is a helper method to define mock.On call
+//   - ctx context.Context
+//   - projectID uuid.UUID
+//   - namespace string
+//   - name string
+func (_e *MockKubernetesService_Expecter) DeleteUDPRoute(ctx any, projectID any, namespace any, name any) *MockKubernetesService_DeleteUDPRoute_Call {
+	return &MockKubernetesService_DeleteUDPRoute_Call{Call: _e.mock.On("DeleteUDPRoute", ctx, projectID, namespace, name)}
+}
+
+func (_c *MockKubernetesService_DeleteUDPRoute_Call) Run(run func(ctx context.Context, projectID uuid.UUID, namespace string, name string)) *MockKubernetesService_DeleteUDPRoute_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockKubernetesService_DeleteUDPRoute_Call) Return(err error) *MockKubernetesService_DeleteUDPRoute_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockKubernetesService_DeleteUDPRoute_Call) RunAndReturn(run func(ctx context.Context, projectID uuid.UUID, namespace string, name string) error) *MockKubernetesService_DeleteUDPRoute_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DetectVersions provides a mock function for the type MockKubernetesService
 func (_mock *MockKubernetesService) DetectVersions(ctx context.Context, projectID uuid.UUID) (*cluster.RawVersions, error) {
 	ret := _mock.Called(ctx, projectID)
@@ -3173,6 +3437,132 @@ func (_c *MockKubernetesService_UpdateSecurityPolicy_Call) Return(err error) *Mo
 }
 
 func (_c *MockKubernetesService_UpdateSecurityPolicy_Call) RunAndReturn(run func(ctx context.Context, projectID uuid.UUID, config *kubernetes.SecurityPolicyConfig) error) *MockKubernetesService_UpdateSecurityPolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateTCPRoute provides a mock function for the type MockKubernetesService
+func (_mock *MockKubernetesService) UpdateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error {
+	ret := _mock.Called(ctx, projectID, config)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateTCPRoute")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, *kubernetes.TCPRouteConfig) error); ok {
+		r0 = returnFunc(ctx, projectID, config)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockKubernetesService_UpdateTCPRoute_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateTCPRoute'
+type MockKubernetesService_UpdateTCPRoute_Call struct {
+	*mock.Call
+}
+
+// UpdateTCPRoute is a helper method to define mock.On call
+//   - ctx context.Context
+//   - projectID uuid.UUID
+//   - config *kubernetes.TCPRouteConfig
+func (_e *MockKubernetesService_Expecter) UpdateTCPRoute(ctx any, projectID any, config any) *MockKubernetesService_UpdateTCPRoute_Call {
+	return &MockKubernetesService_UpdateTCPRoute_Call{Call: _e.mock.On("UpdateTCPRoute", ctx, projectID, config)}
+}
+
+func (_c *MockKubernetesService_UpdateTCPRoute_Call) Run(run func(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig)) *MockKubernetesService_UpdateTCPRoute_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 *kubernetes.TCPRouteConfig
+		if args[2] != nil {
+			arg2 = args[2].(*kubernetes.TCPRouteConfig)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockKubernetesService_UpdateTCPRoute_Call) Return(err error) *MockKubernetesService_UpdateTCPRoute_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockKubernetesService_UpdateTCPRoute_Call) RunAndReturn(run func(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error) *MockKubernetesService_UpdateTCPRoute_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateUDPRoute provides a mock function for the type MockKubernetesService
+func (_mock *MockKubernetesService) UpdateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error {
+	ret := _mock.Called(ctx, projectID, config)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateUDPRoute")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, *kubernetes.UDPRouteConfig) error); ok {
+		r0 = returnFunc(ctx, projectID, config)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockKubernetesService_UpdateUDPRoute_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateUDPRoute'
+type MockKubernetesService_UpdateUDPRoute_Call struct {
+	*mock.Call
+}
+
+// UpdateUDPRoute is a helper method to define mock.On call
+//   - ctx context.Context
+//   - projectID uuid.UUID
+//   - config *kubernetes.UDPRouteConfig
+func (_e *MockKubernetesService_Expecter) UpdateUDPRoute(ctx any, projectID any, config any) *MockKubernetesService_UpdateUDPRoute_Call {
+	return &MockKubernetesService_UpdateUDPRoute_Call{Call: _e.mock.On("UpdateUDPRoute", ctx, projectID, config)}
+}
+
+func (_c *MockKubernetesService_UpdateUDPRoute_Call) Run(run func(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig)) *MockKubernetesService_UpdateUDPRoute_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 *kubernetes.UDPRouteConfig
+		if args[2] != nil {
+			arg2 = args[2].(*kubernetes.UDPRouteConfig)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockKubernetesService_UpdateUDPRoute_Call) Return(err error) *MockKubernetesService_UpdateUDPRoute_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockKubernetesService_UpdateUDPRoute_Call) RunAndReturn(run func(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error) *MockKubernetesService_UpdateUDPRoute_Call {
 	_c.Call.Return(run)
 	return _c
 }

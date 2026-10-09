@@ -300,7 +300,7 @@ func TestClientAttachmentService_AttachFromRoute_Success(t *testing.T) {
 	submitterID := uuid.New()
 
 	client := &models.Client{ID: clientID, APIKeyEnabled: true}
-	route := &models.Route{ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient}
+	route := &models.Route{ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient}
 	domain := &models.Domain{ID: domainID, ProjectID: projectID}
 
 	clientRepo.On("GetByID", clientID).Return(client, nil)
@@ -419,7 +419,7 @@ func TestClientAttachmentService_AttachFromClient_Success(t *testing.T) {
 	submitterID := uuid.New()
 
 	client := &models.Client{ID: clientID, APIKeyEnabled: true}
-	route := &models.Route{ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient}
+	route := &models.Route{ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient}
 	domain := &models.Domain{ID: domainID, ProjectID: projectID}
 
 	clientRepo.On("GetByID", clientID).Return(client, nil)
@@ -510,7 +510,7 @@ func TestClientAttachmentService_AttachFromClient_AlreadyAttached(t *testing.T) 
 	projectID := uuid.New()
 
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID, APIKeyEnabled: true}, nil)
-	routeRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient}, nil)
+	routeRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient}, nil)
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
 	attachmentRepo.On("GetByClientAndRoute", clientID, routeID).Return(&models.ClientRouteAttachment{
 		Status: models.AttachmentStatusActive,
@@ -536,7 +536,7 @@ func TestClientAttachmentService_AttachFromClient_WrongProject(t *testing.T) {
 	otherProjectID := uuid.New()
 
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID}, nil)
-	routeRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient}, nil)
+	routeRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient}, nil)
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
 
 	input := &clients.AttachFromClientInput{RouteID: routeID, ProjectID: otherProjectID, EnableAPIKey: true}
@@ -574,7 +574,7 @@ func TestClientAttachmentService_RequestDetach_Success(t *testing.T) {
 	}
 
 	attachmentRepo.On("GetByID", attachmentID).Return(attachment, nil).Times(2)
-	routeRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, DomainID: domainID}, nil)
+	routeRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, DomainID: &domainID}, nil)
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
 	attachmentRepo.On("Update", mock.AnythingOfType("*models.ClientRouteAttachment")).Return(nil)
 
@@ -1195,7 +1195,7 @@ func attachFastPathRouteStatusCase(t *testing.T, status models.RouteStatus, want
 
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID, IPAddressCount: 1}, nil)
 	routeRepo.On("GetByID", routeID).Return(&models.Route{
-		ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient, Status: status,
+		ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient, Status: status,
 	}, nil)
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: uuid.New()}, nil)
 
@@ -1290,7 +1290,7 @@ func attachFromClientFastPathRouteStatusCase(t *testing.T, status models.RouteSt
 
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID, IPAddressCount: 1}, nil)
 	routeRepo.On("GetByID", routeID).Return(&models.Route{
-		ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient, Status: status,
+		ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient, Status: status,
 	}, nil)
 	// AttachFromClient additionally checks domain.ProjectID == input.ProjectID.
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: projectID}, nil)
@@ -1384,7 +1384,7 @@ func detachFastPathRouteStatusCase(t *testing.T, status models.RouteStatus, want
 		Status: models.AttachmentStatusActive,
 	}, nil)
 	routeRepo.On("GetByID", routeID).Return(&models.Route{
-		ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient, Status: status,
+		ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient, Status: status,
 	}, nil)
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: uuid.New()}, nil)
 
@@ -1455,7 +1455,7 @@ func detachFastPathRejectedRouteStatusCase(t *testing.T, status models.RouteStat
 		Status: models.AttachmentStatusActive,
 	}, nil)
 	route := &models.Route{
-		ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient, Status: status,
+		ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient, Status: status,
 	}
 	routeRepo.On("GetByID", routeID).Return(route, nil)
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: uuid.New()}, nil)
@@ -1581,7 +1581,7 @@ func TestClientAttachmentService_AttachFromRoute_ResolveTeamScope_Any(t *testing
 	client := &models.Client{ID: clientID, IPAddressCount: 1}
 	clientRepo.On("GetByID", clientID).Return(client, nil)
 
-	route := &models.Route{ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient}
+	route := &models.Route{ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient}
 	routeRepo.On("GetByID", routeID).Return(route, nil)
 
 	attachmentRepo.On("GetByClientAndRoute", clientID, routeID).Return(nil, errors.New("not found"))
@@ -1632,7 +1632,7 @@ func TestClientAttachmentService_AttachFromRoute_ResolveTeamScope_SubmitterTeam(
 	client := &models.Client{ID: clientID, IPAddressCount: 1}
 	clientRepo.On("GetByID", clientID).Return(client, nil)
 
-	route := &models.Route{ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient}
+	route := &models.Route{ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient}
 	routeRepo.On("GetByID", routeID).Return(route, nil)
 
 	attachmentRepo.On("GetByClientAndRoute", clientID, routeID).Return(nil, errors.New("not found"))
@@ -1689,7 +1689,7 @@ func TestClientAttachmentService_AttachFromRoute_ResolveTeamScope_OtherTeam(t *t
 	client := &models.Client{ID: clientID, IPAddressCount: 1}
 	clientRepo.On("GetByID", clientID).Return(client, nil)
 
-	route := &models.Route{ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient}
+	route := &models.Route{ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient}
 	routeRepo.On("GetByID", routeID).Return(route, nil)
 
 	attachmentRepo.On("GetByClientAndRoute", clientID, routeID).Return(nil, errors.New("not found"))
@@ -1750,7 +1750,7 @@ func TestClientAttachmentService_AttachFromRoute_ResolveTeamScope_UnknownScope(t
 	client := &models.Client{ID: clientID, IPAddressCount: 1}
 	clientRepo.On("GetByID", clientID).Return(client, nil)
 
-	route := &models.Route{ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient}
+	route := &models.Route{ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient}
 	routeRepo.On("GetByID", routeID).Return(route, nil)
 
 	attachmentRepo.On("GetByClientAndRoute", clientID, routeID).Return(nil, errors.New("not found"))
@@ -1822,7 +1822,7 @@ func TestClientAttachmentService_AttachFromRoute_FastPath_RejectedTransitionWrit
 
 	clientRepo.On("GetByID", clientID).Return(&models.Client{ID: clientID, IPAddressCount: 1}, nil)
 	routeRepo.On("GetByID", routeID).Return(&models.Route{
-		ID: routeID, DomainID: domainID, SecurityMode: models.SecurityModeClient,
+		ID: routeID, DomainID: &domainID, SecurityMode: models.SecurityModeClient,
 		Status: models.RouteStatus("something-unrecognised"),
 	}, nil)
 	domainRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, ProjectID: uuid.New()}, nil)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +25,11 @@ import (
 type fakePromClient struct {
 	instantErr error
 	instantRes *PromInstantResult
+	// instantResponses maps query substring → response; checked before instantRes.
+	instantResponses map[string]*PromInstantResult
+	// instantQueries records every instant query issued, for PromQL assertions.
+	mu             sync.Mutex
+	instantQueries []string
 
 	rangeErr error
 	// rangeResponses maps query substring → response
@@ -31,8 +37,16 @@ type fakePromClient struct {
 }
 
 func (f *fakePromClient) QueryInstant(ctx context.Context, query string) (*PromInstantResult, error) {
+	f.mu.Lock()
+	f.instantQueries = append(f.instantQueries, query)
+	f.mu.Unlock()
 	if f.instantErr != nil {
 		return nil, f.instantErr
+	}
+	for sub, res := range f.instantResponses {
+		if strings.Contains(query, sub) {
+			return res, nil
+		}
 	}
 	return f.instantRes, nil
 }
@@ -255,6 +269,19 @@ func (m *metricsTestRouteRepo) ExistsByName(domainID uuid.UUID, name string) (bo
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *metricsTestRouteRepo) ExistsByStreamAndName(streamID uuid.UUID, name string) (bool, error) {
+	args := m.Called(streamID, name)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *metricsTestRouteRepo) ListByStreamID(streamID uuid.UUID, page, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error) {
+	args := m.Called(streamID, page, limit, teamID, status)
+	if args.Get(0) == nil {
+		return nil, 0, args.Error(2)
+	}
+	return args.Get(0).([]models.Route), args.Get(1).(int64), args.Error(2)
+}
+
 func (m *metricsTestRouteRepo) GetActiveRoutesByDomainID(domainID uuid.UUID) ([]models.Route, error) {
 	args := m.Called(domainID)
 	return args.Get(0).([]models.Route), args.Error(1)
@@ -263,6 +290,19 @@ func (m *metricsTestRouteRepo) GetActiveRoutesByDomainID(domainID uuid.UUID) ([]
 func (m *metricsTestRouteRepo) CountByDomainID(domainID uuid.UUID) (int, error) {
 	args := m.Called(domainID)
 	return args.Int(0), args.Error(1)
+}
+
+func (m *metricsTestRouteRepo) CountByStreamID(streamID uuid.UUID) (int64, error) {
+	args := m.Called(streamID)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *metricsTestRouteRepo) ListActiveByStreamID(streamID uuid.UUID) ([]models.Route, error) {
+	args := m.Called(streamID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]models.Route), args.Error(1)
 }
 
 // metricsTestDomainRepo is a local stub satisfying repository.DomainRepositoryInterface.
@@ -371,7 +411,7 @@ func TestMetricsService_GetRouteMetrics_Success(t *testing.T) {
 	rRepo.On("GetByID", routeID).Return(&models.Route{
 		ID:       routeID,
 		Name:     "api-users",
-		DomainID: domainID,
+		DomainID: &domainID,
 	}, nil)
 	dRepo.On("GetByID", domainID).Return(&models.Domain{
 		ID:        domainID,
@@ -385,6 +425,24 @@ func TestMetricsService_GetRouteMetrics_Success(t *testing.T) {
 	require.NotEmpty(t, res.Latency.P95)
 	assert.Greater(t, res.Latency.P95[0].Value, 0.0)
 	assert.NotEmpty(t, res.Rps.Class2xx)
+}
+
+// An L4 route has a Stream and no Domain: route metrics are not available for
+// it, and GetRouteMetrics must say so instead of dereferencing its nil DomainID.
+func TestMetricsService_GetRouteMetrics_L4Route_NotAvailable(t *testing.T) {
+	svc, pRepo, rRepo, _ := newMetricsServiceWithRoute(&fakePromClient{})
+
+	projectID, routeID, streamID := uuid.New(), uuid.New(), uuid.New()
+	pRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID, MetricsEndpointURL: "http://prom:9090", MetricsAuthType: "none"}, nil)
+	rRepo.On("GetByID", routeID).Return(&models.Route{
+		ID: routeID, Name: "pg", StreamID: &streamID, Protocol: models.RouteProtocolTCP,
+	}, nil)
+
+	require.NotPanics(t, func() {
+		res, err := svc.GetRouteMetrics(context.Background(), projectID, routeID, "1h")
+		assert.Nil(t, res)
+		assert.ErrorIs(t, err, ErrMetricsNotAvailableForL4)
+	})
 }
 
 func TestMetricsService_GetRouteMetrics_InvalidRange(t *testing.T) {
@@ -402,7 +460,7 @@ func TestMetricsService_GetRouteMetrics_ProjectNotConfigured(t *testing.T) {
 	domainID := uuid.New()
 
 	pRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID}, nil)
-	rRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, Name: "x", DomainID: domainID}, nil)
+	rRepo.On("GetByID", routeID).Return(&models.Route{ID: routeID, Name: "x", DomainID: &domainID}, nil)
 	dRepo.On("GetByID", domainID).Return(&models.Domain{ID: domainID, Namespace: "fastgateway-system"}, nil)
 
 	_, err := svc.GetRouteMetrics(context.Background(), projectID, routeID, "1h")
@@ -452,8 +510,8 @@ func TestMetricsService_GetDomainMetrics_Success(t *testing.T) {
 
 	rRepo.On("ListByDomainID", domainID, 1, 10000, (*uuid.UUID)(nil), "", "", "", map[string]string(nil)).
 		Return([]models.Route{
-			{ID: routeID1, Name: "api-users", DomainID: domainID},
-			{ID: routeID2, Name: "checkout", DomainID: domainID},
+			{ID: routeID1, Name: "api-users", DomainID: &domainID},
+			{ID: routeID2, Name: "checkout", DomainID: &domainID},
 		}, int64(2), nil)
 
 	res, err := svc.GetDomainMetrics(context.Background(), projectID, domainID, "1h")
@@ -464,4 +522,159 @@ func TestMetricsService_GetDomainMetrics_Success(t *testing.T) {
 	assert.Equal(t, "api-users", res.TopRoutesByRps[0].RouteName)
 	assert.Equal(t, routeID1, res.TopRoutesByRps[0].RouteID)
 	assert.Equal(t, float64(200), res.TopRoutesByRps[0].Value)
+}
+
+// -----------------------------------------------------------------------------
+// StreamL4Metrics tests
+// -----------------------------------------------------------------------------
+
+// metricsTestStreamRepo stubs the stream lookup MetricsService uses.
+type metricsTestStreamRepo struct{ mock.Mock }
+
+func (m *metricsTestStreamRepo) GetByID(id uuid.UUID) (*models.Stream, error) {
+	args := m.Called(id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Stream), args.Error(1)
+}
+
+func newL4MetricsService(fake *fakePromClient) (*MetricsService, *metricsTestProjectRepo, *metricsTestRouteRepo, *metricsTestStreamRepo) {
+	svc, pRepo, rRepo, _ := newMetricsServiceWithRoute(fake)
+	sRepo := &metricsTestStreamRepo{}
+	svc.SetStreamRepo(sRepo)
+	return svc, pRepo, rRepo, sRepo
+}
+
+func vec(v float64) *PromInstantResult {
+	return &PromInstantResult{Samples: []PromSample{{Value: v}}}
+}
+
+func TestMetricsService_StreamL4Metrics_Success(t *testing.T) {
+	fake := &fakePromClient{
+		instantRes: &PromInstantResult{}, // anything unmatched: no series
+		instantResponses: map[string]*PromInstantResult{
+			// pg-1a2b3c4d is the TCP listener; dns-5e6f7a8b the UDP one.
+			`envoy_cluster_upstream_cx_active{envoy_cluster_name=~"tcproute/team-a/pg-1a2b3c4d/rule/.*"}`:             vec(7),
+			`rate(envoy_tcp_downstream_cx_total{envoy_tcp_prefix=~"tcproute/team-a/pg-1a2b3c4d(/.*)?"}[5m])`:          vec(1.5),
+			`rate(envoy_tcp_downstream_cx_rx_bytes_total{envoy_tcp_prefix=~"tcproute/team-a/pg-1a2b3c4d(/.*)?"}[5m])`: vec(2048),
+			`rate(envoy_tcp_downstream_cx_tx_bytes_total{envoy_tcp_prefix=~"tcproute/team-a/pg-1a2b3c4d(/.*)?"}[5m])`: vec(4096),
+			`envoy_udp_downstream_sess_active{envoy_udp_prefix=~"udproute/team-a/dns-5e6f7a8b(/.*)?"}`:                vec(3),
+			`rate(envoy_udp_downstream_sess_total{envoy_udp_prefix=~"udproute/team-a/dns-5e6f7a8b(/.*)?"}[5m])`:       vec(0.5),
+			`rate(envoy_udp_downstream_sess_rx_bytes{envoy_udp_prefix=~"udproute/team-a/dns-5e6f7a8b(/.*)?"}[5m])`:    vec(100),
+			`rate(envoy_udp_downstream_sess_tx_bytes{envoy_udp_prefix=~"udproute/team-a/dns-5e6f7a8b(/.*)?"}[5m])`:    vec(200),
+		},
+	}
+	svc, pRepo, rRepo, sRepo := newL4MetricsService(fake)
+
+	projectID, streamID := uuid.New(), uuid.New()
+	tcpID, udpID := uuid.New(), uuid.New()
+	tcpPort, udpPort := 5432, 53
+	pRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID, MetricsEndpointURL: "http://prom:9090", MetricsAuthType: "none"}, nil)
+	sRepo.On("GetByID", streamID).Return(&models.Stream{ID: streamID, ProjectID: projectID, Namespace: "team-a"}, nil)
+	rRepo.On("ListActiveByStreamID", streamID).Return([]models.Route{
+		{ID: tcpID, Name: "pg", K8sRouteName: "pg-1a2b3c4d", StreamID: &streamID, Protocol: models.RouteProtocolTCP, ListenerPort: &tcpPort},
+		{ID: udpID, Name: "dns", K8sRouteName: "dns-5e6f7a8b", StreamID: &streamID, Protocol: models.RouteProtocolUDP, ListenerPort: &udpPort},
+	}, nil)
+
+	res, err := svc.StreamL4Metrics(context.Background(), projectID.String(), streamID.String())
+	require.NoError(t, err)
+	require.Len(t, res.Listeners, 2)
+
+	byID := map[uuid.UUID]L4ListenerMetrics{}
+	for _, l := range res.Listeners {
+		byID[l.RouteID] = l
+	}
+	tcp := byID[tcpID]
+	assert.Equal(t, "tcp", tcp.Protocol)
+	assert.Equal(t, 5432, tcp.Port)
+	assert.Equal(t, 7.0, tcp.ActiveConnections)
+	assert.Equal(t, 1.5, tcp.ConnectionRate)
+	assert.Equal(t, 2048.0, tcp.BytesIn)
+	assert.Equal(t, 4096.0, tcp.BytesOut)
+
+	udp := byID[udpID]
+	assert.Equal(t, "udp", udp.Protocol)
+	assert.Equal(t, 53, udp.Port)
+	assert.Equal(t, 3.0, udp.ActiveConnections)
+	assert.Equal(t, 0.5, udp.ConnectionRate)
+	assert.Equal(t, 100.0, udp.BytesIn)
+	assert.Equal(t, 200.0, udp.BytesOut)
+
+	// Aggregate is the sum across listeners.
+	assert.Equal(t, 10.0, res.ActiveConnections)
+	assert.Equal(t, 2.0, res.ConnectionRate)
+	assert.Equal(t, 2148.0, res.BytesIn)
+	assert.Equal(t, 4296.0, res.BytesOut)
+}
+
+func TestMetricsService_StreamL4Metrics_NoSeriesIsZero(t *testing.T) {
+	svc, pRepo, rRepo, sRepo := newL4MetricsService(&fakePromClient{instantRes: &PromInstantResult{}})
+
+	projectID, streamID := uuid.New(), uuid.New()
+	port := 5432
+	pRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID, MetricsEndpointURL: "http://prom:9090", MetricsAuthType: "none"}, nil)
+	sRepo.On("GetByID", streamID).Return(&models.Stream{ID: streamID, ProjectID: projectID, Namespace: "team-a"}, nil)
+	rRepo.On("ListActiveByStreamID", streamID).Return([]models.Route{
+		{ID: uuid.New(), Name: "pg", StreamID: &streamID, Protocol: models.RouteProtocolTCP, ListenerPort: &port},
+	}, nil)
+
+	res, err := svc.StreamL4Metrics(context.Background(), projectID.String(), streamID.String())
+	require.NoError(t, err)
+	require.Len(t, res.Listeners, 1)
+	assert.Zero(t, res.Listeners[0].ActiveConnections)
+	assert.Zero(t, res.BytesOut)
+}
+
+func TestMetricsService_StreamL4Metrics_EmptyStream(t *testing.T) {
+	svc, pRepo, rRepo, sRepo := newL4MetricsService(&fakePromClient{})
+	projectID, streamID := uuid.New(), uuid.New()
+	pRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID, MetricsEndpointURL: "http://prom:9090", MetricsAuthType: "none"}, nil)
+	sRepo.On("GetByID", streamID).Return(&models.Stream{ID: streamID, ProjectID: projectID, Namespace: "team-a"}, nil)
+	rRepo.On("ListActiveByStreamID", streamID).Return([]models.Route{}, nil)
+
+	res, err := svc.StreamL4Metrics(context.Background(), projectID.String(), streamID.String())
+	require.NoError(t, err)
+	assert.NotNil(t, res.Listeners)
+	assert.Empty(t, res.Listeners)
+}
+
+func TestMetricsService_StreamL4Metrics_WrongProjectIsNotFound(t *testing.T) {
+	svc, pRepo, _, sRepo := newL4MetricsService(&fakePromClient{})
+	projectID, streamID := uuid.New(), uuid.New()
+	pRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID, MetricsEndpointURL: "http://prom:9090", MetricsAuthType: "none"}, nil)
+	sRepo.On("GetByID", streamID).Return(&models.Stream{ID: streamID, ProjectID: uuid.New(), Namespace: "team-a"}, nil)
+
+	_, err := svc.StreamL4Metrics(context.Background(), projectID.String(), streamID.String())
+	assert.ErrorIs(t, err, ErrStreamNotFound)
+}
+
+func TestMetricsService_StreamL4Metrics_NotConfiguredAndBadIDs(t *testing.T) {
+	svc, pRepo, _, _ := newL4MetricsService(&fakePromClient{})
+	projectID := uuid.New()
+	pRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID}, nil)
+
+	_, err := svc.StreamL4Metrics(context.Background(), projectID.String(), uuid.NewString())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not configured")
+
+	_, err = svc.StreamL4Metrics(context.Background(), "nope", uuid.NewString())
+	require.Error(t, err)
+	_, err = svc.StreamL4Metrics(context.Background(), projectID.String(), "nope")
+	require.Error(t, err)
+}
+
+func TestMetricsService_StreamL4Metrics_PromError(t *testing.T) {
+	svc, pRepo, rRepo, sRepo := newL4MetricsService(&fakePromClient{instantErr: errors.New("prom http 500")})
+	projectID, streamID := uuid.New(), uuid.New()
+	port := 80
+	pRepo.On("GetByID", projectID).Return(&models.Project{ID: projectID, MetricsEndpointURL: "http://prom:9090", MetricsAuthType: "none"}, nil)
+	sRepo.On("GetByID", streamID).Return(&models.Stream{ID: streamID, ProjectID: projectID, Namespace: "team-a"}, nil)
+	rRepo.On("ListActiveByStreamID", streamID).Return([]models.Route{
+		{ID: uuid.New(), Name: "pg", StreamID: &streamID, Protocol: models.RouteProtocolTCP, ListenerPort: &port},
+	}, nil)
+
+	_, err := svc.StreamL4Metrics(context.Background(), projectID.String(), streamID.String())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "500")
 }

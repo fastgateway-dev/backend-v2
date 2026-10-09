@@ -382,3 +382,32 @@ func TestBackendTLSConfig_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestRoute_IsL4_Transport(t *testing.T) {
+	assert.True(t, (Route{Protocol: RouteProtocolTCP}).IsL4())
+	assert.False(t, (Route{Protocol: RouteProtocolHTTP}).IsL4())
+	assert.Equal(t, "UDP", (Route{Protocol: RouteProtocolUDP}).Transport())
+}
+
+func TestRoute_SyncListenerPort(t *testing.T) {
+	r := Route{Protocol: RouteProtocolTCP, Config: RouteConfig{ListenerPort: 5432}}
+	r.SyncListenerPort()
+	if assert.NotNil(t, r.ListenerPort) {
+		assert.Equal(t, 5432, *r.ListenerPort)
+	}
+
+	// Config changes are re-mirrored, not frozen at first sync.
+	r.Config.ListenerPort = 5433
+	r.SyncListenerPort()
+	assert.Equal(t, 5433, *r.ListenerPort)
+
+	// Domain (HTTP) routes never carry the column, even with a stray port.
+	h := Route{Protocol: RouteProtocolHTTP, Config: RouteConfig{ListenerPort: 8080}}
+	h.SyncListenerPort()
+	assert.Nil(t, h.ListenerPort)
+
+	// An L4 route without a port clears the column rather than writing 0.
+	z := Route{Protocol: RouteProtocolUDP}
+	z.SyncListenerPort()
+	assert.Nil(t, z.ListenerPort)
+}

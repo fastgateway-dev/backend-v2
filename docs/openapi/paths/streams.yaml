@@ -1,0 +1,145 @@
+streams:
+  get:
+    tags: [Streams]
+    summary: List streams in a project
+    operationId: listStreams
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    responses:
+      '200':
+        description: List of streams, ordered by name
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../schemas/stream.yaml#/Stream'
+
+  post:
+    tags: [Streams]
+    summary: Create a stream
+    description: |
+      Creates a stream from a Gateway Template that has the stream capability
+      and eagerly deploys its Gateway. Requires Owner or Project Admin.
+    operationId: createStream
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/stream.yaml#/CreateStreamRequest'
+    responses:
+      '201':
+        description: Stream created
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/stream.yaml#/Stream'
+      '400':
+        description: Invalid name, namespace not registered for the project or lacking the deploy_gateway capability, or the Gateway Template is not enabled for streams
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        description: Gateway Template not found (including templates of other projects)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '409':
+        description: A stream with this name already exists in the project
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+streams_{streamId}:
+  get:
+    tags: [Streams]
+    summary: Get a stream
+    operationId: getStream
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+    responses:
+      '200':
+        description: Stream details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/stream.yaml#/Stream'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+  patch:
+    tags: [Streams]
+    summary: Rename a stream
+    operationId: updateStream
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/stream.yaml#/UpdateStreamRequest'
+    responses:
+      '200':
+        description: Updated stream
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/stream.yaml#/Stream'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: A stream with this name already exists in the project
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+  delete:
+    tags: [Streams]
+    summary: Delete a stream
+    description: Fails with 409 while the stream still has routes.
+    operationId: deleteStream
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+    responses:
+      '204':
+        description: Stream deleted
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Stream still has routes
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

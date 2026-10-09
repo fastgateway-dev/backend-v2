@@ -6807,6 +6807,140 @@ func (_c *MockDomainDNSRecordRepository_GetByDomainID_Call) RunAndReturn(run fun
 	return _c
 }
 
+// HostnameClaimExists provides a mock function for the type MockDomainDNSRecordRepository
+func (_mock *MockDomainDNSRecordRepository) HostnameClaimExists(hostname string, zoneID uuid.UUID, excludeDomainID uuid.UUID) (bool, error) {
+	ret := _mock.Called(hostname, zoneID, excludeDomainID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for HostnameClaimExists")
+	}
+
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(string, uuid.UUID, uuid.UUID) (bool, error)); ok {
+		return returnFunc(hostname, zoneID, excludeDomainID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(string, uuid.UUID, uuid.UUID) bool); ok {
+		r0 = returnFunc(hostname, zoneID, excludeDomainID)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if returnFunc, ok := ret.Get(1).(func(string, uuid.UUID, uuid.UUID) error); ok {
+		r1 = returnFunc(hostname, zoneID, excludeDomainID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockDomainDNSRecordRepository_HostnameClaimExists_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HostnameClaimExists'
+type MockDomainDNSRecordRepository_HostnameClaimExists_Call struct {
+	*mock.Call
+}
+
+// HostnameClaimExists is a helper method to define mock.On call
+//   - hostname string
+//   - zoneID uuid.UUID
+//   - excludeDomainID uuid.UUID
+func (_e *MockDomainDNSRecordRepository_Expecter) HostnameClaimExists(hostname any, zoneID any, excludeDomainID any) *MockDomainDNSRecordRepository_HostnameClaimExists_Call {
+	return &MockDomainDNSRecordRepository_HostnameClaimExists_Call{Call: _e.mock.On("HostnameClaimExists", hostname, zoneID, excludeDomainID)}
+}
+
+func (_c *MockDomainDNSRecordRepository_HostnameClaimExists_Call) Run(run func(hostname string, zoneID uuid.UUID, excludeDomainID uuid.UUID)) *MockDomainDNSRecordRepository_HostnameClaimExists_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 uuid.UUID
+		if args[2] != nil {
+			arg2 = args[2].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockDomainDNSRecordRepository_HostnameClaimExists_Call) Return(b bool, err error) *MockDomainDNSRecordRepository_HostnameClaimExists_Call {
+	_c.Call.Return(b, err)
+	return _c
+}
+
+func (_c *MockDomainDNSRecordRepository_HostnameClaimExists_Call) RunAndReturn(run func(hostname string, zoneID uuid.UUID, excludeDomainID uuid.UUID) (bool, error)) *MockDomainDNSRecordRepository_HostnameClaimExists_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByProjectID provides a mock function for the type MockDomainDNSRecordRepository
+func (_mock *MockDomainDNSRecordRepository) ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
+	ret := _mock.Called(projectID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByProjectID")
+	}
+
+	var r0 []models.DNSRecordListItem
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) ([]models.DNSRecordListItem, error)); ok {
+		return returnFunc(projectID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) []models.DNSRecordListItem); ok {
+		r0 = returnFunc(projectID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.DNSRecordListItem)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(projectID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockDomainDNSRecordRepository_ListByProjectID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByProjectID'
+type MockDomainDNSRecordRepository_ListByProjectID_Call struct {
+	*mock.Call
+}
+
+// ListByProjectID is a helper method to define mock.On call
+//   - projectID uuid.UUID
+func (_e *MockDomainDNSRecordRepository_Expecter) ListByProjectID(projectID any) *MockDomainDNSRecordRepository_ListByProjectID_Call {
+	return &MockDomainDNSRecordRepository_ListByProjectID_Call{Call: _e.mock.On("ListByProjectID", projectID)}
+}
+
+func (_c *MockDomainDNSRecordRepository_ListByProjectID_Call) Run(run func(projectID uuid.UUID)) *MockDomainDNSRecordRepository_ListByProjectID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockDomainDNSRecordRepository_ListByProjectID_Call) Return(dNSRecordListItems []models.DNSRecordListItem, err error) *MockDomainDNSRecordRepository_ListByProjectID_Call {
+	_c.Call.Return(dNSRecordListItems, err)
+	return _c
+}
+
+func (_c *MockDomainDNSRecordRepository_ListByProjectID_Call) RunAndReturn(run func(projectID uuid.UUID) ([]models.DNSRecordListItem, error)) *MockDomainDNSRecordRepository_ListByProjectID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Update provides a mock function for the type MockDomainDNSRecordRepository
 func (_mock *MockDomainDNSRecordRepository) Update(rec *models.DomainDNSRecord) error {
 	ret := _mock.Called(rec)
@@ -7252,8 +7386,8 @@ func (_c *MockDomainTemplateRepository_ListByExposureType_Call) RunAndReturn(run
 }
 
 // ListByProjectID provides a mock function for the type MockDomainTemplateRepository
-func (_mock *MockDomainTemplateRepository) ListByProjectID(projectID uuid.UUID, page int, limit int) ([]models.DomainTemplate, int64, error) {
-	ret := _mock.Called(projectID, page, limit)
+func (_mock *MockDomainTemplateRepository) ListByProjectID(projectID uuid.UUID, page int, limit int, capability string) ([]models.DomainTemplate, int64, error) {
+	ret := _mock.Called(projectID, page, limit, capability)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListByProjectID")
@@ -7262,23 +7396,23 @@ func (_mock *MockDomainTemplateRepository) ListByProjectID(projectID uuid.UUID, 
 	var r0 []models.DomainTemplate
 	var r1 int64
 	var r2 error
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int) ([]models.DomainTemplate, int64, error)); ok {
-		return returnFunc(projectID, page, limit)
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int, string) ([]models.DomainTemplate, int64, error)); ok {
+		return returnFunc(projectID, page, limit, capability)
 	}
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int) []models.DomainTemplate); ok {
-		r0 = returnFunc(projectID, page, limit)
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int, string) []models.DomainTemplate); ok {
+		r0 = returnFunc(projectID, page, limit, capability)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]models.DomainTemplate)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, int, int) int64); ok {
-		r1 = returnFunc(projectID, page, limit)
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, int, int, string) int64); ok {
+		r1 = returnFunc(projectID, page, limit, capability)
 	} else {
 		r1 = ret.Get(1).(int64)
 	}
-	if returnFunc, ok := ret.Get(2).(func(uuid.UUID, int, int) error); ok {
-		r2 = returnFunc(projectID, page, limit)
+	if returnFunc, ok := ret.Get(2).(func(uuid.UUID, int, int, string) error); ok {
+		r2 = returnFunc(projectID, page, limit, capability)
 	} else {
 		r2 = ret.Error(2)
 	}
@@ -7294,11 +7428,12 @@ type MockDomainTemplateRepository_ListByProjectID_Call struct {
 //   - projectID uuid.UUID
 //   - page int
 //   - limit int
-func (_e *MockDomainTemplateRepository_Expecter) ListByProjectID(projectID any, page any, limit any) *MockDomainTemplateRepository_ListByProjectID_Call {
-	return &MockDomainTemplateRepository_ListByProjectID_Call{Call: _e.mock.On("ListByProjectID", projectID, page, limit)}
+//   - capability string
+func (_e *MockDomainTemplateRepository_Expecter) ListByProjectID(projectID any, page any, limit any, capability any) *MockDomainTemplateRepository_ListByProjectID_Call {
+	return &MockDomainTemplateRepository_ListByProjectID_Call{Call: _e.mock.On("ListByProjectID", projectID, page, limit, capability)}
 }
 
-func (_c *MockDomainTemplateRepository_ListByProjectID_Call) Run(run func(projectID uuid.UUID, page int, limit int)) *MockDomainTemplateRepository_ListByProjectID_Call {
+func (_c *MockDomainTemplateRepository_ListByProjectID_Call) Run(run func(projectID uuid.UUID, page int, limit int, capability string)) *MockDomainTemplateRepository_ListByProjectID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 uuid.UUID
 		if args[0] != nil {
@@ -7312,10 +7447,15 @@ func (_c *MockDomainTemplateRepository_ListByProjectID_Call) Run(run func(projec
 		if args[2] != nil {
 			arg2 = args[2].(int)
 		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -7326,7 +7466,7 @@ func (_c *MockDomainTemplateRepository_ListByProjectID_Call) Return(domainTempla
 	return _c
 }
 
-func (_c *MockDomainTemplateRepository_ListByProjectID_Call) RunAndReturn(run func(projectID uuid.UUID, page int, limit int) ([]models.DomainTemplate, int64, error)) *MockDomainTemplateRepository_ListByProjectID_Call {
+func (_c *MockDomainTemplateRepository_ListByProjectID_Call) RunAndReturn(run func(projectID uuid.UUID, page int, limit int, capability string) ([]models.DomainTemplate, int64, error)) *MockDomainTemplateRepository_ListByProjectID_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -10324,6 +10464,66 @@ func (_c *MockRouteRepository_CountByDomainID_Call) RunAndReturn(run func(domain
 	return _c
 }
 
+// CountByStreamID provides a mock function for the type MockRouteRepository
+func (_mock *MockRouteRepository) CountByStreamID(streamID uuid.UUID) (int64, error) {
+	ret := _mock.Called(streamID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountByStreamID")
+	}
+
+	var r0 int64
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) (int64, error)); ok {
+		return returnFunc(streamID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) int64); ok {
+		r0 = returnFunc(streamID)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(streamID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteRepository_CountByStreamID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountByStreamID'
+type MockRouteRepository_CountByStreamID_Call struct {
+	*mock.Call
+}
+
+// CountByStreamID is a helper method to define mock.On call
+//   - streamID uuid.UUID
+func (_e *MockRouteRepository_Expecter) CountByStreamID(streamID any) *MockRouteRepository_CountByStreamID_Call {
+	return &MockRouteRepository_CountByStreamID_Call{Call: _e.mock.On("CountByStreamID", streamID)}
+}
+
+func (_c *MockRouteRepository_CountByStreamID_Call) Run(run func(streamID uuid.UUID)) *MockRouteRepository_CountByStreamID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteRepository_CountByStreamID_Call) Return(n int64, err error) *MockRouteRepository_CountByStreamID_Call {
+	_c.Call.Return(n, err)
+	return _c
+}
+
+func (_c *MockRouteRepository_CountByStreamID_Call) RunAndReturn(run func(streamID uuid.UUID) (int64, error)) *MockRouteRepository_CountByStreamID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Create provides a mock function for the type MockRouteRepository
 func (_mock *MockRouteRepository) Create(route *models.Route) error {
 	ret := _mock.Called(route)
@@ -10488,6 +10688,72 @@ func (_c *MockRouteRepository_ExistsByName_Call) Return(b bool, err error) *Mock
 }
 
 func (_c *MockRouteRepository_ExistsByName_Call) RunAndReturn(run func(domainID uuid.UUID, name string) (bool, error)) *MockRouteRepository_ExistsByName_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ExistsByStreamAndName provides a mock function for the type MockRouteRepository
+func (_mock *MockRouteRepository) ExistsByStreamAndName(streamID uuid.UUID, name string) (bool, error) {
+	ret := _mock.Called(streamID, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExistsByStreamAndName")
+	}
+
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, string) (bool, error)); ok {
+		return returnFunc(streamID, name)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, string) bool); ok {
+		r0 = returnFunc(streamID, name)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, string) error); ok {
+		r1 = returnFunc(streamID, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteRepository_ExistsByStreamAndName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExistsByStreamAndName'
+type MockRouteRepository_ExistsByStreamAndName_Call struct {
+	*mock.Call
+}
+
+// ExistsByStreamAndName is a helper method to define mock.On call
+//   - streamID uuid.UUID
+//   - name string
+func (_e *MockRouteRepository_Expecter) ExistsByStreamAndName(streamID any, name any) *MockRouteRepository_ExistsByStreamAndName_Call {
+	return &MockRouteRepository_ExistsByStreamAndName_Call{Call: _e.mock.On("ExistsByStreamAndName", streamID, name)}
+}
+
+func (_c *MockRouteRepository_ExistsByStreamAndName_Call) Run(run func(streamID uuid.UUID, name string)) *MockRouteRepository_ExistsByStreamAndName_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteRepository_ExistsByStreamAndName_Call) Return(b bool, err error) *MockRouteRepository_ExistsByStreamAndName_Call {
+	_c.Call.Return(b, err)
+	return _c
+}
+
+func (_c *MockRouteRepository_ExistsByStreamAndName_Call) RunAndReturn(run func(streamID uuid.UUID, name string) (bool, error)) *MockRouteRepository_ExistsByStreamAndName_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -10740,6 +11006,68 @@ func (_c *MockRouteRepository_GetByIDs_Call) RunAndReturn(run func(ids []uuid.UU
 	return _c
 }
 
+// ListActiveByStreamID provides a mock function for the type MockRouteRepository
+func (_mock *MockRouteRepository) ListActiveByStreamID(streamID uuid.UUID) ([]models.Route, error) {
+	ret := _mock.Called(streamID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListActiveByStreamID")
+	}
+
+	var r0 []models.Route
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) ([]models.Route, error)); ok {
+		return returnFunc(streamID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) []models.Route); ok {
+		r0 = returnFunc(streamID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.Route)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(streamID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteRepository_ListActiveByStreamID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListActiveByStreamID'
+type MockRouteRepository_ListActiveByStreamID_Call struct {
+	*mock.Call
+}
+
+// ListActiveByStreamID is a helper method to define mock.On call
+//   - streamID uuid.UUID
+func (_e *MockRouteRepository_Expecter) ListActiveByStreamID(streamID any) *MockRouteRepository_ListActiveByStreamID_Call {
+	return &MockRouteRepository_ListActiveByStreamID_Call{Call: _e.mock.On("ListActiveByStreamID", streamID)}
+}
+
+func (_c *MockRouteRepository_ListActiveByStreamID_Call) Run(run func(streamID uuid.UUID)) *MockRouteRepository_ListActiveByStreamID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteRepository_ListActiveByStreamID_Call) Return(routes []models.Route, err error) *MockRouteRepository_ListActiveByStreamID_Call {
+	_c.Call.Return(routes, err)
+	return _c
+}
+
+func (_c *MockRouteRepository_ListActiveByStreamID_Call) RunAndReturn(run func(streamID uuid.UUID) ([]models.Route, error)) *MockRouteRepository_ListActiveByStreamID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListByDomainID provides a mock function for the type MockRouteRepository
 func (_mock *MockRouteRepository) ListByDomainID(domainID uuid.UUID, page int, limit int, teamID *uuid.UUID, status string, search string, searchField string, labels map[string]string) ([]models.Route, int64, error) {
 	ret := _mock.Called(domainID, page, limit, teamID, status, search, searchField, labels)
@@ -10932,6 +11260,98 @@ func (_c *MockRouteRepository_ListByProjectID_Call) Return(routes []models.Route
 }
 
 func (_c *MockRouteRepository_ListByProjectID_Call) RunAndReturn(run func(projectID uuid.UUID, page int, limit int, filters repository.RouteListFilters) ([]models.Route, int64, error)) *MockRouteRepository_ListByProjectID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByStreamID provides a mock function for the type MockRouteRepository
+func (_mock *MockRouteRepository) ListByStreamID(streamID uuid.UUID, page int, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error) {
+	ret := _mock.Called(streamID, page, limit, teamID, status)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByStreamID")
+	}
+
+	var r0 []models.Route
+	var r1 int64
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int, *uuid.UUID, string) ([]models.Route, int64, error)); ok {
+		return returnFunc(streamID, page, limit, teamID, status)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, int, int, *uuid.UUID, string) []models.Route); ok {
+		r0 = returnFunc(streamID, page, limit, teamID, status)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.Route)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, int, int, *uuid.UUID, string) int64); ok {
+		r1 = returnFunc(streamID, page, limit, teamID, status)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+	if returnFunc, ok := ret.Get(2).(func(uuid.UUID, int, int, *uuid.UUID, string) error); ok {
+		r2 = returnFunc(streamID, page, limit, teamID, status)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+// MockRouteRepository_ListByStreamID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByStreamID'
+type MockRouteRepository_ListByStreamID_Call struct {
+	*mock.Call
+}
+
+// ListByStreamID is a helper method to define mock.On call
+//   - streamID uuid.UUID
+//   - page int
+//   - limit int
+//   - teamID *uuid.UUID
+//   - status string
+func (_e *MockRouteRepository_Expecter) ListByStreamID(streamID any, page any, limit any, teamID any, status any) *MockRouteRepository_ListByStreamID_Call {
+	return &MockRouteRepository_ListByStreamID_Call{Call: _e.mock.On("ListByStreamID", streamID, page, limit, teamID, status)}
+}
+
+func (_c *MockRouteRepository_ListByStreamID_Call) Run(run func(streamID uuid.UUID, page int, limit int, teamID *uuid.UUID, status string)) *MockRouteRepository_ListByStreamID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 int
+		if args[1] != nil {
+			arg1 = args[1].(int)
+		}
+		var arg2 int
+		if args[2] != nil {
+			arg2 = args[2].(int)
+		}
+		var arg3 *uuid.UUID
+		if args[3] != nil {
+			arg3 = args[3].(*uuid.UUID)
+		}
+		var arg4 string
+		if args[4] != nil {
+			arg4 = args[4].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+			arg4,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteRepository_ListByStreamID_Call) Return(routes []models.Route, n int64, err error) *MockRouteRepository_ListByStreamID_Call {
+	_c.Call.Return(routes, n, err)
+	return _c
+}
+
+func (_c *MockRouteRepository_ListByStreamID_Call) RunAndReturn(run func(streamID uuid.UUID, page int, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error)) *MockRouteRepository_ListByStreamID_Call {
 	_c.Call.Return(run)
 	return _c
 }

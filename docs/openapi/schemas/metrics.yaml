@@ -116,3 +116,55 @@ DomainMetricsResult:
       type: array
       items:
         $ref: '#/TopRouteEntry'
+
+L4ListenerMetrics:
+  type: object
+  description: Current L4 throughput of one stream listener (one L4 route is one Gateway listener port)
+  required: [routeId, routeName, protocol, port, activeConnections, connectionRate, bytesIn, bytesOut]
+  properties:
+    routeId:
+      type: string
+      format: uuid
+    routeName:
+      type: string
+    protocol:
+      type: string
+      enum: [tcp, udp]
+    port:
+      type: integer
+      description: Gateway listener port
+    activeConnections:
+      type: number
+      description: Open TCP connections, or active UDP sessions for a UDP listener
+    connectionRate:
+      type: number
+      description: New connections (UDP sessions) per second, averaged over 5m
+    bytesIn:
+      type: number
+      description: Bytes per second received from clients, averaged over 5m
+    bytesOut:
+      type: number
+      description: Bytes per second sent to clients, averaged over 5m
+
+L4Metrics:
+  type: object
+  description: |
+    L4 metrics for a stream, per listener and summed. There are no HTTP
+    request-rate, latency or error-class series for L4.
+  required: [streamId, listeners, activeConnections, connectionRate, bytesIn, bytesOut]
+  properties:
+    streamId:
+      type: string
+      format: uuid
+    listeners:
+      type: array
+      items:
+        $ref: '#/L4ListenerMetrics'
+    activeConnections:
+      type: number
+    connectionRate:
+      type: number
+    bytesIn:
+      type: number
+    bytesOut:
+      type: number

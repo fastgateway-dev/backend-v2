@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,7 +29,7 @@ func TestDomainTemplateHandler_List_Success(t *testing.T) {
 		{ID: uuid.New(), ProjectID: projectID, Name: "template1"},
 		{ID: uuid.New(), ProjectID: projectID, Name: "template2"},
 	}
-	mockDT.On("ListByProjectID", projectID, 1, 20).Return(templates, int64(2), nil)
+	mockDT.On("ListByProjectID", projectID, 1, 20, "").Return(templates, int64(2), nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -43,6 +44,40 @@ func TestDomainTemplateHandler_List_Success(t *testing.T) {
 	data := resp["data"].([]interface{})
 	assert.Len(t, data, 2)
 	mockDT.AssertExpectations(t)
+}
+
+func TestDomainTemplateHandler_List_CapabilityPassedThrough(t *testing.T) {
+	mockDT := new(mocks.MockDomainTemplateService)
+	h := handlers.NewDomainTemplateHandler(mockDT, new(mocks.MockAuditService), new(mocks.MockTemplateDomainLister))
+
+	projectID := uuid.New()
+	mockDT.On("ListByProjectID", projectID, 1, 20, "stream").Return([]models.DomainTemplate{}, int64(0), nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/projects/"+projectID.String()+"/domain-templates?capability=stream", nil)
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}}
+
+	h.List(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockDT.AssertExpectations(t)
+}
+
+func TestDomainTemplateHandler_List_InvalidCapability(t *testing.T) {
+	mockDT := new(mocks.MockDomainTemplateService)
+	h := handlers.NewDomainTemplateHandler(mockDT, new(mocks.MockAuditService), new(mocks.MockTemplateDomainLister))
+
+	projectID := uuid.New()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/projects/"+projectID.String()+"/domain-templates?capability=bogus", nil)
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}}
+
+	h.List(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	mockDT.AssertNotCalled(t, "ListByProjectID", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestDomainTemplateHandler_Get_Success(t *testing.T) {
@@ -112,6 +147,38 @@ func TestDomainTemplateHandler_Create_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, w.Code)
 	mockDT.AssertExpectations(t)
+}
+
+func TestDomainTemplateHandler_Create_NoCapability_BadRequest(t *testing.T) {
+	mockDT := new(mocks.MockDomainTemplateService)
+	mockAudit := new(mocks.MockAuditService)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
+
+	user := testUser()
+	projectID := uuid.New()
+	mockDT.On("Create", projectID, mock.AnythingOfType("*services.CreateDomainTemplateInput"), user.ID).Return(nil, services.ErrNoTemplateCapability)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":         "new-template",
+		"exposureType": "ClusterIP",
+		"tlsMode":      "tls_only",
+		"enableDomain": false,
+		"enableStream": false,
+	})
+	router := gin.New()
+	router.POST("/projects/:projectId/domain-templates", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Create(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domain-templates", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), services.ErrNoTemplateCapability.Error())
 }
 
 func TestDomainTemplateHandler_Delete_Success(t *testing.T) {
@@ -245,4 +312,25 @@ func TestDomainTemplateHandler_PreviewChanges_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	mockDT.AssertExpectations(t)
+}
+
+func TestDomainTemplateHandler_Update_PortCollisionIs409(t *testing.T) {
+	mockDT := new(mocks.MockDomainTemplateService)
+	h := handlers.NewDomainTemplateHandler(mockDT, new(mocks.MockAuditService), new(mocks.MockTemplateDomainLister))
+
+	user := testUser()
+	projectID, dtID := uuid.New(), uuid.New()
+	mockDT.On("Update", dtID, mock.AnythingOfType("*services.UpdateDomainTemplateInput")).
+		Return(nil, fmt.Errorf("%w: TCP/443", services.ErrPortCollision))
+
+	body, _ := json.Marshal(map[string]bool{"enableDomain": true})
+	router := gin.New()
+	router.PUT("/projects/:projectId/domain-templates/:domainTemplateId", func(c *gin.Context) { c.Set("user", user); h.Update(c) })
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/projects/"+projectID.String()+"/domain-templates/"+dtID.String(), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
 }

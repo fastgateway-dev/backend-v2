@@ -54,6 +54,11 @@ type DomainService struct {
 	// unconditionally, before the in-cluster block that constructs
 	// DNSRecordService -- so it arrives later through SetDNSRecords.
 	dnsRecords DNSRecordManager
+
+	// streamPorts is wired after construction (SetStreamPorts): Create on a
+	// merged template rejects an HTTP/HTTPS port that a stream L4 route already
+	// holds, and fails closed (error) if it was never wired.
+	streamPorts L4PortReader
 }
 
 // DNSRecordManager is the slice of DNSRecordService that DomainService
@@ -67,6 +72,9 @@ type DomainService struct {
 type DNSRecordManager interface {
 	Enable(domainID, projectID, createdBy uuid.UUID, in DNSRecordInput) (*models.DomainDNSRecord, error)
 	Delete(domainID, projectID uuid.UUID) error
+	// CheckCollision is the create-time pre-flight: excludeDomainID is uuid.Nil
+	// at create (no domain yet).
+	CheckCollision(hostname string, hostedZoneID, excludeDomainID uuid.UUID) error
 }
 
 // DomainTemplateLookup is the only thing DomainService needs from
@@ -222,6 +230,13 @@ func (s *DomainService) SetDNSRecords(r DNSRecordManager) {
 	s.dnsRecords = r
 }
 
+// SetStreamPorts wires the stream L4 port reader used to keep a merged
+// template's domain ports clear of stream listener ports. Called from
+// main.go; without it, creating a domain on a merged template fails closed.
+func (s *DomainService) SetStreamPorts(r L4PortReader) {
+	s.streamPorts = r
+}
+
 // ErrDomainNotFound is returned by DomainService methods that scope a
 // domain lookup to a project (AttachCertificate, DetachCertificate) when the
 // domain does not exist or exists but belongs to a different project. The
@@ -300,6 +315,23 @@ type ListTLSSecretsResponse struct {
 
 // Create creates a new domain
 func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, createdBy uuid.UUID) (*models.Domain, error) {
+	// DNS collision pre-flight: when DNS is requested, reject the whole create
+	// up-front (nothing persisted, no Gateway) if the hostname's DNS is already
+	// claimed inside FastGateway (another project) or by a foreign provider
+	// record. Skipped out-of-cluster (dnsRecords nil), like the DNS-enable tail.
+	if input.DNS != nil && input.DNS.Enabled && s.dnsRecords != nil {
+		if input.DNS.HostedZoneID == "" {
+			return nil, ErrNoHostedZone
+		}
+		zoneID, err := uuid.Parse(input.DNS.HostedZoneID)
+		if err != nil {
+			return nil, errors.New("invalid hostedZoneId")
+		}
+		if err := s.dnsRecords.CheckCollision(input.Hostname, zoneID, uuid.Nil); err != nil {
+			return nil, err
+		}
+	}
+
 	// Check if hostname already exists in project
 	exists, err := s.domainRepo.ExistsByHostname(projectID, input.Hostname)
 	if err != nil {
@@ -325,6 +357,14 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 	}
 	if dt.Status != models.DomainTemplateStatusActive {
 		return nil, fmt.Errorf("domain template '%s' is not active (status: %s)", dt.Name, dt.Status)
+	}
+
+	// On a merged template the domain's HTTP/HTTPS ports share one Gateway with
+	// every stream: reject a port a stream L4 route already holds. (Update
+	// cannot change ports - they are inherited from the template - so this is
+	// the only domain-side check needed.)
+	if err := checkDomainPortsAgainstStreams(s.streamPorts, dt, dt.HTTPPort, dt.HTTPSPort); err != nil {
+		return nil, err
 	}
 
 	// Validate TLS secret is required when TLS is enabled

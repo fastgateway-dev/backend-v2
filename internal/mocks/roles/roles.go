@@ -24,6 +24,7 @@ import "github.com/fastgateway-dev/backend-v2/internal/services"
 // internal/services/k8s_roles.go.
 type KubernetesService interface {
 	services.RouteApplier
+	services.L4RouteApplier
 	services.TrafficPolicyApplier
 	services.PolicyApplier
 	services.BackendApplier

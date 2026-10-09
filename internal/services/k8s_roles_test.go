@@ -224,6 +224,18 @@ func TestNoWiringNilGuardsRemain(t *testing.T) {
 		// NewAIService, never a wired dependency. IsEnabled reports "no AI
 		// provider configured" through it.
 		"ai_service.go:config": "config is a nilable value, not an injected dependency",
+		// The L4 port-collision sources are wired after construction
+		// (StreamService.SetPortSources / DomainTemplateService.SetPortSources)
+		// so the lifecycle-only and positional constructors stay unchanged.
+		// Both guards FAIL CLOSED (return an error) - they never skip the
+		// collision check, which is why they are `== nil` bail-outs and not
+		// silent `!= nil` skips.
+		"stream_port_collision.go:portStore":     "L4 port source wired via SetPortSources; unwired fails closed",
+		"domain_template_service.go:streamPorts": "L4 port source wired via SetPortSources; unwired fails closed",
+		// The L4 metrics stream reader is wired after construction
+		// (MetricsService.SetStreamRepo) so the positional constructor stays
+		// unchanged. The guard FAILS CLOSED (returns an error), never skips.
+		"metrics_service.go:streamRepo": "L4 stream reader wired via SetStreamRepo; unwired fails closed",
 	}
 
 	entries, err := os.ReadDir(".")
@@ -352,7 +364,7 @@ func TestNoWiringNilGuardsRemain_NegatedForm_AllowlistIsExact(t *testing.T) {
 		"ai_service.go:provider":                 1,
 		"system_settings_service.go:cached":      1,
 		"domain_template_manifests.go:aiService": 2,
-		"domain_service.go:dnsRecords":           2,
+		"domain_service.go:dnsRecords":           3,
 	}
 
 	entries, err := os.ReadDir(".")

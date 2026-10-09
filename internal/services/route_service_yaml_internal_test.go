@@ -23,9 +23,10 @@ func ptrString(v string) *string    { return &v }
 func ptrBool(v bool) *bool          { return &v }
 
 func testRoute() *models.Route {
+	domainID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	return &models.Route{
 		ID:           uuid.MustParse("11111111-1111-1111-1111-111111111111"),
-		DomainID:     uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+		DomainID:     &domainID,
 		Name:         "test-route",
 		Protocol:     models.RouteProtocolHTTP,
 		K8sRouteName: "test-route-11111111",

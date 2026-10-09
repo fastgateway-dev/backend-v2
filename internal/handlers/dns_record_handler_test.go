@@ -3,8 +3,10 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -458,4 +460,162 @@ func TestDNSRecordHandler_Refresh_NotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	mockSvc.AssertExpectations(t)
+}
+
+func TestDNSRecordHandler_List_OK(t *testing.T) {
+	mockSvc := new(mocks.MockDNSRecordService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewDNSRecordHandler(mockSvc, pc, mockAudit)
+
+	user := testUser() // Owner bypasses canManageDomains
+	projectID := uuid.New()
+
+	items := []models.DNSRecordListItem{
+		{
+			DomainDNSRecord: models.DomainDNSRecord{ID: uuid.New(), DomainID: uuid.New(), RecordType: models.DNSRecordTypeA, Status: models.DNSRecordStatusReady, ResolvedTarget: "192.0.2.1"},
+			DomainHostname:  "a.example.com",
+			ZoneName:        "example.com",
+		},
+		{
+			DomainDNSRecord: models.DomainDNSRecord{ID: uuid.New(), DomainID: uuid.New(), RecordType: models.DNSRecordTypeCNAME, Status: models.DNSRecordStatusPending},
+			DomainHostname:  "b.example.com",
+			ZoneName:        "example.com",
+		},
+	}
+	mockSvc.On("List", projectID).Return(items, nil)
+
+	router := gin.New()
+	router.GET("/projects/:projectId/dns-records", func(c *gin.Context) {
+		c.Set("user", user)
+		h.List(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/"+projectID.String()+"/dns-records", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var got []map[string]interface{}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Len(t, got, 2)
+	assert.Equal(t, "a.example.com", got[0]["domainHostname"])
+	assert.Equal(t, "example.com", got[0]["zoneName"])
+	assert.Equal(t, "192.0.2.1", got[0]["resolvedTarget"])
+	mockSvc.AssertExpectations(t)
+}
+
+func TestDNSRecordHandler_List_Forbidden(t *testing.T) {
+	mockSvc := new(mocks.MockDNSRecordService)
+	mockAudit := new(mocks.MockAuditService)
+	mockProject := new(mocks.MockProjectRepository)
+	mockTeam := new(mocks.MockTeamRepository)
+	pc := middleware.NewPermissionChecker(mockProject, mockTeam)
+	h := handlers.NewDNSRecordHandler(mockSvc, pc, mockAudit)
+
+	user := &models.User{ID: uuid.New(), Username: "dev1", Role: models.UserRoleUser, IsActive: true}
+	projectID := uuid.New()
+
+	mockProject.On("IsAdmin", projectID, user.ID).Return(false, nil)
+	mockTeam.On("HasPermissionInProject", projectID, user.ID, models.PermDomainDelete).Return(false, nil)
+
+	router := gin.New()
+	router.GET("/projects/:projectId/dns-records", func(c *gin.Context) {
+		c.Set("user", user)
+		h.List(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/"+projectID.String()+"/dns-records", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	mockSvc.AssertNotCalled(t, "List")
+}
+
+func TestDNSRecordHandler_List_EmptyReturnsArray(t *testing.T) {
+	mockSvc := new(mocks.MockDNSRecordService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewDNSRecordHandler(mockSvc, pc, mockAudit)
+
+	user := testUser()
+	projectID := uuid.New()
+	mockSvc.On("List", projectID).Return([]models.DNSRecordListItem(nil), nil)
+
+	router := gin.New()
+	router.GET("/projects/:projectId/dns-records", func(c *gin.Context) {
+		c.Set("user", user)
+		h.List(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/"+projectID.String()+"/dns-records", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "[]", strings.TrimSpace(w.Body.String()))
+	mockSvc.AssertExpectations(t)
+}
+
+func TestDNSRecordHandler_Enable_CollisionMapping(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		code int
+	}{
+		{"claimed", services.ErrHostnameClaimed, http.StatusConflict},
+		{"foreign", services.ErrForeignRecordExists, http.StatusConflict},
+		{"unavailable", services.ErrDNSProviderUnavailable, http.StatusBadGateway},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockSvc := new(mocks.MockDNSRecordService)
+			mockAudit := new(mocks.MockAuditService)
+			pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+			h := handlers.NewDNSRecordHandler(mockSvc, pc, mockAudit)
+			user := testUser()
+			projectID := uuid.New()
+			domainID := uuid.New()
+			mockSvc.On("Enable", domainID, projectID, mock.Anything, mock.Anything).Return((*models.DomainDNSRecord)(nil), tc.err)
+
+			router := gin.New()
+			router.POST("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
+				c.Set("user", user)
+				h.Enable(c)
+			})
+			body, _ := json.Marshal(map[string]interface{}{"hostedZoneId": uuid.New().String(), "recordType": "auto"})
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domains/"+domainID.String()+"/dns-record", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+			assert.Equal(t, tc.code, w.Code)
+		})
+	}
+}
+
+func TestDNSRecordHandler_Enable_ProviderUnavailableHidesDetail(t *testing.T) {
+	mockSvc := new(mocks.MockDNSRecordService)
+	mockAudit := new(mocks.MockAuditService)
+	pc := middleware.NewPermissionChecker(new(mocks.MockProjectRepository), new(mocks.MockTeamRepository))
+	h := handlers.NewDNSRecordHandler(mockSvc, pc, mockAudit)
+	user := testUser()
+	projectID := uuid.New()
+	domainID := uuid.New()
+	wrapped := fmt.Errorf("%w: cloudflare 403 secret-token-detail", services.ErrDNSProviderUnavailable)
+	mockSvc.On("Enable", domainID, projectID, mock.Anything, mock.Anything).Return((*models.DomainDNSRecord)(nil), wrapped)
+
+	router := gin.New()
+	router.POST("/projects/:projectId/domains/:domainId/dns-record", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Enable(c)
+	})
+	body, _ := json.Marshal(map[string]interface{}{"hostedZoneId": uuid.New().String(), "recordType": "auto"})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/projects/"+projectID.String()+"/domains/"+domainID.String()+"/dns-record", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadGateway, w.Code)
+	assert.NotContains(t, w.Body.String(), "secret-token-detail", "502 body must not leak the wrapped provider detail")
+	assert.Contains(t, w.Body.String(), services.ErrDNSProviderUnavailable.Error())
 }

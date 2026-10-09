@@ -21,6 +21,11 @@ import (
 //     this function applies no precedence logic of its own, it only copies
 //     the ten fields across.
 func buildBackendTrafficPolicyConfigFromInput(routeK8sName string, protocol models.RouteProtocol, routeID, namespace, gatewayID string, input *BackendTrafficPolicyInput) *kubernetes.BackendTrafficPolicyConfig {
+	// L4 routes get only the subset of the policy that applies to their
+	// transport, so an HTTP-only field that slipped past write-time validation
+	// can never reach the emitted CRD.
+	input = gateBackendTrafficPolicyForProtocol(protocol, input)
+
 	config := &kubernetes.BackendTrafficPolicyConfig{
 		Name:      kubernetes.BackendTrafficPolicyName(routeK8sName),
 		Namespace: namespace,
@@ -102,11 +107,74 @@ func buildBackendTrafficPolicyConfigFromInput(routeK8sName string, protocol mode
 	return config
 }
 
+// gateBackendTrafficPolicyForProtocol returns the part of input that is valid
+// for the route protocol. HTTP and gRPC pass through untouched. For TCP it
+// keeps the connection-oriented circuit-breaker counters (maxConnections,
+// maxRequestsPerConnection), the load balancer, passive and active-TCP health
+// checks and the TCP timeouts. For UDP it keeps the load balancer only
+// (circuit breaking, health checks and timeouts do not apply to datagrams).
+// Consistent-hash load balancing on L4 can only hash the source IP, so any
+// other hash source is rewritten to SourceIP. The input is never mutated.
+func gateBackendTrafficPolicyForProtocol(protocol models.RouteProtocol, input *BackendTrafficPolicyInput) *BackendTrafficPolicyInput {
+	if input == nil || (protocol != models.RouteProtocolTCP && protocol != models.RouteProtocolUDP) {
+		return input
+	}
+
+	gated := &BackendTrafficPolicyInput{LoadBalancer: l4LoadBalancer(input.LoadBalancer)}
+	if protocol == models.RouteProtocolUDP {
+		return gated
+	}
+
+	if cb := input.CircuitBreaker; cb != nil {
+		if kept := (models.CircuitBreakerConfig{MaxConnections: cb.MaxConnections, MaxRequestsPerConnection: cb.MaxRequestsPerConnection}); kept.MaxConnections != nil || kept.MaxRequestsPerConnection != nil {
+			gated.CircuitBreaker = &kept
+		}
+	}
+
+	if hc := input.HealthCheck; hc != nil {
+		kept := models.HealthCheckConfig{Passive: hc.Passive, PanicThreshold: hc.PanicThreshold}
+		if hc.Active != nil && hc.Active.Type == "TCP" {
+			kept.Active = hc.Active
+		}
+		if kept.Active != nil || kept.Passive != nil || kept.PanicThreshold != nil {
+			gated.HealthCheck = &kept
+		}
+	}
+
+	if t := input.Timeout; t != nil && t.TCP != nil {
+		gated.Timeout = &models.BTPTimeoutConfig{TCP: t.TCP}
+	}
+
+	return gated
+}
+
+// l4LoadBalancer copies lb, rewriting a header/cookie consistent hash (which
+// has no meaning without HTTP) to a source-IP hash.
+func l4LoadBalancer(lb *models.LoadBalancerConfig) *models.LoadBalancerConfig {
+	if lb == nil {
+		return nil
+	}
+	out := *lb
+	if lb.Type == models.LoadBalancerTypeConsistentHash {
+		out.ConsistentHash = &models.ConsistentHashConfig{Type: models.ConsistentHashTypeSourceIP}
+	}
+	return &out
+}
+
 // BuildBackendTrafficPolicyConfig is the deploy-path assembler (formerly a
 // (*RouteService) method; it never used its receiver, so it is now a plain
 // function). Deploy is authoritative where the four pre-collapse bodies
 // disagreed.
 func BuildBackendTrafficPolicyConfig(route *models.Route, domain *models.Domain, policy *models.BackendTrafficPolicy) *kubernetes.BackendTrafficPolicyConfig {
+	return BuildBackendTrafficPolicyConfigForNamespace(route, domain.Namespace, domain.ID.String(), policy)
+}
+
+// BuildBackendTrafficPolicyConfigForNamespace is BuildBackendTrafficPolicyConfig
+// for callers that have no Domain: an L4 route lives in a Stream, so its
+// policy takes the stream's namespace and the stream ID as the gateway label.
+// HTTP/gRPC deploys reach it through BuildBackendTrafficPolicyConfig with the
+// domain's values, so both paths share one assembler.
+func BuildBackendTrafficPolicyConfigForNamespace(route *models.Route, namespace, gatewayID string, policy *models.BackendTrafficPolicy) *kubernetes.BackendTrafficPolicyConfig {
 	if policy == nil {
 		return nil
 	}
@@ -116,7 +184,7 @@ func BuildBackendTrafficPolicyConfig(route *models.Route, domain *models.Domain,
 		return nil
 	}
 
-	return buildBackendTrafficPolicyConfigFromInput(route.K8sRouteName, route.Protocol, route.ID.String(), domain.Namespace, domain.ID.String(), MapBackendTrafficPolicyConfigToInput(&policy.Config))
+	return buildBackendTrafficPolicyConfigFromInput(route.K8sRouteName, route.Protocol, route.ID.String(), namespace, gatewayID, MapBackendTrafficPolicyConfigToInput(&policy.Config))
 }
 
 // GenerateAPIKeyBackendTrafficPolicyYAML generates BTP YAML for a per-client HTTPRoute

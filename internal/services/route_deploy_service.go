@@ -10,6 +10,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/routestate"
+	"github.com/fastgateway-dev/backend-v2/internal/streamplan"
 	"github.com/google/uuid"
 )
 
@@ -29,6 +30,9 @@ type routeDeploy struct {
 	wafPolicyRepo            repository.WafPolicyRepositoryInterface
 	clientAttachmentRepo     repository.ClientAttachmentRepositoryInterface
 
+	streams          StreamReader
+	k8sGateways      GatewayApplier
+	k8sL4Routes      L4RouteApplier
 	k8sRoutes        RouteApplier
 	k8sPolicies      PolicyApplier
 	k8sBackends      BackendApplier
@@ -71,12 +75,20 @@ func (d *routeDeploy) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route,
 		return nil, errors.New("no approved request found for this route")
 	}
 
-	domain, err := d.domainRepo.GetByID(route.DomainID)
+	ctx := context.Background()
+
+	// L4 (TCP/UDP) routes belong to a Stream, not a Domain: DomainID is nil, so
+	// this dispatch MUST stay ahead of the *route.DomainID dereference below
+	// and of every other Domain-only step (ReferenceGrants, SecurityPolicy,
+	// API-key routes, ...), none of which apply to L4.
+	if route.IsL4() {
+		return d.deployL4(ctx, route, approval, deployedBy)
+	}
+
+	domain, err := d.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, err
 	}
-
-	ctx := context.Background()
 
 	// Safety net: ensure ReferenceGrants include this domain's namespace
 	if domain.Namespace != kubernetes.FastGatewayNamespace {
@@ -297,6 +309,12 @@ func (d *routeDeploy) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route,
 		return route, nil
 	}
 
+	return d.finishDeploy(route, approval, deployedBy)
+}
+
+// finishDeploy is the tail shared by the HTTP/gRPC and L4 deploy paths for the
+// create and update actions (delete returns earlier, after removing the row).
+func (d *routeDeploy) finishDeploy(route *models.Route, approval *models.Approval, deployedBy uuid.UUID) (*models.Route, error) {
 	// Only the create and update cases fall through to here; the delete case
 	// returns above after removing the row. Both of them mean "the route is
 	// now live in Kubernetes", which is exactly the active transition.
@@ -319,4 +337,175 @@ func (d *routeDeploy) Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route,
 	}
 
 	return route, nil
+}
+
+// deployL4 deploys an approved L4 (TCP/UDP) route.
+//
+// Every L4 route change recomputes the Stream's FULL listener set from the
+// routes that are live on it and re-applies the whole Gateway, rather than
+// adding or removing one listener. That is idempotent and protects against a
+// single route's own stale or partially-written listener set. It does NOT make
+// concurrent deploys safe: there is no per-stream deploy serialization, so two
+// concurrent deploys of DIFFERENT routes on the same stream can each read a
+// stale live-route set, and the second UpdateGateway is last-writer-wins and
+// can drop the other route's listener. Closing that race needs per-stream
+// deploy serialization (a known follow-up). A create/update deploy includes the
+// current route (it is about to be live, with its new config); a delete deploy
+// excludes it. The Gateway is applied before the route so a route never
+// references a listener that does not exist yet.
+//
+// The GatewayConfig is built and applied in-process: its L4 Listeners are
+// json:"-" and would be lost if the config were serialized or queued.
+func (d *routeDeploy) deployL4(ctx context.Context, route *models.Route, approval *models.Approval, deployedBy uuid.UUID) (*models.Route, error) {
+	if route.StreamID == nil {
+		return nil, fmt.Errorf("L4 route %s has no stream", route.ID)
+	}
+	stream, err := d.streams.GetByID(*route.StreamID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load stream for L4 route: %w", err)
+	}
+
+	live, err := d.routeRepo.ListActiveByStreamID(stream.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active routes for stream: %w", err)
+	}
+
+	var routes []models.Route
+	switch approval.Action {
+	case models.ApprovalActionCreate, models.ApprovalActionUpdate:
+		routes = withL4Route(live, route)
+	case models.ApprovalActionDelete:
+		routes = withoutL4Route(live, route.ID)
+	default:
+		return nil, fmt.Errorf("unsupported approval action %q for L4 route", approval.Action)
+	}
+
+	gwConfig := streamplan.BuildStreamGatewayConfig(*stream, routes)
+	if err := d.k8sGateways.UpdateGateway(ctx, stream.ProjectID, &gwConfig); err != nil {
+		log.Printf("Failed to apply Stream Gateway in Kubernetes: %v", err)
+		return nil, fmt.Errorf("failed to apply Stream Gateway in Kubernetes: %w", err)
+	}
+
+	switch approval.Action {
+	case models.ApprovalActionCreate:
+		err = d.applyL4Route(ctx, route, stream, true)
+	case models.ApprovalActionUpdate:
+		err = d.applyL4Route(ctx, route, stream, false)
+	case models.ApprovalActionDelete:
+		// Remove the BackendTrafficPolicy before the route it targets, as the
+		// HTTP path does. A failure here must not strand the route's CRD.
+		if btpErr := d.removeBackendTrafficPolicy(ctx, route, stream.ProjectID, stream.Namespace); btpErr != nil {
+			log.Printf("Failed to delete BackendTrafficPolicy from Kubernetes: %v", btpErr)
+		}
+		err = d.deleteL4Route(ctx, route, stream)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// The BackendTrafficPolicy targets the TCPRoute/UDPRoute, so it is applied
+	// once that route exists. The plan builder has already restricted its
+	// fields to what the route's transport supports.
+	if approval.Action != models.ApprovalActionDelete {
+		if err := d.applyBackendTrafficPolicy(ctx, route, stream.ProjectID, stream.Namespace, stream.ID.String()); err != nil {
+			log.Printf("Failed to apply BackendTrafficPolicy in Kubernetes: %v", err)
+			return nil, fmt.Errorf("failed to apply BackendTrafficPolicy in Kubernetes: %w", err)
+		}
+	}
+
+	if approval.Action == models.ApprovalActionDelete {
+		// Delete all approvals for this route (no FK cascade on entity_id)
+		if err := d.approvalRepo.DeleteByEntityID(models.ApprovalEntityRoute, route.ID); err != nil {
+			log.Printf("Failed to delete approvals for route %s: %v", route.ID, err)
+		}
+		if err := d.routeRepo.Delete(route.ID); err != nil {
+			return nil, err
+		}
+		return route, nil
+	}
+
+	return d.finishDeploy(route, approval, deployedBy)
+}
+
+// applyL4Route creates (create=true) or updates the TCPRoute/UDPRoute.
+func (d *routeDeploy) applyL4Route(ctx context.Context, route *models.Route, stream *models.Stream, create bool) error {
+	verb := "update"
+	if create {
+		verb = "create"
+	}
+	switch route.Protocol {
+	case models.RouteProtocolTCP:
+		cfg := d.assembler.buildTCPRouteConfig(route, stream)
+		apply := d.k8sL4Routes.UpdateTCPRoute
+		if create {
+			apply = d.k8sL4Routes.CreateTCPRoute
+		}
+		if err := apply(ctx, stream.ProjectID, cfg); err != nil {
+			log.Printf("Failed to %s TCPRoute in Kubernetes: %v", verb, err)
+			return fmt.Errorf("failed to %s TCPRoute in Kubernetes: %w", verb, err)
+		}
+	case models.RouteProtocolUDP:
+		cfg := d.assembler.buildUDPRouteConfig(route, stream)
+		apply := d.k8sL4Routes.UpdateUDPRoute
+		if create {
+			apply = d.k8sL4Routes.CreateUDPRoute
+		}
+		if err := apply(ctx, stream.ProjectID, cfg); err != nil {
+			log.Printf("Failed to %s UDPRoute in Kubernetes: %v", verb, err)
+			return fmt.Errorf("failed to %s UDPRoute in Kubernetes: %w", verb, err)
+		}
+	default:
+		return fmt.Errorf("unsupported L4 protocol %q", route.Protocol)
+	}
+	return nil
+}
+
+// deleteL4Route deletes the TCPRoute/UDPRoute from the stream's namespace.
+func (d *routeDeploy) deleteL4Route(ctx context.Context, route *models.Route, stream *models.Stream) error {
+	switch route.Protocol {
+	case models.RouteProtocolTCP:
+		if err := d.k8sL4Routes.DeleteTCPRoute(ctx, stream.ProjectID, stream.Namespace, route.K8sRouteName); err != nil {
+			log.Printf("Failed to delete TCPRoute from Kubernetes: %v", err)
+			return fmt.Errorf("failed to delete TCPRoute from Kubernetes: %w", err)
+		}
+	case models.RouteProtocolUDP:
+		if err := d.k8sL4Routes.DeleteUDPRoute(ctx, stream.ProjectID, stream.Namespace, route.K8sRouteName); err != nil {
+			log.Printf("Failed to delete UDPRoute from Kubernetes: %v", err)
+			return fmt.Errorf("failed to delete UDPRoute from Kubernetes: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported L4 protocol %q", route.Protocol)
+	}
+	return nil
+}
+
+// withL4Route returns live with route included: replacing its entry in place
+// (so its listener keeps its position and carries the new config) or
+// appending it when it is not live yet.
+func withL4Route(live []models.Route, route *models.Route) []models.Route {
+	out := make([]models.Route, 0, len(live)+1)
+	replaced := false
+	for _, r := range live {
+		if r.ID == route.ID {
+			out = append(out, *route)
+			replaced = true
+			continue
+		}
+		out = append(out, r)
+	}
+	if !replaced {
+		out = append(out, *route)
+	}
+	return out
+}
+
+// withoutL4Route returns live without the route that has the given ID.
+func withoutL4Route(live []models.Route, id uuid.UUID) []models.Route {
+	out := make([]models.Route, 0, len(live))
+	for _, r := range live {
+		if r.ID != id {
+			out = append(out, r)
+		}
+	}
+	return out
 }

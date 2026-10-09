@@ -7,6 +7,11 @@ Route:
     domainId:
       type: string
       format: uuid
+      description: Owning domain of an HTTP/gRPC route; null for an L4 (tcp/udp) route, which has a streamId instead
+    streamId:
+      type: string
+      format: uuid
+      description: Owning stream of an L4 (tcp/udp) route; absent for an HTTP/gRPC route, which has a domainId instead
     teamId:
       type: string
       format: uuid
@@ -18,7 +23,7 @@ Route:
       type: string
     protocol:
       type: string
-      enum: [http, grpc]
+      enum: [http, grpc, tcp, udp]
     status:
       type: string
       enum: [pending_create, pending_update, pending_delete, approved, pending_deploy, active, rejected]
@@ -96,6 +101,14 @@ RouteConfig:
       type: string
       enum: [backend, redirect, directResponse]
       default: backend
+    listenerPort:
+      type: integer
+      minimum: 1
+      maximum: 65535
+      description: |
+        Gateway listener port of an L4 (tcp/udp) route (required for L4; unused
+        by HTTP/gRPC). Unique per stream and transport; reserved ports are
+        rejected with 400 and a port already in use with 409.
     matches:
       type: array
       items:
@@ -403,6 +416,35 @@ CreateRouteRequest:
       $ref: './extension.yaml#/EnvoyExtensionPolicyInput'
     wafPolicy:
       $ref: './waf.yaml#/WafPolicyConfig'
+    changeDescription:
+      type: string
+      description: Optional description of the changes for approval
+    aiReview:
+      $ref: './ai.yaml#/AIReviewResult'
+    labels:
+      $ref: './common.yaml#/Labels'
+
+CreateStreamRouteRequest:
+  type: object
+  description: |
+    Create an L4 (tcp/udp) route under a stream. The owning stream is taken
+    from the URL path. L4 routes carry no L7 fields (matches, redirects, header
+    modifiers, ...) and only in-cluster Kubernetes backends; the config needs a
+    listenerPort and at least one backend.
+  required: [name, teamId, protocol, config]
+  properties:
+    name:
+      type: string
+    description:
+      type: string
+    protocol:
+      type: string
+      enum: [tcp, udp]
+    teamId:
+      type: string
+      format: uuid
+    config:
+      $ref: '#/RouteConfig'
     changeDescription:
       type: string
       description: Optional description of the changes for approval

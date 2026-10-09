@@ -164,6 +164,8 @@ type DomainSettingsRepositoryInterface interface {
 type DomainDNSRecordRepositoryInterface interface {
 	Create(rec *models.DomainDNSRecord) error
 	GetByDomainID(domainID uuid.UUID) (*models.DomainDNSRecord, error)
+	ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error)
+	HostnameClaimExists(hostname string, zoneID, excludeDomainID uuid.UUID) (bool, error)
 	Update(rec *models.DomainDNSRecord) error
 	DeleteByDomainID(domainID uuid.UUID) error
 	CountByZone(zoneID uuid.UUID) (int64, error)
@@ -174,7 +176,7 @@ type DomainTemplateRepositoryInterface interface {
 	Create(dt *models.DomainTemplate) error
 	GetByID(id uuid.UUID) (*models.DomainTemplate, error)
 	GetByName(projectID uuid.UUID, name string) (*models.DomainTemplate, error)
-	ListByProjectID(projectID uuid.UUID, page, limit int) ([]models.DomainTemplate, int64, error)
+	ListByProjectID(projectID uuid.UUID, page, limit int, capability string) ([]models.DomainTemplate, int64, error)
 	ListByExposureType(projectID uuid.UUID, exposureType models.ExposureType) ([]models.DomainTemplate, error)
 	Update(dt *models.DomainTemplate) error
 	Delete(id uuid.UUID) error
@@ -268,8 +270,12 @@ type RouteRepositoryInterface interface {
 	Update(route *models.Route) error
 	Delete(id uuid.UUID) error
 	ExistsByName(domainID uuid.UUID, name string) (bool, error)
+	ExistsByStreamAndName(streamID uuid.UUID, name string) (bool, error)
+	ListByStreamID(streamID uuid.UUID, page, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error)
 	GetActiveRoutesByDomainID(domainID uuid.UUID) ([]models.Route, error)
 	CountByDomainID(domainID uuid.UUID) (int, error)
+	CountByStreamID(streamID uuid.UUID) (int64, error)
+	ListActiveByStreamID(streamID uuid.UUID) ([]models.Route, error)
 }
 
 // RouteVersionRepositoryInterface defines the interface for route version repository operations

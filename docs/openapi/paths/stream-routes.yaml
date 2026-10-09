@@ -1,0 +1,222 @@
+stream-routes:
+  get:
+    tags: [Streams]
+    summary: List L4 routes of a stream
+    operationId: listStreamRoutes
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+      - name: teamId
+        in: query
+        schema:
+          type: string
+          format: uuid
+        description: Filter by team
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [pending_create, pending_update, pending_delete, approved, pending_deploy, active, rejected]
+        description: Filter by a single status value
+    responses:
+      '200':
+        description: List of L4 routes, ordered by name
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/RouteList'
+      '404':
+        description: Stream not found (including streams of other projects)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+  post:
+    tags: [Streams]
+    summary: Create L4 route (submits for approval)
+    description: |
+      Creates a TCP or UDP route on the stream's Gateway and submits it through
+      the same approval flow as HTTP routes. Requires Owner, Project Admin or
+      Editor.
+    operationId: createStreamRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/route.yaml#/CreateStreamRouteRequest'
+    responses:
+      '201':
+        description: Route created and pending approval
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/RouteResponse'
+      '400':
+        description: Invalid route (non-L4 protocol, L7 field, external backend, missing listener port or backend, reserved or out-of-range port, duplicate name)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        description: Stream not found (including streams of other projects)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '409':
+        description: The listener port is already used by another route on the stream (same protocol), or by a merged Gateway Template's HTTP/HTTPS port
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+stream-routes_{routeId}:
+  get:
+    tags: [Streams]
+    summary: Get L4 route by ID
+    operationId: getStreamRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Route details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/RouteWithPolicies'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+  put:
+    tags: [Streams]
+    summary: Update L4 route (submits for approval)
+    operationId: updateStreamRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/route.yaml#/UpdateRouteRequest'
+    responses:
+      '200':
+        description: Route update pending approval
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/RouteResponse'
+      '400':
+        description: Invalid route configuration
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: The new listener port is already used by another route on the stream
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+
+  delete:
+    tags: [Streams]
+    summary: Delete L4 route (submits for approval)
+    operationId: deleteStreamRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Route deletion pending approval
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/Route'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+stream-route-yaml:
+  get:
+    tags: [Streams]
+    summary: Get L4 route as Kubernetes YAML (TCPRoute or UDPRoute)
+    operationId: getStreamRouteYaml
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Route as YAML
+        content:
+          text/yaml:
+            schema:
+              type: string
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+stream-route-deploy:
+  post:
+    tags: [Streams]
+    summary: Deploy approved L4 route to Kubernetes
+    description: |
+      Applies the stream's Gateway (recomputed from every live route's
+      listener) and then the route's TCPRoute/UDPRoute.
+    operationId: deployStreamRoute
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Route deployed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/Route'
+      '400':
+        description: Route not in deployable state
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'

@@ -138,6 +138,7 @@ type DNSHostedZoneServiceInterface interface {
 type DNSRecordServiceInterface interface {
 	Enable(domainID, projectID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
 	Get(domainID, projectID uuid.UUID) (*models.DomainDNSRecord, error)
+	List(projectID uuid.UUID) ([]models.DNSRecordListItem, error)
 	Update(domainID, projectID uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error)
 	Delete(domainID, projectID uuid.UUID) error
 	Refresh(domainID, projectID uuid.UUID) (*models.DomainDNSRecord, error)
@@ -187,6 +188,15 @@ type DomainServiceInterface interface {
 	DetachCertificate(domainID, projectID uuid.UUID) (*models.Domain, error)
 }
 
+// StreamServiceInterface defines the public methods of StreamService used by StreamHandler
+type StreamServiceInterface interface {
+	Create(projectID uuid.UUID, in services.CreateStreamInput, user *models.User) (*models.Stream, error)
+	Get(id uuid.UUID) (*models.Stream, error)
+	List(projectID uuid.UUID) ([]models.Stream, error)
+	Update(id uuid.UUID, in services.UpdateStreamInput) (*models.Stream, error)
+	Delete(id uuid.UUID) error
+}
+
 // TemplateDomainLister is the slice of DomainTemplateService that
 // DomainTemplateHandler uses to answer "which domains use this template".
 // Named for the capability and satisfied structurally, following Phase 2E's
@@ -204,7 +214,7 @@ type DomainTemplateServiceInterface interface {
 	Create(projectID uuid.UUID, input *services.CreateDomainTemplateInput, createdBy uuid.UUID) (*models.DomainTemplate, error)
 	GetByID(id uuid.UUID) (*models.DomainTemplate, error)
 	GetByName(projectID uuid.UUID, name string) (*models.DomainTemplate, error)
-	ListByProjectID(projectID uuid.UUID, page, limit int) ([]models.DomainTemplate, int64, error)
+	ListByProjectID(projectID uuid.UUID, page, limit int, capability string) ([]models.DomainTemplate, int64, error)
 	Update(id uuid.UUID, input *services.UpdateDomainTemplateInput) (*models.DomainTemplate, error)
 	Delete(id uuid.UUID) error
 	GetManifests(id uuid.UUID) (*services.DomainTemplateManifests, error)
@@ -217,6 +227,7 @@ type MetricsServiceInterface interface {
 	TestConnection(ctx context.Context, projectID uuid.UUID) (*services.TestConnectionResult, error)
 	GetRouteMetrics(ctx context.Context, projectID, routeID uuid.UUID, rangeSpec string) (*services.RouteMetricsResult, error)
 	GetDomainMetrics(ctx context.Context, projectID, domainID uuid.UUID, rangeSpec string) (*services.DomainMetricsResult, error)
+	StreamL4Metrics(ctx context.Context, projectID, streamID string) (services.L4Metrics, error)
 }
 
 // NotificationServiceInterface defines the public methods of NotificationService
@@ -289,6 +300,8 @@ type RouteReader interface {
 	GetWafPolicy(routeID uuid.UUID) (*models.WafPolicy, error)
 	ListByDomainID(domainID uuid.UUID, page, limit int, teamID *uuid.UUID, status string, search string, searchField string, labels map[string]string) ([]models.Route, int64, error)
 	ListByProjectID(projectID uuid.UUID, page, limit int, filters services.RouteListFilters) ([]models.Route, int64, error)
+	ListByStreamID(projectID, streamID uuid.UUID, page, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error)
+	GetForStream(projectID, streamID, routeID uuid.UUID) (*models.Route, error)
 	GetEffectiveIPAllowlist(routeID uuid.UUID) ([]services.EffectiveIPEntry, error)
 	CheckMatcherConflicts(domainID uuid.UUID, match models.RouteMatch, excludeRouteID *uuid.UUID) ([]services.ConflictResult, error)
 }
@@ -298,6 +311,7 @@ type RouteReader interface {
 // Deploy.
 type RouteWriter interface {
 	Create(domainID uuid.UUID, input *services.CreateRouteInput, createdBy uuid.UUID) (*models.Route, error)
+	CreateForStream(projectID, streamID uuid.UUID, input *services.CreateRouteInput, createdBy uuid.UUID) (*models.Route, error)
 	Update(id uuid.UUID, input *services.UpdateRouteInput, submittedBy uuid.UUID) (*models.Route, error)
 	Delete(id uuid.UUID, submittedBy uuid.UUID) (*models.Route, error)
 	Deploy(id uuid.UUID, deployedBy uuid.UUID) (*models.Route, error)
@@ -406,6 +420,7 @@ var _ ApprovalServiceInterface = (*services.ApprovalService)(nil)
 var _ AuditServiceInterface = (*services.AuditService)(nil)
 var _ AuthServiceInterface = (*services.AuthService)(nil)
 var _ CertificateIssuerServiceInterface = (*services.CertificateIssuerService)(nil)
+var _ StreamServiceInterface = (*services.StreamService)(nil)
 var _ CommentServiceInterface = (*services.CommentService)(nil)
 var _ DNSCredentialServiceInterface = (*services.DNSCredentialService)(nil)
 var _ DNSHostedZoneServiceInterface = (*services.DNSHostedZoneService)(nil)

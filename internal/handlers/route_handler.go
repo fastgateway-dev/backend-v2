@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +12,26 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+// routeWriteErrorStatus maps a route create/update error to its HTTP status:
+// an L4 listener-port collision is a 409; a missing (or other-project) stream
+// is a 404; L4 shape violations (L7 field,
+// external backend, missing port/backend), reserved and out-of-range ports are
+// 400, as is everything else.
+func routeWriteErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, services.ErrPortCollision):
+		return http.StatusConflict
+	case errors.Is(err, services.ErrStreamNotFound), errors.Is(err, services.ErrRouteNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, services.ErrL4RejectsL7Field),
+		errors.Is(err, services.ErrL4ExternalBackend),
+		errors.Is(err, services.ErrL4MissingListenerPort),
+		errors.Is(err, services.ErrL4MissingBackend):
+		return http.StatusBadRequest
+	}
+	return http.StatusBadRequest
+}
 
 // RouteHandler handles route endpoints
 type RouteHandler struct {
@@ -103,7 +124,7 @@ func (h *RouteHandler) Create(c *gin.Context) {
 
 	route, err := h.routeService.Create(domainID, &input, user.ID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(routeWriteErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 
@@ -235,7 +256,7 @@ func (h *RouteHandler) Update(c *gin.Context) {
 
 	route, err := h.routeService.Update(id, &input, user.ID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(routeWriteErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 

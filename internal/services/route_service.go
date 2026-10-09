@@ -70,6 +70,13 @@ type RouteVersionRecorder interface {
 	CreateVersion(route *models.Route, approval *models.Approval, deployedBy uuid.UUID) error
 }
 
+// StreamReader resolves the Stream an L4 (TCP/UDP) route belongs to, so the
+// deploy path can recompute that Stream's Gateway. *repository.StreamRepository
+// satisfies it structurally.
+type StreamReader interface {
+	GetByID(id uuid.UUID) (*models.Stream, error)
+}
+
 // RouteServiceDeps carries everything RouteService needs. Every field is
 // required unless its comment says otherwise: before Phase 2E these arrived
 // through fourteen setters, and thirty-seven nil-guards existed across the
@@ -118,6 +125,14 @@ type RouteServiceDeps struct {
 	K8sSecrets       SecretWriter
 	K8sAPIKeys       APIKeySecretApplier
 	K8sRefGrants     ReferenceGrantChecker
+
+	// The L4 (TCP/UDP) deploy path. Streams resolves a route's Stream;
+	// K8sGateways applies the Stream's Gateway (recomputed from the full
+	// listener set on every L4 route change); K8sL4Routes applies/deletes the
+	// TCPRoute/UDPRoute. All three are required.
+	Streams     StreamReader
+	K8sGateways GatewayApplier
+	K8sL4Routes L4RouteApplier
 
 	// IDGen mints route IDs. Optional: nil means uuid.New. Injected so the
 	// preview path is deterministic under test - the first 8 hex characters
@@ -207,6 +222,15 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 	if deps.K8sRefGrants == nil {
 		missing = append(missing, "K8sRefGrants")
 	}
+	if deps.Streams == nil {
+		missing = append(missing, "Streams")
+	}
+	if deps.K8sGateways == nil {
+		missing = append(missing, "K8sGateways")
+	}
+	if deps.K8sL4Routes == nil {
+		missing = append(missing, "K8sL4Routes")
+	}
 	if len(missing) > 0 {
 		panic("services.NewRouteService: missing required dependency: " + strings.Join(missing, ", "))
 	}
@@ -233,6 +257,7 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 		envoyExtensionPolicyRepo: deps.EnvoyExtensionPolicyRepo,
 		wafPolicyRepo:            deps.WafPolicyRepo,
 		domainRepo:               deps.DomainRepo,
+		streams:                  deps.Streams,
 		projectNamespaceRepo:     deps.ProjectNamespaceRepo,
 		wafConfig:                deps.WafConfig,
 		assembler:                svc.assembler,
@@ -248,6 +273,7 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 		envoyExtensionPolicyRepo: deps.EnvoyExtensionPolicyRepo,
 		wafPolicyRepo:            deps.WafPolicyRepo,
 		k8sRefGrants:             deps.K8sRefGrants,
+		streams:                  deps.Streams,
 		approvals:                deps.Approvals,
 		state:                    svc.state,
 		assembler:                svc.assembler,
@@ -263,6 +289,9 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 		wafPolicyRepo:            deps.WafPolicyRepo,
 		clientAttachmentRepo:     deps.ClientAttachmentRepo,
 		k8sRoutes:                deps.K8sRoutes,
+		streams:                  deps.Streams,
+		k8sGateways:              deps.K8sGateways,
+		k8sL4Routes:              deps.K8sL4Routes,
 		k8sPolicies:              deps.K8sPolicies,
 		k8sBackends:              deps.K8sBackends,
 		k8sBackendReaper:         deps.K8sBackendReaper,
@@ -364,6 +393,34 @@ func (s *RouteService) PreviewDelete(routeID uuid.UUID) (*PreviewDeleteResult, e
 // Create creates a new route (submits for approval)
 func (s *RouteService) Create(domainID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID) (*models.Route, error) {
 	return s.write.Create(domainID, input, createdBy)
+}
+
+// CreateForStream creates an L4 (tcp/udp) route under a Stream (submits for
+// approval). streamID must belong to projectID; a stream of another project is
+// reported as ErrStreamNotFound.
+func (s *RouteService) CreateForStream(projectID, streamID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID) (*models.Route, error) {
+	return s.write.CreateForStream(projectID, streamID, input, createdBy)
+}
+
+// ListByStreamID lists the L4 routes of a stream
+// (streamID must belong to projectID, else ErrStreamNotFound).
+func (s *RouteService) ListByStreamID(projectID, streamID uuid.UUID, page, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error) {
+	return s.query.ListByStreamID(projectID, streamID, page, limit, teamID, status)
+}
+
+// GetForStream gets an L4 route by ID, verifying it belongs to streamID and the
+// stream to projectID: ErrStreamNotFound / ErrRouteNotFound otherwise, so IDs
+// cannot be probed across streams or projects.
+func (s *RouteService) GetForStream(projectID, streamID, routeID uuid.UUID) (*models.Route, error) {
+	return s.query.GetForStream(projectID, streamID, routeID)
+}
+
+// SetL4PortChecker wires the L4 listener-port collision check used by route
+// create/update validation. It arrives after construction because the
+// StreamService that implements it depends on repositories built later in
+// cmd/server/main.go. Never calling it makes L4 route writes fail closed.
+func (s *RouteService) SetL4PortChecker(c L4PortChecker) {
+	s.write.l4Ports = c
 }
 
 // Update updates a route (submits for approval)

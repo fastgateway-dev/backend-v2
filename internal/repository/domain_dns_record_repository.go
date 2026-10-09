@@ -24,6 +24,43 @@ func (r *DomainDNSRecordRepository) GetByDomainID(domainID uuid.UUID) (*models.D
 	return &rec, nil
 }
 
+// ListByProjectID returns every managed DNS record whose domain belongs to the
+// given project, each joined with its domain hostname (the record name) and the
+// name of the hosted zone it lives in, ordered by hostname. A record whose
+// hosted zone row is missing still appears (LEFT JOIN) with an empty ZoneName.
+func (r *DomainDNSRecordRepository) ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
+	var items []models.DNSRecordListItem
+	err := r.db.
+		Table("domain_dns_records AS rec").
+		Select("rec.*, d.hostname AS domain_hostname, z.name AS zone_name").
+		Joins("JOIN domains d ON d.id = rec.domain_id").
+		Joins("LEFT JOIN dns_hosted_zones z ON z.id = rec.hosted_zone_id").
+		Where("d.project_id = ?", projectID).
+		Order("d.hostname ASC").
+		Scan(&items).Error
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// HostnameClaimExists reports whether any DomainDNSRecord exists for hostname in
+// zoneID on a domain other than excludeDomainID (uuid.Nil excludes nothing).
+// Matching is case- and trailing-dot-insensitive on both sides. Because a
+// hostname is unique within a project, a match is always another project.
+func (r *DomainDNSRecordRepository) HostnameClaimExists(hostname string, zoneID, excludeDomainID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.Raw(`
+		SELECT EXISTS(
+			SELECT 1 FROM domain_dns_records rec
+			JOIN domains d ON d.id = rec.domain_id
+			WHERE LOWER(TRIM(TRAILING '.' FROM d.hostname)) = LOWER(TRIM(TRAILING '.' FROM ?))
+			  AND rec.hosted_zone_id = ?
+			  AND rec.domain_id <> ?)`,
+		hostname, zoneID, excludeDomainID).Scan(&exists).Error
+	return exists, err
+}
+
 func (r *DomainDNSRecordRepository) Update(rec *models.DomainDNSRecord) error {
 	return r.db.Save(rec).Error
 }

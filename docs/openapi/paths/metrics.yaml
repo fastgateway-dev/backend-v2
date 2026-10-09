@@ -106,3 +106,46 @@ domain-metrics:
           application/json:
             schema:
               $ref: '../schemas/common.yaml#/Error'
+
+stream-metrics:
+  get:
+    tags: [Metrics]
+    summary: Get L4 connection, rate and throughput metrics for a stream
+    description: |
+      Current active connections (UDP sessions), connection rate and bytes
+      in/out per listener of an L4 stream, sourced from Envoy tcp_proxy /
+      udp_proxy stats. Separate from the HTTP route-metrics endpoint, which
+      rejects L4 routes.
+    operationId: getStreamMetrics
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+    responses:
+      '200':
+        description: L4 metrics per listener and summed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/metrics.yaml#/L4Metrics'
+      '400':
+        description: Invalid ID, or metrics endpoint not configured for the project
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '502':
+        description: Upstream Prometheus query failed
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+      '504':
+        description: Upstream Prometheus query timed out
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

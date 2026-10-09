@@ -307,6 +307,18 @@ func (a *routeAssembler) buildGRPCRouteConfig(route *models.Route, domain *model
 	return routeplan.BuildGRPCRouteConfig(route, domain)
 }
 
+// buildTCPRouteConfig builds kubernetes.TCPRouteConfig from an L4 route and its stream
+func (a *routeAssembler) buildTCPRouteConfig(route *models.Route, stream *models.Stream) *kubernetes.TCPRouteConfig {
+	cfg := routeplan.BuildTCPRouteConfig(*route, *stream)
+	return &cfg
+}
+
+// buildUDPRouteConfig builds kubernetes.UDPRouteConfig from an L4 route and its stream
+func (a *routeAssembler) buildUDPRouteConfig(route *models.Route, stream *models.Stream) *kubernetes.UDPRouteConfig {
+	cfg := routeplan.BuildUDPRouteConfig(*route, *stream)
+	return &cfg
+}
+
 // buildSecurityPolicyConfig builds kubernetes.SecurityPolicyConfig from route, domain and security policy
 // Note: This builds from DB only (CORS + stored authorization). For deploy, use deploySecurityPolicy()
 // which also computes authorization from active client attachments.

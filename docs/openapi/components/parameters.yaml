@@ -48,6 +48,13 @@ domainId:
   schema:
     type: string
     format: uuid
+streamId:
+  name: streamId
+  in: path
+  required: true
+  schema:
+    type: string
+    format: uuid
 namespaceId:
   name: namespaceId
   in: path

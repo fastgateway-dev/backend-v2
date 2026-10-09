@@ -40,9 +40,10 @@ func fixtureDomain() *models.Domain {
 // fixtureRoute returns a minimal HTTP route. Callers mutate the returned value
 // to build variants -- each call returns a fresh copy.
 func fixtureRoute(name string) *models.Route {
+	domainID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	return &models.Route{
 		ID:           uuid.MustParse("11111111-1111-1111-1111-111111111111"),
-		DomainID:     uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+		DomainID:     &domainID,
 		Name:         name,
 		Protocol:     models.RouteProtocolHTTP,
 		K8sRouteName: name + "-11111111",

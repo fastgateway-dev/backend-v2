@@ -97,6 +97,13 @@ func (f *fakeZoneRecordRepo) GetByDomainID(domainID uuid.UUID) (*models.DomainDN
 	return nil, gorm.ErrRecordNotFound
 }
 
+func (f *fakeZoneRecordRepo) ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
+	return nil, nil
+}
+func (f *fakeZoneRecordRepo) HostnameClaimExists(hostname string, zoneID, excludeDomainID uuid.UUID) (bool, error) {
+	return false, nil
+}
+
 func (f *fakeZoneRecordRepo) Update(rec *models.DomainDNSRecord) error { return nil }
 
 func (f *fakeZoneRecordRepo) DeleteByDomainID(domainID uuid.UUID) error { return nil }
@@ -144,6 +151,10 @@ type fakeZoneClient struct {
 
 func (c fakeZoneClient) FindZone(ctx context.Context, zoneName string) (string, bool, error) {
 	return c.d.findZoneID, c.d.findZoneFound, c.d.findZoneErr
+}
+
+func (c fakeZoneClient) RecordExistsForName(ctx context.Context, providerZoneID, name string) (bool, error) {
+	return false, nil
 }
 
 func (c fakeZoneClient) GetRecord(ctx context.Context, providerZoneID, name, recordType string) (dnsprovider.Record, bool, error) {

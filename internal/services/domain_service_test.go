@@ -1322,6 +1322,14 @@ type mockDNSEnabler struct {
 	deleteDomains  []uuid.UUID
 	deleteProjects []uuid.UUID
 	deleteErr      error
+
+	checkCalled       bool
+	checkCollisionErr error
+}
+
+func (m *mockDNSEnabler) CheckCollision(hostname string, hostedZoneID, excludeDomainID uuid.UUID) error {
+	m.checkCalled = true
+	return m.checkCollisionErr
 }
 
 func (m *mockDNSEnabler) Enable(domainID, projectID, createdBy uuid.UUID, in services.DNSRecordInput) (*models.DomainDNSRecord, error) {
@@ -1452,7 +1460,8 @@ func TestCreateDomain_WithDNS_EnableFailureIsBestEffort(t *testing.T) {
 		DomainTemplateID: dtID.String(),
 		Namespace:        kubernetes.FastGatewayNamespace,
 		DNS: &services.DomainDNSInput{
-			Enabled: true,
+			Enabled:      true,
+			HostedZoneID: uuid.New().String(),
 		},
 	}, uuid.New())
 
@@ -1555,4 +1564,78 @@ func TestDomainService_Delete_NoDNSRecordsWired(t *testing.T) {
 
 	require.NoError(t, err)
 	domainRepo.AssertExpectations(t)
+}
+
+// TestCreateDomain_WithDNS_CollisionFailsCreate verifies the up-front pre-flight:
+// a DNS collision rejects the whole create before anything is persisted.
+func TestCreateDomain_WithDNS_CollisionFailsCreate(t *testing.T) {
+	svc, domainRepo, _, _, _, _, _ := newTestDomainService()
+	dnsMock := &mockDNSEnabler{checkCollisionErr: services.ErrHostnameClaimed}
+	svc.SetDNSRecords(dnsMock)
+
+	projectID := uuid.New()
+	zoneID := uuid.New()
+
+	_, err := svc.Create(projectID, &services.CreateDomainInput{
+		Name:             "d",
+		Hostname:         "app.example.com",
+		DomainTemplateID: uuid.New().String(),
+		Namespace:        kubernetes.FastGatewayNamespace,
+		DNS:              &services.DomainDNSInput{Enabled: true, HostedZoneID: zoneID.String()},
+	}, uuid.New())
+
+	require.ErrorIs(t, err, services.ErrHostnameClaimed)
+	assert.True(t, dnsMock.checkCalled, "CheckCollision should run")
+	domainRepo.AssertNotCalled(t, "Create", mock.Anything)
+	domainRepo.AssertNotCalled(t, "ExistsByHostname", mock.Anything, mock.Anything)
+}
+
+// TestCreateDomain_WithDNS_NilManagerSkipsCheck: out-of-cluster (dnsRecords nil)
+// skips the pre-flight AND the enable tail; create proceeds normally.
+func TestCreateDomain_WithDNS_NilManagerSkipsCheck(t *testing.T) {
+	svc, domainRepo, _, dtRepo, k8sMock, _, _ := newTestDomainService()
+	// dnsRecords intentionally NOT wired.
+	projectID := uuid.New()
+	dtID := uuid.New()
+	dt := &models.DomainTemplate{ID: dtID, ProjectID: projectID, Name: "tpl", Status: models.DomainTemplateStatusActive, TLSMode: models.TLSModeNone}
+	domainRepo.On("ExistsByHostname", projectID, "nilskip.example.com").Return(false, nil)
+	dtRepo.On("GetByID", dtID).Return(dt, nil)
+	domainRepo.On("Create", mock.AnythingOfType("*models.Domain")).Return(nil)
+	k8sMock.On("CreateGateway", mock.Anything, projectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).Return(nil)
+	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+
+	result, err := svc.Create(projectID, &services.CreateDomainInput{
+		Name: "d", Hostname: "nilskip.example.com", DomainTemplateID: dtID.String(),
+		Namespace: kubernetes.FastGatewayNamespace,
+		DNS:       &services.DomainDNSInput{Enabled: true, HostedZoneID: uuid.New().String()},
+	}, uuid.New())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
+// TestCreateDomain_WithDNS_MissingOrBadZoneFailsCreate: dns.enabled with an
+// empty/invalid hostedZoneId is a hard error at create (nothing persisted),
+// before CheckCollision runs.
+func TestCreateDomain_WithDNS_MissingOrBadZoneFailsCreate(t *testing.T) {
+	svc, domainRepo, _, _, _, _, _ := newTestDomainService()
+	dnsMock := &mockDNSEnabler{}
+	svc.SetDNSRecords(dnsMock)
+	projectID := uuid.New()
+
+	_, err := svc.Create(projectID, &services.CreateDomainInput{
+		Name: "d", Hostname: "a.example.com", DomainTemplateID: uuid.New().String(),
+		Namespace: kubernetes.FastGatewayNamespace,
+		DNS:       &services.DomainDNSInput{Enabled: true, HostedZoneID: ""},
+	}, uuid.New())
+	require.ErrorIs(t, err, services.ErrNoHostedZone)
+
+	_, err = svc.Create(projectID, &services.CreateDomainInput{
+		Name: "d", Hostname: "a.example.com", DomainTemplateID: uuid.New().String(),
+		Namespace: kubernetes.FastGatewayNamespace,
+		DNS:       &services.DomainDNSInput{Enabled: true, HostedZoneID: "not-a-uuid"},
+	}, uuid.New())
+	require.Error(t, err)
+
+	domainRepo.AssertNotCalled(t, "Create", mock.Anything)
+	assert.False(t, dnsMock.checkCalled, "missing/bad zone id rejects before CheckCollision")
 }

@@ -41,12 +41,21 @@ func (r *DomainTemplateRepository) GetByName(projectID uuid.UUID, name string) (
 	return &dt, nil
 }
 
-// ListByProjectID lists domain templates in a project with pagination
-func (r *DomainTemplateRepository) ListByProjectID(projectID uuid.UUID, page, limit int) ([]models.DomainTemplate, int64, error) {
+// ListByProjectID lists domain templates in a project with pagination.
+// capability scopes the result to templates that can host that kind of
+// resource: "domain" (enable_domain = true), "stream" (enable_stream = true),
+// or "" for no filtering.
+func (r *DomainTemplateRepository) ListByProjectID(projectID uuid.UUID, page, limit int, capability string) ([]models.DomainTemplate, int64, error) {
 	var domainTemplates []models.DomainTemplate
 	var total int64
 
 	query := r.db.Model(&models.DomainTemplate{}).Where("project_id = ?", projectID)
+	switch capability {
+	case "domain":
+		query = query.Where("enable_domain = ?", true)
+	case "stream":
+		query = query.Where("enable_stream = ?", true)
+	}
 
 	err := query.Count(&total).Error
 	if err != nil {

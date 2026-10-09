@@ -1,0 +1,62 @@
+Stream:
+  type: object
+  description: An L4 (TCP/UDP) stream. One stream maps to one Kubernetes Gateway.
+  properties:
+    id:
+      type: string
+      format: uuid
+    projectId:
+      type: string
+      format: uuid
+    name:
+      type: string
+    namespace:
+      type: string
+    gatewayTemplateId:
+      type: string
+      format: uuid
+      description: Gateway Template (with the stream capability) this stream was created from. Immutable.
+    k8sGatewayName:
+      type: string
+      description: Kubernetes Gateway name, "str-" followed by the DNS-label-safe stream name.
+    k8sGatewayClass:
+      type: string
+    status:
+      type: string
+      description: pending, active or error.
+    statusMessage:
+      type: string
+    createdBy:
+      type: string
+      format: uuid
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+
+CreateStreamRequest:
+  type: object
+  required: [name, namespace, gatewayTemplateId]
+  properties:
+    name:
+      type: string
+      maxLength: 59
+      pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+      description: Lowercase alphanumerics separated by single dashes; starts and ends alphanumeric.
+    namespace:
+      type: string
+    gatewayTemplateId:
+      type: string
+      format: uuid
+      description: Must belong to the project and have the stream capability enabled.
+
+UpdateStreamRequest:
+  type: object
+  description: Only the name is updatable; the Gateway Template is immutable.
+  properties:
+    name:
+      type: string
+      maxLength: 59
+      pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'

@@ -24,6 +24,8 @@ tags:
     description: Domain template management
   - name: Domains
     description: Domain (Gateway) management
+  - name: Streams
+    description: L4 (TCP/UDP) stream management
   - name: Project Namespaces
     description: Project namespace whitelist management
   - name: Routes
@@ -247,6 +249,20 @@ paths:
     $ref: 'paths/namespaces.yaml#/ensure-reference-grant'
 
   # ============== DOMAINS ==============
+  /projects/{projectId}/streams:
+    $ref: 'paths/streams.yaml#/streams'
+  /projects/{projectId}/streams/{streamId}:
+    $ref: 'paths/streams.yaml#/streams_{streamId}'
+  /projects/{projectId}/streams/{streamId}/metrics:
+    $ref: 'paths/metrics.yaml#/stream-metrics'
+  /projects/{projectId}/streams/{streamId}/routes:
+    $ref: 'paths/stream-routes.yaml#/stream-routes'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}:
+    $ref: 'paths/stream-routes.yaml#/stream-routes_{routeId}'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/yaml:
+    $ref: 'paths/stream-routes.yaml#/stream-route-yaml'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/deploy:
+    $ref: 'paths/stream-routes.yaml#/stream-route-deploy'
   /projects/{projectId}/domains:
     $ref: 'paths/domains.yaml#/domains'
   /projects/{projectId}/domains/tls-secrets:
@@ -275,6 +291,8 @@ paths:
     $ref: 'paths/topology.yaml#/domain-topology'
   /projects/{projectId}/domains/{domainId}/import/openapi:
     $ref: 'paths/routes.yaml#/openapi-import'
+  /projects/{projectId}/dns-records:
+    $ref: 'paths/dns-records.yaml#/dns-records-list'
   /projects/{projectId}/domains/{domainId}/dns-record:
     $ref: 'paths/dns-records.yaml#/domain-dns-record'
   /projects/{projectId}/domains/{domainId}/dns-record/refresh:
@@ -644,6 +662,14 @@ components:
     CreateProjectNamespaceRequest:
       $ref: 'schemas/namespace.yaml#/CreateProjectNamespaceRequest'
 
+    # ============== STREAM ==============
+    Stream:
+      $ref: 'schemas/stream.yaml#/Stream'
+    CreateStreamRequest:
+      $ref: 'schemas/stream.yaml#/CreateStreamRequest'
+    UpdateStreamRequest:
+      $ref: 'schemas/stream.yaml#/UpdateStreamRequest'
+
     # ============== DOMAIN ==============
     Domain:
       $ref: 'schemas/domain.yaml#/Domain'
@@ -747,6 +773,8 @@ components:
       $ref: 'schemas/route.yaml#/PathRewrite'
     CreateRouteRequest:
       $ref: 'schemas/route.yaml#/CreateRouteRequest'
+    CreateStreamRouteRequest:
+      $ref: 'schemas/route.yaml#/CreateStreamRouteRequest'
     UpdateRouteRequest:
       $ref: 'schemas/route.yaml#/UpdateRouteRequest'
     SecurityPolicyInput:
@@ -977,6 +1005,10 @@ components:
       $ref: 'schemas/metrics.yaml#/TopRouteEntry'
     DomainMetricsResult:
       $ref: 'schemas/metrics.yaml#/DomainMetricsResult'
+    L4ListenerMetrics:
+      $ref: 'schemas/metrics.yaml#/L4ListenerMetrics'
+    L4Metrics:
+      $ref: 'schemas/metrics.yaml#/L4Metrics'
 
     # ============== SYSTEM SETTINGS ==============
     EffectiveSettings:
@@ -1113,6 +1145,8 @@ components:
     # ============== DNS RECORD ==============
     DomainDNSRecord:
       $ref: 'schemas/dns-record.yaml#/DomainDNSRecord'
+    DNSRecordListItem:
+      $ref: 'schemas/dns-record.yaml#/DNSRecordListItem'
     CreateDNSRecordRequest:
       $ref: 'schemas/dns-record.yaml#/CreateDNSRecordRequest'
     UpdateDNSRecordRequest:

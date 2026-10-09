@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -41,7 +42,13 @@ func (h *DomainTemplateHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 
-	domainTemplates, total, err := h.dtService.ListByProjectID(projectID, page, limit)
+	capability := c.Query("capability")
+	if capability != "" && capability != "domain" && capability != "stream" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "capability must be one of: domain, stream"})
+		return
+	}
+
+	domainTemplates, total, err := h.dtService.ListByProjectID(projectID, page, limit, capability)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -246,7 +253,11 @@ func (h *DomainTemplateHandler) Update(c *gin.Context) {
 
 	dt, err := h.dtService.Update(id, &input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		status := http.StatusBadRequest
+		if errors.Is(err, services.ErrPortCollision) {
+			status = http.StatusConflict
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 

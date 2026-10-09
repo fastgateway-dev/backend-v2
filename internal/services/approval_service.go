@@ -124,7 +124,9 @@ func (s *ApprovalService) ListByProjectID(projectID uuid.UUID, page, limit int, 
 	domainIDSet := make(map[uuid.UUID]struct{})
 	for _, r := range routes {
 		routeMap[r.ID] = r
-		domainIDSet[r.DomainID] = struct{}{}
+		if r.DomainID != nil {
+			domainIDSet[*r.DomainID] = struct{}{}
+		}
 	}
 
 	// Batch-fetch domains
@@ -146,8 +148,10 @@ func (s *ApprovalService) ListByProjectID(projectID uuid.UUID, page, limit int, 
 		if approvals[i].EntityType == models.ApprovalEntityRoute {
 			if route, ok := routeMap[approvals[i].EntityID]; ok {
 				approvals[i].EntityName = route.Name
-				if domain, ok := domainMap[route.DomainID]; ok {
-					approvals[i].DomainName = domain.Hostname
+				if route.DomainID != nil {
+					if domain, ok := domainMap[*route.DomainID]; ok {
+						approvals[i].DomainName = domain.Hostname
+					}
 				}
 			}
 		}
@@ -214,6 +218,9 @@ type ApprovalDiffResult struct {
 	AIReview                         json.RawMessage `json:"aiReview,omitempty"`
 }
 
+// ErrDiffNotAvailableForL4 is returned by GetDiff for an L4 (tcp/udp) route.
+var ErrDiffNotAvailableForL4 = errors.New("YAML diff is not available for L4 routes")
+
 // GetDiff generates YAML diff for an approval request
 func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 	approval, err := s.approvalRepo.GetByID(id)
@@ -231,7 +238,13 @@ func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 		return nil, err
 	}
 
-	domain, err := s.domainRepo.GetByID(route.DomainID)
+	// An L4 route belongs to a Stream and has no Domain; the diff is built
+	// from Domain-scoped HTTPRoute/policy YAML, which does not apply to it.
+	if route.IsL4() || route.DomainID == nil {
+		return nil, ErrDiffNotAvailableForL4
+	}
+
+	domain, err := s.domainRepo.GetByID(*route.DomainID)
 	if err != nil {
 		return nil, err
 	}

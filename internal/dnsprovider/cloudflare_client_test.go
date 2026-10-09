@@ -158,3 +158,30 @@ func TestCloudflareClient_DeleteRecord_DeletesWhenPresent(t *testing.T) {
 		t.Fatal("expected DeleteRecord to call DELETE when record exists")
 	}
 }
+
+func TestCloudflareClient_RecordExistsForName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"success":true,"result":[{"id":"r1","type":"A","name":"app.example.com"}],"result_info":{"page":1,"total_pages":1}}`))
+	}))
+	defer srv.Close()
+	c, err := cloudflare{}.newClientWithBaseURL(map[string]string{"apiToken": "tok"}, srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exists, err := c.RecordExistsForName(context.Background(), "zone123", "app.example.com")
+	if err != nil || !exists {
+		t.Fatalf("RecordExistsForName=%v,%v want true,nil", exists, err)
+	}
+}
+
+func TestCloudflareClient_RecordExistsForName_None(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"success":true,"result":[],"result_info":{"page":1,"total_pages":1}}`))
+	}))
+	defer srv.Close()
+	c, _ := cloudflare{}.newClientWithBaseURL(map[string]string{"apiToken": "tok"}, srv.URL)
+	exists, err := c.RecordExistsForName(context.Background(), "zone123", "app.example.com")
+	if err != nil || exists {
+		t.Fatalf("RecordExistsForName=%v,%v want false,nil", exists, err)
+	}
+}

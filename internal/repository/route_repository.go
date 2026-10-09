@@ -21,6 +21,7 @@ func NewRouteRepository(db *gorm.DB) *RouteRepository {
 
 // Create creates a new route
 func (r *RouteRepository) Create(route *models.Route) error {
+	route.SyncListenerPort() // keep the listener_port column (unique index) in step with Config
 	return r.db.Create(route).Error
 }
 
@@ -130,6 +131,7 @@ func (r *RouteRepository) ListByDomainID(domainID uuid.UUID, page, limit int, te
 
 // Update updates a route
 func (r *RouteRepository) Update(route *models.Route) error {
+	route.SyncListenerPort() // keep the listener_port column (unique index) in step with Config
 	return r.db.Save(route).Error
 }
 
@@ -147,10 +149,70 @@ func (r *RouteRepository) ExistsByName(domainID uuid.UUID, name string) (bool, e
 	return count > 0, err
 }
 
+// ExistsByStreamAndName checks if a route with the given name exists in the stream
+func (r *RouteRepository) ExistsByStreamAndName(streamID uuid.UUID, name string) (bool, error) {
+	var count int64
+	err := r.db.Model(&models.Route{}).
+		Where("stream_id = ? AND name = ?", streamID, name).
+		Count(&count).Error
+	return count > 0, err
+}
+
+// ListByStreamID lists the L4 routes of a stream with pagination, optionally
+// filtered by owner team and status.
+func (r *RouteRepository) ListByStreamID(streamID uuid.UUID, page, limit int, teamID *uuid.UUID, status string) ([]models.Route, int64, error) {
+	var routes []models.Route
+	var total int64
+
+	query := r.db.Model(&models.Route{}).Where("stream_id = ?", streamID)
+	if teamID != nil {
+		query = query.Where("team_id = ?", *teamID)
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	offset := (page - 1) * limit
+	if err := query.Preload("Team").Offset(offset).Limit(limit).Order("name ASC").Find(&routes).Error; err != nil {
+		return nil, 0, err
+	}
+	return routes, total, nil
+}
+
 // GetActiveRoutesByDomainID gets all active routes for a domain
 func (r *RouteRepository) GetActiveRoutesByDomainID(domainID uuid.UUID) ([]models.Route, error) {
 	var routes []models.Route
 	err := r.db.Where("domain_id = ? AND status = ?", domainID, models.RouteStatusActive).Find(&routes).Error
+	return routes, err
+}
+
+// ListActiveByStreamID lists the L4 routes of a stream that are live in the
+// cluster, i.e. whose listener must be present on the stream's Gateway.
+//
+// "Live" is wider than status = active: a route with a pending update or
+// delete (or an approved change waiting for deployment) is still deployed with
+// its previous config until the change is deployed, so excluding it would let
+// an unrelated route's deploy drop its listener from the recomputed Gateway.
+// Routes that were never deployed (pending_create, approved-for-create,
+// rejected) are excluded.
+func (r *RouteRepository) ListActiveByStreamID(streamID uuid.UUID) ([]models.Route, error) {
+	var routes []models.Route
+	err := r.db.Where("stream_id = ? AND status IN ?", streamID, []models.RouteStatus{
+		models.RouteStatusActive,
+		models.RouteStatusPendingUpdate,
+		models.RouteStatusPendingDelete,
+		models.RouteStatusPendingDeploy,
+	}).Order("created_at ASC, id ASC").Find(&routes).Error
 	return routes, err
 }
 
@@ -161,6 +223,15 @@ func (r *RouteRepository) CountByDomainID(domainID uuid.UUID) (int, error) {
 		return 0, err
 	}
 	return int(count), nil
+}
+
+// CountByStreamID returns the number of routes attached to a stream
+func (r *RouteRepository) CountByStreamID(streamID uuid.UUID) (int64, error) {
+	var count int64
+	if err := r.db.Model(&models.Route{}).Where("stream_id = ?", streamID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 // ListByProjectID lists routes across all domains in a project with optional

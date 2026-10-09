@@ -47,6 +47,23 @@ DomainDNSRecord:
       type: string
       format: date-time
 
+DNSRecordListItem:
+  description: |
+    A row in the project-wide DNS records list: a domain's managed DNS record
+    plus the domain hostname (the record's name) and the name of the hosted
+    zone it lives in. This is a read-only aggregation and is not reconciled, so
+    `status` reflects the last persisted value.
+  allOf:
+    - $ref: '#/DomainDNSRecord'
+    - type: object
+      properties:
+        domainHostname:
+          type: string
+          description: The record's name — the domain's hostname.
+        zoneName:
+          type: string
+          description: The name of the hosted zone the record lives in (empty if the zone row is gone).
+
 CreateDNSRecordRequest:
   type: object
   required: [hostedZoneId]

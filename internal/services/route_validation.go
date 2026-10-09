@@ -97,6 +97,12 @@ func validateHTTPRouteConfig(config *models.RouteConfig) error {
 // validateRouteConfig validates essential route configuration based on route type.
 // This ensures routes have the minimum required configuration to function properly.
 func validateRouteConfig(config *models.RouteConfig, protocol models.RouteProtocol) error {
+	// L4 (tcp/udp) routes have no paths, route types or filters: they are
+	// validated by their own shape check, never by the HTTP requirements below.
+	if protocol == models.RouteProtocolTCP || protocol == models.RouteProtocolUDP {
+		return ValidateL4RouteConfig(models.Route{Protocol: protocol, Config: *config})
+	}
+
 	routeType := config.RouteType
 
 	// Backend routes: require at least one backend
@@ -647,4 +653,161 @@ func (q *routeQuery) CheckMatcherConflicts(domainID uuid.UUID, match models.Rout
 	}
 
 	return conflicts, nil
+}
+
+// Sentinels returned by ValidateL4RouteConfig and its policy-input siblings.
+// The route handler maps all of them to 400.
+var (
+	// ErrL4RejectsL7Field is returned when an L4 (tcp/udp) route carries a
+	// field that only exists at L7 (matches, filters, redirects, header
+	// modifiers, security mode, WAF, client attachments, HTTP-only traffic policy).
+	ErrL4RejectsL7Field = errors.New("field is not supported on a TCP/UDP route")
+	// ErrL4ExternalBackend is returned when an L4 route targets an external
+	// (FQDN/IP) backend. Only Kubernetes service backends are supported today.
+	ErrL4ExternalBackend = errors.New("external backends are not supported on a TCP/UDP route")
+	// ErrL4MissingListenerPort is returned when an L4 route has no listener port.
+	ErrL4MissingListenerPort = errors.New("a TCP/UDP route requires a listener port")
+	// ErrL4MissingBackend is returned when an L4 route has no backend.
+	ErrL4MissingBackend = errors.New("a TCP/UDP route requires at least one backend")
+)
+
+func l4RejectsField(field string) error {
+	return fmt.Errorf("%w: %s", ErrL4RejectsL7Field, field)
+}
+
+// ValidateL4RouteConfig validates the shape of an L4 (tcp/udp) route: L7
+// fields are rejected, a listener port and at least one Kubernetes backend are
+// required. It checks shape only; the listener-port range, reserved-port and
+// collision rules live in routeWrite.validateL4Listener.
+func ValidateL4RouteConfig(route models.Route) error {
+	c := route.Config
+
+	if len(c.Matches) > 0 {
+		return l4RejectsField("matches")
+	}
+	if c.RouteType != "" && c.RouteType != models.RouteTypeBackend {
+		return l4RejectsField("routeType " + string(c.RouteType))
+	}
+	if c.Redirect != nil {
+		return l4RejectsField("redirect")
+	}
+	if c.DirectResponse != nil {
+		return l4RejectsField("directResponse")
+	}
+	if c.URLRewrite != nil {
+		return l4RejectsField("urlRewrite")
+	}
+	if c.RequestHeaderModifier != nil {
+		return l4RejectsField("requestHeaderModifier")
+	}
+	if c.ResponseHeaderModifier != nil {
+		return l4RejectsField("responseHeaderModifier")
+	}
+	if len(c.Mirrors) > 0 {
+		return l4RejectsField("mirrors")
+	}
+	if c.DefaultTrafficPolicy != "" || len(c.DefaultAllowedCIDRs) > 0 {
+		return l4RejectsField("client default traffic policy")
+	}
+	if route.SecurityMode != "" && route.SecurityMode != models.SecurityModeGeneral {
+		return l4RejectsField("securityMode " + string(route.SecurityMode))
+	}
+
+	if c.ListenerPort == 0 {
+		return ErrL4MissingListenerPort
+	}
+	if len(c.Backends) < 1 {
+		return ErrL4MissingBackend
+	}
+	for i, b := range c.Backends {
+		// Single seam for future FQDN/IP backend support on L4 routes.
+		if b.Type == models.BackendTypeExternal {
+			return fmt.Errorf("%w: backend[%d]", ErrL4ExternalBackend, i)
+		}
+	}
+	return nil
+}
+
+// validateL4PolicyInputs rejects the write-time policy inputs that have no
+// L4 equivalent: a client/OIDC security mode or security policy, WAF,
+// extension policies, and the HTTP-only BackendTrafficPolicy features
+// (rate limit, retry, compression, fault injection, request buffer, response
+// override), plus whatever is not valid for the specific L4 transport (see
+// validateL4BackendTrafficPolicy). Client attachments are only possible in
+// securityMode "client", which is rejected here.
+func validateL4PolicyInputs(protocol models.RouteProtocol, securityMode models.SecurityMode, sp *routeplan.SecurityPolicyInput, ext *routeplan.EnvoyExtensionPolicyInput, waf *routeplan.WafPolicyInput, btp *routeplan.BackendTrafficPolicyInput) error {
+	if securityMode != "" && securityMode != models.SecurityModeGeneral {
+		return l4RejectsField("securityMode " + string(securityMode))
+	}
+	if sp != nil {
+		return l4RejectsField("securityPolicy")
+	}
+	if ext != nil && ext.HasContent() {
+		return l4RejectsField("extensionPolicy")
+	}
+	if waf != nil {
+		return l4RejectsField("wafPolicy")
+	}
+	return validateL4BackendTrafficPolicy(btp, protocol)
+}
+
+// validateL4BackendTrafficPolicy rejects the BackendTrafficPolicy features that
+// do not apply to an L4 route of the given protocol. The HTTP-only features
+// (rate limit, retry, compression, fault injection, request buffer, response
+// override) are rejected for both. Beyond that:
+//   - TCP keeps the load balancer, passive and active-TCP health checks, TCP
+//     timeouts and the connection-oriented circuit-breaker counters
+//     (maxConnections, maxRequestsPerConnection); the request-oriented
+//     counters (maxPendingRequests, maxParallelRequests, maxParallelRetries),
+//     HTTP/gRPC active health checks and HTTP timeouts are rejected.
+//   - UDP keeps the load balancer only; circuit breaker, health check and
+//     timeout do not apply to datagrams and are rejected.
+func validateL4BackendTrafficPolicy(btp *routeplan.BackendTrafficPolicyInput, protocol models.RouteProtocol) error {
+	if btp == nil {
+		return nil
+	}
+	switch {
+	case btp.RateLimit != nil:
+		return l4RejectsField("backendTrafficPolicy.rateLimit")
+	case btp.Retry != nil:
+		return l4RejectsField("backendTrafficPolicy.retry")
+	case len(btp.Compression) > 0:
+		return l4RejectsField("backendTrafficPolicy.compression")
+	case btp.FaultInjection != nil:
+		return l4RejectsField("backendTrafficPolicy.faultInjection")
+	case btp.RequestBuffer != nil:
+		return l4RejectsField("backendTrafficPolicy.requestBuffer")
+	case len(btp.ResponseOverride) > 0:
+		return l4RejectsField("backendTrafficPolicy.responseOverride")
+	}
+
+	if protocol == models.RouteProtocolUDP {
+		switch {
+		case btp.CircuitBreaker != nil:
+			return l4RejectsField("backendTrafficPolicy.circuitBreaker (UDP)")
+		case btp.HealthCheck != nil:
+			return l4RejectsField("backendTrafficPolicy.healthCheck (UDP)")
+		case btp.Timeout != nil:
+			return l4RejectsField("backendTrafficPolicy.timeout (UDP)")
+		}
+		return nil
+	}
+
+	if cb := btp.CircuitBreaker; cb != nil {
+		switch {
+		case cb.MaxPendingRequests != nil:
+			return l4RejectsField("backendTrafficPolicy.circuitBreaker.maxPendingRequests")
+		case cb.MaxParallelRequests != nil:
+			return l4RejectsField("backendTrafficPolicy.circuitBreaker.maxParallelRequests")
+		case cb.MaxParallelRetries != nil:
+			return l4RejectsField("backendTrafficPolicy.circuitBreaker.maxParallelRetries")
+		}
+	}
+	if hc := btp.HealthCheck; hc != nil && hc.Active != nil && hc.Active.Type != "TCP" {
+		return l4RejectsField("backendTrafficPolicy.healthCheck.active." + hc.Active.Type)
+	}
+	if t := btp.Timeout; t != nil && t.HTTP != nil {
+		return l4RejectsField("backendTrafficPolicy.timeout.http")
+	}
+	return nil
 }

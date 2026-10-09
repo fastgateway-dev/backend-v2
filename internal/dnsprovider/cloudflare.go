@@ -72,6 +72,20 @@ func (c *cloudflareClient) GetRecord(ctx context.Context, providerZoneID, name, 
 	return toRecord(records[0]), true, nil
 }
 
+func (c *cloudflareClient) RecordExistsForName(ctx context.Context, providerZoneID, name string) (bool, error) {
+	records, _, err := c.api.ListDNSRecords(ctx, cf.ZoneIdentifier(providerZoneID), cf.ListDNSRecordsParams{Name: name})
+	if err != nil {
+		return false, err
+	}
+	for _, r := range records {
+		switch r.Type {
+		case "A", "AAAA", "CNAME":
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (c *cloudflareClient) UpsertRecord(ctx context.Context, providerZoneID string, r Record) error {
 	existing, _, err := c.api.ListDNSRecords(ctx, cf.ZoneIdentifier(providerZoneID), cf.ListDNSRecordsParams{
 		Name: r.Name,

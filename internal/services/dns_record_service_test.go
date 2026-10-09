@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -27,7 +28,16 @@ import (
 // --- fakeRecRepo -------------------------------------------------------------
 
 type fakeRecRepo struct {
-	rec *models.DomainDNSRecord
+	rec         *models.DomainDNSRecord
+	listResult  []models.DNSRecordListItem
+	listErr     error
+	listCalled  uuid.UUID
+	claimExists bool
+	claimErr    error
+}
+
+func (f *fakeRecRepo) HostnameClaimExists(hostname string, zoneID, excludeDomainID uuid.UUID) (bool, error) {
+	return f.claimExists, f.claimErr
 }
 
 func (f *fakeRecRepo) Create(rec *models.DomainDNSRecord) error {
@@ -60,6 +70,11 @@ func (f *fakeRecRepo) CountByZone(zoneID uuid.UUID) (int64, error) {
 		return 1, nil
 	}
 	return 0, nil
+}
+
+func (f *fakeRecRepo) ListByProjectID(projectID uuid.UUID) ([]models.DNSRecordListItem, error) {
+	f.listCalled = projectID
+	return f.listResult, f.listErr
 }
 
 var _ repository.DomainDNSRecordRepositoryInterface = (*fakeRecRepo)(nil)
@@ -139,11 +154,18 @@ type recDNSClient struct {
 	upsertErr error
 	deleteErr error
 
+	existsForName bool
+	existsErr     error
+
 	upsertCalls    int
 	deleteCalls    int
 	getCalls       int
 	lastUpsert     dnsprovider.Record
 	lastDeleteType string
+}
+
+func (c *recDNSClient) RecordExistsForName(_ context.Context, _, _ string) (bool, error) {
+	return c.existsForName, c.existsErr
 }
 
 func (c *recDNSClient) FindZone(context.Context, string) (string, bool, error) {
@@ -269,6 +291,32 @@ func TestEnable_InvalidRecordType_Errors(t *testing.T) {
 	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
 
+func TestList_PassesProjectAndReturnsItems(t *testing.T) {
+	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+	h.repo.listResult = []models.DNSRecordListItem{
+		{
+			DomainDNSRecord: models.DomainDNSRecord{DomainID: h.domainID, RecordType: models.DNSRecordTypeA, Status: models.DNSRecordStatusReady},
+			DomainHostname:  "app.example.com",
+			ZoneName:        "example.com",
+		},
+	}
+
+	got, err := h.svc.List(h.projectID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "app.example.com", got[0].DomainHostname)
+	assert.Equal(t, "example.com", got[0].ZoneName)
+	// List is a pure read that scopes by project in the repo query.
+	assert.Equal(t, h.projectID, h.repo.listCalled, "service must pass the project id to the repository")
+}
+
+func TestList_PropagatesRepoError(t *testing.T) {
+	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+	h.repo.listErr = errors.New("db down")
+	_, err := h.svc.List(h.projectID)
+	require.Error(t, err)
+}
+
 func TestEnable_AlreadyExists_Errors(t *testing.T) {
 	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
 	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
@@ -318,15 +366,17 @@ func TestEnable_ApexCNAME_Error(t *testing.T) {
 }
 
 func TestEnable_HostedZoneMismatch_Error(t *testing.T) {
-	// Hostname is not contained in the hosted zone.
+	// Hostname is not contained in the hosted zone: Enable's CheckCollision
+	// pre-flight now rejects up-front rather than creating a record in error
+	// status, so nothing is persisted and the provider is never touched.
 	client := &recDNSClient{}
 	h := newRecHarness(t, "app.other.com", "example.com", "203.0.113.5", "faketest", client)
 
-	rec, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
-	require.NoError(t, err)
-	require.Equal(t, models.DNSRecordStatusError, rec.Status)
-	require.Equal(t, ErrHostedZoneMismatch.Error(), rec.StatusMessage)
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	require.ErrorIs(t, err, ErrHostedZoneMismatch)
 	require.Equal(t, 0, client.upsertCalls)
+	_, gerr := h.svc.repo.GetByDomainID(h.domainID)
+	require.ErrorIs(t, gerr, gorm.ErrRecordNotFound, "no record persisted on mismatch")
 }
 
 func TestEnable_WithAddress_UpsertsReady(t *testing.T) {
@@ -549,4 +599,46 @@ func TestEnable_CrossProject_Rejected(t *testing.T) {
 	require.Nil(t, rec)
 	require.Equal(t, 0, client.upsertCalls, "cross-project enable must not write at the provider")
 	require.Nil(t, h.repo.rec, "cross-project enable must not create a row")
+}
+
+func TestCheckCollision(t *testing.T) {
+	t.Run("containment mismatch", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+		err := h.svc.CheckCollision("app.other.org", h.zoneID, uuid.Nil)
+		require.ErrorIs(t, err, ErrHostedZoneMismatch)
+	})
+	t.Run("inside claimed does not leak project", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+		h.repo.claimExists = true
+		err := h.svc.CheckCollision("app.example.com", h.zoneID, uuid.Nil)
+		require.ErrorIs(t, err, ErrHostnameClaimed)
+		assert.Equal(t, ErrHostnameClaimed.Error(), err.Error(), "message must be the static sentinel (no project name leaked)")
+	})
+	t.Run("outside foreign record", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{existsForName: true})
+		err := h.svc.CheckCollision("app.example.com", h.zoneID, uuid.Nil)
+		require.ErrorIs(t, err, ErrForeignRecordExists)
+	})
+	t.Run("provider error is unavailable", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{existsErr: errors.New("boom")})
+		err := h.svc.CheckCollision("app.example.com", h.zoneID, uuid.Nil)
+		require.ErrorIs(t, err, ErrDNSProviderUnavailable)
+	})
+	t.Run("clear", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+		require.NoError(t, h.svc.CheckCollision("app.example.com", h.zoneID, uuid.Nil))
+	})
+	t.Run("case and trailing dot pass containment", func(t *testing.T) {
+		h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+		require.NoError(t, h.svc.CheckCollision("App.Example.com.", h.zoneID, uuid.Nil))
+	})
+}
+
+func TestEnable_RejectsCollision(t *testing.T) {
+	h := newRecHarness(t, "app.example.com", "example.com", "203.0.113.5", "faketest", &recDNSClient{})
+	h.repo.claimExists = true
+	_, err := h.svc.Enable(h.domainID, h.projectID, h.userID, DNSRecordInput{HostedZoneID: &h.zoneID})
+	require.ErrorIs(t, err, ErrHostnameClaimed)
+	_, gerr := h.svc.repo.GetByDomainID(h.domainID)
+	require.ErrorIs(t, gerr, gorm.ErrRecordNotFound, "no record persisted on collision")
 }

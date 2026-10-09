@@ -102,6 +102,9 @@ func newApprovalEngine(
 		K8sSecrets:       k8s,
 		K8sAPIKeys:       k8s,
 		K8sRefGrants:     k8s,
+		Streams:          new(mocks.MockStreamReader),
+		K8sGateways:      k8s,
+		K8sL4Routes:      k8s,
 	})
 	engine.Register(models.ApprovalEntityRoute, routeSvc)
 	// The engine is returned so a client_attachment test can register its own
@@ -248,7 +251,7 @@ func TestApprovalService_ListByProjectID_WithRouteEnrichment(t *testing.T) {
 	}
 	approvalRepo.On("ListByProjectID", projectID, 1, 10, "", "").Return(approvals, int64(1), nil)
 	routeRepo.On("GetByIDs", mock.AnythingOfType("[]uuid.UUID")).Return([]models.Route{
-		{ID: routeID, Name: "my-route", DomainID: domainID},
+		{ID: routeID, Name: "my-route", DomainID: &domainID},
 	}, nil)
 	domainRepo.On("GetByIDs", mock.AnythingOfType("[]uuid.UUID")).Return([]models.Domain{
 		{ID: domainID, Hostname: "example.com"},
@@ -1124,6 +1127,28 @@ func TestApprovalService_CancelApproval_ClientAttachment(t *testing.T) {
 // GetDiff
 // ---------------------------------------------------------------------------
 
+// An L4 route has a Stream and no Domain: GetDiff must report that the YAML
+// diff is unavailable instead of dereferencing its nil DomainID.
+func TestApprovalService_GetDiff_L4Route_NoPanic(t *testing.T) {
+	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
+	routeRepo := new(mocks.MockRouteRepository)
+	svc := newTestApprovalService(approvalRepo, nil, nil, routeRepo, nil, new(mocks.MockDomainRepository), routeplan.WAFConfig{})
+
+	approvalID, entityID, streamID := uuid.New(), uuid.New(), uuid.New()
+	approvalRepo.On("GetByID", approvalID).Return(&models.Approval{
+		ID: approvalID, EntityType: models.ApprovalEntityRoute, EntityID: entityID, Action: models.ApprovalActionCreate,
+	}, nil)
+	routeRepo.On("GetByID", entityID).Return(&models.Route{
+		ID: entityID, StreamID: &streamID, Protocol: models.RouteProtocolTCP, Name: "pg",
+	}, nil)
+
+	require.NotPanics(t, func() {
+		result, err := svc.GetDiff(approvalID)
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, services.ErrDiffNotAvailableForL4)
+	})
+}
+
 func TestApprovalService_GetDiff_CreateAction(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
@@ -1152,7 +1177,7 @@ func TestApprovalService_GetDiff_CreateAction(t *testing.T) {
 
 	route := &models.Route{
 		ID:           entityID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "test-route",
 		K8sRouteName: "test-route",
 	}
@@ -1210,7 +1235,7 @@ func TestApprovalService_GetDiff_UpdateAction(t *testing.T) {
 
 	route := &models.Route{
 		ID:           entityID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "test-route",
 		K8sRouteName: "test-route",
 	}
@@ -1273,7 +1298,7 @@ func TestApprovalService_GetDiff_DeleteAction(t *testing.T) {
 
 	route := &models.Route{
 		ID:           entityID,
-		DomainID:     domainID,
+		DomainID:     &domainID,
 		Name:         "test-route",
 		K8sRouteName: "test-route",
 	}

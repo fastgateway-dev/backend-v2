@@ -56,8 +56,13 @@ func NormalizeCIDR(cidr string) string {
 
 // GetRouteKind returns the K8s Kind for SecurityPolicy/BTP targetRef based on protocol
 func GetRouteKind(protocol models.RouteProtocol) string {
-	if protocol == models.RouteProtocolGRPC {
+	switch protocol {
+	case models.RouteProtocolGRPC:
 		return "GRPCRoute"
+	case models.RouteProtocolTCP:
+		return "TCPRoute"
+	case models.RouteProtocolUDP:
+		return "UDPRoute"
 	}
 	return "HTTPRoute"
 }
