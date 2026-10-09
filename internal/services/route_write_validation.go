@@ -161,6 +161,13 @@ func (w *routeWrite) validateRouteShapeAndConflicts(config *models.RouteConfig, 
 	// L4 routes have no paths/hostnames to shape-check or match-conflict on;
 	// their only conflict domain is the listener (transport, port).
 	if protocol == models.RouteProtocolTCP || protocol == models.RouteProtocolUDP {
+		// Shape first (static, no DB), then the listener-port rules.
+		if err := validateRouteConfig(config, protocol); err != nil {
+			return err
+		}
+		if err := validateL4BackendTrafficPolicy(btp); err != nil {
+			return err
+		}
 		return w.validateL4Listener(config, protocol, streamID, excludeRouteID)
 	}
 

@@ -1181,6 +1181,10 @@ func TestRouteHandler_CreateUpdate_PortErrorMapping(t *testing.T) {
 		{"collision", fmt.Errorf("%w: TCP/5432", services.ErrPortCollision), http.StatusConflict},
 		{"reserved", fmt.Errorf("%w: 19000", services.ErrReservedPort), http.StatusBadRequest},
 		{"out of range", fmt.Errorf("%w: got 70000", services.ErrInvalidListenerPort), http.StatusBadRequest},
+		{"l4 rejects l7 field", fmt.Errorf("%w: matches", services.ErrL4RejectsL7Field), http.StatusBadRequest},
+		{"l4 external backend", fmt.Errorf("%w: backend[0]", services.ErrL4ExternalBackend), http.StatusBadRequest},
+		{"l4 missing listener port", services.ErrL4MissingListenerPort, http.StatusBadRequest},
+		{"l4 missing backend", services.ErrL4MissingBackend, http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRoute := new(mocks.MockRouteService)

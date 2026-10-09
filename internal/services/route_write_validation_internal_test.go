@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,8 +28,11 @@ func (f *fakeL4Checker) CheckPortCollision(streamID uuid.UUID, transport string,
 	return f.err
 }
 
+// l4Config builds an L4 config that passes ValidateL4RouteConfig.
 func l4Config(port int) *models.RouteConfig {
-	return &models.RouteConfig{ListenerPort: port}
+	return &models.RouteConfig{ListenerPort: port, Backends: []models.RouteBackend{
+		{Type: models.BackendTypeKubernetes, Service: "pg", Namespace: "db", Port: 5432},
+	}}
 }
 
 func TestValidateRouteShape_L4_RunsReservedThenCollision(t *testing.T) {
@@ -77,4 +81,78 @@ func TestValidateRouteShape_L4_FailsClosedWithoutCheckerOrStream(t *testing.T) {
 	w = &routeWrite{l4Ports: &fakeL4Checker{}}
 	assert.Error(t, w.validateRouteShapeAndConflicts(l4Config(5432), nil, models.RouteProtocolTCP, uuid.Nil, nil, nil),
 		"an L4 route needs a stream")
+}
+
+func TestValidateRouteConfig_L4_SkipsPathMatchRequirement(t *testing.T) {
+	// Without the carve-out an empty Matches would fail with "path matching is required".
+	assert.NoError(t, validateRouteConfig(l4Config(5432), models.RouteProtocolTCP))
+	assert.NoError(t, validateRouteConfig(l4Config(5432), models.RouteProtocolUDP))
+	// ...and the L4 validator is what runs instead.
+	cfg := l4Config(5432)
+	cfg.Backends = nil
+	assert.ErrorIs(t, validateRouteConfig(cfg, models.RouteProtocolTCP), ErrL4MissingBackend)
+	// HTTP routes still require a path.
+	assert.Error(t, validateRouteConfig(l4Config(5432), models.RouteProtocolHTTP))
+}
+
+func TestValidateRouteShape_L4_ShapeAndListenerBothRun(t *testing.T) {
+	streamID := uuid.New()
+
+	// Shape violation is reported before the DB-backed collision check runs.
+	fake := &fakeL4Checker{}
+	w := &routeWrite{l4Ports: fake}
+	cfg := l4Config(5432)
+	cfg.Matches = []models.RouteMatch{{Path: &models.PathMatch{Type: "Prefix", Value: "/"}}}
+	err := w.validateRouteShapeAndConflicts(cfg, nil, models.RouteProtocolTCP, uuid.Nil, &streamID, nil)
+	assert.ErrorIs(t, err, ErrL4RejectsL7Field)
+	assert.Zero(t, fake.calls)
+
+	// A valid shape still reaches the listener collision check.
+	fake = &fakeL4Checker{err: ErrPortCollision}
+	w = &routeWrite{l4Ports: fake}
+	err = w.validateRouteShapeAndConflicts(l4Config(5432), nil, models.RouteProtocolTCP, uuid.Nil, &streamID, nil)
+	assert.ErrorIs(t, err, ErrPortCollision)
+	assert.Equal(t, 1, fake.calls)
+
+	// Missing port is a shape error, not a collision-check call.
+	fake = &fakeL4Checker{}
+	w = &routeWrite{l4Ports: fake}
+	err = w.validateRouteShapeAndConflicts(l4Config(0), nil, models.RouteProtocolTCP, uuid.Nil, &streamID, nil)
+	assert.ErrorIs(t, err, ErrL4MissingListenerPort)
+	assert.Zero(t, fake.calls)
+}
+
+func TestValidateRouteShape_L4_RejectsHTTPOnlyBackendTrafficPolicy(t *testing.T) {
+	streamID := uuid.New()
+	cases := map[string]*routeplan.BackendTrafficPolicyInput{
+		"rate limit":        {RateLimit: &models.RateLimitConfig{}},
+		"retry":             {Retry: &models.RetryConfig{}},
+		"compression":       {Compression: []models.CompressionConfig{{}}},
+		"fault injection":   {FaultInjection: &models.FaultInjectionConfig{}},
+		"request buffer":    {RequestBuffer: &models.RequestBufferConfig{}},
+		"response override": {ResponseOverride: []models.ResponseOverrideRule{{}}},
+	}
+	for name, btp := range cases {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeL4Checker{}
+			w := &routeWrite{l4Ports: fake}
+			err := w.validateRouteShapeAndConflicts(l4Config(5432), btp, models.RouteProtocolTCP, uuid.Nil, &streamID, nil)
+			assert.ErrorIs(t, err, ErrL4RejectsL7Field)
+			assert.Zero(t, fake.calls)
+		})
+	}
+	// Non-HTTP-only policy fields (load balancer, circuit breaker, health check, timeout) are allowed.
+	w := &routeWrite{l4Ports: &fakeL4Checker{}}
+	err := w.validateRouteShapeAndConflicts(l4Config(5432), &routeplan.BackendTrafficPolicyInput{LoadBalancer: &models.LoadBalancerConfig{}}, models.RouteProtocolTCP, uuid.Nil, &streamID, nil)
+	assert.NoError(t, err)
+}
+
+func TestValidateL4PolicyInputs(t *testing.T) {
+	assert.NoError(t, validateL4PolicyInputs("", nil, nil, nil, nil))
+	assert.NoError(t, validateL4PolicyInputs(models.SecurityModeGeneral, nil, &routeplan.EnvoyExtensionPolicyInput{}, nil, nil))
+	assert.ErrorIs(t, validateL4PolicyInputs(models.SecurityModeClient, nil, nil, nil, nil), ErrL4RejectsL7Field)
+	assert.ErrorIs(t, validateL4PolicyInputs("", &routeplan.SecurityPolicyInput{}, nil, nil, nil), ErrL4RejectsL7Field)
+	assert.ErrorIs(t, validateL4PolicyInputs("", nil, &routeplan.EnvoyExtensionPolicyInput{Lua: &models.LuaExtensionConfig{}}, nil, nil), ErrL4RejectsL7Field)
+	assert.ErrorIs(t, validateL4PolicyInputs("", nil, nil, &routeplan.WafPolicyInput{}, nil), ErrL4RejectsL7Field)
+	assert.ErrorIs(t, validateL4PolicyInputs("", nil, nil, nil, &routeplan.BackendTrafficPolicyInput{Retry: &models.RetryConfig{}}), ErrL4RejectsL7Field)
 }
