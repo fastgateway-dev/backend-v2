@@ -138,17 +138,28 @@ var (
 )
 
 // ValidateTemplateListeners enforces: at least one listener; no TLS passthrough
-// (deferred); each fixed port and the TCP/UDP range within 1-65535 and not
-// reserved; and no port overlaps across listeners (fixed-vs-fixed and
-// fixed-vs-range). The range endpoints must satisfy min<=max.
+// (deferred); non-empty, unique listener names; each fixed port within 1-65535
+// and not reserved; no duplicate fixed ports; and at most one TCP/UDP range with
+// 1<=min<=max<=65535. The range is an allowed-range constraint, not a per-port
+// claim, so a fixed port inside it is accepted: a stream route actually binding
+// a fixed listener's port is caught by the per-route port-collision guard.
 func ValidateTemplateListeners(ls models.Listeners) error {
 	if len(ls) == 0 {
 		return ErrNoListener
 	}
-	fixed := map[int]models.ListenerProtocol{} // port -> protocol (HTTP/HTTPS/TLS)
-	var rangeMin, rangeMax int
+	fixed := map[int]models.ListenerProtocol{} // port -> protocol (HTTP/HTTPS)
 	haveRange := false
+	names := map[string]struct{}{}
 	for _, l := range ls {
+		// Domain.BoundListeners references listeners by name: names must be
+		// non-empty and unique.
+		if l.Name == "" {
+			return fmt.Errorf("%w: listener name is required (protocol %q)", ErrInvalidListener, l.Protocol)
+		}
+		if _, dup := names[l.Name]; dup {
+			return fmt.Errorf("%w: duplicate listener name %q", ErrInvalidListener, l.Name)
+		}
+		names[l.Name] = struct{}{}
 		switch l.Protocol {
 		case models.ListenerTLS:
 			return ErrTLSPassthroughNotSupported
@@ -167,16 +178,9 @@ func ValidateTemplateListeners(ls models.Listeners) error {
 			if l.PortRangeMin < 1 || l.PortRangeMax > 65535 || l.PortRangeMin > l.PortRangeMax {
 				return fmt.Errorf("%w: bad range %d-%d", ErrInvalidListener, l.PortRangeMin, l.PortRangeMax)
 			}
-			rangeMin, rangeMax, haveRange = l.PortRangeMin, l.PortRangeMax, true
+			haveRange = true
 		default:
 			return fmt.Errorf("%w: unknown protocol %q", ErrInvalidListener, l.Protocol)
-		}
-	}
-	if haveRange {
-		for p := range fixed {
-			if p >= rangeMin && p <= rangeMax {
-				return fmt.Errorf("%w: port %d overlaps TCP/UDP range %d-%d", ErrListenerPortConflict, p, rangeMin, rangeMax)
-			}
 		}
 	}
 	return nil

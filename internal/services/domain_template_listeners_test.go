@@ -29,13 +29,35 @@ func TestValidateTemplateListeners(t *testing.T) {
 	if err := ValidateTemplateListeners(conflict); !errors.Is(err, ErrListenerPortConflict) {
 		t.Fatalf("conflict: want ErrListenerPortConflict, got %v", err)
 	}
-	// range overlaps a fixed port
+	// a fixed port inside the TCP/UDP range is accepted (range is a constraint,
+	// not a per-port claim; the migrated default range is 1-65535)
 	overlap := models.Listeners{
 		{Name: "https", Protocol: models.ListenerHTTPS, Port: 9050},
 		{Name: "tcpudp", Protocol: models.ListenerTCP, PortRangeMin: 9000, PortRangeMax: 9100},
 	}
-	if err := ValidateTemplateListeners(overlap); !errors.Is(err, ErrListenerPortConflict) {
-		t.Fatalf("overlap: want ErrListenerPortConflict, got %v", err)
+	if err := ValidateTemplateListeners(overlap); err != nil {
+		t.Fatalf("fixed port inside range must be accepted, got %v", err)
+	}
+	full := models.Listeners{
+		{Name: "http", Protocol: models.ListenerHTTP, Port: 80},
+		{Name: "https", Protocol: models.ListenerHTTPS, Port: 443},
+		{Name: "stream", Protocol: models.ListenerTCP, PortRangeMin: 1, PortRangeMax: 65535},
+	}
+	if err := ValidateTemplateListeners(full); err != nil {
+		t.Fatalf("migrated 1-65535 range with 80/443 must be accepted, got %v", err)
+	}
+	// empty listener name
+	noName := models.Listeners{{Protocol: models.ListenerHTTP, Port: 80}}
+	if err := ValidateTemplateListeners(noName); !errors.Is(err, ErrInvalidListener) {
+		t.Fatalf("empty name: want ErrInvalidListener, got %v", err)
+	}
+	// duplicate listener names
+	dupName := models.Listeners{
+		{Name: "web", Protocol: models.ListenerHTTP, Port: 80},
+		{Name: "web", Protocol: models.ListenerHTTPS, Port: 443},
+	}
+	if err := ValidateTemplateListeners(dupName); !errors.Is(err, ErrInvalidListener) {
+		t.Fatalf("duplicate name: want ErrInvalidListener, got %v", err)
 	}
 	// reserved port
 	reserved := models.Listeners{{Name: "http", Protocol: models.ListenerHTTP, Port: 19000}}
