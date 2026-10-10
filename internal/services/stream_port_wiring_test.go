@@ -23,6 +23,13 @@ func (f *fakeL4PortReader) UsedL4Ports(uuid.UUID, *uuid.UUID) ([]services.PortUs
 	return f.used, nil
 }
 
+// CountByGatewayTemplateID lets the fake satisfy the template service's
+// streamTemplateReader (used only by the Delete in-use guard, not these
+// port-collision tests, so a zero count is fine here).
+func (f *fakeL4PortReader) CountByGatewayTemplateID(uuid.UUID) (int64, error) {
+	return 0, nil
+}
+
 // fakeDomainPortReader returns a canned set of domain ports for any template.
 type fakeDomainPortReader struct{ used []services.PortUse }
 

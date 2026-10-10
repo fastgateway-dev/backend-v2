@@ -26,9 +26,23 @@ type DomainTemplateService struct {
 	// keep the positional constructor unchanged. Changing the listeners of a
 	// merged template re-validates the merged listener set and fails closed
 	// (error) if they were never wired.
-	streamPorts L4PortReader
+	streamPorts streamTemplateReader
 	domainPorts DomainPortReader
 }
+
+// streamTemplateReader is the stream-side dependency of the template service:
+// L4 port uses (merged-listener validation in Update) plus a count of streams
+// on a template (the Delete in-use guard). *repository.StreamRepository
+// satisfies it, and it is wired via SetPortSources.
+type streamTemplateReader interface {
+	L4PortReader
+	CountByGatewayTemplateID(templateID uuid.UUID) (int64, error)
+}
+
+// ErrDomainTemplateInUse is returned by Delete when a domain or stream still
+// references the template; deleting it would orphan them. It is a
+// caller-fixable conflict, mapped to HTTP 409 (mirroring ErrDNSCredentialInUse).
+var ErrDomainTemplateInUse = errors.New("domain template is in use by one or more domains or streams")
 
 // NewDomainTemplateService creates a new domain template service
 func NewDomainTemplateService(
@@ -49,7 +63,7 @@ func NewDomainTemplateService(
 
 // SetPortSources wires the readers Update uses to validate the merged listener
 // set when a merged template's listeners change. Called from main.go.
-func (s *DomainTemplateService) SetPortSources(streams L4PortReader, domains DomainPortReader) {
+func (s *DomainTemplateService) SetPortSources(streams streamTemplateReader, domains DomainPortReader) {
 	s.streamPorts = streams
 	s.domainPorts = domains
 }
@@ -477,6 +491,30 @@ func (s *DomainTemplateService) Delete(id uuid.UUID) error {
 	dt, err := s.dtRepo.GetByID(id)
 	if err != nil {
 		return err
+	}
+
+	// In-use guard: refuse to delete a template that domains or streams still
+	// reference. Since a domain/stream's generated Gateway now derives its
+	// listeners from the template, orphaning one would, on its next apply,
+	// render an empty-listener Gateway and drop traffic. Running this before
+	// any Kubernetes teardown means a rejected delete leaves the cluster
+	// untouched. Both domainRepo (constructor) and streamPorts (SetPortSources,
+	// wired in main.go) are required dependencies -- called unconditionally, not
+	// nil-guarded, so an unwired source fails loud rather than silently skipping
+	// the check (see TestNoWiringNilGuardsRemain).
+	domains, err := s.domainRepo.ListByTemplateID(id)
+	if err != nil {
+		return fmt.Errorf("check domains for template %s: %w", id, err)
+	}
+	if len(domains) > 0 {
+		return fmt.Errorf("%w: %d domain(s)", ErrDomainTemplateInUse, len(domains))
+	}
+	streamCount, err := s.streamPorts.CountByGatewayTemplateID(id)
+	if err != nil {
+		return fmt.Errorf("check streams for template %s: %w", id, err)
+	}
+	if streamCount > 0 {
+		return fmt.Errorf("%w: %d stream(s)", ErrDomainTemplateInUse, streamCount)
 	}
 
 	ctx := context.Background()

@@ -209,6 +209,37 @@ func TestDomainTemplateHandler_Delete_Success(t *testing.T) {
 	mockDT.AssertExpectations(t)
 }
 
+// TestDomainTemplateHandler_Delete_InUse_Returns409 verifies the in-use guard
+// surfaces as a 409 (caller-fixable conflict) rather than a 500.
+func TestDomainTemplateHandler_Delete_InUse_Returns409(t *testing.T) {
+	mockDT := new(mocks.MockDomainTemplateService)
+	mockAudit := new(mocks.MockAuditService)
+	mockDomainLister := new(mocks.MockTemplateDomainLister)
+	h := handlers.NewDomainTemplateHandler(mockDT, mockAudit, mockDomainLister)
+
+	user := testUser()
+	projectID := uuid.New()
+	dtID := uuid.New()
+	dt := &models.DomainTemplate{ID: dtID, Name: "in-use"}
+	mockDT.On("GetByID", dtID).Return(dt, nil)
+	mockDT.On("Delete", dtID).Return(fmt.Errorf("%w: 2 domain(s)", services.ErrDomainTemplateInUse))
+
+	router := gin.New()
+	router.DELETE("/projects/:projectId/domain-templates/:domainTemplateId", func(c *gin.Context) {
+		c.Set("user", user)
+		h.Delete(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/projects/"+projectID.String()+"/domain-templates/"+dtID.String(), nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	mockDT.AssertExpectations(t)
+	// Audit log must NOT be written for a rejected delete.
+	mockAudit.AssertNotCalled(t, "LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestDomainTemplateHandler_Update_Success(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)

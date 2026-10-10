@@ -111,6 +111,63 @@ func TestDomainTemplateService_Delete_NotFound(t *testing.T) {
 	dtRepo.AssertExpectations(t)
 }
 
+// stubStreamCounter satisfies the template service's stream-side dependency
+// (UsedL4Ports for merged-listener validation + CountByGatewayTemplateID for
+// the delete in-use guard) without a generated mock.
+type stubStreamCounter struct {
+	count int64
+	err   error
+}
+
+func (s stubStreamCounter) UsedL4Ports(uuid.UUID, *uuid.UUID) ([]services.PortUse, error) {
+	return nil, nil
+}
+func (s stubStreamCounter) CountByGatewayTemplateID(uuid.UUID) (int64, error) {
+	return s.count, s.err
+}
+
+// TestDomainTemplateService_Delete_RejectsWhenDomainsExist is the in-use guard:
+// a template still referenced by a domain must not be deleted (deleting it
+// would orphan the domain and, on its next apply, drop traffic). The guard runs
+// BEFORE any Kubernetes teardown, so it needs no k8s mock.
+func TestDomainTemplateService_Delete_RejectsWhenDomainsExist(t *testing.T) {
+	dtRepo := new(mocks.MockDomainTemplateRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	svc := services.NewDomainTemplateService(dtRepo, nil, domainRepo, nil, nil)
+
+	id := uuid.New()
+	dtRepo.On("GetByID", id).Return(&models.DomainTemplate{ID: id, Name: "tpl"}, nil)
+	domainRepo.On("ListByTemplateID", id).Return([]models.Domain{{ID: uuid.New()}}, nil)
+
+	err := svc.Delete(id)
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, services.ErrDomainTemplateInUse))
+	dtRepo.AssertExpectations(t)
+	domainRepo.AssertExpectations(t)
+}
+
+// TestDomainTemplateService_Delete_RejectsWhenStreamsExist covers the stream
+// side of the guard: a template with no domains but a stream on it (even a
+// route-less one) must not be deleted.
+func TestDomainTemplateService_Delete_RejectsWhenStreamsExist(t *testing.T) {
+	dtRepo := new(mocks.MockDomainTemplateRepository)
+	domainRepo := new(mocks.MockDomainRepository)
+	svc := services.NewDomainTemplateService(dtRepo, nil, domainRepo, nil, nil)
+	svc.SetPortSources(stubStreamCounter{count: 1}, nil)
+
+	id := uuid.New()
+	dtRepo.On("GetByID", id).Return(&models.DomainTemplate{ID: id, Name: "tpl"}, nil)
+	domainRepo.On("ListByTemplateID", id).Return([]models.Domain{}, nil)
+
+	err := svc.Delete(id)
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, services.ErrDomainTemplateInUse))
+	dtRepo.AssertExpectations(t)
+	domainRepo.AssertExpectations(t)
+}
+
 // ---------------------------------------------------------------------------
 // GetByName
 // ---------------------------------------------------------------------------

@@ -299,6 +299,12 @@ func (h *DomainTemplateHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.dtService.Delete(id); err != nil {
+		// A template still referenced by domains or streams is a caller-fixable
+		// conflict (409), not a server error (mirrors the DNS in-use guards).
+		if errors.Is(err, services.ErrDomainTemplateInUse) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
