@@ -440,7 +440,7 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 
 	// Create Gateway in Kubernetes
 	ctx := context.Background()
-	gatewayConfig := domainplan.BuildGatewayConfig(domain, dt.Annotations)
+	gatewayConfig := domainplan.BuildGatewayConfig(domain, dt, dt.Annotations)
 
 	if err := s.k8sGateways.CreateGateway(ctx, projectID, gatewayConfig); err != nil {
 		log.Printf("Failed to create Gateway in Kubernetes: %v", err)
@@ -560,7 +560,7 @@ func (s *DomainService) Update(id uuid.UUID, input *UpdateDomainInput) (*models.
 // managed-certificate change never actually reached Envoy Gateway.
 func (s *DomainService) applyGateway(domain *models.Domain) error {
 	ctx := context.Background()
-	gatewayConfig := domainplan.BuildGatewayConfig(domain, s.templateAnnotations(domain))
+	gatewayConfig := s.gatewayConfig(domain)
 
 	if err := s.k8sGateways.UpdateGateway(ctx, domain.ProjectID, gatewayConfig); err != nil {
 		log.Printf("Failed to update Gateway in Kubernetes: %v", err)

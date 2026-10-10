@@ -15,13 +15,15 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 )
 
-// BuildGatewayConfig builds a kubernetes.GatewayConfig from a domain, including template annotations.
+// BuildGatewayConfig builds a kubernetes.GatewayConfig from a domain, resolving
+// the domain's bound listeners against its template and including template
+// annotations.
 //
-// Template annotations are resolved by the caller and passed in rather than
-// looked up here: domainplan performs no I/O. Pass nil when the domain has
-// no template, or when the lookup failed -- see the note on error handling
-// at the call sites.
-func BuildGatewayConfig(domain *models.Domain, templateAnnotations map[string]string) *kubernetes.GatewayConfig {
+// Template and template annotations are resolved by the caller and passed in
+// rather than looked up here: domainplan performs no I/O. Pass nil annotations
+// when the domain has no template, or when the lookup failed -- see the note
+// on error handling at the call sites.
+func BuildGatewayConfig(domain *models.Domain, template *models.DomainTemplate, templateAnnotations models.Annotations) *kubernetes.GatewayConfig {
 	tlsSecretName := domain.TLSSecretName
 	tlsSecretNamespace := domain.TLSSecretNamespace
 	if domain.ManagedCertificateID != nil {
@@ -38,16 +40,62 @@ func BuildGatewayConfig(domain *models.Domain, templateAnnotations map[string]st
 		Namespace:          domain.Namespace,
 		GatewayClassName:   domain.K8sGatewayClass,
 		Hostname:           domain.Hostname,
-		TLSMode:            domain.TLSMode,
-		HTTPPort:           domain.HTTPPort,
-		HTTPSPort:          domain.HTTPSPort,
 		TLSSecretName:      tlsSecretName,
 		TLSSecretNamespace: tlsSecretNamespace,
-		TLSPolicy:          string(domain.TLSPolicy),
+		HostnameListeners:  resolveHostnameListeners(domain.BoundListeners, template),
 	}
 	// Include annotations from domain template
 	if domain.DomainTemplateID != nil {
 		config.Annotations = templateAnnotations
 	}
 	return config
+}
+
+// resolveHostnameListeners resolves bound listener names against the
+// template's listeners.
+//
+// Output follows the TEMPLATE's listener order, not the order of bound, so a
+// migrated "both" domain yields [http, https] regardless of how its binding
+// was stored. Only hostname-routed listeners (HTTP/HTTPS/TLS) are resolved;
+// port-routed TCP/UDP listeners belong to the stream Gateway. Name, protocol,
+// port and TLS mode are copied from the matched template listener verbatim --
+// the protocol is never coerced (a non-HTTPS listener must not silently
+// become HTTP here).
+//
+// A Gateway with zero listeners is invalid, so when the domain is bound to
+// listeners but none of the names resolve (a stale binding after the template
+// was edited) the result falls back to every hostname-routed template
+// listener instead of being empty. It is empty only when there is nothing to
+// resolve: no bound listeners, or no template / no hostname-routed listeners.
+func resolveHostnameListeners(bound []string, template *models.DomainTemplate) []kubernetes.HostnameListener {
+	if len(bound) == 0 || template == nil {
+		return nil
+	}
+	want := make(map[string]struct{}, len(bound))
+	for _, name := range bound {
+		want[name] = struct{}{}
+	}
+
+	hostnameRouted := template.Listeners.HostnameRouted()
+	var out []kubernetes.HostnameListener
+	for _, l := range hostnameRouted {
+		if _, ok := want[l.Name]; ok {
+			out = append(out, toHostnameListener(l))
+		}
+	}
+	if len(out) == 0 {
+		for _, l := range hostnameRouted {
+			out = append(out, toHostnameListener(l))
+		}
+	}
+	return out
+}
+
+func toHostnameListener(l models.TemplateListener) kubernetes.HostnameListener {
+	return kubernetes.HostnameListener{
+		Name:     l.Name,
+		Protocol: string(l.Protocol),
+		Port:     l.Port,
+		TLSMode:  string(l.TLSMode),
+	}
 }

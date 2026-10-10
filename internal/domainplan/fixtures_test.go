@@ -31,6 +31,9 @@ func fixtureDomain() *models.Domain {
 // fixtureTemplateID is the fixed DomainTemplateID used by template fixtures.
 var fixtureTemplateID = uuid.MustParse("66666666-6666-6666-6666-666666666666")
 
+// fixtureTemplate carries the listeners of a migrated "both" template.
+func fixtureTemplate() *models.DomainTemplate { return bothTemplate() }
+
 func strPtr(s string) *string { return &s }
 func i32Ptr(i int32) *int32   { return &i }
 func i64Ptr(i int64) *int64   { return &i }
@@ -51,7 +54,7 @@ func gatewayFixtures() []domainManifestFixture {
 		{
 			Name: "gateway-bare",
 			Build: func() any {
-				return BuildGatewayConfig(fixtureDomain(), nil)
+				return BuildGatewayConfig(fixtureDomain(), fixtureTemplate(), nil)
 			},
 		},
 		// Every field BuildGatewayConfig actually maps EXCEPT
@@ -67,12 +70,9 @@ func gatewayFixtures() []domainManifestFixture {
 			Build: func() any {
 				d := fixtureDomain()
 				d.K8sGatewayClass = "envoy-gateway-class"
-				d.TLSMode = "both"
-				d.HTTPPort = 8080
-				d.HTTPSPort = 8443
+				d.BoundListeners = []string{"http", "https"}
 				d.TLSSecretName = "example-com-tls"
-				d.TLSPolicy = models.TLSPolicyTerminate
-				return BuildGatewayConfig(d, nil)
+				return BuildGatewayConfig(d, fixtureTemplate(), nil)
 			},
 		},
 		// Template annotations are attached only when DomainTemplateID is set.
@@ -81,7 +81,7 @@ func gatewayFixtures() []domainManifestFixture {
 			Build: func() any {
 				d := fixtureDomain()
 				d.DomainTemplateID = &fixtureTemplateID
-				return BuildGatewayConfig(d, map[string]string{
+				return BuildGatewayConfig(d, fixtureTemplate(), models.Annotations{
 					"service.beta.kubernetes.io/aws-load-balancer-type":   "nlb",
 					"service.beta.kubernetes.io/aws-load-balancer-scheme": "internal",
 				})
@@ -97,7 +97,7 @@ func gatewayFixtures() []domainManifestFixture {
 			Build: func() any {
 				d := fixtureDomain()
 				d.DomainTemplateID = nil
-				return BuildGatewayConfig(d, map[string]string{
+				return BuildGatewayConfig(d, fixtureTemplate(), models.Annotations{
 					"discarded.example.com/annotation": "never-reaches-the-gateway",
 				})
 			},
@@ -123,11 +123,10 @@ func gatewayFixtures() []domainManifestFixture {
 			Name: "gateway-tls-secret-namespace",
 			Build: func() any {
 				d := fixtureDomain()
-				d.TLSMode = "tls_only"
+				d.BoundListeners = []string{"https"}
 				d.TLSSecretName = "example-com-tls"
 				d.TLSSecretNamespace = "cert-manager-ns"
-				d.TLSPolicy = models.TLSPolicyTerminate
-				return BuildGatewayConfig(d, nil)
+				return BuildGatewayConfig(d, fixtureTemplate(), nil)
 			},
 		},
 		// Phase 2H. Characterizes domain_service.go:297, the path that
@@ -145,14 +144,11 @@ func gatewayFixtures() []domainManifestFixture {
 			Build: func() any {
 				d := fixtureDomain()
 				d.K8sGatewayClass = "example-public"
-				d.TLSMode = "tls_only"
-				d.HTTPPort = 80
-				d.HTTPSPort = 443
+				d.BoundListeners = []string{"https"}
 				d.TLSSecretName = "wildcard-tls"
 				d.TLSSecretNamespace = "shared-certs"
-				d.TLSPolicy = models.TLSPolicyTerminate
 				d.DomainTemplateID = &fixtureTemplateID
-				return BuildGatewayConfig(d, map[string]string{"a": "1"})
+				return BuildGatewayConfig(d, fixtureTemplate(), models.Annotations{"a": "1"})
 			},
 		},
 		// Phase 2H. Characterizes domain_template_service.go's example
@@ -169,13 +165,10 @@ func gatewayFixtures() []domainManifestFixture {
 					Namespace:       "envoy-gateway-system",
 					K8sGatewayClass: "example-domain-public",
 					Hostname:        "example.com",
-					TLSMode:         "both",
-					HTTPPort:        80,
-					HTTPSPort:       443,
+					BoundListeners:  []string{"http", "https"},
 					TLSSecretName:   "example-tls-cert",
-					TLSPolicy:       models.TLSPolicyTerminate,
 				}
-				return BuildGatewayConfig(d, nil)
+				return BuildGatewayConfig(d, fixtureTemplate(), nil)
 			},
 		},
 	}

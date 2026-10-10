@@ -321,13 +321,10 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 		Namespace:       kubernetes.EnvoyGatewayNamespace,
 		K8sGatewayClass: k8sGatewayClassName,
 		Hostname:        "example.com",
-		TLSMode:         string(tlsMode),
-		HTTPPort:        httpPort,
-		HTTPSPort:       httpsPort,
+		BoundListeners:  models.MigrateDomainBoundListeners(string(tlsMode)),
 		TLSSecretName:   "example-tls-cert",
-		TLSPolicy:       tlsPolicy,
 	}
-	gwConfig := domainplan.BuildGatewayConfig(exampleDomain, nil)
+	gwConfig := domainplan.BuildGatewayConfig(exampleDomain, projected, nil)
 	gwObj := kubernetes.BuildGatewayObject(gwConfig)
 	gwYaml, err := yaml.Marshal(gwObj.Object)
 	if err != nil {

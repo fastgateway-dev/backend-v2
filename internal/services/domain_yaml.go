@@ -59,10 +59,20 @@ type DomainCreatePreviewResult struct {
 // exactly as it was before Phase 2F moved this builder into
 // internal/domainplan.
 func (s *DomainService) templateAnnotations(domain *models.Domain) map[string]string {
+	if dt := s.templateFor(domain); dt != nil {
+		return map[string]string(dt.Annotations)
+	}
+	return nil
+}
+
+// templateFor loads a domain's template for Gateway-config assembly (listener
+// resolution and annotations). Returns nil when the domain has no template or
+// the lookup failed (fail-soft and logged -- see templateAnnotations).
+func (s *DomainService) templateFor(domain *models.Domain) *models.DomainTemplate {
 	if domain.DomainTemplateID != nil {
 		dt, err := s.dtService.GetByID(*domain.DomainTemplateID)
 		if err == nil && dt != nil {
-			return map[string]string(dt.Annotations)
+			return dt
 		}
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -79,6 +89,17 @@ func (s *DomainService) templateAnnotations(domain *models.Domain) map[string]st
 	return nil
 }
 
+// gatewayConfig builds the Gateway config for domain, resolving its bound
+// listeners and annotations against its (looked-up) template.
+func (s *DomainService) gatewayConfig(domain *models.Domain) *kubernetes.GatewayConfig {
+	dt := s.templateFor(domain)
+	var annotations models.Annotations
+	if dt != nil {
+		annotations = dt.Annotations
+	}
+	return domainplan.BuildGatewayConfig(domain, dt, annotations)
+}
+
 // GenerateYAMLs generates the Kubernetes YAML manifests for a domain
 func (s *DomainService) GenerateYAMLs(domainID uuid.UUID) (*DomainYAMLs, error) {
 	domain, err := s.domainRepo.GetByID(domainID)
@@ -89,7 +110,7 @@ func (s *DomainService) GenerateYAMLs(domainID uuid.UUID) (*DomainYAMLs, error) 
 	result := &DomainYAMLs{}
 
 	// Build Gateway YAML
-	gatewayObj := kubernetes.BuildGatewayObject(domainplan.BuildGatewayConfig(domain, s.templateAnnotations(domain)))
+	gatewayObj := kubernetes.BuildGatewayObject(s.gatewayConfig(domain))
 	if gatewayObj != nil {
 		gatewayYaml, err := yaml.Marshal(gatewayObj.Object)
 		if err != nil {
@@ -191,7 +212,7 @@ func (s *DomainService) PreviewCreate(projectID uuid.UUID, input *DomainCreatePr
 		TLSPolicy:          dt.TLSPolicy,
 		DomainTemplateID:   &domainTemplateID,
 	}
-	gatewayConfig := domainplan.BuildGatewayConfig(previewDomain, dt.Annotations)
+	gatewayConfig := domainplan.BuildGatewayConfig(previewDomain, dt, dt.Annotations)
 
 	result := &DomainCreatePreviewResult{}
 
@@ -258,7 +279,7 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 	result := &DomainSettingsPreviewResult{}
 
 	// Build Gateway YAML (context, doesn't change on settings edit)
-	gatewayObj := kubernetes.BuildGatewayObject(domainplan.BuildGatewayConfig(domain, s.templateAnnotations(domain)))
+	gatewayObj := kubernetes.BuildGatewayObject(s.gatewayConfig(domain))
 	if gatewayObj != nil {
 		gwYaml, _ := yaml.Marshal(gatewayObj.Object)
 		result.CurrentGatewayYaml = string(gwYaml)
