@@ -99,6 +99,20 @@ var (
 		Resource: "udproutes",
 	}
 
+	// TCPRouteGVRV1 is the v1 (Standard-channel, Gateway API >= 1.6) TCPRoute GVR.
+	TCPRouteGVRV1 = schema.GroupVersionResource{
+		Group:    "gateway.networking.k8s.io",
+		Version:  "v1",
+		Resource: "tcproutes",
+	}
+
+	// UDPRouteGVRV1 is the v1 (Standard-channel, Gateway API >= 1.6) UDPRoute GVR.
+	UDPRouteGVRV1 = schema.GroupVersionResource{
+		Group:    "gateway.networking.k8s.io",
+		Version:  "v1",
+		Resource: "udproutes",
+	}
+
 	// ReferenceGrantGVR represents the ReferenceGrant resource
 	ReferenceGrantGVR = schema.GroupVersionResource{
 		Group:    "gateway.networking.k8s.io",

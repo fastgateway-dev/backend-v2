@@ -63,11 +63,14 @@ func buildL4ParentRef(gatewayName, namespace, sectionName string) gatewayv1alpha
 	}
 }
 
-// BuildTCPRouteObject builds a typed v1alpha2 TCPRoute from config.
-func BuildTCPRouteObject(cfg TCPRouteConfig) *gatewayv1alpha2.TCPRoute {
+// BuildTCPRouteObject builds a typed TCPRoute from config at the given
+// apiVersion (e.g. "gateway.networking.k8s.io/v1"). The v1alpha2 and v1 spec
+// schemas are identical (straight graduation), so the v1alpha2 Go type
+// serializes correctly under either apiVersion.
+func BuildTCPRouteObject(cfg TCPRouteConfig, apiVersion string) *gatewayv1alpha2.TCPRoute {
 	return &gatewayv1alpha2.TCPRoute{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "gateway.networking.k8s.io/v1alpha2",
+			APIVersion: apiVersion,
 			Kind:       "TCPRoute",
 		},
 		ObjectMeta: metav1.ObjectMeta{

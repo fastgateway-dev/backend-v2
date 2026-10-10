@@ -15,7 +15,7 @@ func TestBuildTCPRouteObject_ParentRefUsesSectionName(t *testing.T) {
 		Name: "r", Namespace: "ns", GatewayName: "str-s", SectionName: "l4-tcp-5432",
 		Backends: []kubernetes.L4Backend{{Service: "pg", Namespace: "ns", Port: 5432, Weight: 100}},
 		Labels:   map[string]string{"a": "b"},
-	})
+	}, "gateway.networking.k8s.io/v1alpha2")
 	assert.Equal(t, "gateway.networking.k8s.io/v1alpha2", obj.APIVersion)
 	assert.Equal(t, "TCPRoute", obj.Kind)
 	assert.Equal(t, "r", obj.Name)
@@ -44,7 +44,7 @@ func TestBuildUDPRouteObject_ParentRefUsesSectionName(t *testing.T) {
 			{Service: "dns-a", Namespace: "ns", Port: 53, Weight: 90},
 			{Service: "dns-b", Namespace: "ns", Port: 53, Weight: 10},
 		},
-	})
+	}, "gateway.networking.k8s.io/v1alpha2")
 	assert.Equal(t, "gateway.networking.k8s.io/v1alpha2", obj.APIVersion)
 	assert.Equal(t, "UDPRoute", obj.Kind)
 	require.Len(t, obj.Spec.ParentRefs, 1)
