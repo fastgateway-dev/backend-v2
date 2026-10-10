@@ -80,20 +80,18 @@ func ValidateListenerPort(port int, reserved ReservedPorts) error {
 	return nil
 }
 
-// templateDomainDefaults returns the HTTP/HTTPS ports a merged, domain-enabled
-// template reserves for domains, or nil when the template does not.
+// templateDomainDefaults returns the ports of the template's hostname-routed
+// (HTTP/HTTPS/TLS) listeners that a merged template reserves for domains, or nil
+// when the template is not merged or declares none.
 func templateDomainDefaults(tmpl *models.DomainTemplate) []int {
-	if !tmpl.MergeGateways || !tmpl.EnableDomain {
+	if !tmpl.MergeGateways {
 		return nil
 	}
-	httpPort, httpsPort := tmpl.HTTPPort, tmpl.HTTPSPort
-	if httpPort == 0 {
-		httpPort = 80
+	var ports []int
+	for _, l := range tmpl.Listeners.HostnameRouted() {
+		ports = append(ports, l.Port)
 	}
-	if httpsPort == 0 {
-		httpsPort = 443
-	}
-	return []int{httpPort, httpsPort}
+	return ports
 }
 
 // StreamPortStore is the slice of StreamRepository the port-collision check
@@ -143,9 +141,9 @@ func checkDomainPortsAgainstStreams(streams L4PortReader, tmpl *models.DomainTem
 }
 
 // checkMergedTemplateSet validates the listener set a merged template would
-// have after a capability flag is enabled: no stream L4 port may equal an
-// existing domain's HTTP/HTTPS port, nor (once domains are enabled) the
-// template's own HTTP/HTTPS ports. Returns ErrPortCollision (wrapped).
+// have after its listeners change: no stream L4 port may equal an existing
+// domain's HTTP/HTTPS port, nor the template's own hostname-routed listener
+// ports. Returns ErrPortCollision (wrapped).
 func checkMergedTemplateSet(streams L4PortReader, domains DomainPortReader, tmpl *models.DomainTemplate) error {
 	streamUsed, err := streams.UsedL4Ports(tmpl.ID, nil)
 	if err != nil {
@@ -160,11 +158,9 @@ func checkMergedTemplateSet(streams L4PortReader, domains DomainPortReader, tmpl
 			return fmt.Errorf("%w: %s/%d is used by both a stream route and a domain on merged gateway template %q", ErrPortCollision, u.Transport, u.Port, tmpl.Name)
 		}
 	}
-	if tmpl.EnableDomain {
-		for _, port := range templateDomainDefaults(tmpl) {
-			if hasPortUse(streamUsed, "TCP", port) {
-				return fmt.Errorf("%w: TCP/%d is used by a stream route and is the HTTP/HTTPS port of merged gateway template %q", ErrPortCollision, port, tmpl.Name)
-			}
+	for _, port := range templateDomainDefaults(tmpl) {
+		if hasPortUse(streamUsed, "TCP", port) {
+			return fmt.Errorf("%w: TCP/%d is used by a stream route and is the HTTP/HTTPS port of merged gateway template %q", ErrPortCollision, port, tmpl.Name)
 		}
 	}
 	return nil

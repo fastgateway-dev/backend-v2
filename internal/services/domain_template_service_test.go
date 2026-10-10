@@ -10,7 +10,6 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -474,111 +473,6 @@ func TestDomainTemplate_ValidatePodScheduling_RejectsBadPDB(t *testing.T) {
 func TestDomainTemplate_ValidatePodScheduling_AcceptsAllNil(t *testing.T) {
 	dt := &models.DomainTemplate{Name: "ok"}
 	assert.NoError(t, services.ValidateDomainTemplatePodScheduling(dt))
-}
-
-// ---------------------------------------------------------------------------
-// Template capability flags (enable_domain / enable_stream)
-// ---------------------------------------------------------------------------
-
-func TestNormalizeTemplateCapabilities_Defaults(t *testing.T) {
-	ed, es, err := services.NormalizeTemplateCapabilities(nil, nil)
-	require.NoError(t, err)
-	assert.True(t, ed)  // enable_domain defaults true
-	assert.False(t, es) // enable_stream defaults false
-}
-
-func TestNormalizeTemplateCapabilities_BothFalse_Error(t *testing.T) {
-	f := false
-	_, _, err := services.NormalizeTemplateCapabilities(&f, &f)
-	assert.ErrorIs(t, err, services.ErrNoTemplateCapability)
-}
-
-func TestNormalizeTemplateCapabilities_StreamOnly(t *testing.T) {
-	f, tru := false, true
-	ed, es, err := services.NormalizeTemplateCapabilities(&f, &tru)
-	require.NoError(t, err)
-	assert.False(t, ed)
-	assert.True(t, es)
-}
-
-func TestDomainTemplateService_Update_CapabilityBothFalse_Error(t *testing.T) {
-	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
-
-	id := uuid.New()
-	dtRepo.On("GetByID", id).Return(&models.DomainTemplate{ID: id, EnableDomain: true, EnableStream: false}, nil)
-
-	f := false
-	result, err := svc.Update(id, &services.UpdateDomainTemplateInput{EnableDomain: &f})
-
-	assert.Nil(t, result)
-	assert.ErrorIs(t, err, services.ErrNoTemplateCapability)
-	dtRepo.AssertNotCalled(t, "Update", mock.Anything)
-}
-
-func TestDomainTemplateService_Update_CapabilityUsesCurrentAsBase(t *testing.T) {
-	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
-
-	id := uuid.New()
-	// Currently stream-only; omitting enableDomain must keep it false (not reset to default true).
-	dtRepo.On("GetByID", id).Return(&models.DomainTemplate{ID: id, EnableDomain: false, EnableStream: true}, nil)
-	dtRepo.On("Update", mock.Anything).Return(nil)
-
-	tru := true
-	result, err := svc.Update(id, &services.UpdateDomainTemplateInput{EnableStream: &tru})
-
-	require.NoError(t, err)
-	assert.False(t, result.EnableDomain)
-	assert.True(t, result.EnableStream)
-}
-
-func TestDomainTemplateService_Update_CapabilityEnableStreamKeepsDomain(t *testing.T) {
-	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
-
-	id := uuid.New()
-	dtRepo.On("GetByID", id).Return(&models.DomainTemplate{ID: id, EnableDomain: true, EnableStream: false}, nil)
-	dtRepo.On("Update", mock.Anything).Return(nil)
-
-	tru := true
-	result, err := svc.Update(id, &services.UpdateDomainTemplateInput{EnableStream: &tru})
-
-	require.NoError(t, err)
-	assert.True(t, result.EnableDomain)
-	assert.True(t, result.EnableStream)
-}
-
-func TestDomainTemplateService_Update_NoCapabilityFlags_Unchanged(t *testing.T) {
-	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
-
-	id := uuid.New()
-	dtRepo.On("GetByID", id).Return(&models.DomainTemplate{ID: id, EnableDomain: false, EnableStream: true}, nil)
-	dtRepo.On("Update", mock.Anything).Return(nil)
-
-	result, err := svc.Update(id, &services.UpdateDomainTemplateInput{Description: "x"})
-
-	require.NoError(t, err)
-	assert.False(t, result.EnableDomain)
-	assert.True(t, result.EnableStream)
-}
-
-func TestDomainTemplateService_Create_CapabilityBothFalse_Error(t *testing.T) {
-	dtRepo := new(mocks.MockDomainTemplateRepository)
-	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
-
-	f := false
-	result, err := svc.Create(uuid.New(), &services.CreateDomainTemplateInput{
-		Name:         "my-template",
-		ExposureType: "ClusterIP",
-		TLSMode:      "tls_only",
-		EnableDomain: &f,
-		EnableStream: &f,
-	}, uuid.New())
-
-	assert.Nil(t, result)
-	assert.ErrorIs(t, err, services.ErrNoTemplateCapability)
 }
 
 // ---------------------------------------------------------------------------

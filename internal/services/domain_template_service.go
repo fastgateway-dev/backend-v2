@@ -23,8 +23,8 @@ type DomainTemplateService struct {
 	aiService   *AIService
 
 	// streamPorts/domainPorts are wired after construction (SetPortSources) to
-	// keep the positional constructor unchanged. Enabling a capability flag on
-	// a merged template re-validates the merged listener set and fails closed
+	// keep the positional constructor unchanged. Changing the listeners of a
+	// merged template re-validates the merged listener set and fails closed
 	// (error) if they were never wired.
 	streamPorts L4PortReader
 	domainPorts DomainPortReader
@@ -48,7 +48,7 @@ func NewDomainTemplateService(
 }
 
 // SetPortSources wires the readers Update uses to validate the merged listener
-// set when a capability flag is enabled. Called from main.go.
+// set when a merged template's listeners change. Called from main.go.
 func (s *DomainTemplateService) SetPortSources(streams L4PortReader, domains DomainPortReader) {
 	s.streamPorts = streams
 	s.domainPorts = domains
@@ -70,12 +70,12 @@ type CreateDomainTemplateInput struct {
 	Description    string `json:"description"`
 	ControllerName string `json:"controllerName"`
 	ExposureType   string `json:"exposureType" binding:"required"`
-	TLSMode        string `json:"tlsMode" binding:"required"`
+
+	// Listeners is the generic listener list the template exposes (HTTP/HTTPS/
+	// TCP/UDP; TLS passthrough is not yet supported).
+	Listeners []models.TemplateListener `json:"listeners" binding:"required"`
 
 	// Advanced settings
-	HTTPPort              int                              `json:"httpPort"`
-	HTTPSPort             int                              `json:"httpsPort"`
-	TLSPolicy             string                           `json:"tlsPolicy"`
 	ExternalTrafficPolicy string                           `json:"externalTrafficPolicy"`
 	LoadBalancerClass     string                           `json:"loadBalancerClass"`
 	Annotations           map[string]string                `json:"annotations"`
@@ -83,10 +83,6 @@ type CreateDomainTemplateInput struct {
 	ContainerResources    *models.ContainerResourcesConfig `json:"containerResources"`
 	ScalingConfig         *models.ScalingConfig            `json:"scalingConfig"`
 	MergeGateways         bool                             `json:"mergeGateways"`
-
-	// Capability flags. Omitted = default (enableDomain true, enableStream false).
-	EnableDomain *bool `json:"enableDomain,omitempty"`
-	EnableStream *bool `json:"enableStream,omitempty"`
 
 	// Telemetry settings
 	TelemetryAccessLog *models.TelemetryAccessLogConfig `json:"telemetryAccessLog,omitempty"`
@@ -109,9 +105,9 @@ type UpdateDomainTemplateInput struct {
 	ContainerResources    *models.ContainerResourcesConfig `json:"containerResources"`
 	ScalingConfig         *models.ScalingConfig            `json:"scalingConfig"`
 
-	// Capability flags. Omitted = keep the current persisted value.
-	EnableDomain *bool `json:"enableDomain,omitempty"`
-	EnableStream *bool `json:"enableStream,omitempty"`
+	// Listeners replaces the template's listener list when non-nil. Omitted =
+	// keep the current persisted value.
+	Listeners *models.Listeners `json:"listeners,omitempty"`
 
 	// Telemetry settings
 	TelemetryAccessLog *models.TelemetryAccessLogConfig `json:"telemetryAccessLog,omitempty"`
@@ -134,23 +130,56 @@ type UpdateDomainTemplateInput struct {
 	ClearDeploymentStrategy bool `json:"clearDeploymentStrategy,omitempty"`
 }
 
-// ErrNoTemplateCapability is returned when a template would be enabled for neither domains nor streams.
-var ErrNoTemplateCapability = errors.New("template must be enabled for at least one of domain or stream")
+var (
+	ErrNoListener                 = errors.New("template must declare at least one listener")
+	ErrListenerPortConflict       = errors.New("listener ports conflict")
+	ErrTLSPassthroughNotSupported = errors.New("TLS passthrough listeners are not yet supported")
+	ErrInvalidListener            = errors.New("invalid listener")
+)
 
-// NormalizeTemplateCapabilities resolves optional flags to concrete values
-// (enable_domain default true, enable_stream default false) and rejects both-false.
-func NormalizeTemplateCapabilities(enableDomain, enableStream *bool) (ed, es bool, err error) {
-	ed = true
-	if enableDomain != nil {
-		ed = *enableDomain
+// ValidateTemplateListeners enforces: at least one listener; no TLS passthrough
+// (deferred); each fixed port and the TCP/UDP range within 1-65535 and not
+// reserved; and no port overlaps across listeners (fixed-vs-fixed and
+// fixed-vs-range). The range endpoints must satisfy min<=max.
+func ValidateTemplateListeners(ls models.Listeners) error {
+	if len(ls) == 0 {
+		return ErrNoListener
 	}
-	if enableStream != nil {
-		es = *enableStream
+	fixed := map[int]models.ListenerProtocol{} // port -> protocol (HTTP/HTTPS/TLS)
+	var rangeMin, rangeMax int
+	haveRange := false
+	for _, l := range ls {
+		switch l.Protocol {
+		case models.ListenerTLS:
+			return ErrTLSPassthroughNotSupported
+		case models.ListenerHTTP, models.ListenerHTTPS:
+			if err := ValidateListenerPort(l.Port, DefaultReservedPorts); err != nil {
+				return err // ErrInvalidListenerPort / ErrReservedPort
+			}
+			if _, dup := fixed[l.Port]; dup {
+				return fmt.Errorf("%w: port %d used twice", ErrListenerPortConflict, l.Port)
+			}
+			fixed[l.Port] = l.Protocol
+		case models.ListenerTCP, models.ListenerUDP:
+			if haveRange {
+				return fmt.Errorf("%w: multiple TCP/UDP ranges", ErrInvalidListener)
+			}
+			if l.PortRangeMin < 1 || l.PortRangeMax > 65535 || l.PortRangeMin > l.PortRangeMax {
+				return fmt.Errorf("%w: bad range %d-%d", ErrInvalidListener, l.PortRangeMin, l.PortRangeMax)
+			}
+			rangeMin, rangeMax, haveRange = l.PortRangeMin, l.PortRangeMax, true
+		default:
+			return fmt.Errorf("%w: unknown protocol %q", ErrInvalidListener, l.Protocol)
+		}
 	}
-	if !ed && !es {
-		return false, false, ErrNoTemplateCapability
+	if haveRange {
+		for p := range fixed {
+			if p >= rangeMin && p <= rangeMax {
+				return fmt.Errorf("%w: port %d overlaps TCP/UDP range %d-%d", ErrListenerPortConflict, p, rangeMin, rangeMax)
+			}
+		}
 	}
-	return ed, es, nil
+	return nil
 }
 
 // Create creates a new domain template
@@ -161,10 +190,9 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 		return nil, errors.New("exposure type must be 'LoadBalancer' or 'ClusterIP'")
 	}
 
-	// Validate TLS mode
-	tlsMode := models.TLSMode(input.TLSMode)
-	if tlsMode != models.TLSModeOnly && tlsMode != models.TLSModeNone && tlsMode != models.TLSModeBoth {
-		return nil, errors.New("TLS mode must be 'tls_only', 'no_tls', or 'both'")
+	// Validate the listener list (at least one; no conflicts/reserved ports)
+	if err := ValidateTemplateListeners(input.Listeners); err != nil {
+		return nil, err
 	}
 
 	// Set default controller name if not provided
@@ -183,12 +211,6 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 		return nil, errors.New("name must be lowercase, contain only letters, numbers, and dashes, and start with a letter")
 	}
 
-	// Resolve capability flags (domain/stream); at least one must be enabled
-	enableDomain, enableStream, err := NormalizeTemplateCapabilities(input.EnableDomain, input.EnableStream)
-	if err != nil {
-		return nil, err
-	}
-
 	// Check if name already exists in project
 	exists, err := s.dtRepo.ExistsByName(projectID, input.Name)
 	if err != nil {
@@ -198,38 +220,9 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 		return nil, errors.New("domain template name already exists in this project")
 	}
 
-	// Set default TLS policy (only relevant when TLS is enabled)
-	tlsPolicy := models.TLSPolicy(input.TLSPolicy)
-	if tlsPolicy == "" {
-		tlsPolicy = models.TLSPolicyTerminate
-	}
-	if tlsMode != models.TLSModeNone {
-		if tlsPolicy != models.TLSPolicyTerminate && tlsPolicy != models.TLSPolicyPassthrough {
-			return nil, errors.New("TLS policy must be 'terminate' or 'passthrough'")
-		}
-	}
-
 	// Validate scaling config
 	if err := validateScalingConfig(input.ScalingConfig); err != nil {
 		return nil, err
-	}
-
-	// Set default ports
-	httpPort := input.HTTPPort
-	if httpPort == 0 {
-		httpPort = 80
-	}
-	httpsPort := input.HTTPSPort
-	if httpsPort == 0 {
-		httpsPort = 443
-	}
-
-	// Validate ports
-	if httpPort < 1 || httpPort > 65535 {
-		return nil, errors.New("HTTP port must be between 1 and 65535")
-	}
-	if httpsPort < 1 || httpsPort > 65535 {
-		return nil, errors.New("HTTPS port must be between 1 and 65535")
 	}
 
 	// Validate external traffic policy (only for LoadBalancer)
@@ -254,10 +247,7 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 		Description:           input.Description,
 		ControllerName:        controllerName,
 		ExposureType:          exposureType,
-		TLSMode:               tlsMode,
-		HTTPPort:              httpPort,
-		HTTPSPort:             httpsPort,
-		TLSPolicy:             tlsPolicy,
+		Listeners:             models.Listeners(input.Listeners),
 		ExternalTrafficPolicy: externalTrafficPolicy,
 		LoadBalancerClass:     input.LoadBalancerClass,
 		Annotations:           models.Annotations(input.Annotations),
@@ -265,8 +255,6 @@ func (s *DomainTemplateService) Create(projectID uuid.UUID, input *CreateDomainT
 		ContainerResources:    input.ContainerResources,
 		ScalingConfig:         input.ScalingConfig,
 		MergeGateways:         input.MergeGateways,
-		EnableDomain:          enableDomain,
-		EnableStream:          enableStream,
 		Status:                models.DomainTemplateStatusPending,
 		K8sGatewayClassName:   k8sGatewayClassName,
 		K8sEnvoyProxyName:     k8sEnvoyProxyName,
@@ -386,36 +374,24 @@ func (s *DomainTemplateService) Update(id uuid.UUID, input *UpdateDomainTemplate
 		dt.ScalingConfig = input.ScalingConfig
 	}
 
-	// Capability flags: omitted pointers keep the current persisted value.
-	if input.EnableDomain != nil || input.EnableStream != nil {
-		enableDomain, enableStream := dt.EnableDomain, dt.EnableStream
-		if input.EnableDomain != nil {
-			enableDomain = *input.EnableDomain
-		}
-		if input.EnableStream != nil {
-			enableStream = *input.EnableStream
-		}
-		ed, es, err := NormalizeTemplateCapabilities(&enableDomain, &enableStream)
-		if err != nil {
+	// Listeners: omitted keeps the persisted list. A changed listener set on a
+	// merged template grows/shifts its shared listener set (domain ports + stream
+	// L4 ports on one Gateway): reject if it clashes with existing usage.
+	if input.Listeners != nil {
+		if err := ValidateTemplateListeners(*input.Listeners); err != nil {
 			return nil, err
 		}
-		// Enabling a capability on a merged template grows its shared listener
-		// set (domain ports + stream L4 ports on one Gateway): reject if the
-		// newly-merged set has a (transport, port) clash. mergeGateways itself
-		// is immutable after create, so enabling a flag is the only way an
-		// existing template's merged set changes.
-		newlyEnabled := (ed && !dt.EnableDomain) || (es && !dt.EnableStream)
-		if dt.MergeGateways && newlyEnabled {
+		if dt.MergeGateways {
 			if s.streamPorts == nil || s.domainPorts == nil {
 				return nil, errors.New("stream port sources are not configured")
 			}
 			prospective := *dt
-			prospective.EnableDomain, prospective.EnableStream = ed, es
+			prospective.Listeners = *input.Listeners
 			if err := checkMergedTemplateSet(s.streamPorts, s.domainPorts, &prospective); err != nil {
 				return nil, err
 			}
 		}
-		dt.EnableDomain, dt.EnableStream = ed, es
+		dt.Listeners = *input.Listeners
 	}
 
 	if input.ClearTelemetryAccessLog {
