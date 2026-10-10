@@ -143,7 +143,25 @@ type StreamService struct {
 	// Port sources for CheckPortCollision; set via SetPortSources.
 	portStore   StreamPortStore
 	domainPorts DomainPortReader
+
+	// capabilities gates stream creation on the cluster's Envoy Gateway
+	// version; set via SetCapabilities. Optional: nil skips the guard.
+	capabilities StreamCapabilityChecker
 }
+
+// ErrStreamsUnsupported is returned when stream creation is attempted on a
+// cluster whose Envoy Gateway version is positively detected below 1.8.
+var ErrStreamsUnsupported = errors.New("streams require Envoy Gateway >= 1.8")
+
+// StreamCapabilityChecker reports whether the project's cluster supports a
+// capability. *CapabilityService satisfies it.
+type StreamCapabilityChecker interface {
+	Has(ctx context.Context, projectID uuid.UUID, name string) bool
+}
+
+// SetCapabilities wires the capability checker post-construction (mirrors
+// SetPortSources). Optional: when nil, the stream guard is skipped.
+func (s *StreamService) SetCapabilities(c StreamCapabilityChecker) { s.capabilities = c }
 
 // NewStreamService builds a StreamService. It panics if a dependency is nil,
 // matching NewDomainService.
@@ -182,6 +200,9 @@ func StreamGatewayName(name string) string {
 // until routes exist); like DomainService.Create, a deploy failure is recorded
 // on the returned stream's status rather than returned as an error.
 func (s *StreamService) Create(projectID uuid.UUID, in CreateStreamInput, user *models.User) (*models.Stream, error) {
+	if s.capabilities != nil && !s.capabilities.Has(context.Background(), projectID, "streams") {
+		return nil, ErrStreamsUnsupported
+	}
 	tmpl, err := s.templateRepo.GetByID(in.GatewayTemplateID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
