@@ -147,10 +147,32 @@ behavior (1–65535 bound, reserved ports, collision) is unchanged and additive.
   per listener) instead of the `TLSMode` switch. The L4 path is unchanged.
 - Validation: template-level port-conflict (§1); domain-level "bound listeners exist
   on the template"; stream route port-in-range (§3).
+- **OpenAPI:** update the API spec for the changed template/domain request + response
+  schemas (new `listeners[]`, `boundListeners[]`, TCP/UDP range; removed TLS/enable
+  fields) in `docs/openapi/`, re-bundle into `cmd/server/openapi.yaml` (`make openapi`),
+  and keep `make openapi-check` + `TestRouteSpecParity` green.
+
+## Compatibility & consumers
+
+The **only** consumer of the template/domain REST endpoints is `frontend-v2`,
+which is updated in the same effort. Therefore this is a **hard cutover**: the
+old request/response fields (`tlsMode`, `tlsPolicy`, `httpPort`, `httpsPort`,
+`enableDomain`, `enableStream`) are **removed**, not kept behind a compatibility
+shim. No deprecation window, no dual-read of old fields at the API layer.
+
+**Runtime-safety invariant (hard requirement):** the migration must produce, for
+every existing domain, a generated Gateway that is **byte-identical to today** —
+same listener **names**, ports, protocols, and TLS config — so Envoy Gateway
+reconciles nothing and **live traffic is never dropped**. Existing HTTPRoutes'
+`parentRef.sectionName` must still match. This is proven by golden-file tests in
+`internal/domainplan` / `internal/kubernetes` (old-output vs post-migration output
+must be equal for the migrated fixtures). If a clean listener naming scheme can't
+reproduce today's names exactly, the migration adopts today's names verbatim.
 
 ## Migration (existing templates, domains, streams)
 
-A one-time migration maps old → new so nothing breaks:
+A one-time data migration maps old → new (the API cutover is immediate; the data
+migration is what keeps existing deployments working):
 
 - **Templates:**
   - `no_tls` → `[{HTTP, HTTPPort}]`
@@ -163,9 +185,12 @@ A one-time migration maps old → new so nothing breaks:
   - `EnableDomain`/`EnableStream` columns dropped after the data is derived.
 - **Domains:** bind the listeners the migration produced for their template that
   match the domain's old `TLSMode` (e.g. an old `both` domain binds the HTTP + HTTPS
-  listeners).
-- Reversibility: keep the old columns through one release (write-new/read-new,
-  old columns nullable) or snapshot before drop — plan decides the exact rollout.
+  listeners), using listener names chosen so the generated Gateway is unchanged
+  (the runtime-safety invariant above).
+- **Rollout (hard cutover):** the DB migration derives the new columns from the old,
+  then drops the old columns. Because the API is UI-only, there is no dual-write/
+  dual-read phase. Take a DB backup/snapshot before the drop for rollback; the schema
+  migration is one forward step, reversible only by restore.
 
 ## Frontend changes (`frontend-v2`)
 
@@ -187,7 +212,10 @@ A one-time migration maps old → new so nothing breaks:
   reserved, TLS-guard rejection); eligibility inference; domain binding → Gateway
   listeners with `sectionName`; stream route port in/out of range; the migration
   (old TLSMode/ports/booleans → listeners/bindings/range, incl. the default-range
-  rule). Golden-file updates for `domainplan`/`kubernetes` gateway output.
+  rule). **Golden-file proof of the runtime-safety invariant:** for migrated domain
+  fixtures, the generated `domainplan`/`kubernetes` Gateway output equals the
+  pre-migration output exactly (same listener names/ports/TLS). `make openapi-check`
+  + `TestRouteSpecParity` green after the OpenAPI update.
 - **Frontend:** the template listener form (add/remove listeners, port-conflict
   surfacing, TLS disabled), the domain listener checklist, the stream route
   range validation (in-range accepted, out-of-range rejected, optimistic on
@@ -207,7 +235,12 @@ A one-time migration maps old → new so nothing breaks:
   `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`; frontend PR footer
   `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 - The migration must never retroactively invalidate an existing domain, route, or
-  stream port.
+  stream port, and must leave every existing domain's generated Gateway
+  **byte-identical** (no Envoy Gateway reconcile, no dropped traffic).
+- Hard cutover: old API fields removed (sole consumer is `frontend-v2`, updated in
+  lockstep); no compatibility shim.
+- OpenAPI stays in sync: `make openapi` re-bundled, `make openapi-check` +
+  `TestRouteSpecParity` green.
 - `HTTP`/gRPC listeners carry both HTTPRoute and GRPCRoute; a domain binds a *set* of
   listeners (never forced to a single one).
 - Reserved ports 19000/19001/60000 remain rejected everywhere.
