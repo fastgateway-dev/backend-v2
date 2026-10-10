@@ -79,7 +79,17 @@ func newRouteServiceDeps() services.RouteServiceDeps {
 		Streams:     new(mocks.MockStreamReader),
 		K8sGateways: new(mocks.MockKubernetesService),
 		K8sL4Routes: new(mocks.MockKubernetesService),
+
+		// Capability resolver: v1alpha2 by default (l4RouteV1 false).
+		Capabilities: stubL4Capabilities{},
 	}
+}
+
+// stubL4Capabilities answers the "l4RouteV1" capability from a fixed flag.
+type stubL4Capabilities struct{ v1 bool }
+
+func (s stubL4Capabilities) Has(_ context.Context, _ uuid.UUID, name string) bool {
+	return name == "l4RouteV1" && s.v1
 }
 
 // noopCTPEnsurer answers "nothing to re-apply", reproducing the pre-2E
@@ -8509,9 +8519,10 @@ func TestNewRouteService_RequiresEveryDependency(t *testing.T) {
 		"K8sAPIKeys":       func(d *services.RouteServiceDeps) { d.K8sAPIKeys = nil },
 		"K8sRefGrants":     func(d *services.RouteServiceDeps) { d.K8sRefGrants = nil },
 		// The L4 deploy path (Task 16).
-		"Streams":     func(d *services.RouteServiceDeps) { d.Streams = nil },
-		"K8sGateways": func(d *services.RouteServiceDeps) { d.K8sGateways = nil },
-		"K8sL4Routes": func(d *services.RouteServiceDeps) { d.K8sL4Routes = nil },
+		"Streams":      func(d *services.RouteServiceDeps) { d.Streams = nil },
+		"K8sGateways":  func(d *services.RouteServiceDeps) { d.K8sGateways = nil },
+		"K8sL4Routes":  func(d *services.RouteServiceDeps) { d.K8sL4Routes = nil },
+		"Capabilities": func(d *services.RouteServiceDeps) { d.Capabilities = nil },
 	}
 	for name, breakIt := range cases {
 		t.Run("nil "+name, func(t *testing.T) {

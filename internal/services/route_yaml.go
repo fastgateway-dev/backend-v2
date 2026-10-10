@@ -584,7 +584,7 @@ func (q *routeQuery) generateEnvoyExtensionPolicyYAMLFromDBWithWaf(route *models
 	return string(yamlBytes)
 }
 
-// generateL4RouteYAML renders the v1alpha2 TCPRoute/UDPRoute for an L4 route.
+// generateL4RouteYAML renders the TCPRoute/UDPRoute (v1 or v1alpha2) for an L4 route.
 // The route's Stream (not a Domain) supplies the namespace and parent Gateway.
 func (q *routeQuery) generateL4RouteYAML(route *models.Route) (string, error) {
 	if route.StreamID == nil {
@@ -595,12 +595,18 @@ func (q *routeQuery) generateL4RouteYAML(route *models.Route) (string, error) {
 		return "", fmt.Errorf("failed to load stream for L4 route: %w", err)
 	}
 
+	// Match what deploy applies: v1 when the project's cluster supports it.
+	apiVersion := "gateway.networking.k8s.io/v1alpha2"
+	if q.capabilities.Has(context.Background(), stream.ProjectID, "l4RouteV1") {
+		apiVersion = "gateway.networking.k8s.io/v1"
+	}
+
 	var obj any
 	switch route.Protocol {
 	case models.RouteProtocolTCP:
-		obj = kubernetes.BuildTCPRouteObject(routeplan.BuildTCPRouteConfig(*route, *stream))
+		obj = kubernetes.BuildTCPRouteObject(routeplan.BuildTCPRouteConfig(*route, *stream), apiVersion)
 	case models.RouteProtocolUDP:
-		obj = kubernetes.BuildUDPRouteObject(routeplan.BuildUDPRouteConfig(*route, *stream))
+		obj = kubernetes.BuildUDPRouteObject(routeplan.BuildUDPRouteConfig(*route, *stream), apiVersion)
 	default:
 		return "", fmt.Errorf("unsupported L4 protocol %q", route.Protocol)
 	}

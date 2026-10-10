@@ -189,6 +189,12 @@ func main() {
 	// parameters; the closure below is what orders the two constructions,
 	// and routeService is assigned on the statement immediately after
 	// NewRouteVersionService returns, long before any request can run it.
+	// Cluster version detection feeds the version-derived capabilities. They
+	// are built ahead of RouteService, which resolves the L4 route apiVersion
+	// from "l4RouteV1" at deploy time.
+	projectVersionService := services.NewProjectVersionService(services.ProjectVersionServiceDeps{K8s: k8sService})
+	capabilityService := services.NewCapabilityService(projectVersionService)
+
 	var routeService *services.RouteService
 	routeVersionService := services.NewRouteVersionService(services.RouteVersionServiceDeps{
 		VersionRepo:              routeVersionRepo,
@@ -233,6 +239,7 @@ func main() {
 		Streams:                  streamRepo,
 		K8sGateways:              k8sService,
 		K8sL4Routes:              k8sService,
+		Capabilities:             capabilityService,
 	})
 	approvalService := services.NewApprovalService(services.ApprovalServiceDeps{
 		ApprovalRepo: approvalRepo,
@@ -269,7 +276,6 @@ func main() {
 	approvalEngine.Register(models.ApprovalEntityClientAttachment, clientAttachmentService)
 
 	projectNamespaceService := services.NewProjectNamespaceService(projectNamespaceRepo, projectRepo, domainRepo, k8sService, k8sService)
-	projectVersionService := services.NewProjectVersionService(services.ProjectVersionServiceDeps{K8s: k8sService})
 
 	// Initialize email invite service
 	emailInviteService := services.NewTeamEmailInviteService(

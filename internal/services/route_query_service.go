@@ -20,6 +20,7 @@ type routeQuery struct {
 	streams                  StreamReader
 	projectNamespaceRepo     repository.ProjectNamespaceRepositoryInterface
 	wafConfig                routeplan.WAFConfig
+	capabilities             l4VersionResolver
 
 	assembler *routeAssembler
 }
