@@ -1901,7 +1901,7 @@ paths:
         - name: capability
           in: query
           required: false
-          description: Only return templates with this capability enabled (enableDomain for domain, enableStream for stream). Omit to return all templates.
+          description: Only return templates that declare a listener of the matching kind (domain means any HTTP/HTTPS/TLS listener, stream means any TCP/UDP listener). Omit to return all templates.
           schema:
             type: string
             enum:
@@ -6516,21 +6516,11 @@ components:
           enum:
             - LoadBalancer
             - ClusterIP
-        tlsMode:
-          type: string
-          enum:
-            - tls_only
-            - no_tls
-            - both
-        httpPort:
-          type: integer
-        httpsPort:
-          type: integer
-        tlsPolicy:
-          type: string
-          enum:
-            - terminate
-            - passthrough
+        listeners:
+          type: array
+          description: Listeners (HTTP/HTTPS/TLS/TCP/UDP) the template's Gateways expose
+          items:
+            $ref: '#/components/schemas/TemplateListener'
         externalTrafficPolicy:
           type: string
           enum:
@@ -6601,7 +6591,7 @@ components:
       required:
         - name
         - exposureType
-        - tlsMode
+        - listeners
       properties:
         name:
           type: string
@@ -6615,24 +6605,16 @@ components:
           enum:
             - LoadBalancer
             - ClusterIP
-        tlsMode:
-          type: string
-          enum:
-            - tls_only
-            - no_tls
-            - both
-        httpPort:
-          type: integer
-          default: 80
-        httpsPort:
-          type: integer
-          default: 443
-        tlsPolicy:
-          type: string
-          enum:
-            - terminate
-            - passthrough
-          default: terminate
+        listeners:
+          type: array
+          minItems: 1
+          description: |
+            Listeners the template's Gateways expose. At least one is required.
+            Hostname-routed protocols (HTTP, HTTPS, TLS) use `port`; port-routed
+            protocols (TCP, UDP) use `portRangeMin`/`portRangeMax`. Names must be
+            unique within the template; domains bind to listeners by name.
+          items:
+            $ref: '#/components/schemas/TemplateListener'
         externalTrafficPolicy:
           type: string
           enum:
@@ -6693,6 +6675,11 @@ components:
           $ref: '#/components/schemas/ContainerResourcesConfig'
         scalingConfig:
           $ref: '#/components/schemas/ScalingConfig'
+        listeners:
+          type: array
+          description: Replaces the template's listener list when present; omit to keep the current listeners.
+          items:
+            $ref: '#/components/schemas/TemplateListener'
         telemetryAccessLog:
           $ref: '#/components/schemas/TelemetryAccessLogConfig'
         telemetryTracing:
@@ -6735,7 +6722,7 @@ components:
       required:
         - name
         - exposureType
-        - tlsMode
+        - listeners
       properties:
         name:
           type: string
@@ -6748,21 +6735,16 @@ components:
           enum:
             - LoadBalancer
             - ClusterIP
-        tlsMode:
-          type: string
-          enum:
-            - tls_only
-            - no_tls
-            - both
-        httpPort:
-          type: integer
-        httpsPort:
-          type: integer
-        tlsPolicy:
-          type: string
-          enum:
-            - terminate
-            - passthrough
+        listeners:
+          type: array
+          minItems: 1
+          description: |
+            Listeners the template's Gateways expose. At least one is required.
+            Hostname-routed protocols (HTTP, HTTPS, TLS) use `port`; port-routed
+            protocols (TCP, UDP) use `portRangeMin`/`portRangeMax`. Names must be
+            unique within the template; domains bind to listeners by name.
+          items:
+            $ref: '#/components/schemas/TemplateListener'
         externalTrafficPolicy:
           type: string
           enum:
@@ -6810,7 +6792,7 @@ components:
           type: string
         gatewayYaml:
           type: string
-          description: Example Gateway manifest showing TLS configuration impact
+          description: Example Gateway manifest showing the template's listeners
         aiReview:
           $ref: '#/components/schemas/AIReviewResult'
     DomainTemplatePreviewChangesRequest:
@@ -6837,6 +6819,11 @@ components:
           $ref: '#/components/schemas/ContainerResourcesConfig'
         scalingConfig:
           $ref: '#/components/schemas/ScalingConfig'
+        listeners:
+          type: array
+          description: Replaces the template's listener list when present; omit to keep the current listeners.
+          items:
+            $ref: '#/components/schemas/TemplateListener'
         telemetryAccessLog:
           $ref: '#/components/schemas/TelemetryAccessLogConfig'
         telemetryTracing:
@@ -7238,26 +7225,16 @@ components:
           type: string
         hostname:
           type: string
-        httpPort:
-          type: integer
-        httpsPort:
-          type: integer
-        tlsMode:
-          type: string
-          enum:
-            - tls_only
-            - no_tls
-            - both
         tlsSecretName:
           type: string
         tlsSecretNamespace:
           type: string
           description: Kubernetes namespace containing the TLS secret (defaults to the project's managed namespace)
-        tlsPolicy:
-          type: string
-          enum:
-            - terminate
-            - passthrough
+        boundListeners:
+          type: array
+          description: Names of the template listeners this domain's Gateway exposes
+          items:
+            type: string
         namespace:
           type: string
           description: Kubernetes namespace for gateway resources
@@ -7303,6 +7280,7 @@ components:
         - name
         - hostname
         - domainTemplateId
+        - boundListeners
       properties:
         name:
           type: string
@@ -7311,6 +7289,12 @@ components:
         domainTemplateId:
           type: string
           format: uuid
+        boundListeners:
+          type: array
+          minItems: 1
+          description: Names of the template listeners (TemplateListener.name) this domain's Gateway exposes. Must be hostname-routed listeners (HTTP/HTTPS/TLS) declared by the domain template.
+          items:
+            type: string
         tlsSecretName:
           type: string
         tlsSecretNamespace:
@@ -12022,6 +12006,43 @@ components:
         cacheExpiresAt:
           type: string
           format: date-time
+    TemplateListener:
+      type: object
+      required:
+        - name
+        - protocol
+      description: |
+        One listener a Gateway Template exposes. `name` is the Gateway API
+        sectionName and is what a domain references in `boundListeners`.
+        HTTP/HTTPS/TLS listeners are hostname-routed and use `port`; TCP/UDP
+        listeners are port-routed and use `portRangeMin`/`portRangeMax`.
+      properties:
+        name:
+          type: string
+          description: Listener name (Gateway API sectionName); unique within the template
+        protocol:
+          type: string
+          enum:
+            - HTTP
+            - HTTPS
+            - TLS
+            - TCP
+            - UDP
+        port:
+          type: integer
+          description: Listener port for hostname-routed protocols (HTTP, HTTPS, TLS)
+        tlsMode:
+          type: string
+          enum:
+            - Terminate
+            - Passthrough
+          description: TLS handling for HTTPS/TLS listeners
+        portRangeMin:
+          type: integer
+          description: First port of the shared stream range (TCP/UDP listeners)
+        portRangeMax:
+          type: integer
+          description: Last port of the shared stream range (TCP/UDP listeners)
     NamespaceCapability:
       type: string
       enum:

@@ -16,16 +16,11 @@ DomainTemplate:
     exposureType:
       type: string
       enum: [LoadBalancer, ClusterIP]
-    tlsMode:
-      type: string
-      enum: [tls_only, no_tls, both]
-    httpPort:
-      type: integer
-    httpsPort:
-      type: integer
-    tlsPolicy:
-      type: string
-      enum: [terminate, passthrough]
+    listeners:
+      type: array
+      description: Listeners (HTTP/HTTPS/TLS/TCP/UDP) the template's Gateways expose
+      items:
+        $ref: '#/TemplateListener'
     externalTrafficPolicy:
       type: string
       enum: [Cluster, Local]
@@ -78,6 +73,35 @@ DomainTemplate:
       type: string
       format: date-time
 
+TemplateListener:
+  type: object
+  required: [name, protocol]
+  description: |
+    One listener a Gateway Template exposes. `name` is the Gateway API
+    sectionName and is what a domain references in `boundListeners`.
+    HTTP/HTTPS/TLS listeners are hostname-routed and use `port`; TCP/UDP
+    listeners are port-routed and use `portRangeMin`/`portRangeMax`.
+  properties:
+    name:
+      type: string
+      description: Listener name (Gateway API sectionName); unique within the template
+    protocol:
+      type: string
+      enum: [HTTP, HTTPS, TLS, TCP, UDP]
+    port:
+      type: integer
+      description: Listener port for hostname-routed protocols (HTTP, HTTPS, TLS)
+    tlsMode:
+      type: string
+      enum: [Terminate, Passthrough]
+      description: TLS handling for HTTPS/TLS listeners
+    portRangeMin:
+      type: integer
+      description: First port of the shared stream range (TCP/UDP listeners)
+    portRangeMax:
+      type: integer
+      description: Last port of the shared stream range (TCP/UDP listeners)
+
 DomainTemplateList:
   type: object
   properties:
@@ -90,7 +114,7 @@ DomainTemplateList:
 
 CreateDomainTemplateRequest:
   type: object
-  required: [name, exposureType, tlsMode]
+  required: [name, exposureType, listeners]
   properties:
     name:
       type: string
@@ -102,19 +126,16 @@ CreateDomainTemplateRequest:
     exposureType:
       type: string
       enum: [LoadBalancer, ClusterIP]
-    tlsMode:
-      type: string
-      enum: [tls_only, no_tls, both]
-    httpPort:
-      type: integer
-      default: 80
-    httpsPort:
-      type: integer
-      default: 443
-    tlsPolicy:
-      type: string
-      enum: [terminate, passthrough]
-      default: terminate
+    listeners:
+      type: array
+      minItems: 1
+      description: |
+        Listeners the template's Gateways expose. At least one is required.
+        Hostname-routed protocols (HTTP, HTTPS, TLS) use `port`; port-routed
+        protocols (TCP, UDP) use `portRangeMin`/`portRangeMax`. Names must be
+        unique within the template; domains bind to listeners by name.
+      items:
+        $ref: '#/TemplateListener'
     externalTrafficPolicy:
       type: string
       enum: [Cluster, Local]
@@ -172,6 +193,11 @@ UpdateDomainTemplateRequest:
       $ref: '#/ContainerResourcesConfig'
     scalingConfig:
       $ref: '#/ScalingConfig'
+    listeners:
+      type: array
+      description: Replaces the template's listener list when present; omit to keep the current listeners.
+      items:
+        $ref: '#/TemplateListener'
     telemetryAccessLog:
       $ref: '#/TelemetryAccessLogConfig'
     telemetryTracing:
@@ -213,7 +239,7 @@ DomainTemplateManifests:
 
 DomainTemplateCreatePreviewRequest:
   type: object
-  required: [name, exposureType, tlsMode]
+  required: [name, exposureType, listeners]
   properties:
     name:
       type: string
@@ -224,16 +250,16 @@ DomainTemplateCreatePreviewRequest:
     exposureType:
       type: string
       enum: [LoadBalancer, ClusterIP]
-    tlsMode:
-      type: string
-      enum: [tls_only, no_tls, both]
-    httpPort:
-      type: integer
-    httpsPort:
-      type: integer
-    tlsPolicy:
-      type: string
-      enum: [terminate, passthrough]
+    listeners:
+      type: array
+      minItems: 1
+      description: |
+        Listeners the template's Gateways expose. At least one is required.
+        Hostname-routed protocols (HTTP, HTTPS, TLS) use `port`; port-routed
+        protocols (TCP, UDP) use `portRangeMin`/`portRangeMax`. Names must be
+        unique within the template; domains bind to listeners by name.
+      items:
+        $ref: '#/TemplateListener'
     externalTrafficPolicy:
       type: string
       enum: [Cluster, Local]
@@ -280,7 +306,7 @@ DomainTemplateCreatePreviewResult:
       type: string
     gatewayYaml:
       type: string
-      description: Example Gateway manifest showing TLS configuration impact
+      description: Example Gateway manifest showing the template's listeners
     aiReview:
       $ref: './ai.yaml#/AIReviewResult'
 
@@ -306,6 +332,11 @@ DomainTemplatePreviewChangesRequest:
       $ref: '#/ContainerResourcesConfig'
     scalingConfig:
       $ref: '#/ScalingConfig'
+    listeners:
+      type: array
+      description: Replaces the template's listener list when present; omit to keep the current listeners.
+      items:
+        $ref: '#/TemplateListener'
     telemetryAccessLog:
       $ref: '#/TelemetryAccessLogConfig'
     telemetryTracing:
