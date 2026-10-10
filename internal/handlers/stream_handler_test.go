@@ -79,6 +79,17 @@ func TestStreamHandler_Create_NonStreamTemplate_400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestStreamHandler_Create_StreamsUnsupported_400(t *testing.T) {
+	h, svc, _ := newStreamHandler()
+	projectID := uuid.New()
+	svc.On("Create", projectID, mock.Anything, mock.Anything).Return(nil, services.ErrStreamsUnsupported)
+
+	w := doStream(streamRouter(h, testUser()), "POST", "/projects/"+projectID.String()+"/streams",
+		map[string]any{"name": "db", "namespace": "ns", "gatewayTemplateId": uuid.New().String()})
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 func TestStreamHandler_Create_TemplateNotFound_404(t *testing.T) {
 	for _, sentinel := range []error{services.ErrStreamTemplateNotFound, services.ErrStreamTemplateWrongProject} {
 		h, svc, _ := newStreamHandler()

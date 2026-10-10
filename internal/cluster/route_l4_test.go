@@ -41,13 +41,13 @@ func TestTCPRoute_CreateThenCreateFallsBackToUpdate(t *testing.T) {
 	c := &Client{testClient: dyn}
 	ctx := context.Background()
 
-	require.NoError(t, c.CreateTCPRoute(ctx, uuid.New(), tcpCfg(5432)))
+	require.NoError(t, c.CreateTCPRoute(ctx, uuid.New(), tcpCfg(5432), kubernetes.TCPRouteGVR))
 	got, err := dyn.Resource(kubernetes.TCPRouteGVR).Namespace("project-ns").Get(ctx, "tcp-1", metav1.GetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "TCPRoute", got.GetKind())
 
 	// Second create hits AlreadyExists and must fall back to update.
-	require.NoError(t, c.CreateTCPRoute(ctx, uuid.New(), tcpCfg(6543)))
+	require.NoError(t, c.CreateTCPRoute(ctx, uuid.New(), tcpCfg(6543), kubernetes.TCPRouteGVR))
 	got, err = dyn.Resource(kubernetes.TCPRouteGVR).Namespace("project-ns").Get(ctx, "tcp-1", metav1.GetOptions{})
 	require.NoError(t, err)
 	rules, found, err := unstructured.NestedSlice(got.Object, "spec", "rules")
@@ -58,16 +58,16 @@ func TestTCPRoute_CreateThenCreateFallsBackToUpdate(t *testing.T) {
 
 func TestTCPRoute_UpdateMissingFails(t *testing.T) {
 	c := &Client{testClient: dynamicfake.NewSimpleDynamicClient(scheme.Scheme)}
-	require.Error(t, c.UpdateTCPRoute(context.Background(), uuid.New(), tcpCfg(5432)))
+	require.Error(t, c.UpdateTCPRoute(context.Background(), uuid.New(), tcpCfg(5432), kubernetes.TCPRouteGVR))
 }
 
 func TestTCPRoute_DeleteIssuesDeleteOnTCPRouteGVR(t *testing.T) {
 	dyn := dynamicfake.NewSimpleDynamicClient(scheme.Scheme)
 	c := &Client{testClient: dyn}
 	ctx := context.Background()
-	require.NoError(t, c.CreateTCPRoute(ctx, uuid.New(), tcpCfg(5432)))
+	require.NoError(t, c.CreateTCPRoute(ctx, uuid.New(), tcpCfg(5432), kubernetes.TCPRouteGVR))
 
-	require.NoError(t, c.DeleteTCPRoute(ctx, uuid.New(), "project-ns", "tcp-1"))
+	require.NoError(t, c.DeleteTCPRoute(ctx, uuid.New(), "project-ns", "tcp-1", kubernetes.TCPRouteGVR))
 	_, err := dyn.Resource(kubernetes.TCPRouteGVR).Namespace("project-ns").Get(ctx, "tcp-1", metav1.GetOptions{})
 	require.True(t, k8serrors.IsNotFound(err))
 
@@ -80,7 +80,7 @@ func TestTCPRoute_DeleteIssuesDeleteOnTCPRouteGVR(t *testing.T) {
 	assert.True(t, deleted, "expected a delete action on TCPRouteGVR")
 
 	// Idempotent: deleting a missing route is not an error.
-	require.NoError(t, c.DeleteTCPRoute(ctx, uuid.New(), "project-ns", "tcp-1"))
+	require.NoError(t, c.DeleteTCPRoute(ctx, uuid.New(), "project-ns", "tcp-1", kubernetes.TCPRouteGVR))
 }
 
 func TestUDPRoute_CreateUpdateDelete(t *testing.T) {
@@ -88,18 +88,18 @@ func TestUDPRoute_CreateUpdateDelete(t *testing.T) {
 	c := &Client{testClient: dyn}
 	ctx := context.Background()
 
-	require.NoError(t, c.CreateUDPRoute(ctx, uuid.New(), udpCfg(53)))
+	require.NoError(t, c.CreateUDPRoute(ctx, uuid.New(), udpCfg(53), kubernetes.UDPRouteGVR))
 	got, err := dyn.Resource(kubernetes.UDPRouteGVR).Namespace("project-ns").Get(ctx, "udp-1", metav1.GetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "UDPRoute", got.GetKind())
 
-	require.NoError(t, c.UpdateUDPRoute(ctx, uuid.New(), udpCfg(5353)))
-	require.NoError(t, c.CreateUDPRoute(ctx, uuid.New(), udpCfg(53))) // fallback to update
+	require.NoError(t, c.UpdateUDPRoute(ctx, uuid.New(), udpCfg(5353), kubernetes.UDPRouteGVR))
+	require.NoError(t, c.CreateUDPRoute(ctx, uuid.New(), udpCfg(53), kubernetes.UDPRouteGVR)) // fallback to update
 
-	require.NoError(t, c.DeleteUDPRoute(ctx, uuid.New(), "project-ns", "udp-1"))
+	require.NoError(t, c.DeleteUDPRoute(ctx, uuid.New(), "project-ns", "udp-1", kubernetes.UDPRouteGVR))
 	_, err = dyn.Resource(kubernetes.UDPRouteGVR).Namespace("project-ns").Get(ctx, "udp-1", metav1.GetOptions{})
 	require.True(t, k8serrors.IsNotFound(err))
-	require.NoError(t, c.DeleteUDPRoute(ctx, uuid.New(), "project-ns", "udp-1"))
+	require.NoError(t, c.DeleteUDPRoute(ctx, uuid.New(), "project-ns", "udp-1", kubernetes.UDPRouteGVR))
 }
 
 func TestCreateReferenceGrant_IncludesL4RouteKinds(t *testing.T) {

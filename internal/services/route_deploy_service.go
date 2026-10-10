@@ -6,13 +6,39 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/fastgateway-dev/backend-v2/internal/capabilities"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/routestate"
 	"github.com/fastgateway-dev/backend-v2/internal/streamplan"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+// l4VersionResolver answers whether the project's cluster takes the v1 L4
+// route types. *CapabilityService satisfies it.
+type l4VersionResolver interface {
+	Has(ctx context.Context, projectID uuid.UUID, name string) bool
+}
+
+// l4RouteGVR picks the TCPRoute/UDPRoute GVR for the protocol: the v1 GVR when
+// useV1, else the v1alpha2 GVR.
+func l4RouteGVR(protocol models.RouteProtocol, useV1 bool) schema.GroupVersionResource {
+	switch protocol {
+	case models.RouteProtocolTCP:
+		if useV1 {
+			return kubernetes.TCPRouteGVRV1
+		}
+		return kubernetes.TCPRouteGVR
+	case models.RouteProtocolUDP:
+		if useV1 {
+			return kubernetes.UDPRouteGVRV1
+		}
+		return kubernetes.UDPRouteGVR
+	}
+	return schema.GroupVersionResource{}
+}
 
 // referenceGrantEnsurer supplies ensureReferenceGrantsForDomain, called by
 // Deploy but currently defined elsewhere.
@@ -41,6 +67,7 @@ type routeDeploy struct {
 	k8sAPIKeys       APIKeySecretApplier
 	domains          ClientTrafficPolicyEnsurer
 	routeVersions    RouteVersionRecorder
+	capabilities     l4VersionResolver
 
 	state *routestate.Machine
 
@@ -433,6 +460,8 @@ func (d *routeDeploy) applyL4Route(ctx context.Context, route *models.Route, str
 	if create {
 		verb = "create"
 	}
+	useV1 := d.capabilities.Has(ctx, stream.ProjectID, capabilities.CapL4RouteV1)
+	gvr := l4RouteGVR(route.Protocol, useV1)
 	switch route.Protocol {
 	case models.RouteProtocolTCP:
 		cfg := d.assembler.buildTCPRouteConfig(route, stream)
@@ -440,7 +469,7 @@ func (d *routeDeploy) applyL4Route(ctx context.Context, route *models.Route, str
 		if create {
 			apply = d.k8sL4Routes.CreateTCPRoute
 		}
-		if err := apply(ctx, stream.ProjectID, cfg); err != nil {
+		if err := apply(ctx, stream.ProjectID, cfg, gvr); err != nil {
 			log.Printf("Failed to %s TCPRoute in Kubernetes: %v", verb, err)
 			return fmt.Errorf("failed to %s TCPRoute in Kubernetes: %w", verb, err)
 		}
@@ -450,7 +479,7 @@ func (d *routeDeploy) applyL4Route(ctx context.Context, route *models.Route, str
 		if create {
 			apply = d.k8sL4Routes.CreateUDPRoute
 		}
-		if err := apply(ctx, stream.ProjectID, cfg); err != nil {
+		if err := apply(ctx, stream.ProjectID, cfg, gvr); err != nil {
 			log.Printf("Failed to %s UDPRoute in Kubernetes: %v", verb, err)
 			return fmt.Errorf("failed to %s UDPRoute in Kubernetes: %w", verb, err)
 		}
@@ -462,14 +491,15 @@ func (d *routeDeploy) applyL4Route(ctx context.Context, route *models.Route, str
 
 // deleteL4Route deletes the TCPRoute/UDPRoute from the stream's namespace.
 func (d *routeDeploy) deleteL4Route(ctx context.Context, route *models.Route, stream *models.Stream) error {
+	gvr := l4RouteGVR(route.Protocol, d.capabilities.Has(ctx, stream.ProjectID, capabilities.CapL4RouteV1))
 	switch route.Protocol {
 	case models.RouteProtocolTCP:
-		if err := d.k8sL4Routes.DeleteTCPRoute(ctx, stream.ProjectID, stream.Namespace, route.K8sRouteName); err != nil {
+		if err := d.k8sL4Routes.DeleteTCPRoute(ctx, stream.ProjectID, stream.Namespace, route.K8sRouteName, gvr); err != nil {
 			log.Printf("Failed to delete TCPRoute from Kubernetes: %v", err)
 			return fmt.Errorf("failed to delete TCPRoute from Kubernetes: %w", err)
 		}
 	case models.RouteProtocolUDP:
-		if err := d.k8sL4Routes.DeleteUDPRoute(ctx, stream.ProjectID, stream.Namespace, route.K8sRouteName); err != nil {
+		if err := d.k8sL4Routes.DeleteUDPRoute(ctx, stream.ProjectID, stream.Namespace, route.K8sRouteName, gvr); err != nil {
 			log.Printf("Failed to delete UDPRoute from Kubernetes: %v", err)
 			return fmt.Errorf("failed to delete UDPRoute from Kubernetes: %w", err)
 		}

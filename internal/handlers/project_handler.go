@@ -1,28 +1,38 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
+	"github.com/fastgateway-dev/backend-v2/internal/capabilities"
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
+// CapabilityEvaluator returns the exposed version-derived capabilities for a
+// project. *services.CapabilityService satisfies it.
+type CapabilityEvaluator interface {
+	Evaluate(ctx context.Context, projectID uuid.UUID) map[string]bool
+}
+
 // ProjectHandler handles project endpoints
 type ProjectHandler struct {
 	projectService ProjectServiceInterface
 	auditService   AuditServiceInterface
 	k8sService     services.RateLimitProbe
+	capabilities   CapabilityEvaluator
 }
 
 // NewProjectHandler creates a new project handler
-func NewProjectHandler(projectService ProjectServiceInterface, auditService AuditServiceInterface, k8sService services.RateLimitProbe) *ProjectHandler {
+func NewProjectHandler(projectService ProjectServiceInterface, auditService AuditServiceInterface, k8sService services.RateLimitProbe, capabilities CapabilityEvaluator) *ProjectHandler {
 	return &ProjectHandler{
 		projectService: projectService,
 		auditService:   auditService,
 		k8sService:     k8sService,
+		capabilities:   capabilities,
 	}
 }
 
@@ -305,7 +315,9 @@ func (h *ProjectHandler) GetCapabilities(c *gin.Context) {
 		return
 	}
 
+	caps := h.capabilities.Evaluate(c.Request.Context(), projectID)
 	c.JSON(http.StatusOK, gin.H{
 		"rateLimitAvailable": rateLimitAvailable,
+		"streamAvailable":    caps[capabilities.CapStreams],
 	})
 }

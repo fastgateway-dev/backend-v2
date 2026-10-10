@@ -16,11 +16,14 @@ type UDPRouteConfig struct {
 	Labels      map[string]string
 }
 
-// BuildUDPRouteObject builds a typed v1alpha2 UDPRoute from config.
-func BuildUDPRouteObject(cfg UDPRouteConfig) *gatewayv1alpha2.UDPRoute {
+// BuildUDPRouteObject builds a typed UDPRoute from config at the given
+// apiVersion (e.g. "gateway.networking.k8s.io/v1"). The v1alpha2 and v1 spec
+// schemas are identical (straight graduation), so the v1alpha2 Go type
+// serializes correctly under either apiVersion.
+func BuildUDPRouteObject(cfg UDPRouteConfig, apiVersion string) *gatewayv1alpha2.UDPRoute {
 	return &gatewayv1alpha2.UDPRoute{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "gateway.networking.k8s.io/v1alpha2",
+			APIVersion: apiVersion,
 			Kind:       "UDPRoute",
 		},
 		ObjectMeta: metav1.ObjectMeta{

@@ -317,6 +317,12 @@ func TestNoWiringNilGuardsRemain_NegatedForm(t *testing.T) {
 		// SetDNSRecords (see that method's doc comment), and stays nil
 		// outside a cluster, where Create's DNS-enable step is a no-op.
 		"domain_service.go:dnsRecords": "genuinely-optional DNS-record dependency, wired after construction via SetDNSRecords",
+
+		// StreamService.capabilities gates stream creation on the Envoy
+		// Gateway version. It is wired after construction via SetCapabilities
+		// (mirroring SetPortSources) and is nil in unit tests and anywhere no
+		// project-version service exists, where the guard is skipped.
+		"stream_service.go:capabilities": "genuinely-optional capability checker, wired after construction via SetCapabilities",
 	}
 
 	entries, err := os.ReadDir(".")
@@ -365,6 +371,7 @@ func TestNoWiringNilGuardsRemain_NegatedForm_AllowlistIsExact(t *testing.T) {
 		"system_settings_service.go:cached":      1,
 		"domain_template_manifests.go:aiService": 2,
 		"domain_service.go:dnsRecords":           3,
+		"stream_service.go:capabilities":         1,
 	}
 
 	entries, err := os.ReadDir(".")

@@ -134,6 +134,11 @@ type RouteServiceDeps struct {
 	K8sGateways GatewayApplier
 	K8sL4Routes L4RouteApplier
 
+	// Capabilities resolves the project's "l4RouteV1" capability so the
+	// deploy path and YAML preview pick the same TCPRoute/UDPRoute apiVersion.
+	// Required. *CapabilityService satisfies it.
+	Capabilities l4VersionResolver
+
 	// IDGen mints route IDs. Optional: nil means uuid.New. Injected so the
 	// preview path is deterministic under test - the first 8 hex characters
 	// of the ID minted in PreviewCreate appear in every previewed resource
@@ -231,6 +236,9 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 	if deps.K8sL4Routes == nil {
 		missing = append(missing, "K8sL4Routes")
 	}
+	if deps.Capabilities == nil {
+		missing = append(missing, "Capabilities")
+	}
 	if len(missing) > 0 {
 		panic("services.NewRouteService: missing required dependency: " + strings.Join(missing, ", "))
 	}
@@ -260,6 +268,7 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 		streams:                  deps.Streams,
 		projectNamespaceRepo:     deps.ProjectNamespaceRepo,
 		wafConfig:                deps.WafConfig,
+		capabilities:             deps.Capabilities,
 		assembler:                svc.assembler,
 	}
 	svc.write = &routeWrite{
@@ -299,6 +308,7 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 		k8sAPIKeys:               deps.K8sAPIKeys,
 		domains:                  deps.Domains,
 		routeVersions:            deps.RouteVersions,
+		capabilities:             deps.Capabilities,
 		state:                    svc.state,
 		assembler:                svc.assembler,
 		write:                    svc.write,

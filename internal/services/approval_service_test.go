@@ -105,6 +105,7 @@ func newApprovalEngine(
 		Streams:          new(mocks.MockStreamReader),
 		K8sGateways:      k8s,
 		K8sL4Routes:      k8s,
+		Capabilities:     stubL4Capabilities{},
 	})
 	engine.Register(models.ApprovalEntityRoute, routeSvc)
 	// The engine is returned so a client_attachment test can register its own

@@ -189,6 +189,12 @@ func main() {
 	// parameters; the closure below is what orders the two constructions,
 	// and routeService is assigned on the statement immediately after
 	// NewRouteVersionService returns, long before any request can run it.
+	// Cluster version detection feeds the version-derived capabilities. They
+	// are built ahead of RouteService, which resolves the L4 route apiVersion
+	// from "l4RouteV1" at deploy time.
+	projectVersionService := services.NewProjectVersionService(services.ProjectVersionServiceDeps{K8s: k8sService})
+	capabilityService := services.NewCapabilityService(projectVersionService)
+
 	var routeService *services.RouteService
 	routeVersionService := services.NewRouteVersionService(services.RouteVersionServiceDeps{
 		VersionRepo:              routeVersionRepo,
@@ -233,6 +239,7 @@ func main() {
 		Streams:                  streamRepo,
 		K8sGateways:              k8sService,
 		K8sL4Routes:              k8sService,
+		Capabilities:             capabilityService,
 	})
 	approvalService := services.NewApprovalService(services.ApprovalServiceDeps{
 		ApprovalRepo: approvalRepo,
@@ -269,7 +276,6 @@ func main() {
 	approvalEngine.Register(models.ApprovalEntityClientAttachment, clientAttachmentService)
 
 	projectNamespaceService := services.NewProjectNamespaceService(projectNamespaceRepo, projectRepo, domainRepo, k8sService, k8sService)
-	projectVersionService := services.NewProjectVersionService(services.ProjectVersionServiceDeps{K8s: k8sService})
 
 	// Initialize email invite service
 	emailInviteService := services.NewTeamEmailInviteService(
@@ -289,7 +295,7 @@ func main() {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService, auditService)
-	projectHandler := handlers.NewProjectHandler(projectService, auditService, k8sService)
+	projectHandler := handlers.NewProjectHandler(projectService, auditService, k8sService, capabilityService)
 	metricsService := services.NewMetricsService(projectRepo, routeRepo, domainRepo, cfg)
 	metricsService.SetStreamRepo(streamRepo)
 	metricsHandler := handlers.NewMetricsHandler(metricsService)
@@ -313,6 +319,7 @@ func main() {
 	domainHandler := handlers.NewDomainHandler(domainService, auditService, permChecker, domainService)
 	streamService := services.NewStreamService(streamRepo, domainTemplateRepo, routeRepo, k8sService, projectNamespaceRepo)
 	streamService.SetPortSources(streamRepo, domainRepo)
+	streamService.SetCapabilities(capabilityService)
 	// Route L4 create/update, domain create (merged template) and template
 	// capability enablement all enforce the same (transport, port) collision
 	// rules; wire their sources now that the repos and StreamService exist.
