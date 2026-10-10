@@ -7,6 +7,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // Role interfaces over the Kubernetes cluster client.
@@ -62,12 +63,12 @@ type RouteApplier interface {
 //
 // Consumer: RouteService (L4 stream route deploy).
 type L4RouteApplier interface {
-	CreateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error
-	UpdateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error
-	DeleteTCPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error
-	CreateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error
-	UpdateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error
-	DeleteUDPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error
+	CreateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig, gvr schema.GroupVersionResource) error
+	UpdateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig, gvr schema.GroupVersionResource) error
+	DeleteTCPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string, gvr schema.GroupVersionResource) error
+	CreateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig, gvr schema.GroupVersionResource) error
+	UpdateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig, gvr schema.GroupVersionResource) error
+	DeleteUDPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string, gvr schema.GroupVersionResource) error
 }
 
 // TrafficPolicyApplier writes the two Envoy Gateway policies that attach to a

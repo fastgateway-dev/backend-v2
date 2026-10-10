@@ -213,15 +213,13 @@ func (s *Client) DeleteGRPCRoute(ctx context.Context, projectID uuid.UUID, names
 
 // CreateTCPRoute creates a TCPRoute in Kubernetes.
 // If the resource already exists, it falls back to update.
-func (s *Client) CreateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error {
+func (s *Client) CreateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig, gvr schema.GroupVersionResource) error {
 	client, err := s.getClient(projectID)
 	if err != nil {
 		return err
 	}
 
-	gvr := kubernetes.TCPRouteGVR
-
-	route := kubernetes.BuildTCPRouteObject(*config)
+	route := kubernetes.BuildTCPRouteObject(*config, gvr.GroupVersion().String())
 	if route == nil {
 		return fmt.Errorf("failed to build TCPRoute object")
 	}
@@ -235,7 +233,7 @@ func (s *Client) CreateTCPRoute(ctx context.Context, projectID uuid.UUID, config
 	_, err = client.Resource(gvr).Namespace(config.Namespace).Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		if k8serrors.IsAlreadyExists(err) {
-			return s.UpdateTCPRoute(ctx, projectID, config)
+			return s.UpdateTCPRoute(ctx, projectID, config, gvr)
 		}
 		return fmt.Errorf("failed to create TCPRoute: %w", err)
 	}
@@ -243,20 +241,18 @@ func (s *Client) CreateTCPRoute(ctx context.Context, projectID uuid.UUID, config
 }
 
 // UpdateTCPRoute updates a TCPRoute in Kubernetes
-func (s *Client) UpdateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig) error {
+func (s *Client) UpdateTCPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.TCPRouteConfig, gvr schema.GroupVersionResource) error {
 	client, err := s.getClient(projectID)
 	if err != nil {
 		return err
 	}
-
-	gvr := kubernetes.TCPRouteGVR
 
 	existing, err := client.Resource(gvr).Namespace(config.Namespace).Get(ctx, config.Name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get existing TCPRoute: %w", err)
 	}
 
-	route := kubernetes.BuildTCPRouteObject(*config)
+	route := kubernetes.BuildTCPRouteObject(*config, gvr.GroupVersion().String())
 	if route == nil {
 		return fmt.Errorf("failed to build TCPRoute object")
 	}
@@ -278,13 +274,13 @@ func (s *Client) UpdateTCPRoute(ctx context.Context, projectID uuid.UUID, config
 }
 
 // DeleteTCPRoute deletes a TCPRoute from Kubernetes
-func (s *Client) DeleteTCPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error {
+func (s *Client) DeleteTCPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string, gvr schema.GroupVersionResource) error {
 	client, err := s.getClient(projectID)
 	if err != nil {
 		return err
 	}
 
-	err = client.Resource(kubernetes.TCPRouteGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	err = client.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			// TCPRoute not found, already deleted
@@ -297,15 +293,13 @@ func (s *Client) DeleteTCPRoute(ctx context.Context, projectID uuid.UUID, namesp
 
 // CreateUDPRoute creates a UDPRoute in Kubernetes.
 // If the resource already exists, it falls back to update.
-func (s *Client) CreateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error {
+func (s *Client) CreateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig, gvr schema.GroupVersionResource) error {
 	client, err := s.getClient(projectID)
 	if err != nil {
 		return err
 	}
 
-	gvr := kubernetes.UDPRouteGVR
-
-	route := kubernetes.BuildUDPRouteObject(*config)
+	route := kubernetes.BuildUDPRouteObject(*config, gvr.GroupVersion().String())
 	if route == nil {
 		return fmt.Errorf("failed to build UDPRoute object")
 	}
@@ -319,7 +313,7 @@ func (s *Client) CreateUDPRoute(ctx context.Context, projectID uuid.UUID, config
 	_, err = client.Resource(gvr).Namespace(config.Namespace).Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		if k8serrors.IsAlreadyExists(err) {
-			return s.UpdateUDPRoute(ctx, projectID, config)
+			return s.UpdateUDPRoute(ctx, projectID, config, gvr)
 		}
 		return fmt.Errorf("failed to create UDPRoute: %w", err)
 	}
@@ -327,20 +321,18 @@ func (s *Client) CreateUDPRoute(ctx context.Context, projectID uuid.UUID, config
 }
 
 // UpdateUDPRoute updates a UDPRoute in Kubernetes
-func (s *Client) UpdateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig) error {
+func (s *Client) UpdateUDPRoute(ctx context.Context, projectID uuid.UUID, config *kubernetes.UDPRouteConfig, gvr schema.GroupVersionResource) error {
 	client, err := s.getClient(projectID)
 	if err != nil {
 		return err
 	}
-
-	gvr := kubernetes.UDPRouteGVR
 
 	existing, err := client.Resource(gvr).Namespace(config.Namespace).Get(ctx, config.Name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get existing UDPRoute: %w", err)
 	}
 
-	route := kubernetes.BuildUDPRouteObject(*config)
+	route := kubernetes.BuildUDPRouteObject(*config, gvr.GroupVersion().String())
 	if route == nil {
 		return fmt.Errorf("failed to build UDPRoute object")
 	}
@@ -362,13 +354,13 @@ func (s *Client) UpdateUDPRoute(ctx context.Context, projectID uuid.UUID, config
 }
 
 // DeleteUDPRoute deletes a UDPRoute from Kubernetes
-func (s *Client) DeleteUDPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string) error {
+func (s *Client) DeleteUDPRoute(ctx context.Context, projectID uuid.UUID, namespace, name string, gvr schema.GroupVersionResource) error {
 	client, err := s.getClient(projectID)
 	if err != nil {
 		return err
 	}
 
-	err = client.Resource(kubernetes.UDPRouteGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	err = client.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			// UDPRoute not found, already deleted
