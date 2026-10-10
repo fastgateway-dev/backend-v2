@@ -626,7 +626,19 @@ func (s *DomainService) Update(id uuid.UUID, input *UpdateDomainInput) (*models.
 // managed-certificate change never actually reached Envoy Gateway.
 func (s *DomainService) applyGateway(domain *models.Domain) error {
 	ctx := context.Background()
-	gatewayConfig := s.gatewayConfig(domain)
+
+	// Fail closed: never overwrite a live Gateway with an empty-listener config
+	// because the domain's template could not be resolved (deleted / transient
+	// error). Doing so would drop all traffic for the hostname -- the exact
+	// invariant this feature must not break.
+	gatewayConfig, err := s.gatewayConfigForApply(domain)
+	if err != nil {
+		log.Printf("Refusing to apply Gateway for domain %s: %v", domain.ID, err)
+		domain.Status = models.DomainStatusError
+		domain.StatusMessage = fmt.Sprintf("Failed to update Gateway: %v", err)
+		_ = s.domainRepo.Update(domain)
+		return fmt.Errorf("%w: %v", ErrGatewayApply, err)
+	}
 
 	if err := s.k8sGateways.UpdateGateway(ctx, domain.ProjectID, gatewayConfig); err != nil {
 		log.Printf("Failed to update Gateway in Kubernetes: %v", err)

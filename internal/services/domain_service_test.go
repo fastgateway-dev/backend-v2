@@ -74,6 +74,18 @@ type noTemplateLookup struct{}
 
 func (noTemplateLookup) GetByID(uuid.UUID) (*models.DomainTemplate, error) { return nil, nil }
 
+// erroringTemplateLookup fails every template lookup, modelling the production
+// cases the apply path must fail closed on: a deleted template
+// (gorm.ErrRecordNotFound) or a transient DB error. The real
+// DomainTemplateService.GetByID returns (nil, err) in both -- never (nil, nil)
+// -- so an erroring lookup is the faithful stand-in for "template configured
+// but unresolvable".
+type erroringTemplateLookup struct{ err error }
+
+func (e erroringTemplateLookup) GetByID(uuid.UUID) (*models.DomainTemplate, error) {
+	return nil, e.err
+}
+
 // disabledAIReviewer answers "AI is not configured", reproducing the pre-2E
 // behaviour of an unset aiService: the guards at domain_service.go:1005 and
 // :1152 (`s.aiService != nil && s.aiService.IsEnabled()`) skipped the review.
@@ -130,6 +142,37 @@ func newTestDomainService() (
 		ManagedCertLookup:    managedCertRepo,
 	})
 	return svc, domainRepo, projectRepo, dtRepo, k8sMock, projectNamespaceRepo, managedCertRepo
+}
+
+// newTestDomainServiceWithDtLookup mirrors newTestDomainService but lets a test
+// inject the template-resolution behaviour (DtService), so the apply path's
+// fail-closed branch can be exercised with a lookup that errors.
+func newTestDomainServiceWithDtLookup(dt services.DomainTemplateLookup) (
+	*services.DomainService,
+	*mocks.MockDomainRepository,
+	*mocks.MockKubernetesService,
+) {
+	domainRepo := new(mocks.MockDomainRepository)
+	k8sMock := new(mocks.MockKubernetesService)
+	svc := services.NewDomainService(services.DomainServiceDeps{
+		DomainRepo:           domainRepo,
+		ProjectRepo:          new(mocks.MockProjectRepository),
+		DomainTemplateRepo:   new(mocks.MockDomainTemplateRepository),
+		K8sGateways:          k8sMock,
+		K8sSecrets:           k8sMock,
+		K8sBackends:          k8sMock,
+		K8sPolicies:          k8sMock,
+		K8sRefGrants:         k8sMock,
+		SettingsRepo:         new(mocks.MockDomainSettingsRepository),
+		ClientAttachmentRepo: newDefaultClientAttachmentRepoStub(),
+		BtpRepo:              newDefaultBtpRepoStub(),
+		ExtPolicyRepo:        newDefaultExtPolicyRepoStub(),
+		ProjectNamespaceRepo: new(mocks.MockProjectNamespaceRepository),
+		DtService:            dt,
+		AiService:            disabledAIReviewer{},
+		ManagedCertLookup:    new(mocks.MockManagedCertificateRepository),
+	})
+	return svc, domainRepo, k8sMock
 }
 
 // expectSuccessfulApplyGateway wires the mocks applyGateway's shared path
@@ -541,6 +584,44 @@ func TestDomainService_Update_GatewayApplyError(t *testing.T) {
 	// applyGateway still returns the domain alongside the error (Update's
 	// existing "return domain, err" path), so the handler can still log it.
 	require.NotNil(t, result)
+}
+
+// TestDomainService_Update_FailsClosedWhenTemplateUnresolvable is the C1
+// regression guard (final review). A domain's listener definitions now live
+// ONLY on its template; when that template cannot be resolved at apply time --
+// deleted (ErrRecordNotFound) or a transient DB error -- the Gateway would
+// render with ZERO listeners, and pushing that over the live Gateway drops all
+// traffic for the hostname. The apply path MUST fail closed: it never calls
+// UpdateGateway with the empty config, sets the domain to Error, and returns an
+// error unwrapping to ErrGatewayApply.
+func TestDomainService_Update_FailsClosedWhenTemplateUnresolvable(t *testing.T) {
+	svc, domainRepo, k8sMock := newTestDomainServiceWithDtLookup(
+		erroringTemplateLookup{err: errors.New("domain template deleted")})
+
+	domainID := uuid.New()
+	projectID := uuid.New()
+	tmplID := uuid.New()
+	existing := &models.Domain{
+		ID:               domainID,
+		ProjectID:        projectID,
+		Name:             "my-domain",
+		Hostname:         "example.com",
+		DomainTemplateID: &tmplID,
+		BoundListeners:   []string{"http", "https"},
+	}
+
+	domainRepo.On("GetByID", domainID).Return(existing, nil)
+	// The fail-closed path persists the Error status before returning.
+	domainRepo.On("Update", mock.AnythingOfType("*models.Domain")).Return(nil)
+
+	result, err := svc.Update(domainID, &services.UpdateDomainInput{Name: "new-name"})
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, services.ErrGatewayApply))
+	require.NotNil(t, result)
+	assert.Equal(t, models.DomainStatusError, result.Status)
+	// The whole point: the empty-listener Gateway is NEVER pushed to the cluster.
+	k8sMock.AssertNotCalled(t, "UpdateGateway", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // =========================================================================

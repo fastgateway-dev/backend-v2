@@ -100,6 +100,33 @@ func (s *DomainService) gatewayConfig(domain *models.Domain) *kubernetes.Gateway
 	return domainplan.BuildGatewayConfig(domain, dt, annotations)
 }
 
+// gatewayConfigForApply builds the Gateway config for the APPLY path, failing
+// closed when the domain references a template that cannot be resolved. Unlike
+// gatewayConfig (used by the read-only YAML preview), it must never hand back a
+// config whose listeners silently collapsed to empty because the template
+// lookup errored: the listener definitions now live only on the template, so a
+// missing template renders a Gateway with zero listeners, and pushing that over
+// the live Gateway removes every listener and drops all traffic for the
+// hostname. A domain with no template (DomainTemplateID == nil) is fine; a
+// domain whose configured template errors on lookup (deleted, or a transient DB
+// error) must stop the apply. GetByID returns (nil, err) in both those cases --
+// never (nil, nil) -- so keying on err is exact.
+func (s *DomainService) gatewayConfigForApply(domain *models.Domain) (*kubernetes.GatewayConfig, error) {
+	var dt *models.DomainTemplate
+	if domain.DomainTemplateID != nil {
+		found, err := s.dtService.GetByID(*domain.DomainTemplateID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve domain template %s: %w", *domain.DomainTemplateID, err)
+		}
+		dt = found
+	}
+	var annotations models.Annotations
+	if dt != nil {
+		annotations = dt.Annotations
+	}
+	return domainplan.BuildGatewayConfig(domain, dt, annotations), nil
+}
+
 // GenerateYAMLs generates the Kubernetes YAML manifests for a domain
 func (s *DomainService) GenerateYAMLs(domainID uuid.UUID) (*DomainYAMLs, error) {
 	domain, err := s.domainRepo.GetByID(domainID)
