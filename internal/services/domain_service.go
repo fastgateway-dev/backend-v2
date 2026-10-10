@@ -270,6 +270,68 @@ var ErrGatewayApply = errors.New("failed to apply gateway changes")
 // a secret that does not exist.
 var ErrCertificateNotReady = errors.New("certificate is not ready")
 
+// ErrNoBoundListener is returned when a domain binds no listeners.
+var ErrNoBoundListener = errors.New("a domain must bind at least one template listener")
+
+// ErrUnknownBoundListener is returned when a bound listener name does not match
+// a hostname-routed (HTTP/HTTPS/TLS) listener on the domain's template.
+var ErrUnknownBoundListener = errors.New("bound listener is not a hostname-routed listener of the template")
+
+// ValidateBoundListeners checks that names is non-empty and that every name
+// matches a hostname-routed listener on the template. TCP/UDP listeners are
+// port-routed (streams) and cannot be bound to a domain.
+func ValidateBoundListeners(tmpl *models.DomainTemplate, names []string) error {
+	if len(names) == 0 {
+		return ErrNoBoundListener
+	}
+	hostname := make(map[string]struct{})
+	for _, l := range tmpl.Listeners.HostnameRouted() {
+		hostname[l.Name] = struct{}{}
+	}
+	for _, n := range names {
+		if _, ok := hostname[n]; !ok {
+			return fmt.Errorf("%w: %q", ErrUnknownBoundListener, n)
+		}
+	}
+	return nil
+}
+
+// boundListeners returns the template's hostname-routed listeners matching
+// names, in the template's order.
+func boundListeners(tmpl *models.DomainTemplate, names []string) []models.TemplateListener {
+	want := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		want[n] = struct{}{}
+	}
+	var out []models.TemplateListener
+	for _, l := range tmpl.Listeners.HostnameRouted() {
+		if _, ok := want[l.Name]; ok {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// boundListenerPorts returns the ports of the bound listeners.
+func boundListenerPorts(tmpl *models.DomainTemplate, names []string) []int {
+	var ports []int
+	for _, l := range boundListeners(tmpl, names) {
+		ports = append(ports, l.Port)
+	}
+	return ports
+}
+
+// domainNeedsTLSSecret reports whether any bound listener terminates TLS
+// (HTTPS Terminate), which requires the domain to supply a TLS secret.
+func domainNeedsTLSSecret(tmpl *models.DomainTemplate, names []string) bool {
+	for _, l := range boundListeners(tmpl, names) {
+		if l.Protocol == models.ListenerHTTPS && l.TLSMode != models.TLSListenerPassthrough {
+			return true
+		}
+	}
+	return false
+}
+
 // CreateDomainInput represents input for creating a domain
 type CreateDomainInput struct {
 	Name               string        `json:"name" binding:"required"`
@@ -279,6 +341,11 @@ type CreateDomainInput struct {
 	TLSSecretNamespace string        `json:"tlsSecretNamespace"`
 	Namespace          string        `json:"namespace"`
 	Labels             models.Labels `json:"labels,omitempty"`
+
+	// BoundListeners names the template's hostname-routed listeners
+	// (HTTP/HTTPS/TLS) this domain's Gateway exposes. At least one is required
+	// and each must exist on the chosen template.
+	BoundListeners []string `json:"boundListeners" binding:"required"`
 
 	// DNS optionally enables a managed DNS record for this domain right
 	// after its Gateway is created. Best-effort: see the DNS-enable step at
@@ -363,14 +430,16 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 	// every stream: reject a port a stream L4 route already holds. (Update
 	// cannot change ports - they are inherited from the template - so this is
 	// the only domain-side check needed.)
-	if err := checkDomainPortsAgainstStreams(s.streamPorts, dt, dt.HTTPPort, dt.HTTPSPort); err != nil {
+	if err := ValidateBoundListeners(dt, input.BoundListeners); err != nil {
+		return nil, err
+	}
+	if err := checkDomainPortsAgainstStreams(s.streamPorts, dt, boundListenerPorts(dt, input.BoundListeners)); err != nil {
 		return nil, err
 	}
 
-	// Validate TLS secret is required when TLS is enabled
-	tlsMode := dt.TLSMode
-	if (tlsMode == models.TLSModeOnly || tlsMode == models.TLSModeBoth) && input.TLSSecretName == "" {
-		return nil, errors.New("TLS secret name is required when TLS is enabled in the domain template")
+	// A TLS secret is required when a bound listener terminates TLS.
+	if domainNeedsTLSSecret(dt, input.BoundListeners) && input.TLSSecretName == "" {
+		return nil, errors.New("TLS secret name is required when a bound listener terminates TLS")
 	}
 
 	// Validate TLS secret namespace is managed by the project
@@ -416,13 +485,10 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 		DomainTemplateID:   &domainTemplateID,
 		Name:               input.Name,
 		Hostname:           input.Hostname,
-		HTTPPort:           dt.HTTPPort,
-		HTTPSPort:          dt.HTTPSPort,
-		TLSMode:            string(tlsMode),
+		BoundListeners:     input.BoundListeners,
 		Namespace:          input.Namespace,
 		TLSSecretName:      input.TLSSecretName,
 		TLSSecretNamespace: input.TLSSecretNamespace,
-		TLSPolicy:          dt.TLSPolicy,
 		K8sGatewayName:     k8sGatewayName,
 		K8sGatewayClass:    k8sGatewayClass,
 		Status:             models.DomainStatusPending,
@@ -440,7 +506,7 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 
 	// Create Gateway in Kubernetes
 	ctx := context.Background()
-	gatewayConfig := domainplan.BuildGatewayConfig(domain, dt.Annotations)
+	gatewayConfig := domainplan.BuildGatewayConfig(domain, dt, dt.Annotations)
 
 	if err := s.k8sGateways.CreateGateway(ctx, projectID, gatewayConfig); err != nil {
 		log.Printf("Failed to create Gateway in Kubernetes: %v", err)
@@ -560,7 +626,19 @@ func (s *DomainService) Update(id uuid.UUID, input *UpdateDomainInput) (*models.
 // managed-certificate change never actually reached Envoy Gateway.
 func (s *DomainService) applyGateway(domain *models.Domain) error {
 	ctx := context.Background()
-	gatewayConfig := domainplan.BuildGatewayConfig(domain, s.templateAnnotations(domain))
+
+	// Fail closed: never overwrite a live Gateway with an empty-listener config
+	// because the domain's template could not be resolved (deleted / transient
+	// error). Doing so would drop all traffic for the hostname -- the exact
+	// invariant this feature must not break.
+	gatewayConfig, err := s.gatewayConfigForApply(domain)
+	if err != nil {
+		log.Printf("Refusing to apply Gateway for domain %s: %v", domain.ID, err)
+		domain.Status = models.DomainStatusError
+		domain.StatusMessage = fmt.Sprintf("Failed to update Gateway: %v", err)
+		_ = s.domainRepo.Update(domain)
+		return fmt.Errorf("%w: %v", ErrGatewayApply, err)
+	}
 
 	if err := s.k8sGateways.UpdateGateway(ctx, domain.ProjectID, gatewayConfig); err != nil {
 		log.Printf("Failed to update Gateway in Kubernetes: %v", err)

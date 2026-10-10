@@ -86,6 +86,7 @@ func TestRouteHandler_CreateForStream_ErrorMapping(t *testing.T) {
 		{"owner ambiguous", services.ErrRouteOwnerAmbiguous, http.StatusBadRequest},
 		{"not l4 protocol", services.ErrRouteProtocolNotL4, http.StatusBadRequest},
 		{"reserved port", fmt.Errorf("%w: 19000", services.ErrReservedPort), http.StatusBadRequest},
+		{"port out of template range", fmt.Errorf("%w: 8125 not in 9000-9100", services.ErrPortOutOfRange), http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRoute := new(mocks.MockRouteService)

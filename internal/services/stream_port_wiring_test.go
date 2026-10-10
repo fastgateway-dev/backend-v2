@@ -36,10 +36,17 @@ func (f *fakeDomainPortReader) UsedPortsByTemplate(uuid.UUID) ([]services.PortUs
 
 func domainCreateFixture(merged bool) (uuid.UUID, uuid.UUID, *services.CreateDomainInput, *models.DomainTemplate) {
 	projectID, dtID := uuid.New(), uuid.New()
-	input := &services.CreateDomainInput{Name: "d", Hostname: "new.example.com", DomainTemplateID: dtID.String()}
+	input := &services.CreateDomainInput{
+		Name: "d", Hostname: "new.example.com", DomainTemplateID: dtID.String(),
+		BoundListeners: []string{"http", "https"}, TLSSecretName: "tls",
+	}
 	dt := &models.DomainTemplate{
 		ID: dtID, ProjectID: projectID, Name: "tpl", Status: models.DomainTemplateStatusActive,
-		MergeGateways: merged, EnableDomain: true, HTTPPort: 80, HTTPSPort: 443,
+		MergeGateways: merged,
+		Listeners: models.Listeners{
+			{Name: "http", Protocol: models.ListenerHTTP, Port: 80},
+			{Name: "https", Protocol: models.ListenerHTTPS, Port: 443, TLSMode: models.TLSListenerTerminate},
+		},
 	}
 	return projectID, dtID, input, dt
 }
@@ -108,62 +115,83 @@ func newPortCheckedTemplateService(t *testing.T, tmpl *models.DomainTemplate, st
 	return svc, dtRepo, streams
 }
 
-func TestDomainTemplateService_Update_EnableDomainOnMerged_RejectsStreamHittingDomainPort(t *testing.T) {
+// streamOnlyMerged is a merged template with only a TCP/UDP stream range; the
+// updates below add hostname-routed listeners to it.
+func streamOnlyMerged(id uuid.UUID, merged bool) *models.DomainTemplate {
+	return &models.DomainTemplate{
+		ID: id, MergeGateways: merged,
+		Listeners: models.Listeners{{Name: "stream", Protocol: models.ListenerTCP, PortRangeMin: 1024, PortRangeMax: 65535}},
+	}
+}
+
+func httpHTTPSListeners() *models.Listeners {
+	return &models.Listeners{
+		{Name: "http", Protocol: models.ListenerHTTP, Port: 80},
+		{Name: "https", Protocol: models.ListenerHTTPS, Port: 443},
+	}
+}
+
+func TestDomainTemplateService_Update_ListenersOnMerged_RejectsStreamHittingDomainPort(t *testing.T) {
 	id := uuid.New()
-	tmpl := &models.DomainTemplate{ID: id, MergeGateways: true, EnableDomain: false, EnableStream: true, HTTPPort: 80, HTTPSPort: 443}
+	tmpl := streamOnlyMerged(id, true)
 	// A stream already serves tcp:8443 and a domain on the template uses 8443.
 	svc, dtRepo, _ := newPortCheckedTemplateService(t, tmpl,
 		[]services.PortUse{{Transport: "TCP", Port: 8443}},
 		[]services.PortUse{{Transport: "TCP", Port: 8443}})
 
-	tru := true
-	result, err := svc.Update(id, &services.UpdateDomainTemplateInput{EnableDomain: &tru})
+	result, err := svc.Update(id, &services.UpdateDomainTemplateInput{Listeners: httpHTTPSListeners()})
 
 	assert.Nil(t, result)
 	assert.ErrorIs(t, err, services.ErrPortCollision)
 	dtRepo.AssertNotCalled(t, "Update", mock.Anything)
 }
 
-func TestDomainTemplateService_Update_EnableDomainOnMerged_RejectsStreamOnTemplateHTTPSPort(t *testing.T) {
+func TestDomainTemplateService_Update_ListenersOnMerged_RejectsStreamOnTemplateHTTPSPort(t *testing.T) {
 	id := uuid.New()
-	tmpl := &models.DomainTemplate{ID: id, MergeGateways: true, EnableDomain: false, EnableStream: true, HTTPPort: 80, HTTPSPort: 443}
-	// Enabling domains reserves 80/443 for HTTP/HTTPS: a stream on tcp:443 clashes.
+	tmpl := streamOnlyMerged(id, true)
+	// The new HTTP/HTTPS listeners claim 80/443: a stream on tcp:443 clashes.
 	svc, dtRepo, _ := newPortCheckedTemplateService(t, tmpl, []services.PortUse{{Transport: "TCP", Port: 443}}, nil)
 
-	tru := true
-	_, err := svc.Update(id, &services.UpdateDomainTemplateInput{EnableDomain: &tru})
+	_, err := svc.Update(id, &services.UpdateDomainTemplateInput{Listeners: httpHTTPSListeners()})
 
 	assert.ErrorIs(t, err, services.ErrPortCollision)
 	dtRepo.AssertNotCalled(t, "Update", mock.Anything)
 }
 
-func TestDomainTemplateService_Update_EnableDomainOnMerged_NoClash_Succeeds(t *testing.T) {
+func TestDomainTemplateService_Update_ListenersOnMerged_NoClash_Succeeds(t *testing.T) {
 	id := uuid.New()
-	tmpl := &models.DomainTemplate{ID: id, MergeGateways: true, EnableDomain: false, EnableStream: true, HTTPPort: 80, HTTPSPort: 443}
+	tmpl := streamOnlyMerged(id, true)
 	svc, _, _ := newPortCheckedTemplateService(t, tmpl,
 		[]services.PortUse{{Transport: "TCP", Port: 5432}, {Transport: "UDP", Port: 443}}, nil)
 
-	tru := true
-	result, err := svc.Update(id, &services.UpdateDomainTemplateInput{EnableDomain: &tru})
+	result, err := svc.Update(id, &services.UpdateDomainTemplateInput{Listeners: httpHTTPSListeners()})
 
 	require.NoError(t, err)
-	assert.True(t, result.EnableDomain)
+	assert.Len(t, result.Listeners, 2)
 }
 
-func TestDomainTemplateService_Update_NotMergedOrNoNewFlag_SkipsCheck(t *testing.T) {
-	// Unmerged template: enabling a flag cannot create a shared listener set.
+func TestDomainTemplateService_Update_Listeners_InvalidRejected(t *testing.T) {
 	id := uuid.New()
-	unmerged := &models.DomainTemplate{ID: id, MergeGateways: false, EnableDomain: false, EnableStream: true}
-	svc, _, streams := newPortCheckedTemplateService(t, unmerged, []services.PortUse{{Transport: "TCP", Port: 443}}, nil)
-	tru := true
-	_, err := svc.Update(id, &services.UpdateDomainTemplateInput{EnableDomain: &tru})
+	svc, dtRepo, _ := newPortCheckedTemplateService(t, streamOnlyMerged(id, false), nil, nil)
+
+	empty := models.Listeners{}
+	_, err := svc.Update(id, &services.UpdateDomainTemplateInput{Listeners: &empty})
+
+	assert.ErrorIs(t, err, services.ErrNoListener)
+	dtRepo.AssertNotCalled(t, "Update", mock.Anything)
+}
+
+func TestDomainTemplateService_Update_NotMergedOrNoListeners_SkipsCheck(t *testing.T) {
+	// Unmerged template: changing listeners cannot create a shared listener set.
+	id := uuid.New()
+	svc, _, streams := newPortCheckedTemplateService(t, streamOnlyMerged(id, false), []services.PortUse{{Transport: "TCP", Port: 443}}, nil)
+	_, err := svc.Update(id, &services.UpdateDomainTemplateInput{Listeners: httpHTTPSListeners()})
 	require.NoError(t, err)
 	assert.Zero(t, streams.calls)
 
-	// Merged template, but the update enables nothing new.
+	// Merged template, but the update changes no listeners.
 	id2 := uuid.New()
-	merged := &models.DomainTemplate{ID: id2, MergeGateways: true, EnableDomain: true, EnableStream: true}
-	svc, _, streams = newPortCheckedTemplateService(t, merged, []services.PortUse{{Transport: "TCP", Port: 443}}, nil)
+	svc, _, streams = newPortCheckedTemplateService(t, streamOnlyMerged(id2, true), []services.PortUse{{Transport: "TCP", Port: 443}}, nil)
 	_, err = svc.Update(id2, &services.UpdateDomainTemplateInput{Description: "x"})
 	require.NoError(t, err)
 	assert.Zero(t, streams.calls)
@@ -183,14 +211,13 @@ func TestDomainService_Create_Merged_UnwiredStreamPortsFailsClosed(t *testing.T)
 	domainRepo.AssertNotCalled(t, "Create", mock.Anything)
 }
 
-func TestDomainTemplateService_Update_EnableOnMerged_UnwiredFailsClosed(t *testing.T) {
+func TestDomainTemplateService_Update_ListenersOnMerged_UnwiredFailsClosed(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
 	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 	id := uuid.New()
-	dtRepo.On("GetByID", id).Return(&models.DomainTemplate{ID: id, MergeGateways: true, EnableDomain: false, EnableStream: true}, nil)
+	dtRepo.On("GetByID", id).Return(streamOnlyMerged(id, true), nil)
 
-	tru := true
-	result, err := svc.Update(id, &services.UpdateDomainTemplateInput{EnableDomain: &tru})
+	result, err := svc.Update(id, &services.UpdateDomainTemplateInput{Listeners: httpHTTPSListeners()})
 
 	assert.Nil(t, result)
 	assert.ErrorContains(t, err, "not configured")

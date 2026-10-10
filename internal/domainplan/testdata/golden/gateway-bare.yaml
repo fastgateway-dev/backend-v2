@@ -1,11 +1,7 @@
 Annotations: null
 GatewayClassName: ""
-HTTPPort: 0
-HTTPSPort: 0
 Hostname: example.com
 Name: eg
 Namespace: gateway-ns
-TLSMode: ""
-TLSPolicy: ""
 TLSSecretName: ""
 TLSSecretNamespace: ""

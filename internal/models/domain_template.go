@@ -152,12 +152,12 @@ type DomainTemplate struct {
 	Description    string       `json:"description"`
 	ControllerName string       `gorm:"not null;default:'gateway.envoyproxy.io/gatewayclass-controller'" json:"controllerName"`
 	ExposureType   ExposureType `gorm:"not null;default:'public'" json:"exposureType"`
-	TLSMode        TLSMode      `gorm:"column:tls_mode;not null;default:'tls_only'" json:"tlsMode"`
+
+	// Listeners is the generic listener list (HTTP/HTTPS/TLS/TCP/UDP) the template
+	// exposes; it replaces the old TLS mode / port / capability-flag columns.
+	Listeners Listeners `gorm:"type:jsonb;not null" json:"listeners"`
 
 	// Advanced settings
-	HTTPPort              int                       `gorm:"column:http_port;not null;default:80" json:"httpPort"`
-	HTTPSPort             int                       `gorm:"column:https_port;not null;default:443" json:"httpsPort"`
-	TLSPolicy             TLSPolicy                 `gorm:"column:tls_policy;not null;default:'terminate'" json:"tlsPolicy"`
 	ExternalTrafficPolicy ExternalTrafficPolicy     `gorm:"column:external_traffic_policy" json:"externalTrafficPolicy,omitempty"`
 	LoadBalancerClass     string                    `gorm:"column:load_balancer_class" json:"loadBalancerClass,omitempty"`
 	Annotations           Annotations               `gorm:"type:jsonb;default:'{}'" json:"annotations"`
@@ -165,16 +165,6 @@ type DomainTemplate struct {
 	ContainerResources    *ContainerResourcesConfig `gorm:"column:container_resources;type:jsonb" json:"containerResources,omitempty"`
 	ScalingConfig         *ScalingConfig            `gorm:"column:scaling_config;type:jsonb" json:"scalingConfig,omitempty"`
 	MergeGateways         bool                      `gorm:"column:merge_gateways;not null;default:false" json:"mergeGateways"`
-
-	// Capability flags: which kinds of resources this template can host.
-	// At least one must be true (enforced in the service layer).
-	// NOTE: EnableDomain intentionally has no gorm `default:true` tag. GORM treats a
-	// zero-value (false) field with a default tag as "unset" on Create and would
-	// insert the DB default (true), making a stream-only template impossible.
-	// The service always sets both values explicitly; the DB column default
-	// (migration 000047) still covers raw inserts.
-	EnableDomain bool `gorm:"column:enable_domain;not null" json:"enableDomain"`
-	EnableStream bool `gorm:"column:enable_stream;not null;default:false" json:"enableStream"`
 
 	// Telemetry (per spec.telemetry on EnvoyProxy CRD)
 	TelemetryAccessLog *TelemetryAccessLogConfig `gorm:"column:telemetry_access_log;type:jsonb" json:"telemetryAccessLog,omitempty"`

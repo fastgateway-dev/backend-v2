@@ -14,21 +14,16 @@ Domain:
       type: string
     hostname:
       type: string
-    httpPort:
-      type: integer
-    httpsPort:
-      type: integer
-    tlsMode:
-      type: string
-      enum: [tls_only, no_tls, both]
     tlsSecretName:
       type: string
     tlsSecretNamespace:
       type: string
       description: Kubernetes namespace containing the TLS secret (defaults to the project's managed namespace)
-    tlsPolicy:
-      type: string
-      enum: [terminate, passthrough]
+    boundListeners:
+      type: array
+      description: Names of the template listeners this domain's Gateway exposes
+      items:
+        type: string
     namespace:
       type: string
       description: Kubernetes namespace for gateway resources
@@ -69,7 +64,7 @@ DomainList:
 
 CreateDomainRequest:
   type: object
-  required: [name, hostname, domainTemplateId]
+  required: [name, hostname, domainTemplateId, boundListeners]
   properties:
     name:
       type: string
@@ -78,6 +73,12 @@ CreateDomainRequest:
     domainTemplateId:
       type: string
       format: uuid
+    boundListeners:
+      type: array
+      minItems: 1
+      description: Names of the template listeners (TemplateListener.name) this domain's Gateway exposes. Must be hostname-routed listeners (HTTP/HTTPS/TLS) declared by the domain template.
+      items:
+        type: string
     tlsSecretName:
       type: string
     tlsSecretNamespace:

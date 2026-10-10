@@ -41,20 +41,34 @@ func (r *DomainTemplateRepository) GetByName(projectID uuid.UUID, name string) (
 	return &dt, nil
 }
 
+// capabilityListenerClause maps a capability filter to a JSONB WHERE fragment
+// over the listeners column. domain => any HTTP/HTTPS/TLS listener; stream =>
+// any TCP/UDP listener (the range entry). An empty or unknown capability yields
+// no clause (ok=false).
+func capabilityListenerClause(capability string) (string, []any, bool) {
+	switch capability {
+	case "domain":
+		return `(listeners @> ?::jsonb OR listeners @> ?::jsonb OR listeners @> ?::jsonb)`,
+			[]any{`[{"protocol":"HTTP"}]`, `[{"protocol":"HTTPS"}]`, `[{"protocol":"TLS"}]`}, true
+	case "stream":
+		return `(listeners @> ?::jsonb OR listeners @> ?::jsonb)`,
+			[]any{`[{"protocol":"TCP"}]`, `[{"protocol":"UDP"}]`}, true
+	default:
+		return "", nil, false
+	}
+}
+
 // ListByProjectID lists domain templates in a project with pagination.
 // capability scopes the result to templates that can host that kind of
-// resource: "domain" (enable_domain = true), "stream" (enable_stream = true),
-// or "" for no filtering.
+// resource, inferred from the listeners column: "domain" (any HTTP/HTTPS/TLS
+// listener), "stream" (any TCP/UDP listener), or "" for no filtering.
 func (r *DomainTemplateRepository) ListByProjectID(projectID uuid.UUID, page, limit int, capability string) ([]models.DomainTemplate, int64, error) {
 	var domainTemplates []models.DomainTemplate
 	var total int64
 
 	query := r.db.Model(&models.DomainTemplate{}).Where("project_id = ?", projectID)
-	switch capability {
-	case "domain":
-		query = query.Where("enable_domain = ?", true)
-	case "stream":
-		query = query.Where("enable_stream = ?", true)
+	if clause, args, ok := capabilityListenerClause(capability); ok {
+		query = query.Where(clause, args...)
 	}
 
 	err := query.Count(&total).Error

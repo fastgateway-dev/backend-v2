@@ -59,10 +59,20 @@ type DomainCreatePreviewResult struct {
 // exactly as it was before Phase 2F moved this builder into
 // internal/domainplan.
 func (s *DomainService) templateAnnotations(domain *models.Domain) map[string]string {
+	if dt := s.templateFor(domain); dt != nil {
+		return map[string]string(dt.Annotations)
+	}
+	return nil
+}
+
+// templateFor loads a domain's template for Gateway-config assembly (listener
+// resolution and annotations). Returns nil when the domain has no template or
+// the lookup failed (fail-soft and logged -- see templateAnnotations).
+func (s *DomainService) templateFor(domain *models.Domain) *models.DomainTemplate {
 	if domain.DomainTemplateID != nil {
 		dt, err := s.dtService.GetByID(*domain.DomainTemplateID)
 		if err == nil && dt != nil {
-			return map[string]string(dt.Annotations)
+			return dt
 		}
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -79,6 +89,44 @@ func (s *DomainService) templateAnnotations(domain *models.Domain) map[string]st
 	return nil
 }
 
+// gatewayConfig builds the Gateway config for domain, resolving its bound
+// listeners and annotations against its (looked-up) template.
+func (s *DomainService) gatewayConfig(domain *models.Domain) *kubernetes.GatewayConfig {
+	dt := s.templateFor(domain)
+	var annotations models.Annotations
+	if dt != nil {
+		annotations = dt.Annotations
+	}
+	return domainplan.BuildGatewayConfig(domain, dt, annotations)
+}
+
+// gatewayConfigForApply builds the Gateway config for the APPLY path, failing
+// closed when the domain references a template that cannot be resolved. Unlike
+// gatewayConfig (used by the read-only YAML preview), it must never hand back a
+// config whose listeners silently collapsed to empty because the template
+// lookup errored: the listener definitions now live only on the template, so a
+// missing template renders a Gateway with zero listeners, and pushing that over
+// the live Gateway removes every listener and drops all traffic for the
+// hostname. A domain with no template (DomainTemplateID == nil) is fine; a
+// domain whose configured template errors on lookup (deleted, or a transient DB
+// error) must stop the apply. GetByID returns (nil, err) in both those cases --
+// never (nil, nil) -- so keying on err is exact.
+func (s *DomainService) gatewayConfigForApply(domain *models.Domain) (*kubernetes.GatewayConfig, error) {
+	var dt *models.DomainTemplate
+	if domain.DomainTemplateID != nil {
+		found, err := s.dtService.GetByID(*domain.DomainTemplateID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve domain template %s: %w", *domain.DomainTemplateID, err)
+		}
+		dt = found
+	}
+	var annotations models.Annotations
+	if dt != nil {
+		annotations = dt.Annotations
+	}
+	return domainplan.BuildGatewayConfig(domain, dt, annotations), nil
+}
+
 // GenerateYAMLs generates the Kubernetes YAML manifests for a domain
 func (s *DomainService) GenerateYAMLs(domainID uuid.UUID) (*DomainYAMLs, error) {
 	domain, err := s.domainRepo.GetByID(domainID)
@@ -89,7 +137,7 @@ func (s *DomainService) GenerateYAMLs(domainID uuid.UUID) (*DomainYAMLs, error) 
 	result := &DomainYAMLs{}
 
 	// Build Gateway YAML
-	gatewayObj := kubernetes.BuildGatewayObject(domainplan.BuildGatewayConfig(domain, s.templateAnnotations(domain)))
+	gatewayObj := kubernetes.BuildGatewayObject(s.gatewayConfig(domain))
 	if gatewayObj != nil {
 		gatewayYaml, err := yaml.Marshal(gatewayObj.Object)
 		if err != nil {
@@ -176,6 +224,16 @@ func (s *DomainService) PreviewCreate(projectID uuid.UUID, input *DomainCreatePr
 		previewNamespace = kubernetes.FastGatewayNamespace
 	}
 
+	// Resolve the listeners the preview binds: the caller's selection (validated
+	// like Create), or every hostname-routed listener when none is chosen yet
+	// (mirrors the template preview).
+	boundNames := input.BoundListeners
+	if len(boundNames) == 0 {
+		boundNames = hostnameListenerNames(dt)
+	} else if err := ValidateBoundListeners(dt, boundNames); err != nil {
+		return nil, err
+	}
+
 	// Build Gateway config from input + template
 	k8sGatewayName := generateK8sName(input.Hostname)
 	previewDomain := &models.Domain{
@@ -183,15 +241,12 @@ func (s *DomainService) PreviewCreate(projectID uuid.UUID, input *DomainCreatePr
 		Namespace:          previewNamespace,
 		K8sGatewayClass:    dt.K8sGatewayClassName,
 		Hostname:           input.Hostname,
-		TLSMode:            string(dt.TLSMode),
-		HTTPPort:           dt.HTTPPort,
-		HTTPSPort:          dt.HTTPSPort,
+		BoundListeners:     boundNames,
 		TLSSecretName:      input.TLSSecretName,
 		TLSSecretNamespace: input.TLSSecretNamespace,
-		TLSPolicy:          dt.TLSPolicy,
 		DomainTemplateID:   &domainTemplateID,
 	}
-	gatewayConfig := domainplan.BuildGatewayConfig(previewDomain, dt.Annotations)
+	gatewayConfig := domainplan.BuildGatewayConfig(previewDomain, dt, dt.Annotations)
 
 	result := &DomainCreatePreviewResult{}
 
@@ -258,7 +313,7 @@ func (s *DomainService) PreviewSettingsChanges(domainID uuid.UUID, input *Domain
 	result := &DomainSettingsPreviewResult{}
 
 	// Build Gateway YAML (context, doesn't change on settings edit)
-	gatewayObj := kubernetes.BuildGatewayObject(domainplan.BuildGatewayConfig(domain, s.templateAnnotations(domain)))
+	gatewayObj := kubernetes.BuildGatewayObject(s.gatewayConfig(domain))
 	if gatewayObj != nil {
 		gwYaml, _ := yaml.Marshal(gatewayObj.Object)
 		result.CurrentGatewayYaml = string(gwYaml)

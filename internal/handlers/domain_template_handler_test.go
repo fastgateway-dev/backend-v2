@@ -129,10 +129,12 @@ func TestDomainTemplateHandler_Create_Success(t *testing.T) {
 	mockDT.On("Create", projectID, mock.AnythingOfType("*services.CreateDomainTemplateInput"), user.ID).Return(dt, nil)
 	mockAudit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	body, _ := json.Marshal(map[string]string{
+	body, _ := json.Marshal(map[string]any{
 		"name":         "new-template",
 		"exposureType": "public",
-		"tlsMode":      "tls_only",
+		"listeners": []map[string]any{
+			{"name": "https", "protocol": "HTTPS", "port": 443, "tlsMode": "Terminate"},
+		},
 	})
 	router := gin.New()
 	router.POST("/projects/:projectId/domain-templates", func(c *gin.Context) {
@@ -149,7 +151,7 @@ func TestDomainTemplateHandler_Create_Success(t *testing.T) {
 	mockDT.AssertExpectations(t)
 }
 
-func TestDomainTemplateHandler_Create_NoCapability_BadRequest(t *testing.T) {
+func TestDomainTemplateHandler_Create_NoListener_BadRequest(t *testing.T) {
 	mockDT := new(mocks.MockDomainTemplateService)
 	mockAudit := new(mocks.MockAuditService)
 	mockDomainLister := new(mocks.MockTemplateDomainLister)
@@ -157,14 +159,12 @@ func TestDomainTemplateHandler_Create_NoCapability_BadRequest(t *testing.T) {
 
 	user := testUser()
 	projectID := uuid.New()
-	mockDT.On("Create", projectID, mock.AnythingOfType("*services.CreateDomainTemplateInput"), user.ID).Return(nil, services.ErrNoTemplateCapability)
+	mockDT.On("Create", projectID, mock.AnythingOfType("*services.CreateDomainTemplateInput"), user.ID).Return(nil, services.ErrNoListener)
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"name":         "new-template",
 		"exposureType": "ClusterIP",
-		"tlsMode":      "tls_only",
-		"enableDomain": false,
-		"enableStream": false,
+		"listeners":    []map[string]any{},
 	})
 	router := gin.New()
 	router.POST("/projects/:projectId/domain-templates", func(c *gin.Context) {
@@ -178,7 +178,7 @@ func TestDomainTemplateHandler_Create_NoCapability_BadRequest(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), services.ErrNoTemplateCapability.Error())
+	assert.Contains(t, w.Body.String(), services.ErrNoListener.Error())
 }
 
 func TestDomainTemplateHandler_Delete_Success(t *testing.T) {
@@ -323,7 +323,7 @@ func TestDomainTemplateHandler_Update_PortCollisionIs409(t *testing.T) {
 	mockDT.On("Update", dtID, mock.AnythingOfType("*services.UpdateDomainTemplateInput")).
 		Return(nil, fmt.Errorf("%w: TCP/443", services.ErrPortCollision))
 
-	body, _ := json.Marshal(map[string]bool{"enableDomain": true})
+	body, _ := json.Marshal(map[string]any{"listeners": []map[string]any{{"name": "https", "protocol": "HTTPS", "port": 443}}})
 	router := gin.New()
 	router.PUT("/projects/:projectId/domain-templates/:domainTemplateId", func(c *gin.Context) { c.Set("user", user); h.Update(c) })
 

@@ -114,8 +114,8 @@ func TestDomainDNSRecordRepository_CountByZone(t *testing.T) {
 	// Seed another domain in the same project
 	domainID2 := uuid.New()
 	err := db.Exec(`
-		INSERT INTO domains (id, project_id, name, hostname, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
+		INSERT INTO domains (id, project_id, name, hostname, bound_listeners, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, '["https"]'::jsonb, ?, NOW(), NOW())`,
 		domainID2, projectID, "test-domain-2-"+domainID2.String(), domainID2.String()+".test.example.com", userID).Error
 	require.NoError(t, err)
 
@@ -190,8 +190,8 @@ func TestDomainDNSRecordRepository_ListByProjectID(t *testing.T) {
 	project1, domain1a, _, user1 := seedProject(t, db)
 	domain1b := uuid.New()
 	require.NoError(t, db.Exec(`
-		INSERT INTO domains (id, project_id, name, hostname, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
+		INSERT INTO domains (id, project_id, name, hostname, bound_listeners, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, '["https"]'::jsonb, ?, NOW(), NOW())`,
 		domain1b, project1, "d1b-"+domain1b.String(), "b.example.com", user1).Error)
 
 	// Project 2 with its own domain (must not leak into project 1's list).
@@ -264,8 +264,8 @@ func TestDomainDNSRecordRepository_HostnameClaimExists(t *testing.T) {
 		INSERT INTO projects (id, name, k8s_api_url, k8s_token_encrypted, created_by, created_at, updated_at)
 		VALUES (?, ?, '', '', ?, NOW(), NOW())`, projectB, "projB-"+projectB.String(), userA).Error)
 	require.NoError(t, db.Exec(`
-		INSERT INTO domains (id, project_id, name, hostname, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
+		INSERT INTO domains (id, project_id, name, hostname, bound_listeners, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, '["https"]'::jsonb, ?, NOW(), NOW())`,
 		domainB, projectB, "dB-"+domainB.String(), "App.Example.com.", userA).Error)
 
 	cred := seedDNSProviderCredential(t, db, userA, "cred-"+uuid.NewString())

@@ -63,13 +63,18 @@ func newCollisionEnv(t *testing.T) *collisionEnv {
 	return e
 }
 
-// template inserts a Gateway Template. Capability flags and MergeGateways are
-// set explicitly (EnableDomain has no GORM default).
+// template inserts a Gateway Template with HTTP:80, HTTPS:443 and a TCP/UDP
+// range, plus the given MergeGateways.
 func (e *collisionEnv) template(t *testing.T, merge bool) uuid.UUID {
 	t.Helper()
 	tmpl := &models.DomainTemplate{
 		ProjectID: e.projectID, Name: "tmpl-" + uuid.NewString(), CreatedBy: e.userID,
-		EnableDomain: true, EnableStream: true, MergeGateways: merge,
+		MergeGateways: merge,
+		Listeners: models.Listeners{
+			{Name: "http", Protocol: models.ListenerHTTP, Port: 80},
+			{Name: "https", Protocol: models.ListenerHTTPS, Port: 443},
+			{Name: "stream", Protocol: models.ListenerTCP, PortRangeMin: 1024, PortRangeMax: 65535},
+		},
 	}
 	require.NoError(t, e.db.Create(tmpl).Error)
 	return tmpl.ID
@@ -84,12 +89,14 @@ func (e *collisionEnv) stream(t *testing.T, tmplID uuid.UUID) uuid.UUID {
 	return s.ID
 }
 
-func (e *collisionEnv) domain(t *testing.T, tmplID uuid.UUID, httpPort, httpsPort int) {
+// domain inserts a domain bound to the template's http and https listeners
+// (ports 80 and 443 on the template() fixture).
+func (e *collisionEnv) domain(t *testing.T, tmplID uuid.UUID) {
 	t.Helper()
 	id := uuid.New()
-	require.NoError(t, e.db.Exec(`INSERT INTO domains (id, project_id, domain_template_id, name, hostname, http_port, https_port, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-		id, e.projectID, tmplID, "d-"+id.String(), id.String()+".test.example.com", httpPort, httpsPort, e.userID).Error)
+	require.NoError(t, e.db.Exec(`INSERT INTO domains (id, project_id, domain_template_id, name, hostname, bound_listeners, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, '["http","https"]'::jsonb, ?, NOW(), NOW())`,
+		id, e.projectID, tmplID, "d-"+id.String(), id.String()+".test.example.com", e.userID).Error)
 }
 
 // l4Route inserts an L4 route of the given protocol ("tcp"/"udp") on a stream.
@@ -127,7 +134,7 @@ func TestCheckPortCollision_TCPvsUDP_SameNumber_OK(t *testing.T) {
 func TestCheckPortCollision_Merged_HitsDomainHTTPSPort(t *testing.T) {
 	e := newCollisionEnv(t)
 	tmplID := e.template(t, true)
-	e.domain(t, tmplID, 80, 443)
+	e.domain(t, tmplID)
 	streamID := e.stream(t, tmplID)
 
 	// HTTPS 443 and HTTP 80 are TCP-transport listeners on the merged class.
@@ -145,7 +152,7 @@ func TestCheckPortCollision_NotMerged_OtherStreamSamePort_OK(t *testing.T) {
 	streamB := e.stream(t, tmplID)
 	e.l4Route(t, streamA, "tcp", 5432, "active")
 	// Domains on an unmerged template have their own Gateways: no collision.
-	e.domain(t, tmplID, 80, 443)
+	e.domain(t, tmplID)
 
 	assert.NoError(t, e.svc.CheckPortCollision(streamB, "TCP", 5432, nil))
 	assert.NoError(t, e.svc.CheckPortCollision(streamA, "TCP", 443, nil))
@@ -199,14 +206,21 @@ func TestCheckPortCollision_InvalidTransport(t *testing.T) {
 	assert.Error(t, e.svc.CheckPortCollision(streamID, "HTTP", 80, nil))
 }
 
-// templateWithDomain inserts a Gateway Template with explicit MergeGateways
-// and EnableDomain (EnableStream is always on so the template stays valid).
+// templateWithDomain inserts a Gateway Template with explicit MergeGateways.
+// Hostname-routed (HTTP/HTTPS) listeners are declared only when enableDomain is
+// true; the TCP/UDP stream range is always present so the template stays valid.
 func (e *collisionEnv) templateWithDomain(t *testing.T, merge, enableDomain bool, httpPort, httpsPort int) uuid.UUID {
 	t.Helper()
+	ls := models.Listeners{{Name: "stream", Protocol: models.ListenerTCP, PortRangeMin: 1024, PortRangeMax: 65535}}
+	if enableDomain {
+		ls = append(models.Listeners{
+			{Name: "http", Protocol: models.ListenerHTTP, Port: httpPort},
+			{Name: "https", Protocol: models.ListenerHTTPS, Port: httpsPort},
+		}, ls...)
+	}
 	tmpl := &models.DomainTemplate{
 		ProjectID: e.projectID, Name: "tmpl-" + uuid.NewString(), CreatedBy: e.userID,
-		EnableDomain: enableDomain, EnableStream: true, MergeGateways: merge,
-		HTTPPort: httpPort, HTTPSPort: httpsPort,
+		MergeGateways: merge, Listeners: ls,
 	}
 	require.NoError(t, e.db.Create(tmpl).Error)
 	return tmpl.ID

@@ -23,6 +23,10 @@ type fakeStreamStore struct {
 	deleted []uuid.UUID
 }
 
+// streamRangeListeners is the listener set of a stream-capable template: a
+// single TCP/UDP port range. httpsListeners (a domain-only template) lacks it.
+var streamRangeListeners = models.Listeners{{Name: "tcpudp", Protocol: models.ListenerTCP, PortRangeMin: 1, PortRangeMax: 65535}}
+
 func newFakeStreamStore() *fakeStreamStore {
 	return &fakeStreamStore{streams: map[uuid.UUID]*models.Stream{}}
 }
@@ -131,7 +135,7 @@ func newStreamSvc(t *testing.T, store *fakeStreamStore, tmpl *fakeTemplateReader
 func TestStreamService_Create_RejectsNonStreamTemplate(t *testing.T) {
 	store := newFakeStreamStore()
 	projectID := uuid.New()
-	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ProjectID: projectID, EnableStream: false, K8sGatewayClassName: "gc"}}
+	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ProjectID: projectID, Listeners: httpsListeners, K8sGatewayClassName: "gc"}}
 	svc := newStreamSvc(t, store, tmpl, &fakeRouteCounter{})
 
 	_, err := svc.Create(projectID, services.CreateStreamInput{Name: "db", Namespace: "ns", GatewayTemplateID: uuid.New()}, &models.User{ID: uuid.New()})
@@ -143,7 +147,7 @@ func TestStreamService_Create_CopiesGatewayClassAndNames(t *testing.T) {
 	store := newFakeStreamStore()
 	tmplID := uuid.New()
 	projectID := uuid.New()
-	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ID: tmplID, ProjectID: projectID, EnableStream: true, K8sGatewayClassName: "public-lb"}}
+	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ID: tmplID, ProjectID: projectID, Listeners: streamRangeListeners, K8sGatewayClassName: "public-lb"}}
 	svc := newStreamSvc(t, store, tmpl, &fakeRouteCounter{})
 	user := &models.User{ID: uuid.New()}
 
@@ -168,7 +172,7 @@ func TestStreamService_Create_TemplateNotFound(t *testing.T) {
 
 func TestStreamService_Create_RejectsTemplateFromOtherProject(t *testing.T) {
 	store := newFakeStreamStore()
-	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ProjectID: uuid.New(), EnableStream: true}}
+	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ProjectID: uuid.New(), Listeners: streamRangeListeners}}
 	svc := newStreamSvc(t, store, tmpl, &fakeRouteCounter{})
 	_, err := svc.Create(uuid.New(), services.CreateStreamInput{Name: "db", GatewayTemplateID: uuid.New()}, nil)
 	assert.Error(t, err)
@@ -238,7 +242,7 @@ func TestStreamService_Create_DeploysPlaceholderGatewayAndActivates(t *testing.T
 	store := newFakeStreamStore()
 	tmplID := uuid.New()
 	projectID := uuid.New()
-	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ID: tmplID, ProjectID: projectID, EnableStream: true, K8sGatewayClassName: "public-lb"}}
+	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ID: tmplID, ProjectID: projectID, Listeners: streamRangeListeners, K8sGatewayClassName: "public-lb"}}
 
 	applier := mocks.NewMockGatewayApplier(t)
 	var got *kubernetes.GatewayConfig
@@ -266,7 +270,7 @@ func TestStreamService_Create_DeployFailureMarksError(t *testing.T) {
 	store := newFakeStreamStore()
 	tmplID := uuid.New()
 	projectID := uuid.New()
-	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ID: tmplID, ProjectID: projectID, EnableStream: true, K8sGatewayClassName: "gc"}}
+	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ID: tmplID, ProjectID: projectID, Listeners: streamRangeListeners, K8sGatewayClassName: "gc"}}
 
 	applier := mocks.NewMockGatewayApplier(t)
 	applier.EXPECT().CreateGateway(mock.Anything, projectID, mock.Anything).Return(errors.New("boom")).Once()
@@ -281,7 +285,7 @@ func TestStreamService_Create_DeployFailureMarksError(t *testing.T) {
 
 func streamEnabledSetup() (*fakeStreamStore, *fakeTemplateReader, uuid.UUID, uuid.UUID) {
 	projectID, tmplID := uuid.New(), uuid.New()
-	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ID: tmplID, ProjectID: projectID, EnableStream: true, K8sGatewayClassName: "gc"}}
+	tmpl := &fakeTemplateReader{tmpl: &models.DomainTemplate{ID: tmplID, ProjectID: projectID, Listeners: streamRangeListeners, K8sGatewayClassName: "gc"}}
 	return newFakeStreamStore(), tmpl, projectID, tmplID
 }
 

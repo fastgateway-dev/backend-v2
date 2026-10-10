@@ -2,7 +2,7 @@
 //
 // A Stream is the L4 analogue of a Domain: one Stream maps to one Gateway
 // and is created from a Gateway Template that has the stream capability
-// (DomainTemplate.EnableStream). The referenced template is immutable after
+// (it declares a TCP/UDP listener range). The referenced template is immutable after
 // creation. Create eagerly deploys the Gateway (see Deploy).
 
 package services
@@ -214,7 +214,7 @@ func (s *StreamService) Create(projectID uuid.UUID, in CreateStreamInput, user *
 	if tmpl.ProjectID != projectID {
 		return nil, ErrStreamTemplateWrongProject
 	}
-	if !tmpl.EnableStream {
+	if _, _, ok := templatePortRange(tmpl); !ok {
 		return nil, ErrTemplateNotStreamEnabled
 	}
 

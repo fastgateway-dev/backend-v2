@@ -133,10 +133,11 @@ func TestDomainHandler_Create_Success(t *testing.T) {
 	mockDomain.On("Create", projectID, mock.AnythingOfType("*services.CreateDomainInput"), user.ID).Return(domain, nil)
 	mockAudit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	body, _ := json.Marshal(map[string]string{
+	body, _ := json.Marshal(map[string]any{
 		"name":             "new-domain",
 		"hostname":         "new.example.com",
 		"domainTemplateId": uuid.New().String(),
+		"boundListeners":   []string{"http", "https"},
 	})
 
 	router := gin.New()
@@ -347,10 +348,11 @@ func TestDomainHandler_Create_ServiceError(t *testing.T) {
 	projectID := uuid.New()
 	mockDomain.On("Create", projectID, mock.AnythingOfType("*services.CreateDomainInput"), user.ID).Return(nil, errors.New("duplicate hostname"))
 
-	body, _ := json.Marshal(map[string]string{
+	body, _ := json.Marshal(map[string]any{
 		"name":             "new-domain",
 		"hostname":         "dup.example.com",
 		"domainTemplateId": uuid.New().String(),
+		"boundListeners":   []string{"http", "https"},
 	})
 
 	router := gin.New()
@@ -521,10 +523,11 @@ func TestDomainHandler_PreviewCreate_Success(t *testing.T) {
 	result := &services.DomainCreatePreviewResult{ProposedGatewayYaml: "apiVersion: v1"}
 	mockDomain.On("PreviewCreate", projectID, mock.AnythingOfType("*services.DomainCreatePreviewInput"), user.ID).Return(result, nil)
 
-	body, _ := json.Marshal(map[string]string{
+	body, _ := json.Marshal(map[string]any{
 		"name":             "preview-domain",
 		"hostname":         "preview.example.com",
 		"domainTemplateId": uuid.New().String(),
+		"boundListeners":   []string{"http", "https"},
 	})
 
 	router := gin.New()
@@ -939,10 +942,11 @@ func TestDomainHandler_PreviewCreate_ServiceError(t *testing.T) {
 	projectID := uuid.New()
 	mockDomain.On("PreviewCreate", projectID, mock.AnythingOfType("*services.DomainCreatePreviewInput"), user.ID).Return(nil, errors.New("preview failed"))
 
-	body, _ := json.Marshal(map[string]string{
+	body, _ := json.Marshal(map[string]any{
 		"name":             "preview-domain",
 		"hostname":         "preview.example.com",
 		"domainTemplateId": uuid.New().String(),
+		"boundListeners":   []string{"http", "https"},
 	})
 
 	router := gin.New()
@@ -1435,7 +1439,7 @@ func TestDomainHandler_Create_CollisionMapping(t *testing.T) {
 			projectID := uuid.New()
 			mockDomain.On("Create", projectID, mock.AnythingOfType("*services.CreateDomainInput"), user.ID).Return((*models.Domain)(nil), tc.err)
 
-			body, _ := json.Marshal(map[string]string{"name": "d", "hostname": "x.example.com", "domainTemplateId": uuid.New().String()})
+			body, _ := json.Marshal(map[string]any{"name": "d", "hostname": "x.example.com", "domainTemplateId": uuid.New().String(), "boundListeners": []string{"http", "https"}})
 			router := gin.New()
 			router.POST("/projects/:projectId/domains", func(c *gin.Context) {
 				c.Set("user", user)
@@ -1460,7 +1464,7 @@ func TestDomainHandler_Create_ProviderUnavailableHidesDetail(t *testing.T) {
 	wrapped := fmt.Errorf("%w: cloudflare 403 secret-token-detail", services.ErrDNSProviderUnavailable)
 	mockDomain.On("Create", projectID, mock.AnythingOfType("*services.CreateDomainInput"), user.ID).Return((*models.Domain)(nil), wrapped)
 
-	body, _ := json.Marshal(map[string]string{"name": "d", "hostname": "x.example.com", "domainTemplateId": uuid.New().String()})
+	body, _ := json.Marshal(map[string]any{"name": "d", "hostname": "x.example.com", "domainTemplateId": uuid.New().String(), "boundListeners": []string{"http", "https"}})
 	router := gin.New()
 	router.POST("/projects/:projectId/domains", func(c *gin.Context) {
 		c.Set("user", user)

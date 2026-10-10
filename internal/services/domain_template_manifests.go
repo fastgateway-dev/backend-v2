@@ -26,30 +26,21 @@ import (
 // agreed only by coincidence. Adding a normalized field to two of the three
 // would have made preview silently disagree with what deploys.
 //
-// httpPort, httpsPort and tlsPolicy arrive as parameters rather than being
-// read off input directly -- like controllerName, exposureType and
-// externalTrafficPolicy already do -- because the caller has already
-// defaulted and validated them (e.g. an unset HTTPPort becomes 80, an unset
-// TLSPolicy becomes "terminate"). Reading input.HTTPPort/HTTPSPort/TLSPolicy
-// here instead would silently drop those defaults and produce a projected
-// template that disagrees with what Create persists for the same input.
+// Listeners are copied verbatim: the caller has already validated them
+// (ValidateTemplateListeners), so the projection carries exactly what Create
+// persists.
 func templateFromCreateInput(
 	input *CreateDomainTemplateInput,
 	controllerName, k8sGatewayClassName, k8sEnvoyProxyName string,
 	exposureType models.ExposureType,
 	externalTrafficPolicy models.ExternalTrafficPolicy,
-	httpPort, httpsPort int,
-	tlsPolicy models.TLSPolicy,
 ) *models.DomainTemplate {
 	return &models.DomainTemplate{
 		Name:                  input.Name,
 		Description:           input.Description,
 		ControllerName:        controllerName,
 		ExposureType:          exposureType,
-		TLSMode:               models.TLSMode(input.TLSMode),
-		HTTPPort:              httpPort,
-		HTTPSPort:             httpsPort,
-		TLSPolicy:             tlsPolicy,
+		Listeners:             models.Listeners(input.Listeners),
 		ExternalTrafficPolicy: externalTrafficPolicy,
 		LoadBalancerClass:     input.LoadBalancerClass,
 		Annotations:           models.Annotations(input.Annotations),
@@ -217,10 +208,9 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 		return nil, errors.New("exposure type must be 'LoadBalancer' or 'ClusterIP'")
 	}
 
-	// Validate TLS mode
-	tlsMode := models.TLSMode(input.TLSMode)
-	if tlsMode != models.TLSModeOnly && tlsMode != models.TLSModeNone && tlsMode != models.TLSModeBoth {
-		return nil, errors.New("TLS mode must be 'tls_only', 'no_tls', or 'both'")
+	// Validate the listener list (same rule as Create)
+	if err := ValidateTemplateListeners(input.Listeners); err != nil {
+		return nil, err
 	}
 
 	// Set default controller name
@@ -240,33 +230,6 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 	// Validate scaling config
 	if err := validateScalingConfig(input.ScalingConfig); err != nil {
 		return nil, err
-	}
-
-	// Set default ports
-	httpPort := input.HTTPPort
-	if httpPort == 0 {
-		httpPort = 80
-	}
-	httpsPort := input.HTTPSPort
-	if httpsPort == 0 {
-		httpsPort = 443
-	}
-	if httpPort < 1 || httpPort > 65535 {
-		return nil, errors.New("HTTP port must be between 1 and 65535")
-	}
-	if httpsPort < 1 || httpsPort > 65535 {
-		return nil, errors.New("HTTPS port must be between 1 and 65535")
-	}
-
-	// Validate TLS policy
-	tlsPolicy := models.TLSPolicy(input.TLSPolicy)
-	if tlsPolicy == "" {
-		tlsPolicy = models.TLSPolicyTerminate
-	}
-	if tlsMode != models.TLSModeNone {
-		if tlsPolicy != models.TLSPolicyTerminate && tlsPolicy != models.TLSPolicyPassthrough {
-			return nil, errors.New("TLS policy must be 'terminate' or 'passthrough'")
-		}
 	}
 
 	// Validate external traffic policy
@@ -290,7 +253,6 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 		input,
 		controllerName, k8sGatewayClassName, k8sEnvoyProxyName,
 		exposureType, externalTrafficPolicy,
-		httpPort, httpsPort, tlsPolicy,
 	)
 
 	// Build GatewayClass manifest
@@ -311,23 +273,20 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 		return nil, fmt.Errorf("failed to marshal EnvoyProxy: %w", err)
 	}
 
-	// Build example Gateway manifest to show TLS configuration impact.
+	// Build example Gateway manifest to show the listener configuration impact.
 	//
-	// The example exists to show operators the impact of their TLS settings.
-	// Building it with the same assembler real Gateways use means the
-	// example cannot drift from what actually deploys.
+	// The example binds every hostname-routed listener of the template. Building
+	// it with the same assembler real Gateways use means the example cannot
+	// drift from what actually deploys.
 	exampleDomain := &models.Domain{
 		K8sGatewayName:  "example-domain",
 		Namespace:       kubernetes.EnvoyGatewayNamespace,
 		K8sGatewayClass: k8sGatewayClassName,
 		Hostname:        "example.com",
-		TLSMode:         string(tlsMode),
-		HTTPPort:        httpPort,
-		HTTPSPort:       httpsPort,
+		BoundListeners:  hostnameListenerNames(projected),
 		TLSSecretName:   "example-tls-cert",
-		TLSPolicy:       tlsPolicy,
 	}
-	gwConfig := domainplan.BuildGatewayConfig(exampleDomain, nil)
+	gwConfig := domainplan.BuildGatewayConfig(exampleDomain, projected, nil)
 	gwObj := kubernetes.BuildGatewayObject(gwConfig)
 	gwYaml, err := yaml.Marshal(gwObj.Object)
 	if err != nil {
@@ -364,4 +323,14 @@ func (s *DomainTemplateService) PreviewCreate(projectID uuid.UUID, input *Create
 	}
 
 	return result, nil
+}
+
+// hostnameListenerNames returns the names of every hostname-routed
+// (HTTP/HTTPS/TLS) listener on the template, in declaration order.
+func hostnameListenerNames(tmpl *models.DomainTemplate) []string {
+	var names []string
+	for _, l := range tmpl.Listeners.HostnameRouted() {
+		names = append(names, l.Name)
+	}
+	return names
 }

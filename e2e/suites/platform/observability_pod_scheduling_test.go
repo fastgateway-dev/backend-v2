@@ -33,7 +33,7 @@ var envoyProxyGVR = schema.GroupVersionResource{
 // provisions the backing EnvoyProxy CRD before returning, so no polling
 // is needed before reading it back) and registers a t.Cleanup that deletes
 // it (DomainTemplateService.Delete removes the EnvoyProxy CRD too).
-// ClusterIP + no_tls (as used by every test in this file) needs no
+// ClusterIP + HTTP-only listener (as used by every test in this file) needs no
 // external IP or TLS secret, unlike the LoadBalancer + TLS domains the
 // rest of this repo's e2e fixtures use -- see e2e/suites/domain/main_test.go's
 // doc comment for why a second LoadBalancer domain was judged too risky to
@@ -44,7 +44,7 @@ func createDomainTemplate(t *testing.T, input services.CreateDomainTemplateInput
 	defer cancel()
 
 	input.ExposureType = string(models.ExposureTypeClusterIP)
-	input.TLSMode = string(models.TLSModeNone)
+	input.Listeners = []models.TemplateListener{{Name: "http", Protocol: models.ListenerHTTP, Port: 80}}
 
 	var dt models.DomainTemplate
 	if _, err := env.Admin.Do(ctx, http.MethodPost, fmt.Sprintf("/projects/%s/domain-templates", env.ProjectID), input, &dt); err != nil {

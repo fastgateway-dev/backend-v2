@@ -12,15 +12,15 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 )
 
-// CreateStreamTemplate creates a stream-only Gateway Template (enableStream,
-// no TLS, LoadBalancer) and returns its ID once it reports Active. Admin only.
+// CreateStreamTemplate creates a stream-only Gateway Template (a single TCP/UDP
+// listener range, no TLS, LoadBalancer) and returns its ID once it reports Active. Admin only.
 func (a *API) CreateStreamTemplate(ctx context.Context, projectID, name string) (uuid.UUID, error) {
 	body := map[string]any{
 		"name":         name,
 		"exposureType": "LoadBalancer",
-		"tlsMode":      "no_tls",
-		"enableDomain": false,
-		"enableStream": true,
+		"listeners": []map[string]any{
+			{"name": "tcpudp", "protocol": "TCP", "portRangeMin": 1, "portRangeMax": 65535},
+		},
 	}
 	var dt models.DomainTemplate
 	if _, err := a.Do(ctx, http.MethodPost, fmt.Sprintf("/projects/%s/domain-templates", projectID), body, &dt); err != nil {

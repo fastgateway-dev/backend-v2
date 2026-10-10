@@ -223,12 +223,12 @@ func main() {
 	log.Println("\n=== Create domain template: default-public ===")
 	var template models.DomainTemplate
 	if err := api.post(ctx, fmt.Sprintf("/projects/%s/domain-templates", projectID), services.CreateDomainTemplateInput{
-		Name:                  "default-public",
-		Description:           "Default public domain template with TLS and LoadBalancer",
-		ExposureType:          "LoadBalancer",
-		TLSMode:               "tls_only",
-		HTTPSPort:             443,
-		TLSPolicy:             "terminate",
+		Name:         "default-public",
+		Description:  "Default public domain template with TLS and LoadBalancer",
+		ExposureType: "LoadBalancer",
+		Listeners: []models.TemplateListener{
+			{Name: "https", Protocol: models.ListenerHTTPS, Port: 443, TLSMode: models.TLSListenerTerminate},
+		},
 		ExternalTrafficPolicy: "Local",
 	}, &template); err != nil {
 		log.Fatalf("FATAL: create domain template: %v", err)
@@ -250,6 +250,7 @@ func main() {
 		Name:             cfg.domainName,
 		Hostname:         cfg.domainName,
 		DomainTemplateID: template.ID.String(),
+		BoundListeners:   []string{"https"},
 		TLSSecretName:    cfg.tlsSecretName,
 	}, &domain); err != nil {
 		log.Fatalf("FATAL: create domain: %v", err)

@@ -12,16 +12,20 @@ import (
 )
 
 // insertTemplate inserts a DomainTemplate for the project and registers cleanup.
-// Capability flags are set explicitly because EnableDomain has no GORM default.
+// Capability is expressed through the listener list: a stream template carries
+// a TCP/UDP range listener, a domain template an HTTPS listener.
 // userID must already exist (domain_templates.created_by).
 func insertTemplate(t *testing.T, db *gorm.DB, projectID, userID uuid.UUID, enableStream bool) uuid.UUID {
 	t.Helper()
+	listeners := models.Listeners{{Name: "https", Protocol: models.ListenerHTTPS, Port: 443, TLSMode: models.TLSListenerTerminate}}
+	if enableStream {
+		listeners = models.Listeners{{Name: "tcpudp", Protocol: models.ListenerTCP, PortRangeMin: 1, PortRangeMax: 65535}}
+	}
 	tmpl := &models.DomainTemplate{
-		ProjectID:    projectID,
-		Name:         "test-tmpl-" + uuid.NewString(),
-		CreatedBy:    userID,
-		EnableDomain: !enableStream,
-		EnableStream: enableStream,
+		ProjectID: projectID,
+		Name:      "test-tmpl-" + uuid.NewString(),
+		CreatedBy: userID,
+		Listeners: listeners,
 	}
 	require.NoError(t, db.Create(tmpl).Error)
 	t.Cleanup(func() {
@@ -133,7 +137,10 @@ func TestDomainRepository_UsedPortsByTemplate(t *testing.T) {
 	db := requirePostgres(t)
 	projectID, domainID, _, userID := seedProject(t, db)
 	tmplID := insertTemplate(t, db, projectID, userID, false)
-	require.NoError(t, db.Exec(`UPDATE domains SET domain_template_id = ?, http_port = 8080, https_port = 8443 WHERE id = ?`, tmplID, domainID).Error)
+	require.NoError(t, db.Exec(`UPDATE domain_templates SET listeners = ? WHERE id = ?`,
+		`[{"name":"http","protocol":"HTTP","port":8080},{"name":"https","protocol":"HTTPS","port":8443,"tlsMode":"Terminate"},{"name":"unbound","protocol":"HTTP","port":9090}]`, tmplID).Error)
+	require.NoError(t, db.Exec(`UPDATE domains SET domain_template_id = ?, bound_listeners = ? WHERE id = ?`,
+		tmplID, `["http","https"]`, domainID).Error)
 
 	got, err := repository.NewDomainRepository(db).UsedPortsByTemplate(tmplID)
 	require.NoError(t, err)

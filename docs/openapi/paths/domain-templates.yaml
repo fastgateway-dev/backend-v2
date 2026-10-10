@@ -12,7 +12,7 @@ domain-templates:
       - name: capability
         in: query
         required: false
-        description: Only return templates with this capability enabled (enableDomain for domain, enableStream for stream). Omit to return all templates.
+        description: Only return templates that declare a listener of the matching kind (domain means any HTTP/HTTPS/TLS listener, stream means any TCP/UDP listener). Omit to return all templates.
         schema:
           type: string
           enum: [domain, stream]

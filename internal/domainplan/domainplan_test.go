@@ -3,10 +3,12 @@ package domainplan
 import (
 	"testing"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -332,7 +334,7 @@ func TestBuildGatewayConfig_MapsTLSSecretNamespace(t *testing.T) {
 	domain.TLSSecretName = "wildcard-tls"
 	domain.TLSSecretNamespace = "shared-certs"
 
-	got := BuildGatewayConfig(domain, nil)
+	got := BuildGatewayConfig(domain, bothTemplate(), nil)
 
 	require.Equal(t, "shared-certs", got.TLSSecretNamespace,
 		"F2: preview must emit the same cross-namespace certificateRef that deploy does")
@@ -351,7 +353,7 @@ func TestBuildGatewayConfig_ManagedCertificateWinsOverLegacySecret(t *testing.T)
 	domain.TLSSecretName = "legacy-secret"
 	domain.Namespace = "fastgateway-system"
 
-	got := BuildGatewayConfig(domain, nil)
+	got := BuildGatewayConfig(domain, bothTemplate(), nil)
 
 	assert.Equal(t, "cert-"+certID.String(), got.TLSSecretName,
 		"managed cert must win over the legacy BYO secret name")
@@ -368,8 +370,143 @@ func TestBuildGatewayConfig_NoManagedCertificateKeepsLegacySecret(t *testing.T) 
 	domain.TLSSecretName = "legacy-secret"
 	domain.TLSSecretNamespace = "team-ns"
 
-	got := BuildGatewayConfig(domain, nil)
+	got := BuildGatewayConfig(domain, bothTemplate(), nil)
 
 	assert.Equal(t, "legacy-secret", got.TLSSecretName)
 	assert.Equal(t, "team-ns", got.TLSSecretNamespace)
+}
+
+// bothTemplate is a template carrying the listeners a migrated "both" template
+// has: http:80 and https:443 (Terminate).
+func bothTemplate() *models.DomainTemplate {
+	return &models.DomainTemplate{Listeners: models.Listeners{
+		{Name: "http", Protocol: models.ListenerHTTP, Port: 80},
+		{Name: "https", Protocol: models.ListenerHTTPS, Port: 443, TLSMode: models.TLSListenerTerminate},
+	}}
+}
+
+func TestBuildGatewayConfig_BoundListeners(t *testing.T) {
+	d := fixtureDomain()
+	d.K8sGatewayClass = "gc"
+	d.BoundListeners = []string{"http", "https"}
+	d.TLSSecretName = "api-tls"
+
+	cfg := BuildGatewayConfig(d, bothTemplate(), nil)
+
+	require.Equal(t, []kubernetes.HostnameListener{
+		{Name: "http", Protocol: "HTTP", Port: 80},
+		{Name: "https", Protocol: "HTTPS", Port: 443, TLSMode: "Terminate"},
+	}, cfg.HostnameListeners)
+}
+
+// Resolution follows the TEMPLATE's listener order, not the order of
+// BoundListeners, so a migrated "both" domain always yields http then https.
+func TestBuildGatewayConfig_BoundListenersFollowTemplateOrder(t *testing.T) {
+	d := fixtureDomain()
+	d.BoundListeners = []string{"https", "http"}
+
+	cfg := BuildGatewayConfig(d, bothTemplate(), nil)
+
+	require.Len(t, cfg.HostnameListeners, 2)
+	assert.Equal(t, "http", cfg.HostnameListeners[0].Name)
+	assert.Equal(t, "https", cfg.HostnameListeners[1].Name)
+}
+
+// Only the bound subset is emitted.
+func TestBuildGatewayConfig_BoundSubset(t *testing.T) {
+	d := fixtureDomain()
+	d.BoundListeners = []string{"https"}
+
+	cfg := BuildGatewayConfig(d, bothTemplate(), nil)
+
+	require.Len(t, cfg.HostnameListeners, 1)
+	assert.Equal(t, "https", cfg.HostnameListeners[0].Name)
+}
+
+// A Gateway with zero listeners is invalid: when none of the bound names
+// resolve (stale binding after a template edit), fall back to the template's
+// hostname-routed listeners rather than emitting an empty list.
+func TestBuildGatewayConfig_NeverEmptyWhenBound(t *testing.T) {
+	d := fixtureDomain()
+	d.BoundListeners = []string{"renamed-away"}
+
+	cfg := BuildGatewayConfig(d, bothTemplate(), nil)
+
+	require.NotEmpty(t, cfg.HostnameListeners)
+	assert.Equal(t, "http", cfg.HostnameListeners[0].Name)
+	assert.Equal(t, "https", cfg.HostnameListeners[1].Name)
+}
+
+// L4 (TCP/UDP) listeners are not hostname-routed and never become
+// HostnameListeners.
+func TestBuildGatewayConfig_SkipsL4Listeners(t *testing.T) {
+	tmpl := bothTemplate()
+	tmpl.Listeners = append(tmpl.Listeners,
+		models.TemplateListener{Name: "tcpudp", Protocol: models.ListenerTCP, PortRangeMin: 1, PortRangeMax: 65535})
+	d := fixtureDomain()
+	d.BoundListeners = []string{"http", "tcpudp"}
+
+	cfg := BuildGatewayConfig(d, tmpl, nil)
+
+	require.Len(t, cfg.HostnameListeners, 1)
+	assert.Equal(t, "http", cfg.HostnameListeners[0].Name)
+}
+
+// The protocol is carried through verbatim: a non-HTTPS protocol (here TLS)
+// must not be coerced to "HTTP" at the resolution layer.
+func TestBuildGatewayConfig_ProtocolNotCoerced(t *testing.T) {
+	tmpl := &models.DomainTemplate{Listeners: models.Listeners{
+		{Name: "tls", Protocol: models.ListenerTLS, Port: 8443, TLSMode: models.TLSListenerPassthrough},
+	}}
+	d := fixtureDomain()
+	d.BoundListeners = []string{"tls"}
+
+	cfg := BuildGatewayConfig(d, tmpl, nil)
+
+	require.Len(t, cfg.HostnameListeners, 1)
+	assert.Equal(t, "TLS", cfg.HostnameListeners[0].Protocol)
+	assert.Equal(t, "Passthrough", cfg.HostnameListeners[0].TLSMode)
+}
+
+// The byte-identical invariant protects the RENDERED Gateway: a migrated
+// "both" domain must render http then https, with the Terminate tls block,
+// exactly as the pre-listener-model builder did.
+func TestBuildGatewayConfig_RenderedGatewayByteIdenticalForMigratedBoth(t *testing.T) {
+	d := fixtureDomain()
+	d.K8sGatewayClass = "envoy-gateway-class"
+	d.BoundListeners = models.MigrateDomainBoundListeners("both")
+	d.TLSSecretName = "example-com-tls"
+
+	cfg := BuildGatewayConfig(d, bothTemplate(), nil)
+	obj := kubernetes.BuildGatewayObject(cfg)
+	require.NotNil(t, obj)
+
+	got, found, err := unstructured.NestedSlice(obj.Object, "spec", "listeners")
+	require.NoError(t, err)
+	require.True(t, found)
+
+	want := []interface{}{
+		map[string]interface{}{
+			"name":     "http",
+			"port":     int64(80),
+			"protocol": "HTTP",
+			"hostname": "example.com",
+		},
+		map[string]interface{}{
+			"name":     "https",
+			"port":     int64(443),
+			"protocol": "HTTPS",
+			"hostname": "example.com",
+			"tls": map[string]interface{}{
+				"mode": "Terminate",
+				"certificateRefs": []interface{}{
+					map[string]interface{}{
+						"kind": "Secret",
+						"name": "example-com-tls",
+					},
+				},
+			},
+		},
+	}
+	require.Equal(t, want, got)
 }
