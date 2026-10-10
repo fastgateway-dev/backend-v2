@@ -1,0 +1,64 @@
+name: e2e-compatibility
+
+# The full compatibility matrix across every Envoy Gateway / Gateway API
+# pair FastGateway is designed to support: EG 1.6.6 and 1.7.5 on Gateway API
+# 1.4.1, EG 1.8.4 on 1.5.1, and EG 1.9.1 on 1.6.1. Manual only -- run this
+# before a release.
+#
+# This workflow owns NO setup of its own. It is a thin orchestrator that
+# calls the two reusable suite workflows (e2e.yml and e2e-certificate.yml)
+# once per supported pair, so the kind/Envoy Gateway/cert-manager bootstrap
+# lives in exactly one place per suite and can never drift between the
+# per-push job and the matrix. On push/PR those two workflows run their own
+# single newest pair; here they run every pair.
+#
+# Retires the manual E2E_TEST-v1.6.2-v1.4.1.md process: run this before a
+# release instead of hand-testing against a cluster and writing up the
+# results in a markdown log. Keep the matrix below in sync with
+# SupportedVersionPairs in internal/services/compatibility.go.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  # Standard suite (off-cluster backend) across the full support surface.
+  # Older arms (Gateway API 1.4.1) skip the L4 stream suite via the suite's
+  # own version gate; e2e.yml installs standard-channel CRDs there and the
+  # experimental channel on Gateway API >= 1.5.
+  standard:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - envoy-gateway-version: "1.6.6"
+            gateway-api-version: "1.4.1"
+          - envoy-gateway-version: "1.7.5"
+            gateway-api-version: "1.4.1"
+          - envoy-gateway-version: "1.8.4"
+            gateway-api-version: "1.5.1"
+          - envoy-gateway-version: "1.9.1"
+            gateway-api-version: "1.6.1"
+    uses: ./.github/workflows/e2e.yml
+    with:
+      envoy-gateway-version: ${{ matrix.envoy-gateway-version }}
+      gateway-api-version: ${{ matrix.gateway-api-version }}
+
+  # Managed-certificate suite (in-cluster backend) across the full support
+  # surface. The cert suite only uses standard Gateway API resources, so
+  # every arm installs standard-channel CRDs (see e2e-certificate.yml).
+  certificate:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - envoy-gateway-version: "1.6.6"
+            gateway-api-version: "1.4.1"
+          - envoy-gateway-version: "1.7.5"
+            gateway-api-version: "1.4.1"
+          - envoy-gateway-version: "1.8.4"
+            gateway-api-version: "1.5.1"
+          - envoy-gateway-version: "1.9.1"
+            gateway-api-version: "1.6.1"
+    uses: ./.github/workflows/e2e-certificate.yml
+    with:
+      envoy-gateway-version: ${{ matrix.envoy-gateway-version }}
+      gateway-api-version: ${{ matrix.gateway-api-version }}
