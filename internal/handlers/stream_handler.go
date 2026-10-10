@@ -39,7 +39,7 @@ func NewStreamHandler(streamService StreamServiceInterface, auditService AuditSe
 // streamError maps service errors to HTTP responses. Unknown errors are 500.
 func streamError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, services.ErrTemplateNotStreamEnabled), errors.Is(err, services.ErrInvalidStreamName), errors.Is(err, services.ErrStreamNamespaceNotRegistered), errors.Is(err, services.ErrStreamNamespaceNotDeployable), errors.Is(err, services.ErrStreamTemplateImmutable), errors.Is(err, services.ErrStreamsUnsupported):
+	case errors.Is(err, services.ErrTemplateNotStreamEnabled), errors.Is(err, services.ErrInvalidStreamName), errors.Is(err, services.ErrStreamNamespaceNotRegistered), errors.Is(err, services.ErrStreamNamespaceNotDeployable), errors.Is(err, services.ErrStreamTemplateImmutable), errors.Is(err, services.ErrStreamsUnsupported), errors.Is(err, services.ErrPortOutOfRange):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, services.ErrStreamHasRoutes), errors.Is(err, services.ErrStreamNameTaken):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})

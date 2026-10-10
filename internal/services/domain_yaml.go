@@ -197,6 +197,16 @@ func (s *DomainService) PreviewCreate(projectID uuid.UUID, input *DomainCreatePr
 		previewNamespace = kubernetes.FastGatewayNamespace
 	}
 
+	// Resolve the listeners the preview binds: the caller's selection (validated
+	// like Create), or every hostname-routed listener when none is chosen yet
+	// (mirrors the template preview).
+	boundNames := input.BoundListeners
+	if len(boundNames) == 0 {
+		boundNames = hostnameListenerNames(dt)
+	} else if err := ValidateBoundListeners(dt, boundNames); err != nil {
+		return nil, err
+	}
+
 	// Build Gateway config from input + template
 	k8sGatewayName := generateK8sName(input.Hostname)
 	previewDomain := &models.Domain{
@@ -204,12 +214,9 @@ func (s *DomainService) PreviewCreate(projectID uuid.UUID, input *DomainCreatePr
 		Namespace:          previewNamespace,
 		K8sGatewayClass:    dt.K8sGatewayClassName,
 		Hostname:           input.Hostname,
-		TLSMode:            string(dt.TLSMode),
-		HTTPPort:           dt.HTTPPort,
-		HTTPSPort:          dt.HTTPSPort,
+		BoundListeners:     boundNames,
 		TLSSecretName:      input.TLSSecretName,
 		TLSSecretNamespace: input.TLSSecretNamespace,
-		TLSPolicy:          dt.TLSPolicy,
 		DomainTemplateID:   &domainTemplateID,
 	}
 	gatewayConfig := domainplan.BuildGatewayConfig(previewDomain, dt, dt.Annotations)

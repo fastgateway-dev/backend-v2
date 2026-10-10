@@ -373,6 +373,31 @@ func (s *TopologyService) routeLevelSecurity(routeID uuid.UUID) SecurityFeatureF
 	return flags
 }
 
+// topologyListener picks the listener the topology view shows for a domain:
+// the first bound HTTPS listener, else the first bound hostname-routed one.
+// It falls back to 443/HTTPS when the binding resolves to nothing.
+func topologyListener(dt *models.DomainTemplate, bound []string) (int, string) {
+	var first *models.TemplateListener
+	hostname := dt.Listeners.HostnameRouted()
+	for _, name := range bound {
+		for i := range hostname {
+			if hostname[i].Name != name {
+				continue
+			}
+			if hostname[i].Protocol == models.ListenerHTTPS {
+				return hostname[i].Port, string(hostname[i].Protocol)
+			}
+			if first == nil {
+				first = &hostname[i]
+			}
+		}
+	}
+	if first != nil {
+		return first.Port, string(first.Protocol)
+	}
+	return 443, "HTTPS"
+}
+
 // GetDomainTopology returns the per-domain topology view (general mode only).
 // Client mode (clients + attachments) will be added by a later task; for now
 // Clients and Attachments are always returned as empty, non-nil slices.
@@ -392,10 +417,12 @@ func (s *TopologyService) GetDomainTopology(ctx context.Context, projectID, doma
 
 	// Resolve template name (nullable).
 	var templateName *string
+	listenerPort, listenerProtocol := 443, "HTTPS"
 	if domain.DomainTemplateID != nil {
 		if dt, terr := s.domainTemplateRepo.GetByID(*domain.DomainTemplateID); terr == nil && dt != nil {
 			n := dt.Name
 			templateName = &n
+			listenerPort, listenerProtocol = topologyListener(dt, domain.BoundListeners)
 		}
 	}
 
@@ -416,8 +443,8 @@ func (s *TopologyService) GetDomainTopology(ctx context.Context, projectID, doma
 		},
 		Gateway: DomainTopologyGateway{
 			Status:           MapGatewayStatus(domain.Status == models.DomainStatusActive, domain.StatusMessage),
-			ListenerPort:     domain.HTTPSPort,
-			ListenerProtocol: "HTTPS",
+			ListenerPort:     listenerPort,
+			ListenerProtocol: listenerProtocol,
 			GatewayClass:     domain.K8sGatewayClass,
 		},
 		Routes:      []DomainTopologyRoute{},

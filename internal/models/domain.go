@@ -31,13 +31,9 @@ type Domain struct {
 	ManagedCertificateID *uuid.UUID `gorm:"type:uuid;column:managed_certificate_id" json:"managedCertificateId,omitempty"`
 	Name                 string     `gorm:"not null" json:"name"`
 	Hostname             string     `gorm:"not null;uniqueIndex:idx_domain_project_hostname" json:"hostname"`
-	HTTPPort             int        `gorm:"column:http_port;not null;default:80" json:"httpPort"`
-	HTTPSPort            int        `gorm:"column:https_port;not null;default:443" json:"httpsPort"`
-	TLSMode              string     `gorm:"column:tls_mode;not null;default:'tls_only'" json:"tlsMode"`
 	Namespace            string     `gorm:"not null;default:'fastgateway-system'" json:"namespace"`
 	TLSSecretName        string     `json:"tlsSecretName"`
 	TLSSecretNamespace   string     `json:"tlsSecretNamespace,omitempty"`
-	TLSPolicy            TLSPolicy  `gorm:"not null;default:'terminate'" json:"tlsPolicy"`
 	// BoundListeners names the template listeners (TemplateListener.Name) this
 	// domain's Gateway exposes. Resolved against the template's Listeners by
 	// domainplan.BuildGatewayConfig.

@@ -94,6 +94,28 @@ func templateDomainDefaults(tmpl *models.DomainTemplate) []int {
 	return ports
 }
 
+// ErrPortOutOfRange is returned when a stream route's listener port falls
+// outside the template's TCP/UDP range, or the template declares no range.
+var ErrPortOutOfRange = errors.New("listener port is outside the template's TCP/UDP range")
+
+// templatePortRange returns the template's shared TCP/UDP port range, if any.
+func templatePortRange(tmpl *models.DomainTemplate) (int, int, bool) {
+	return tmpl.Listeners.StreamRange()
+}
+
+// checkPortInRange rejects a stream route port outside the template's TCP/UDP
+// range. A template with no range (domain-only) cannot host stream routes.
+func checkPortInRange(port int, tmpl *models.DomainTemplate) error {
+	lo, hi, ok := templatePortRange(tmpl)
+	if !ok {
+		return fmt.Errorf("%w: template %q has no TCP/UDP range", ErrPortOutOfRange, tmpl.Name)
+	}
+	if port < lo || port > hi {
+		return fmt.Errorf("%w: %d not in %d-%d", ErrPortOutOfRange, port, lo, hi)
+	}
+	return nil
+}
+
 // StreamPortStore is the slice of StreamRepository the port-collision check
 // uses. *repository.StreamRepository satisfies it structurally.
 type StreamPortStore interface {
@@ -116,12 +138,12 @@ type L4PortReader interface {
 	UsedL4Ports(templateID uuid.UUID, excludeRouteID *uuid.UUID) ([]PortUse, error)
 }
 
-// checkDomainPortsAgainstStreams rejects a domain whose HTTP/HTTPS port hits a
+// checkDomainPortsAgainstStreams rejects a domain whose bound listener ports hit a
 // stream L4 TCP port on the same merged template (the domain-side mirror of
 // CheckPortCollision). Unmerged templates give every domain its own Gateway,
 // so there is nothing shared to collide with. A merged template with an
 // unwired reader fails closed rather than skipping the guard.
-func checkDomainPortsAgainstStreams(streams L4PortReader, tmpl *models.DomainTemplate, httpPort, httpsPort int) error {
+func checkDomainPortsAgainstStreams(streams L4PortReader, tmpl *models.DomainTemplate, ports []int) error {
 	if !tmpl.MergeGateways {
 		return nil
 	}
@@ -132,7 +154,7 @@ func checkDomainPortsAgainstStreams(streams L4PortReader, tmpl *models.DomainTem
 	if err != nil {
 		return fmt.Errorf("failed to load template stream ports: %w", err)
 	}
-	for _, port := range []int{httpPort, httpsPort} {
+	for _, port := range ports {
 		if hasPortUse(used, "TCP", port) {
 			return fmt.Errorf("%w: TCP/%d is used by a stream route on merged gateway template %q", ErrPortCollision, port, tmpl.Name)
 		}
@@ -206,6 +228,9 @@ func (s *StreamService) CheckPortCollision(streamID uuid.UUID, transport string,
 	}
 
 	if err := ValidateListenerPort(port, DefaultReservedPorts); err != nil {
+		return err
+	}
+	if err := checkPortInRange(port, tmpl); err != nil {
 		return err
 	}
 

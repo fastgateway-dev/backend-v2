@@ -77,8 +77,8 @@ func seedTopologyGeneralDomain(t *testing.T, db *gorm.DB) (projectID, domainID u
 		teamID, "team-"+suffix).Error)
 	require.NoError(t, db.Exec(`INSERT INTO projects (id, name, k8s_api_url, k8s_token_encrypted, created_by, created_at, updated_at)
 		VALUES (?, ?, '', '', ?, NOW(), NOW())`, projectID, "p-"+suffix, userID).Error)
-	require.NoError(t, db.Exec(`INSERT INTO domains (id, project_id, name, hostname, http_port, https_port, namespace, k8s_gateway_class_name, status, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 80, 443, 'fastgateway-system', 'envoy', 'active', ?, NOW(), NOW())`,
+	require.NoError(t, db.Exec(`INSERT INTO domains (id, project_id, name, hostname, bound_listeners, namespace, k8s_gateway_class_name, status, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, '["https"]'::jsonb, 'fastgateway-system', 'envoy', 'active', ?, NOW(), NOW())`,
 		domainID, projectID, "d-"+suffix, suffix+".example.com", userID).Error)
 	require.NoError(t, db.Exec(`INSERT INTO routes (id, domain_id, team_id, name, protocol, security_mode, status, config, created_by, created_at, updated_at)
 		VALUES (?, ?, ?, ?, 'http', 'general', 'active', '{"matches":[{"path":{"type":"Prefix","value":"/a"}}],"backends":[{"type":"kubernetes","service":"svc","namespace":"ns","port":8080}]}'::jsonb, ?, NOW(), NOW())`,
@@ -140,7 +140,7 @@ func seedTopologyClientDomain(t *testing.T, db *gorm.DB) (projectID, domainID, r
 	require.NoError(t, db.Exec(`INSERT INTO users (id, username, email, password_hash, role, is_active, created_at, updated_at) VALUES (?, ?, ?, '', 'owner', true, NOW(), NOW())`, userID, "u-"+suffix, "u-"+suffix+"@example.com").Error)
 	require.NoError(t, db.Exec(`INSERT INTO teams (id, name, created_at, updated_at) VALUES (?, ?, NOW(), NOW())`, teamID, "team-"+suffix).Error)
 	require.NoError(t, db.Exec(`INSERT INTO projects (id, name, k8s_api_url, k8s_token_encrypted, created_by, created_at, updated_at) VALUES (?, ?, '', '', ?, NOW(), NOW())`, projectID, "p-"+suffix, userID).Error)
-	require.NoError(t, db.Exec(`INSERT INTO domains (id, project_id, name, hostname, http_port, https_port, namespace, k8s_gateway_class_name, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, 80, 443, 'fg', 'envoy', 'active', ?, NOW(), NOW())`, domainID, projectID, "d-"+suffix, suffix+".example.com", userID).Error)
+	require.NoError(t, db.Exec(`INSERT INTO domains (id, project_id, name, hostname, bound_listeners, namespace, k8s_gateway_class_name, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, '["https"]'::jsonb, 'fg', 'envoy', 'active', ?, NOW(), NOW())`, domainID, projectID, "d-"+suffix, suffix+".example.com", userID).Error)
 	require.NoError(t, db.Exec(`INSERT INTO routes (id, domain_id, team_id, name, protocol, security_mode, status, config, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, 'http', 'client', 'active', '{"matches":[{"path":{"type":"Prefix","value":"/x"}}],"backends":[{"type":"kubernetes","service":"svc","namespace":"ns","port":8080}]}'::jsonb, ?, NOW(), NOW())`, routeID, domainID, teamID, "r-"+suffix, userID).Error)
 	require.NoError(t, db.Exec(`INSERT INTO clients (id, team_id, name, api_key_enabled, jwt_enabled, mtls_enabled, created_by, created_at, updated_at) VALUES (?, ?, ?, true, false, false, ?, NOW(), NOW())`, clientID, teamID, "c-"+suffix, userID).Error)
 	require.NoError(t, db.Exec(`INSERT INTO client_route_attachments (id, client_id, route_id, enable_ip_allowlist, enable_api_key, enable_jwt, enable_mtls, status, created_by, created_at, updated_at) VALUES (?, ?, ?, true, true, false, false, 'active', ?, NOW(), NOW())`, uuid.New(), clientID, routeID, userID).Error)

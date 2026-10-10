@@ -36,10 +36,17 @@ func (f *fakeDomainPortReader) UsedPortsByTemplate(uuid.UUID) ([]services.PortUs
 
 func domainCreateFixture(merged bool) (uuid.UUID, uuid.UUID, *services.CreateDomainInput, *models.DomainTemplate) {
 	projectID, dtID := uuid.New(), uuid.New()
-	input := &services.CreateDomainInput{Name: "d", Hostname: "new.example.com", DomainTemplateID: dtID.String()}
+	input := &services.CreateDomainInput{
+		Name: "d", Hostname: "new.example.com", DomainTemplateID: dtID.String(),
+		BoundListeners: []string{"http", "https"}, TLSSecretName: "tls",
+	}
 	dt := &models.DomainTemplate{
 		ID: dtID, ProjectID: projectID, Name: "tpl", Status: models.DomainTemplateStatusActive,
-		MergeGateways: merged, EnableDomain: true, HTTPPort: 80, HTTPSPort: 443,
+		MergeGateways: merged,
+		Listeners: models.Listeners{
+			{Name: "http", Protocol: models.ListenerHTTP, Port: 80},
+			{Name: "https", Protocol: models.ListenerHTTPS, Port: 443, TLSMode: models.TLSListenerTerminate},
+		},
 	}
 	return projectID, dtID, input, dt
 }

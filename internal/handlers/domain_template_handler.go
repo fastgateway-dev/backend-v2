@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/fastgateway-dev/backend-v2/internal/middleware"
+	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -95,10 +96,9 @@ func (h *DomainTemplateHandler) Create(c *gin.Context) {
 		&dt.ID,
 		dt.Name,
 		map[string]interface{}{
-			"exposureType": dt.ExposureType,
-			"tlsMode":      dt.TLSMode,
-			"httpPort":     dt.HTTPPort,
-			"httpsPort":    dt.HTTPSPort,
+			"exposureType":  dt.ExposureType,
+			"listenerCount": len(dt.Listeners),
+			"protocols":     listenerProtocols(dt.Listeners),
 		},
 		c.ClientIP(),
 		c.Request.UserAgent(),
@@ -317,4 +317,19 @@ func (h *DomainTemplateHandler) Delete(c *gin.Context) {
 	)
 
 	c.Status(http.StatusNoContent)
+}
+
+// listenerProtocols returns the distinct listener protocols of a template, in
+// first-seen order, for audit logging.
+func listenerProtocols(listeners models.Listeners) []string {
+	seen := make(map[models.ListenerProtocol]struct{}, len(listeners))
+	protocols := make([]string, 0, len(listeners))
+	for _, l := range listeners {
+		if _, ok := seen[l.Protocol]; ok {
+			continue
+		}
+		seen[l.Protocol] = struct{}{}
+		protocols = append(protocols, string(l.Protocol))
+	}
+	return protocols
 }

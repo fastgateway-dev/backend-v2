@@ -2,6 +2,7 @@ package repository
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -126,20 +127,35 @@ func (r *DomainRepository) ListByTemplateID(templateID uuid.UUID) ([]models.Doma
 }
 
 // UsedPortsByTemplate returns the listener ports of every domain on the given
-// gateway template: each domain's HTTP and HTTPS port, both as TCP-transport
-// (HTTP/HTTPS/TLS listeners run over TCP). It is the domain half of the
-// merged-Gateways port-collision scope.
+// gateway template: the port of each template hostname-routed listener the
+// domain binds (Domain.BoundListeners), as TCP-transport (HTTP/HTTPS/TLS
+// listeners run over TCP). It is the domain half of the merged-Gateways
+// port-collision scope.
 func (r *DomainRepository) UsedPortsByTemplate(templateID uuid.UUID) ([]PortUse, error) {
+	var tmpl models.DomainTemplate
+	if err := r.db.Select("id", "listeners").First(&tmpl, "id = ?", templateID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []PortUse{}, nil
+		}
+		return nil, err
+	}
+	portByName := make(map[string]int)
+	for _, l := range tmpl.Listeners.HostnameRouted() {
+		portByName[l.Name] = l.Port
+	}
+
 	var domains []models.Domain
-	if err := r.db.Select("http_port", "https_port").
+	if err := r.db.Select("id", "bound_listeners").
 		Where("domain_template_id = ?", templateID).Find(&domains).Error; err != nil {
 		return nil, err
 	}
 	uses := make([]PortUse, 0, len(domains)*2)
 	for _, d := range domains {
-		uses = append(uses,
-			PortUse{Transport: "TCP", Port: d.HTTPPort},
-			PortUse{Transport: "TCP", Port: d.HTTPSPort})
+		for _, name := range d.BoundListeners {
+			if port, ok := portByName[name]; ok {
+				uses = append(uses, PortUse{Transport: "TCP", Port: port})
+			}
+		}
 	}
 	return uses, nil
 }

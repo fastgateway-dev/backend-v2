@@ -13,6 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// previewListeners is a minimal valid listener list (one HTTPS Terminate
+// listener) for tests that exercise other PreviewCreate validation paths.
+var previewListeners = []models.TemplateListener{
+	{Name: "https", Protocol: models.ListenerHTTPS, Port: 443, TLSMode: models.TLSListenerTerminate},
+}
+
 // ---------------------------------------------------------------------------
 // GetByID
 // ---------------------------------------------------------------------------
@@ -149,7 +155,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidExposureType(t *testing.T) {
 	input := &services.CreateDomainTemplateInput{
 		Name:         "my-template",
 		ExposureType: "InvalidType",
-		TLSMode:      "tls_only",
+		Listeners:    previewListeners,
 	}
 
 	result, err := svc.PreviewCreate(projectID, input, uuid.New(), nil)
@@ -158,7 +164,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidExposureType(t *testing.T) {
 	assert.EqualError(t, err, "exposure type must be 'LoadBalancer' or 'ClusterIP'")
 }
 
-func TestDomainTemplateService_PreviewCreate_InvalidTLSMode(t *testing.T) {
+func TestDomainTemplateService_PreviewCreate_NoListeners(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
 	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
@@ -166,13 +172,13 @@ func TestDomainTemplateService_PreviewCreate_InvalidTLSMode(t *testing.T) {
 	input := &services.CreateDomainTemplateInput{
 		Name:         "my-template",
 		ExposureType: "LoadBalancer",
-		TLSMode:      "invalid",
+		Listeners:    nil,
 	}
 
 	result, err := svc.PreviewCreate(projectID, input, uuid.New(), nil)
 
 	assert.Nil(t, result)
-	assert.EqualError(t, err, "TLS mode must be 'tls_only', 'no_tls', or 'both'")
+	assert.ErrorIs(t, err, services.ErrNoListener)
 }
 
 func TestDomainTemplateService_PreviewCreate_InvalidControllerName(t *testing.T) {
@@ -183,7 +189,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidControllerName(t *testing.T)
 	input := &services.CreateDomainTemplateInput{
 		Name:           "my-template",
 		ExposureType:   "LoadBalancer",
-		TLSMode:        "tls_only",
+		Listeners:      previewListeners,
 		ControllerName: "some-other-controller",
 	}
 
@@ -201,7 +207,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidName(t *testing.T) {
 	input := &services.CreateDomainTemplateInput{
 		Name:         "Invalid Name!",
 		ExposureType: "LoadBalancer",
-		TLSMode:      "tls_only",
+		Listeners:    previewListeners,
 	}
 
 	result, err := svc.PreviewCreate(projectID, input, uuid.New(), nil)
@@ -218,7 +224,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidScalingConfig(t *testing.T) 
 	input := &services.CreateDomainTemplateInput{
 		Name:         "my-template",
 		ExposureType: "LoadBalancer",
-		TLSMode:      "tls_only",
+		Listeners:    previewListeners,
 		ScalingConfig: &models.ScalingConfig{
 			Type: "invalid",
 		},
@@ -238,14 +244,13 @@ func TestDomainTemplateService_PreviewCreate_InvalidPort(t *testing.T) {
 	input := &services.CreateDomainTemplateInput{
 		Name:         "my-template",
 		ExposureType: "LoadBalancer",
-		TLSMode:      "tls_only",
-		HTTPPort:     99999,
+		Listeners:    []models.TemplateListener{{Name: "http", Protocol: models.ListenerHTTP, Port: 99999}},
 	}
 
 	result, err := svc.PreviewCreate(projectID, input, uuid.New(), nil)
 
 	assert.Nil(t, result)
-	assert.EqualError(t, err, "HTTP port must be between 1 and 65535")
+	assert.ErrorIs(t, err, services.ErrInvalidListenerPort)
 }
 
 func TestDomainTemplateService_PreviewCreate_Success(t *testing.T) {
@@ -256,7 +261,7 @@ func TestDomainTemplateService_PreviewCreate_Success(t *testing.T) {
 	input := &services.CreateDomainTemplateInput{
 		Name:         "my-template",
 		ExposureType: "LoadBalancer",
-		TLSMode:      "tls_only",
+		Listeners:    previewListeners,
 	}
 
 	result, err := svc.PreviewCreate(projectID, input, uuid.New(), nil)
@@ -266,9 +271,35 @@ func TestDomainTemplateService_PreviewCreate_Success(t *testing.T) {
 	assert.NotEmpty(t, result.EnvoyProxyYaml)
 	assert.NotEmpty(t, result.GatewayYaml)
 	assert.Nil(t, result.AIReview)
+	// The example Gateway binds every hostname-routed listener of the template.
+	assert.Contains(t, result.GatewayYaml, "name: https")
+	assert.Contains(t, result.GatewayYaml, "port: 443")
 }
 
-func TestDomainTemplateService_PreviewCreate_InvalidTLSPolicy(t *testing.T) {
+func TestDomainTemplateService_PreviewCreate_ExampleGatewayBindsAllHostnameListeners(t *testing.T) {
+	dtRepo := new(mocks.MockDomainTemplateRepository)
+	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
+
+	input := &services.CreateDomainTemplateInput{
+		Name:         "my-template",
+		ExposureType: "LoadBalancer",
+		Listeners: []models.TemplateListener{
+			{Name: "http", Protocol: models.ListenerHTTP, Port: 80},
+			{Name: "https", Protocol: models.ListenerHTTPS, Port: 443, TLSMode: models.TLSListenerTerminate},
+			{Name: "tcpudp", Protocol: models.ListenerTCP, PortRangeMin: 9000, PortRangeMax: 9100},
+		},
+	}
+
+	result, err := svc.PreviewCreate(uuid.New(), input, uuid.New(), nil)
+
+	require.NoError(t, err)
+	assert.Contains(t, result.GatewayYaml, "name: http")
+	assert.Contains(t, result.GatewayYaml, "name: https")
+	// The stream range belongs to stream Gateways, not the domain example.
+	assert.NotContains(t, result.GatewayYaml, "tcpudp")
+}
+
+func TestDomainTemplateService_PreviewCreate_TLSPassthroughNotSupported(t *testing.T) {
 	dtRepo := new(mocks.MockDomainTemplateRepository)
 	svc := services.NewDomainTemplateService(dtRepo, nil, nil, nil, nil)
 
@@ -276,14 +307,13 @@ func TestDomainTemplateService_PreviewCreate_InvalidTLSPolicy(t *testing.T) {
 	input := &services.CreateDomainTemplateInput{
 		Name:         "my-template",
 		ExposureType: "LoadBalancer",
-		TLSMode:      "tls_only",
-		TLSPolicy:    "invalid-policy",
+		Listeners:    []models.TemplateListener{{Name: "tls", Protocol: models.ListenerTLS, Port: 8443, TLSMode: models.TLSListenerPassthrough}},
 	}
 
 	result, err := svc.PreviewCreate(projectID, input, uuid.New(), nil)
 
 	assert.Nil(t, result)
-	assert.EqualError(t, err, "TLS policy must be 'terminate' or 'passthrough'")
+	assert.ErrorIs(t, err, services.ErrTLSPassthroughNotSupported)
 }
 
 func TestDomainTemplateService_PreviewCreate_InvalidExternalTrafficPolicy(t *testing.T) {
@@ -294,7 +324,7 @@ func TestDomainTemplateService_PreviewCreate_InvalidExternalTrafficPolicy(t *tes
 	input := &services.CreateDomainTemplateInput{
 		Name:                  "my-template",
 		ExposureType:          "LoadBalancer",
-		TLSMode:               "tls_only",
+		Listeners:             previewListeners,
 		ExternalTrafficPolicy: "Invalid",
 	}
 
@@ -316,7 +346,7 @@ func TestDomainTemplateService_PreviewCreate_FixedScalingNoReplicas(t *testing.T
 	input := &services.CreateDomainTemplateInput{
 		Name:         "my-template",
 		ExposureType: "LoadBalancer",
-		TLSMode:      "tls_only",
+		Listeners:    previewListeners,
 		ScalingConfig: &models.ScalingConfig{
 			Type: "fixed",
 		},
@@ -334,7 +364,7 @@ func TestDomainTemplateService_PreviewCreate_HPAMissingMin(t *testing.T) {
 	input := &services.CreateDomainTemplateInput{
 		Name:         "my-template",
 		ExposureType: "LoadBalancer",
-		TLSMode:      "tls_only",
+		Listeners:    previewListeners,
 		ScalingConfig: &models.ScalingConfig{
 			Type: "hpa",
 		},
@@ -353,7 +383,7 @@ func TestDomainTemplateService_PreviewCreate_HPAMissingMax(t *testing.T) {
 	input := &services.CreateDomainTemplateInput{
 		Name:         "my-template",
 		ExposureType: "LoadBalancer",
-		TLSMode:      "tls_only",
+		Listeners:    previewListeners,
 		ScalingConfig: &models.ScalingConfig{
 			Type:        "hpa",
 			MinReplicas: &min,
@@ -374,7 +404,7 @@ func TestDomainTemplateService_PreviewCreate_HPAMaxLessThanMin(t *testing.T) {
 	input := &services.CreateDomainTemplateInput{
 		Name:         "my-template",
 		ExposureType: "LoadBalancer",
-		TLSMode:      "tls_only",
+		Listeners:    previewListeners,
 		ScalingConfig: &models.ScalingConfig{
 			Type:        "hpa",
 			MinReplicas: &min,
@@ -496,23 +526,25 @@ func TestDomainTemplateService_List_CapabilityFilter(t *testing.T) {
 		_ = db.Exec(`DELETE FROM users WHERE id = ?`, userID).Error
 	})
 
-	// Flags are set explicitly: EnableDomain has no GORM default, so an unset
-	// field would persist false.
+	// Capability is inferred from the listeners column: a domain template has
+	// an HTTP/HTTPS listener, a stream template a TCP/UDP range, and a merged
+	// template both.
+	httpsL := models.TemplateListener{Name: "https", Protocol: models.ListenerHTTPS, Port: 443, TLSMode: models.TLSListenerTerminate}
+	rangeL := models.TemplateListener{Name: "tcpudp", Protocol: models.ListenerTCP, PortRangeMin: 1024, PortRangeMax: 65535}
 	fixtures := []struct {
-		name           string
-		domain, stream bool
+		name      string
+		listeners models.Listeners
 	}{
-		{"tmplA", true, false},
-		{"tmplB", false, true},
-		{"tmplC", true, true},
+		{"tmplA", models.Listeners{httpsL}},
+		{"tmplB", models.Listeners{rangeL}},
+		{"tmplC", models.Listeners{httpsL, rangeL}},
 	}
 	for _, f := range fixtures {
 		require.NoError(t, db.Create(&models.DomainTemplate{
-			ProjectID:    projectID,
-			Name:         f.name,
-			EnableDomain: f.domain,
-			EnableStream: f.stream,
-			CreatedBy:    userID,
+			ProjectID: projectID,
+			Name:      f.name,
+			Listeners: f.listeners,
+			CreatedBy: userID,
 		}).Error)
 	}
 

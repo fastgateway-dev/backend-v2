@@ -66,8 +66,8 @@ func seedProject(t *testing.T, db *gorm.DB) (projectID, domainID, teamID, userID
 
 	// Insert domain (created_by → user).
 	require.NoError(t, db.Exec(`
-		INSERT INTO domains (id, project_id, name, hostname, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
+		INSERT INTO domains (id, project_id, name, hostname, bound_listeners, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, '["https"]'::jsonb, ?, NOW(), NOW())`,
 		domainID, projectID, "test-domain-"+domainID.String(), domainID.String()+".test.example.com", userID).Error)
 
 	t.Cleanup(func() {

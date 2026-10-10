@@ -89,12 +89,14 @@ func (e *collisionEnv) stream(t *testing.T, tmplID uuid.UUID) uuid.UUID {
 	return s.ID
 }
 
-func (e *collisionEnv) domain(t *testing.T, tmplID uuid.UUID, httpPort, httpsPort int) {
+// domain inserts a domain bound to the template's http and https listeners
+// (ports 80 and 443 on the template() fixture).
+func (e *collisionEnv) domain(t *testing.T, tmplID uuid.UUID) {
 	t.Helper()
 	id := uuid.New()
-	require.NoError(t, e.db.Exec(`INSERT INTO domains (id, project_id, domain_template_id, name, hostname, http_port, https_port, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-		id, e.projectID, tmplID, "d-"+id.String(), id.String()+".test.example.com", httpPort, httpsPort, e.userID).Error)
+	require.NoError(t, e.db.Exec(`INSERT INTO domains (id, project_id, domain_template_id, name, hostname, bound_listeners, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, '["http","https"]'::jsonb, ?, NOW(), NOW())`,
+		id, e.projectID, tmplID, "d-"+id.String(), id.String()+".test.example.com", e.userID).Error)
 }
 
 // l4Route inserts an L4 route of the given protocol ("tcp"/"udp") on a stream.
@@ -132,7 +134,7 @@ func TestCheckPortCollision_TCPvsUDP_SameNumber_OK(t *testing.T) {
 func TestCheckPortCollision_Merged_HitsDomainHTTPSPort(t *testing.T) {
 	e := newCollisionEnv(t)
 	tmplID := e.template(t, true)
-	e.domain(t, tmplID, 80, 443)
+	e.domain(t, tmplID)
 	streamID := e.stream(t, tmplID)
 
 	// HTTPS 443 and HTTP 80 are TCP-transport listeners on the merged class.
@@ -150,7 +152,7 @@ func TestCheckPortCollision_NotMerged_OtherStreamSamePort_OK(t *testing.T) {
 	streamB := e.stream(t, tmplID)
 	e.l4Route(t, streamA, "tcp", 5432, "active")
 	// Domains on an unmerged template have their own Gateways: no collision.
-	e.domain(t, tmplID, 80, 443)
+	e.domain(t, tmplID)
 
 	assert.NoError(t, e.svc.CheckPortCollision(streamB, "TCP", 5432, nil))
 	assert.NoError(t, e.svc.CheckPortCollision(streamA, "TCP", 443, nil))

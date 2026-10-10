@@ -27,12 +27,11 @@ func TestUpdateGateway_CreatesWhenMissing(t *testing.T) {
 	c := &Client{testClient: dyn}
 
 	config := &kubernetes.GatewayConfig{
-		Name:             "gw-1",
-		Namespace:        "project-ns",
-		GatewayClassName: "envoy-gateway",
-		Hostname:         "example.com",
-		TLSMode:          "no_tls",
-		HTTPPort:         80,
+		Name:              "gw-1",
+		Namespace:         "project-ns",
+		GatewayClassName:  "envoy-gateway",
+		Hostname:          "example.com",
+		HostnameListeners: []kubernetes.HostnameListener{{Name: "http", Protocol: "HTTP", Port: 80}},
 	}
 
 	err := c.UpdateGateway(context.Background(), uuid.New(), config)
@@ -49,12 +48,11 @@ func TestUpdateGateway_UpdatesWhenPresent(t *testing.T) {
 	c := &Client{testClient: dyn}
 
 	config := &kubernetes.GatewayConfig{
-		Name:             "gw-2",
-		Namespace:        "project-ns",
-		GatewayClassName: "envoy-gateway",
-		Hostname:         "example.com",
-		TLSMode:          "no_tls",
-		HTTPPort:         80,
+		Name:              "gw-2",
+		Namespace:         "project-ns",
+		GatewayClassName:  "envoy-gateway",
+		Hostname:          "example.com",
+		HostnameListeners: []kubernetes.HostnameListener{{Name: "http", Protocol: "HTTP", Port: 80}},
 	}
 
 	// First call creates it, since the Gateway does not exist yet.

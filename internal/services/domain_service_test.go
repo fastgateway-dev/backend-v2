@@ -217,6 +217,14 @@ func TestDomainService_ListByProjectID_Success(t *testing.T) {
 // Create
 // =========================================================================
 
+// httpOnlyListeners / httpsListeners are the listener sets of a plain-HTTP
+// template (no TLS secret needed) and an HTTPS-Terminate template (TLS secret
+// required). Their listener names are "http" and "https".
+var (
+	httpOnlyListeners = models.Listeners{{Name: "http", Protocol: models.ListenerHTTP, Port: 80}}
+	httpsListeners    = models.Listeners{{Name: "https", Protocol: models.ListenerHTTPS, Port: 443, TLSMode: models.TLSListenerTerminate}}
+)
+
 func TestDomainService_Create_HostnameAlreadyExists(t *testing.T) {
 	svc, domainRepo, _, dtRepo, _, _, _ := newTestDomainService()
 
@@ -317,6 +325,7 @@ func TestDomainService_Create_TLSRequiredButMissing(t *testing.T) {
 		Name:             "test",
 		Hostname:         "new.example.com",
 		DomainTemplateID: dtID.String(),
+		BoundListeners:   []string{"https"},
 		// TLSSecretName intentionally empty
 	}
 
@@ -325,7 +334,7 @@ func TestDomainService_Create_TLSRequiredButMissing(t *testing.T) {
 		ProjectID: projectID,
 		Name:      "tpl",
 		Status:    models.DomainTemplateStatusActive,
-		TLSMode:   models.TLSModeOnly, // requires TLS secret
+		Listeners: httpsListeners, // HTTPS Terminate requires a TLS secret
 	}
 
 	domainRepo.On("ExistsByHostname", projectID, "new.example.com").Return(false, nil)
@@ -1190,17 +1199,21 @@ func TestNewDomainService_RequiresEveryDependency(t *testing.T) {
 // internal/services green. That gap is closed by code review only.
 func TestDomainService_DeployGatewayConfig_MatchesDomainplanBuilder(t *testing.T) {
 	tmplID := uuid.New()
+	tmpl := &models.DomainTemplate{
+		ID: tmplID,
+		Listeners: models.Listeners{
+			{Name: "http", Protocol: models.ListenerHTTP, Port: 80},
+			{Name: "https", Protocol: models.ListenerHTTPS, Port: 443, TLSMode: models.TLSListenerTerminate},
+		},
+	}
 	domain := &models.Domain{
 		K8sGatewayName:     "eg",
 		Namespace:          "gateway-ns",
 		K8sGatewayClass:    "example-public",
 		Hostname:           "example.com",
-		TLSMode:            "tls_only",
-		HTTPPort:           80,
-		HTTPSPort:          443,
+		BoundListeners:     []string{"http", "https"},
 		TLSSecretName:      "wildcard-tls",
 		TLSSecretNamespace: "shared-certs",
-		TLSPolicy:          models.TLSPolicyTerminate,
 		DomainTemplateID:   &tmplID,
 	}
 	annotations := map[string]string{"a": "1"}
@@ -1210,16 +1223,16 @@ func TestDomainService_DeployGatewayConfig_MatchesDomainplanBuilder(t *testing.T
 		Namespace:          domain.Namespace,
 		GatewayClassName:   domain.K8sGatewayClass,
 		Hostname:           domain.Hostname,
-		TLSMode:            domain.TLSMode,
-		HTTPPort:           domain.HTTPPort,
-		HTTPSPort:          domain.HTTPSPort,
 		TLSSecretName:      domain.TLSSecretName,
 		TLSSecretNamespace: domain.TLSSecretNamespace,
-		TLSPolicy:          string(domain.TLSPolicy),
-		Annotations:        annotations,
+		HostnameListeners: []kubernetes.HostnameListener{
+			{Name: "http", Protocol: "HTTP", Port: 80},
+			{Name: "https", Protocol: "HTTPS", Port: 443, TLSMode: "Terminate"},
+		},
+		Annotations: annotations,
 	}
 
-	require.Equal(t, want, domainplan.BuildGatewayConfig(domain, annotations))
+	require.Equal(t, want, domainplan.BuildGatewayConfig(domain, tmpl, annotations))
 }
 
 // TestDomainService_Create_SelectingManagedCertAttachesIt verifies Option A:
@@ -1238,12 +1251,13 @@ func TestDomainService_Create_SelectingManagedCertAttachesIt(t *testing.T) {
 		Hostname:         "new.example.com",
 		DomainTemplateID: dtID.String(),
 		Namespace:        kubernetes.FastGatewayNamespace,
+		BoundListeners:   []string{"https"},
 		TLSSecretName:    "cert-" + certID.String(),
 	}
 	dt := &models.DomainTemplate{
 		ID: dtID, ProjectID: projectID, Name: "tpl",
-		Status:  models.DomainTemplateStatusActive,
-		TLSMode: models.TLSModeOnly,
+		Status:    models.DomainTemplateStatusActive,
+		Listeners: httpsListeners,
 	}
 
 	domainRepo.On("ExistsByHostname", projectID, "new.example.com").Return(false, nil)
@@ -1279,12 +1293,13 @@ func TestDomainService_Create_ByoSecretDoesNotAttach(t *testing.T) {
 		Hostname:         "new.example.com",
 		DomainTemplateID: dtID.String(),
 		Namespace:        kubernetes.FastGatewayNamespace,
+		BoundListeners:   []string{"https"},
 		TLSSecretName:    "my-wildcard-tls",
 	}
 	dt := &models.DomainTemplate{
 		ID: dtID, ProjectID: projectID, Name: "tpl",
-		Status:  models.DomainTemplateStatusActive,
-		TLSMode: models.TLSModeOnly,
+		Status:    models.DomainTemplateStatusActive,
+		Listeners: httpsListeners,
 	}
 
 	domainRepo.On("ExistsByHostname", projectID, "new.example.com").Return(false, nil)
@@ -1363,8 +1378,8 @@ func TestCreateDomain_WithDNS_EnablesRecord(t *testing.T) {
 
 	dt := &models.DomainTemplate{
 		ID: dtID, ProjectID: projectID, Name: "tpl",
-		Status:  models.DomainTemplateStatusActive,
-		TLSMode: models.TLSModeNone,
+		Status:    models.DomainTemplateStatusActive,
+		Listeners: httpOnlyListeners,
 	}
 
 	domainRepo.On("ExistsByHostname", projectID, "app.example.com").Return(false, nil)
@@ -1377,6 +1392,7 @@ func TestCreateDomain_WithDNS_EnablesRecord(t *testing.T) {
 		Name:             "d",
 		Hostname:         "app.example.com",
 		DomainTemplateID: dtID.String(),
+		BoundListeners:   []string{"http"},
 		Namespace:        kubernetes.FastGatewayNamespace,
 		DNS: &services.DomainDNSInput{
 			Enabled:      true,
@@ -1408,8 +1424,8 @@ func TestCreateDomain_WithDNS_Disabled(t *testing.T) {
 
 	dt := &models.DomainTemplate{
 		ID: dtID, ProjectID: projectID, Name: "tpl",
-		Status:  models.DomainTemplateStatusActive,
-		TLSMode: models.TLSModeNone,
+		Status:    models.DomainTemplateStatusActive,
+		Listeners: httpOnlyListeners,
 	}
 
 	domainRepo.On("ExistsByHostname", projectID, "app2.example.com").Return(false, nil)
@@ -1422,6 +1438,7 @@ func TestCreateDomain_WithDNS_Disabled(t *testing.T) {
 		Name:             "d",
 		Hostname:         "app2.example.com",
 		DomainTemplateID: dtID.String(),
+		BoundListeners:   []string{"http"},
 		Namespace:        kubernetes.FastGatewayNamespace,
 	}, uuid.New())
 
@@ -1444,8 +1461,8 @@ func TestCreateDomain_WithDNS_EnableFailureIsBestEffort(t *testing.T) {
 
 	dt := &models.DomainTemplate{
 		ID: dtID, ProjectID: projectID, Name: "tpl",
-		Status:  models.DomainTemplateStatusActive,
-		TLSMode: models.TLSModeNone,
+		Status:    models.DomainTemplateStatusActive,
+		Listeners: httpOnlyListeners,
 	}
 
 	domainRepo.On("ExistsByHostname", projectID, "app3.example.com").Return(false, nil)
@@ -1458,6 +1475,7 @@ func TestCreateDomain_WithDNS_EnableFailureIsBestEffort(t *testing.T) {
 		Name:             "d",
 		Hostname:         "app3.example.com",
 		DomainTemplateID: dtID.String(),
+		BoundListeners:   []string{"http"},
 		Namespace:        kubernetes.FastGatewayNamespace,
 		DNS: &services.DomainDNSInput{
 			Enabled:      true,
@@ -1597,7 +1615,7 @@ func TestCreateDomain_WithDNS_NilManagerSkipsCheck(t *testing.T) {
 	// dnsRecords intentionally NOT wired.
 	projectID := uuid.New()
 	dtID := uuid.New()
-	dt := &models.DomainTemplate{ID: dtID, ProjectID: projectID, Name: "tpl", Status: models.DomainTemplateStatusActive, TLSMode: models.TLSModeNone}
+	dt := &models.DomainTemplate{ID: dtID, ProjectID: projectID, Name: "tpl", Status: models.DomainTemplateStatusActive, Listeners: httpOnlyListeners}
 	domainRepo.On("ExistsByHostname", projectID, "nilskip.example.com").Return(false, nil)
 	dtRepo.On("GetByID", dtID).Return(dt, nil)
 	domainRepo.On("Create", mock.AnythingOfType("*models.Domain")).Return(nil)
@@ -1606,8 +1624,9 @@ func TestCreateDomain_WithDNS_NilManagerSkipsCheck(t *testing.T) {
 
 	result, err := svc.Create(projectID, &services.CreateDomainInput{
 		Name: "d", Hostname: "nilskip.example.com", DomainTemplateID: dtID.String(),
-		Namespace: kubernetes.FastGatewayNamespace,
-		DNS:       &services.DomainDNSInput{Enabled: true, HostedZoneID: uuid.New().String()},
+		BoundListeners: []string{"http"},
+		Namespace:      kubernetes.FastGatewayNamespace,
+		DNS:            &services.DomainDNSInput{Enabled: true, HostedZoneID: uuid.New().String()},
 	}, uuid.New())
 	require.NoError(t, err)
 	require.NotNil(t, result)
