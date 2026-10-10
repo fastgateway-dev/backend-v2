@@ -5,6 +5,12 @@ import (
 	"strings"
 )
 
+// Capability names. Use these instead of string literals at call sites.
+const (
+	CapStreams   = "streams"
+	CapL4RouteV1 = "l4RouteV1"
+)
+
 // Versions holds the detected cluster versions a capability reasons about.
 // An empty field means that version could not be detected.
 type Versions struct {
@@ -28,7 +34,7 @@ type Capability struct {
 // Registry is the single source of truth for version-derived capabilities.
 var Registry = []Capability{
 	{
-		Name:               "streams",
+		Name:               CapStreams,
 		Source:             func(v Versions) string { return v.EnvoyGateway },
 		MinMajor:           1,
 		MinMinor:           8,
@@ -36,7 +42,7 @@ var Registry = []Capability{
 		DefaultWhenUnknown: true,
 	},
 	{
-		Name:               "l4RouteV1",
+		Name:               CapL4RouteV1,
 		Source:             func(v Versions) string { return v.GatewayAPI },
 		MinMajor:           1,
 		MinMinor:           6,

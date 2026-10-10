@@ -57,9 +57,10 @@ type RouteApplier interface {
 	DeleteDirectResponseConfigMap(ctx context.Context, projectID uuid.UUID, namespace, name string) error
 }
 
-// L4RouteApplier writes the Gateway API v1alpha2 TCPRoute and UDPRoute objects
-// that back an L4 stream route. It is a role of its own rather than part of
-// RouteApplier because RouteApplier is already at the twelve-method cap.
+// L4RouteApplier writes the Gateway API (v1 or v1alpha2, caller-resolved)
+// TCPRoute and UDPRoute objects that back an L4 stream route. It is a role of
+// its own rather than part of RouteApplier because RouteApplier is already at
+// the twelve-method cap.
 //
 // Consumer: RouteService (L4 stream route deploy).
 type L4RouteApplier interface {

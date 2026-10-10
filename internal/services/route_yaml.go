@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/fastgateway-dev/backend-v2/internal/capabilities"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/routeplan"
@@ -597,7 +598,7 @@ func (q *routeQuery) generateL4RouteYAML(route *models.Route) (string, error) {
 
 	// Match what deploy applies: v1 when the project's cluster supports it.
 	apiVersion := "gateway.networking.k8s.io/v1alpha2"
-	if q.capabilities.Has(context.Background(), stream.ProjectID, "l4RouteV1") {
+	if q.capabilities.Has(context.Background(), stream.ProjectID, capabilities.CapL4RouteV1) {
 		apiVersion = "gateway.networking.k8s.io/v1"
 	}
 

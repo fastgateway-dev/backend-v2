@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/fastgateway-dev/backend-v2/internal/capabilities"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/streamplan"
@@ -200,7 +201,7 @@ func StreamGatewayName(name string) string {
 // until routes exist); like DomainService.Create, a deploy failure is recorded
 // on the returned stream's status rather than returned as an error.
 func (s *StreamService) Create(projectID uuid.UUID, in CreateStreamInput, user *models.User) (*models.Stream, error) {
-	if s.capabilities != nil && !s.capabilities.Has(context.Background(), projectID, "streams") {
+	if s.capabilities != nil && !s.capabilities.Has(context.Background(), projectID, capabilities.CapStreams) {
 		return nil, ErrStreamsUnsupported
 	}
 	tmpl, err := s.templateRepo.GetByID(in.GatewayTemplateID)

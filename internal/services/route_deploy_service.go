@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/fastgateway-dev/backend-v2/internal/capabilities"
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
@@ -459,7 +460,7 @@ func (d *routeDeploy) applyL4Route(ctx context.Context, route *models.Route, str
 	if create {
 		verb = "create"
 	}
-	useV1 := d.capabilities.Has(ctx, stream.ProjectID, "l4RouteV1")
+	useV1 := d.capabilities.Has(ctx, stream.ProjectID, capabilities.CapL4RouteV1)
 	gvr := l4RouteGVR(route.Protocol, useV1)
 	switch route.Protocol {
 	case models.RouteProtocolTCP:
@@ -490,7 +491,7 @@ func (d *routeDeploy) applyL4Route(ctx context.Context, route *models.Route, str
 
 // deleteL4Route deletes the TCPRoute/UDPRoute from the stream's namespace.
 func (d *routeDeploy) deleteL4Route(ctx context.Context, route *models.Route, stream *models.Stream) error {
-	gvr := l4RouteGVR(route.Protocol, d.capabilities.Has(ctx, stream.ProjectID, "l4RouteV1"))
+	gvr := l4RouteGVR(route.Protocol, d.capabilities.Has(ctx, stream.ProjectID, capabilities.CapL4RouteV1))
 	switch route.Protocol {
 	case models.RouteProtocolTCP:
 		if err := d.k8sL4Routes.DeleteTCPRoute(ctx, stream.ProjectID, stream.Namespace, route.K8sRouteName, gvr); err != nil {
