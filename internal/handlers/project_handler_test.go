@@ -21,7 +21,7 @@ func TestProjectHandler_List_Success(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	user := testUser()
 	projects := []models.Project{
@@ -49,7 +49,7 @@ func TestProjectHandler_Create_Success(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	user := testUser()
 	project := &models.Project{ID: uuid.New(), Name: "new-project"}
@@ -73,7 +73,7 @@ func TestProjectHandler_Get_Success(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	projectID := uuid.New()
 	project := &models.Project{ID: projectID, Name: "proj1"}
@@ -94,7 +94,7 @@ func TestProjectHandler_Get_InvalidID(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -110,7 +110,7 @@ func TestProjectHandler_Delete_Success(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -137,7 +137,7 @@ func TestProjectHandler_Update_Success(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -165,7 +165,7 @@ func TestProjectHandler_TestConnection_Success(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	projectID := uuid.New()
 	mockProject.On("TestConnection", projectID).Return(true, "Connected", "v1.28.0", nil)
@@ -189,7 +189,7 @@ func TestProjectHandler_ListAdmins_Success(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	projectID := uuid.New()
 	admins := []models.User{
@@ -213,7 +213,7 @@ func TestProjectHandler_AddAdmin_Success(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -241,7 +241,7 @@ func TestProjectHandler_Delete_NotFound(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -262,7 +262,7 @@ func TestProjectHandler_RemoveAdmin_Success(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -288,7 +288,7 @@ func TestProjectHandler_RemoveAdmin_InvalidProjectID(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	user := testUser()
 
@@ -309,7 +309,7 @@ func TestProjectHandler_RemoveAdmin_InvalidUserID(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -331,7 +331,7 @@ func TestProjectHandler_RemoveAdmin_ServiceError(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	user := testUser()
 	projectID := uuid.New()
@@ -355,10 +355,12 @@ func TestProjectHandler_GetCapabilities_Success(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	mockCaps := new(mocks.MockCapabilityEvaluator)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, mockCaps)
 
 	projectID := uuid.New()
 	mockK8s.On("IsRateLimitAvailable", mock.Anything, projectID).Return(true, nil)
+	mockCaps.On("Evaluate", mock.Anything, projectID).Return(map[string]bool{"streams": true})
 
 	router := gin.New()
 	router.GET("/projects/:projectId/capabilities", func(c *gin.Context) {
@@ -373,13 +375,14 @@ func TestProjectHandler_GetCapabilities_Success(t *testing.T) {
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, true, resp["rateLimitAvailable"])
+	assert.Equal(t, true, resp["streamAvailable"])
 }
 
 func TestProjectHandler_GetCapabilities_InvalidID(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	router := gin.New()
 	router.GET("/projects/:projectId/capabilities", func(c *gin.Context) {
@@ -397,7 +400,7 @@ func TestProjectHandler_GetCapabilities_ServiceError(t *testing.T) {
 	mockProject := new(mocks.MockProjectService)
 	mockAudit := new(mocks.MockAuditService)
 	mockK8s := new(mocks.MockKubernetesService)
-	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s)
+	h := handlers.NewProjectHandler(mockProject, mockAudit, mockK8s, nil)
 
 	projectID := uuid.New()
 	mockK8s.On("IsRateLimitAvailable", mock.Anything, projectID).Return(false, errors.New("k8s error"))

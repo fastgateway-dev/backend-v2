@@ -295,7 +295,7 @@ func main() {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService, auditService)
-	projectHandler := handlers.NewProjectHandler(projectService, auditService, k8sService)
+	projectHandler := handlers.NewProjectHandler(projectService, auditService, k8sService, capabilityService)
 	metricsService := services.NewMetricsService(projectRepo, routeRepo, domainRepo, cfg)
 	metricsService.SetStreamRepo(streamRepo)
 	metricsHandler := handlers.NewMetricsHandler(metricsService)
