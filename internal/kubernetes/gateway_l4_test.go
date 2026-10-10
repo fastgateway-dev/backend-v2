@@ -42,7 +42,7 @@ func TestBuildGatewayObject_L4Listeners(t *testing.T) {
 }
 
 func TestBuildGatewayObject_NoL4ListenersKeepsDomainBehavior(t *testing.T) {
-	obj := BuildGatewayObject(&GatewayConfig{Name: "g", Namespace: "n", GatewayClassName: "c", Hostname: "a.example.com", TLSMode: "no_tls", HTTPPort: 80})
+	obj := BuildGatewayObject(&GatewayConfig{Name: "g", Namespace: "n", GatewayClassName: "c", Hostname: "a.example.com", HostnameListeners: []HostnameListener{{Name: "http", Protocol: "HTTP", Port: 80}}})
 	ls, _, _ := unstructured.NestedSlice(obj.Object, "spec", "listeners")
 	require.Len(t, ls, 1)
 	assert.Equal(t, "HTTP", ls[0].(map[string]interface{})["protocol"])

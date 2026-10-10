@@ -2239,13 +2239,12 @@ func TestBuildGatewayObject_Nil(t *testing.T) {
 
 func TestBuildGatewayObject_TLSOnly(t *testing.T) {
 	config := &kubernetes.GatewayConfig{
-		Name:             "gw",
-		Namespace:        "ns",
-		GatewayClassName: "eg",
-		Hostname:         "example.com",
-		TLSMode:          "tls_only",
-		HTTPSPort:        443,
-		TLSSecretName:    "tls-secret",
+		Name:              "gw",
+		Namespace:         "ns",
+		GatewayClassName:  "eg",
+		Hostname:          "example.com",
+		HostnameListeners: []kubernetes.HostnameListener{{Name: "https", Protocol: "HTTPS", Port: 443, TLSMode: "Terminate"}},
+		TLSSecretName:     "tls-secret",
 	}
 	gw := kubernetes.BuildGatewayObject(config)
 	spec := gw.Object["spec"].(map[string]interface{})
@@ -2261,14 +2260,12 @@ func TestBuildGatewayObject_TLSOnly(t *testing.T) {
 
 func TestBuildGatewayObject_Both(t *testing.T) {
 	config := &kubernetes.GatewayConfig{
-		Name:             "gw",
-		Namespace:        "ns",
-		GatewayClassName: "eg",
-		Hostname:         "example.com",
-		TLSMode:          "both",
-		HTTPPort:         80,
-		HTTPSPort:        443,
-		TLSSecretName:    "tls-secret",
+		Name:              "gw",
+		Namespace:         "ns",
+		GatewayClassName:  "eg",
+		Hostname:          "example.com",
+		HostnameListeners: []kubernetes.HostnameListener{{Name: "http", Protocol: "HTTP", Port: 80}, {Name: "https", Protocol: "HTTPS", Port: 443, TLSMode: "Terminate"}},
+		TLSSecretName:     "tls-secret",
 	}
 	gw := kubernetes.BuildGatewayObject(config)
 	spec := gw.Object["spec"].(map[string]interface{})
@@ -2280,12 +2277,11 @@ func TestBuildGatewayObject_Both(t *testing.T) {
 
 func TestBuildGatewayObject_NoTLS(t *testing.T) {
 	config := &kubernetes.GatewayConfig{
-		Name:             "gw",
-		Namespace:        "ns",
-		GatewayClassName: "eg",
-		Hostname:         "example.com",
-		TLSMode:          "no_tls",
-		HTTPPort:         80,
+		Name:              "gw",
+		Namespace:         "ns",
+		GatewayClassName:  "eg",
+		Hostname:          "example.com",
+		HostnameListeners: []kubernetes.HostnameListener{{Name: "http", Protocol: "HTTP", Port: 80}},
 	}
 	gw := kubernetes.BuildGatewayObject(config)
 	spec := gw.Object["spec"].(map[string]interface{})
@@ -2301,13 +2297,12 @@ func TestBuildGatewayObject_NoTLS(t *testing.T) {
 
 func TestBuildGatewayObject_Annotations(t *testing.T) {
 	config := &kubernetes.GatewayConfig{
-		Name:             "gw",
-		Namespace:        "ns",
-		GatewayClassName: "eg",
-		Hostname:         "example.com",
-		TLSMode:          "no_tls",
-		HTTPPort:         80,
-		Annotations:      map[string]string{"key": "value"},
+		Name:              "gw",
+		Namespace:         "ns",
+		GatewayClassName:  "eg",
+		Hostname:          "example.com",
+		HostnameListeners: []kubernetes.HostnameListener{{Name: "http", Protocol: "HTTP", Port: 80}},
+		Annotations:       map[string]string{"key": "value"},
 	}
 	gw := kubernetes.BuildGatewayObject(config)
 	meta := gw.Object["metadata"].(map[string]interface{})
@@ -2319,14 +2314,12 @@ func TestBuildGatewayObject_Annotations(t *testing.T) {
 
 func TestBuildGatewayObject_Passthrough(t *testing.T) {
 	config := &kubernetes.GatewayConfig{
-		Name:             "gw",
-		Namespace:        "ns",
-		GatewayClassName: "eg",
-		Hostname:         "example.com",
-		TLSMode:          "tls_only",
-		HTTPSPort:        443,
-		TLSSecretName:    "tls-secret",
-		TLSPolicy:        "passthrough",
+		Name:              "gw",
+		Namespace:         "ns",
+		GatewayClassName:  "eg",
+		Hostname:          "example.com",
+		HostnameListeners: []kubernetes.HostnameListener{{Name: "https", Protocol: "HTTPS", Port: 443, TLSMode: "Passthrough"}},
+		TLSSecretName:     "tls-secret",
 	}
 	gw := kubernetes.BuildGatewayObject(config)
 	spec := gw.Object["spec"].(map[string]interface{})
@@ -4047,12 +4040,11 @@ func TestBuildBackendTrafficPolicy_FaultInjection_GRPCAbort(t *testing.T) {
 
 func TestBuildGatewayObject_HTTPOnly(t *testing.T) {
 	config := &kubernetes.GatewayConfig{
-		Name:             "gw",
-		Namespace:        "ns",
-		GatewayClassName: "eg",
-		Hostname:         "example.com",
-		TLSMode:          "no_tls",
-		HTTPPort:         80,
+		Name:              "gw",
+		Namespace:         "ns",
+		GatewayClassName:  "eg",
+		Hostname:          "example.com",
+		HostnameListeners: []kubernetes.HostnameListener{{Name: "http", Protocol: "HTTP", Port: 80}},
 	}
 	gw := kubernetes.BuildGatewayObject(config)
 	if gw == nil {
@@ -4703,12 +4695,9 @@ func TestBuildGatewayObject_CrossNamespaceTLSSecret(t *testing.T) {
 		Namespace:          "fastgateway-system",
 		GatewayClassName:   "eg",
 		Hostname:           "example.com",
-		TLSMode:            "tls_only",
-		HTTPPort:           80,
-		HTTPSPort:          443,
+		HostnameListeners:  []kubernetes.HostnameListener{{Name: "https", Protocol: "HTTPS", Port: 443, TLSMode: "Terminate"}},
 		TLSSecretName:      "my-cert",
 		TLSSecretNamespace: "production",
-		TLSPolicy:          "terminate",
 	}
 
 	gw := kubernetes.BuildGatewayObject(config)
@@ -4731,15 +4720,12 @@ func TestBuildGatewayObject_CrossNamespaceTLSSecret(t *testing.T) {
 
 func TestBuildGatewayObject_SameNamespaceTLSSecret(t *testing.T) {
 	config := &kubernetes.GatewayConfig{
-		Name:             "test-gw",
-		Namespace:        "fastgateway-system",
-		GatewayClassName: "eg",
-		Hostname:         "example.com",
-		TLSMode:          "tls_only",
-		HTTPPort:         80,
-		HTTPSPort:        443,
-		TLSSecretName:    "my-cert",
-		TLSPolicy:        "terminate",
+		Name:              "test-gw",
+		Namespace:         "fastgateway-system",
+		GatewayClassName:  "eg",
+		Hostname:          "example.com",
+		HostnameListeners: []kubernetes.HostnameListener{{Name: "https", Protocol: "HTTPS", Port: 443, TLSMode: "Terminate"}},
+		TLSSecretName:     "my-cert",
 		// TLSSecretNamespace is empty — same namespace
 	}
 
@@ -4767,12 +4753,9 @@ func TestBuildGatewayObject_FastgatewaySystemNamespaceOmitted(t *testing.T) {
 		Namespace:          "fastgateway-system",
 		GatewayClassName:   "eg",
 		Hostname:           "example.com",
-		TLSMode:            "tls_only",
-		HTTPPort:           80,
-		HTTPSPort:          443,
+		HostnameListeners:  []kubernetes.HostnameListener{{Name: "https", Protocol: "HTTPS", Port: 443, TLSMode: "Terminate"}},
 		TLSSecretName:      "my-cert",
 		TLSSecretNamespace: "fastgateway-system",
-		TLSPolicy:          "terminate",
 	}
 
 	gw := kubernetes.BuildGatewayObject(config)

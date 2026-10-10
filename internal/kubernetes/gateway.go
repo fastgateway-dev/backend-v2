@@ -12,21 +12,33 @@ type GatewayConfig struct {
 	Namespace          string
 	GatewayClassName   string
 	Hostname           string
-	TLSMode            string // tls_only, no_tls, both
-	HTTPPort           int
-	HTTPSPort          int
 	TLSSecretName      string
 	TLSSecretNamespace string
-	TLSPolicy          string
 	Annotations        map[string]string
 
+	// HostnameListeners are the hostname-routed (HTTP/HTTPS) listeners emitted
+	// for a Domain gateway, in the order given. Migrated domains carry exactly
+	// "http" and/or "https" names, ordered [http, https], which keeps the
+	// rendered Gateway byte-identical to the pre-listener-model builder.
+	// Excluded from JSON/YAML (json:"-") so the Domain gateway goldens, which
+	// serialize this struct, stay stable.
+	HostnameListeners []HostnameListener `json:"-"`
+
 	// Listeners, when non-empty, switches the Gateway to L4 (TCP/UDP) mode:
-	// exactly these listeners are emitted and the HTTP/HTTPS fields above
-	// (Hostname, TLSMode, HTTPPort, HTTPSPort, TLS*) are ignored. Domain
-	// gateways leave this nil and keep the HTTP/HTTPS behavior. Excluded from
+	// exactly these listeners are emitted and HostnameListeners and the other
+	// HTTP/HTTPS fields above (Hostname, TLS*) are ignored. Excluded from
 	// JSON/YAML (json:"-") so the Domain gateway goldens, which serialize this
 	// struct, stay byte-identical.
 	Listeners []L4Listener `json:"-"`
+}
+
+// HostnameListener is an HTTP or HTTPS Gateway listener bound to the config's
+// Hostname.
+type HostnameListener struct {
+	Name     string // listener name, e.g. "http" / "https"
+	Protocol string // "HTTP" or "HTTPS"
+	Port     int
+	TLSMode  string // "Terminate" (default) or "Passthrough"; HTTPS only
 }
 
 // L4Listener is a TCP or UDP Gateway listener (no hostname, no TLS).
@@ -61,30 +73,28 @@ func BuildGatewayObject(config *GatewayConfig) *unstructured.Unstructured {
 		return nil
 	}
 
-	// Build listeners based on TLS mode
 	var listeners []interface{}
 
-	// Convert TLS policy to Gateway API format (capitalized)
-	tlsPolicyMode := "Terminate" // default
-	if strings.ToLower(config.TLSPolicy) == "passthrough" {
-		tlsPolicyMode = "Passthrough"
-	}
-
 	// HTTP listener helper
-	buildHTTPListener := func() map[string]interface{} {
+	buildHTTPListener := func(l HostnameListener) map[string]interface{} {
 		return map[string]interface{}{
-			"name":     "http",
-			"port":     int64(config.HTTPPort),
+			"name":     l.Name,
+			"port":     int64(l.Port),
 			"protocol": "HTTP",
 			"hostname": config.Hostname,
 		}
 	}
 
 	// HTTPS listener helper
-	buildHTTPSListener := func() map[string]interface{} {
+	buildHTTPSListener := func(l HostnameListener) map[string]interface{} {
+		// Gateway API format (capitalized); Terminate is the default.
+		tlsMode := "Terminate"
+		if strings.EqualFold(l.TLSMode, "passthrough") {
+			tlsMode = "Passthrough"
+		}
 		listener := map[string]interface{}{
-			"name":     "https",
-			"port":     int64(config.HTTPSPort),
+			"name":     l.Name,
+			"port":     int64(l.Port),
 			"protocol": "HTTPS",
 			"hostname": config.Hostname,
 		}
@@ -99,27 +109,19 @@ func BuildGatewayObject(config *GatewayConfig) *unstructured.Unstructured {
 				certRef["namespace"] = config.TLSSecretNamespace
 			}
 			listener["tls"] = map[string]interface{}{
-				"mode":            tlsPolicyMode,
+				"mode":            tlsMode,
 				"certificateRefs": []interface{}{certRef},
 			}
 		}
 		return listener
 	}
 
-	// Build listeners based on TLS mode
-	switch config.TLSMode {
-	case "tls_only":
-		listeners = []interface{}{buildHTTPSListener()}
-	case "no_tls":
-		listeners = []interface{}{buildHTTPListener()}
-	case "both":
-		listeners = []interface{}{buildHTTPListener(), buildHTTPSListener()}
-	default:
-		// Default to TLS only if TLS secret is provided, otherwise HTTP only
-		if config.TLSSecretName != "" {
-			listeners = []interface{}{buildHTTPSListener()}
+	// Hostname-routed listeners, emitted in the order given.
+	for _, l := range config.HostnameListeners {
+		if strings.EqualFold(l.Protocol, "HTTPS") {
+			listeners = append(listeners, buildHTTPSListener(l))
 		} else {
-			listeners = []interface{}{buildHTTPListener()}
+			listeners = append(listeners, buildHTTPListener(l))
 		}
 	}
 
