@@ -15,19 +15,34 @@ name: e2e-certificate
 # real managed-cert control plane is active for the suite in
 # e2e/suites/certificate/.
 #
-# Pins a single Envoy Gateway / Gateway API pair (the newest one e2e.yml's
-# manual release matrix covers) -- unlike e2e.yml this is not a
-# compatibility matrix, since the certificate suite is about the managed
-# certificate control plane, not Envoy Gateway version compatibility.
+# On push/PR this runs a single Envoy Gateway / Gateway API pair (the newest
+# supported, EG 1.9.1 / Gateway API 1.6.1): the certificate suite is about
+# the managed certificate control plane, not Envoy Gateway version
+# compatibility, so one version is the right per-push smoke.
+#
+# It is also a reusable workflow (workflow_call): e2e-compatibility.yml calls
+# it once per supported pair to run the cert suite across the whole version
+# matrix on demand. The inputs default to the same newest pair, so a push/PR
+# run (where the `inputs` context is empty) resolves to it via `|| <default>`.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
+    inputs:
+      envoy-gateway-version:
+        description: "Envoy Gateway version to install (without leading v)."
+        type: string
+        default: "1.9.1"
+      gateway-api-version:
+        description: "Gateway API version whose CRDs to install (without leading v)."
+        type: string
+        default: "1.6.1"
 
 jobs:
   e2e-certificate:
-    name: E2E Certificate (Envoy Gateway 1.9.1)
+    name: E2E Certificate (Envoy Gateway ${{ inputs.envoy-gateway-version || '1.9.1' }})
     runs-on: ubuntu-latest
     # go test arms a fresh 10-minute-per-package timeout by default; -p 1
     # (below) only serializes packages, it doesn't raise that timer. This
@@ -43,8 +58,13 @@ jobs:
       KIND_CLUSTER: fastgateway-cert-e2e
       KIND_VERSION: "v0.29.0"
       CLOUD_PROVIDER_KIND_VERSION: "0.11.1"
-      GATEWAY_API_VERSION: "1.6.1"
-      ENVOY_GATEWAY_VERSION: "1.9.1"
+      # On push/PR the `inputs` context is empty, so `|| <default>` supplies
+      # the newest supported pair; when called via workflow_call the inputs
+      # carry e2e-compatibility.yml's matrix versions. The certificate suite
+      # only needs standard-channel CRDs, so no experimental/standard channel
+      # switch is required across the matrix (unlike e2e.yml's L4 suite).
+      GATEWAY_API_VERSION: ${{ inputs.gateway-api-version || '1.6.1' }}
+      ENVOY_GATEWAY_VERSION: ${{ inputs.envoy-gateway-version || '1.9.1' }}
       CERT_MANAGER_VERSION: "v1.16.2"
     steps:
       - uses: actions/checkout@v4

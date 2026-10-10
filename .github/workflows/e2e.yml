@@ -1,25 +1,42 @@
 name: e2e
 
-# Manual only -- this is the full compatibility matrix across every
-# Envoy Gateway / Gateway API pair FastGateway is designed to support:
-# EG 1.6.6 and 1.7.5 on Gateway API 1.4.1, EG 1.8.4 on 1.5.1, and EG 1.9.1
-# on 1.6.1. main.yml's `e2e` job runs only the newest pair (EG 1.9.1 /
-# Gateway API 1.6.1) on every push; this manual workflow runs the whole
-# matrix before a release.
+# Standard e2e suite (e2e/suites/...): a real kind cluster + Envoy Gateway
+# with the Go suite run against it, backend OFF-cluster (go run ./cmd/server
+# on the runner). No docker-compose -- every dependency is orchestrated
+# directly here (see docs/superpowers/specs/2026-08-29-backend-v2-design.md
+# §5.3-5.4).
 #
-# Retires the manual E2E_TEST-v1.6.2-v1.4.1.md process: run this before a
-# release instead of hand-testing against a cluster and writing up the
-# results in a markdown log.
+# This workflow plays two roles:
+#   1. On push/PR to main it runs the single newest supported pair -- Envoy
+#      Gateway 1.9.1 on Gateway API 1.6.1 -- as the representative smoke of
+#      the compatibility surface (the inputs default to that pair).
+#   2. It is a reusable workflow (workflow_call): e2e-compatibility.yml calls
+#      it once per supported Envoy Gateway / Gateway API pair to run the full
+#      matrix on demand.
+# Keep the default pair in sync with the head of SupportedVersionPairs in
+# internal/services/compatibility.go.
 on:
-  workflow_dispatch: {}
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+    inputs:
+      envoy-gateway-version:
+        description: "Envoy Gateway version to install (without leading v)."
+        type: string
+        default: "1.9.1"
+      gateway-api-version:
+        description: "Gateway API version whose CRDs to install (without leading v)."
+        type: string
+        default: "1.6.1"
 
 jobs:
-  # Steps are intentionally identical to main.yml's `e2e` job -- only the
-  # matrix (widened to the full support surface) and the trigger (manual
-  # only, no push/pull_request) differ. See main.yml for the rationale
-  # behind each step.
   e2e:
-    name: E2E (Envoy Gateway ${{ matrix.envoy-gateway-version }})
+    # On push/PR the `inputs` context is empty, so `|| '1.9.1'` supplies the
+    # default pair; when called via workflow_call the inputs carry the
+    # matrix's versions.
+    name: E2E (Envoy Gateway ${{ inputs.envoy-gateway-version || '1.9.1' }})
     runs-on: ubuntu-latest
     # go test arms a fresh 10-minute-per-package timeout by default; -p 1
     # serializes packages but doesn't raise that timer, and
@@ -28,20 +45,10 @@ jobs:
     # explicit job timeout here this job would otherwise inherit GitHub's
     # 360-minute default.
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - envoy-gateway-version: "1.6.6"
-            gateway-api-version: "1.4.1"
-          - envoy-gateway-version: "1.7.5"
-            gateway-api-version: "1.4.1"
-          - envoy-gateway-version: "1.8.4"
-            gateway-api-version: "1.5.1"
-          - envoy-gateway-version: "1.9.1"
-            gateway-api-version: "1.6.1"
-            enable-lua: "true"
     services:
+      # PostgreSQL as a GitHub Actions services: container -- no
+      # docker-compose. Port 5432 is published to the runner's own
+      # localhost, which is what DATABASE_HOST=localhost below relies on.
       postgres:
         image: postgres:15-alpine
         env:
@@ -57,8 +64,8 @@ jobs:
           --health-retries 10
     env:
       KIND_CLUSTER: fastgateway-e2e
-      GATEWAY_API_VERSION: ${{ matrix.gateway-api-version }}
-      ENVOY_GATEWAY_VERSION: ${{ matrix.envoy-gateway-version }}
+      GATEWAY_API_VERSION: ${{ inputs.gateway-api-version || '1.6.1' }}
+      ENVOY_GATEWAY_VERSION: ${{ inputs.envoy-gateway-version || '1.9.1' }}
       KIND_VERSION: "v0.29.0"
       CLOUD_PROVIDER_KIND_VERSION: "0.11.1"
       STEP_CLI_VERSION: "0.28.7"
@@ -79,6 +86,12 @@ jobs:
       - name: Create kind cluster
         run: kind create cluster --name "$KIND_CLUSTER" --wait 120s
 
+      # cloud-provider-kind gives Services of type LoadBalancer (which is
+      # exactly what FastGateway's "default-public" domain template
+      # requests for its Gateway, see e2e/cmd/e2e-seed) a real, reachable
+      # external IP inside the kind docker network. Without it the
+      # Envoy-managed Service would stay Pending forever and GATEWAY_IP
+      # (required by e2e/harness/config.go) could never be resolved.
       - name: Start cloud-provider-kind (LoadBalancer support)
         run: |
           arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
@@ -89,6 +102,11 @@ jobs:
           sudo nohup cloud-provider-kind > /tmp/cloud-provider-kind.log 2>&1 &
           sleep 3
 
+      # `kind create cluster` above already left "kind-${KIND_CLUSTER}" as
+      # the kubeconfig's current context, so every kubectl/helm call below
+      # runs unqualified -- e2e/deps/create-secrets.sh honours the same
+      # "current context" default via its optional KUBE_CONTEXT env var
+      # (see that script's header comment).
       - name: Install Gateway API CRDs
         run: |
           # The L4 (stream) suite needs the experimental TCPRoute/UDPRoute CRDs,
@@ -107,6 +125,10 @@ jobs:
             kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/standard-install.yaml"
           fi
 
+      # Redis backend for Envoy Gateway's global rate limiting (the same
+      # role docker-compose.yaml's now-deleted "ratelimit-redis" service
+      # played) -- deployed in-cluster per the design spec, NOT as a
+      # sibling container.
       - name: Deploy Redis for Envoy Gateway rate limiting
         run: |
           kubectl create namespace envoy-gateway-system --dry-run=client -o yaml | kubectl apply -f -
@@ -116,7 +138,21 @@ jobs:
 
       - name: Install Envoy Gateway (Helm)
         run: |
-          cat > /tmp/envoy-gateway-values.yaml <<'EOF'
+          # Envoy Gateway >= 1.9 disables the Lua EnvoyExtensionPolicy by
+          # default (advisory GHSA-xrwg-mqj6-6m22: a Lua script runs arbitrary
+          # code in the proxy and can read its certs/SA token). The suite's
+          # custom-Lua test needs it, so opt back in on >= 1.9; older versions
+          # enable Lua by default and need no flag. Derived from the version so
+          # callers (e2e-compatibility.yml) pass only versions, not feature
+          # flags. The empty branch renders a blank line, valid YAML here.
+          EG_MINOR="$(echo "$ENVOY_GATEWAY_VERSION" | cut -d. -f2)"
+          LUA_LINE=""
+          if [ "$EG_MINOR" -ge 9 ]; then
+            LUA_LINE="enableLua: true"
+          fi
+          # Unquoted heredoc so ${LUA_LINE} expands; the rest of the body has
+          # no $, backtick or backslash, so nothing else is substituted.
+          cat > /tmp/envoy-gateway-values.yaml <<EOF
           config:
             envoyGateway:
               apiVersion: gateway.envoyproxy.io/v1alpha1
@@ -125,7 +161,7 @@ jobs:
                 type: Kubernetes
               gateway:
                 controllerName: gateway.envoyproxy.io/gatewayclass-controller
-              # REQUIRED. FastGateway emits Envoy Gateway `Backend` CRDs for
+              # REQUIRED. FastGateway emits Envoy Gateway \`Backend\` CRDs for
               # external backends, backend TLS/mTLS, and failover routes. The
               # CRD ships with the chart regardless, so those objects apply
               # cleanly -- but without this flag the EG translator refuses to
@@ -135,14 +171,7 @@ jobs:
               # distinct from a 503 carrying "upstream connect error".
               extensionApis:
                 enableBackend: true
-                # Lua EnvoyExtensionPolicy is disabled by default from Envoy
-                # Gateway 1.9 (advisory GHSA-xrwg-mqj6-6m22: a Lua script runs
-                # arbitrary code in the proxy and can read its certs/SA token).
-                # Opt in only on matrix legs that set enable-lua -- older EG
-                # versions enable Lua by default and don't need it. The
-                # expression below is rendered by the runner before the heredoc
-                # runs; an unset flag renders an empty line, valid YAML here.
-                ${{ matrix['enable-lua'] == 'true' && 'enableLua: true' || '' }}
+                ${LUA_LINE}
               rateLimit:
                 backend:
                   type: Redis
@@ -165,6 +194,9 @@ jobs:
           # envoyproxy/gateway's ratelimit.InfraName ("envoy-ratelimit").
           kubectl -n envoy-gateway-system rollout status deployment/envoy-ratelimit --timeout=180s
 
+      # e2e/testdata/certificate/*.key is gitignored (only *.crt is
+      # tracked), so the private keys create-secrets.sh needs must be
+      # regenerated here, same as a contributor would run locally.
       - name: Generate e2e test certificates
         run: |
           curl -fLo /tmp/step.tar.gz "https://github.com/smallstep/cli/releases/download/v${STEP_CLI_VERSION}/step_linux_${STEP_CLI_VERSION}_amd64.tar.gz"
@@ -189,6 +221,14 @@ jobs:
           kubectl -n default rollout status deployment/backend-tls-server-1 --timeout=120s
           kubectl -n default rollout status deployment/backend-mtls-server-1 --timeout=120s
 
+      # The Go test doubles (e2e/servers/<name>) have no public image; build
+      # them from source and `kind load` them so the in-cluster Deployments
+      # (imagePullPolicy: Never, see e2e/deps/*.yaml) can start.
+      #
+      # wasm-host serves the gRPC-safe proxy-wasm filter over plain HTTP inside
+      # the cluster, so the wasm tests no longer fetch a third-party .wasm from
+      # the public internet. Its Dockerfile verifies the module's pinned sha256
+      # at build time and fails loudly if the Go toolchain changes it.
       - name: Build and load the test doubles into kind
         run: |
           for svc in jwt-server external-auth grpc-external-auth ext-proc-server wasm-host l4-echo; do
@@ -234,6 +274,13 @@ jobs:
           echo "api_url=${api_url}" >> "$GITHUB_OUTPUT"
           echo "token=${token}" >> "$GITHUB_OUTPUT"
 
+      # The backend runs directly on the runner (go run ./cmd/server), not
+      # as a container -- it reaches Postgres via localhost (the services:
+      # container above) and reaches the kind cluster via the resolved
+      # API URL/token (project.ConnectionType=api_token, TLS verification
+      # left at its "" default, which ProjectService.processAPIToken
+      # treats as skip-verify -- kind's API server cert is not in any
+      # trust store the backend process has).
       - name: Run backend (go run ./cmd/server)
         env:
           DATABASE_HOST: localhost
@@ -261,6 +308,8 @@ jobs:
           cat /tmp/backend.log >&2
           exit 1
 
+      # Replaces bootstrap.py: seeds the project/users/teams/domain/clients
+      # the Go e2e suite expects (see e2e/cmd/e2e-seed's package doc comment).
       - name: Seed FastGateway (go run ./e2e/cmd/e2e-seed)
         env:
           FASTGATEWAY_API_URL: http://localhost:8081/api/v1
@@ -268,6 +317,11 @@ jobs:
           K8S_TOKEN: ${{ steps.kube-creds.outputs.token }}
         run: go run ./e2e/cmd/e2e-seed
 
+      # e2e-seed's domain creation triggers RouteService/KubernetesService
+      # to create a Gateway API Gateway (ExposureType: LoadBalancer). Wait
+      # for it to be Programmed, then resolve the LoadBalancer IP
+      # cloud-provider-kind assigned to Envoy's generated proxy Service --
+      # that IP is GATEWAY_IP, required by e2e/harness/config.go.
       - name: Wait for the seeded Gateway and resolve GATEWAY_IP
         run: |
           # FastGateway creates Gateway resources in fastgateway-system, not
@@ -335,22 +389,17 @@ jobs:
           cat /tmp/jwt-port-forward.log >&2
           exit 1
 
-      # -p 1 is NOT optional here either -- same shared-podinfo race as
-      # main.yml's e2e job.
+      # -p 1 is NOT optional: e2e/suites/httproute's health-check and
+      # load-balancing tests scale the shared podinfo Deployment to 0 and
+      # 3 replicas. `go test ./e2e/...` runs packages concurrently by
+      # default, which would corrupt any other suite's traffic against
+      # podinfo running at the same time. See progress.md's "-p 1" ruling.
       #
       # -timeout 60m: go test arms a fresh 10-minute timer per package by
       # default. -p 1 only serializes packages, it doesn't raise that
       # timer, and e2e/suites/domain and e2e/suites/platform each run
       # ~11 mostly-serial tests with up to a 90s route-readiness wait
       # apiece -- comfortably over 10 minutes per package.
-      # Start policy watches BEFORE the suite. A point-in-time snapshot taken
-      # after `go test` exits is useless: every test's t.Cleanup has already
-      # deleted its routes and policies, so the cluster is empty by then (this
-      # was observed -- the snapshot printed only empty section headers).
-      # These watches record every ADDED/MODIFIED event with timestamps, so the
-      # gap between creationTimestamp and Accepted=True is measurable, which
-      # distinguishes "policy attached late" (readiness race) from "policy
-      # never attached" (real bug).
       # The metrics tests need a Prometheus to point the project's
       # metricsEndpointURL at. It runs on the RUNNER, not in the cluster,
       # because the BACKEND is its client (the test process never calls it)
@@ -371,6 +420,14 @@ jobs:
           cat /tmp/mock-prom.log >&2
           exit 1
 
+      # Start policy watches BEFORE the suite. A point-in-time snapshot taken
+      # after `go test` exits is useless: every test's t.Cleanup has already
+      # deleted its routes and policies, so the cluster is empty by then (this
+      # was observed -- the snapshot printed only empty section headers).
+      # These watches record every ADDED/MODIFIED event with timestamps, so the
+      # gap between creationTimestamp and Accepted=True is measurable, which
+      # distinguishes "policy attached late" (readiness race) from "policy
+      # never attached" (real bug).
       - name: Start policy watches (diagnostics)
         run: |
           mkdir -p /tmp/diag
