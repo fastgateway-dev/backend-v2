@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -181,4 +182,24 @@ func (h *RouteHandler) GetYAMLsForStream(c *gin.Context) {
 	if h.requireStreamRoute(c) {
 		h.GetYAMLs(c)
 	}
+}
+
+// GetStreamYAMLs gets the stream's manifests: its Gateway (rendered from the
+// live route set deploy uses) and each live L4 route's TCPRoute/UDPRoute and
+// BackendTrafficPolicy. A stream of another project is 404.
+func (h *RouteHandler) GetStreamYAMLs(c *gin.Context) {
+	projectID, streamID, ok := streamRouteIDs(c)
+	if !ok {
+		return
+	}
+	yamls, err := h.routeService.GenerateStreamYAMLs(projectID, streamID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, services.ErrStreamNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, yamls)
 }

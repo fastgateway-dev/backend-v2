@@ -259,6 +259,8 @@ paths:
     $ref: 'paths/metrics.yaml#/stream-metrics'
   /projects/{projectId}/streams/{streamId}/entrypoint:
     $ref: 'paths/streams.yaml#/streams_{streamId}_entrypoint'
+  /projects/{projectId}/streams/{streamId}/yamls:
+    $ref: 'paths/streams.yaml#/streams_{streamId}_yamls'
   /projects/{projectId}/streams/{streamId}/routes:
     $ref: 'paths/stream-routes.yaml#/stream-routes'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}:
@@ -679,6 +681,8 @@ components:
       $ref: 'schemas/stream.yaml#/StreamEntrypoint'
     StreamListItem:
       $ref: 'schemas/stream.yaml#/StreamListItem'
+    StreamYAMLs:
+      $ref: 'schemas/stream.yaml#/StreamYAMLs'
 
     # ============== DOMAIN ==============
     Domain:

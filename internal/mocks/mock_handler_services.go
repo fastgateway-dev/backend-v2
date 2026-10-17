@@ -13758,6 +13758,74 @@ func (_m *MockRoutePreviewer) EXPECT() *MockRoutePreviewer_Expecter {
 	return &MockRoutePreviewer_Expecter{mock: &_m.Mock}
 }
 
+// GenerateStreamYAMLs provides a mock function for the type MockRoutePreviewer
+func (_mock *MockRoutePreviewer) GenerateStreamYAMLs(projectID uuid.UUID, streamID uuid.UUID) (*services.StreamYAMLs, error) {
+	ret := _mock.Called(projectID, streamID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GenerateStreamYAMLs")
+	}
+
+	var r0 *services.StreamYAMLs
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID) (*services.StreamYAMLs, error)); ok {
+		return returnFunc(projectID, streamID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID) *services.StreamYAMLs); ok {
+		r0 = returnFunc(projectID, streamID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*services.StreamYAMLs)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID) error); ok {
+		r1 = returnFunc(projectID, streamID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRoutePreviewer_GenerateStreamYAMLs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GenerateStreamYAMLs'
+type MockRoutePreviewer_GenerateStreamYAMLs_Call struct {
+	*mock.Call
+}
+
+// GenerateStreamYAMLs is a helper method to define mock.On call
+//   - projectID uuid.UUID
+//   - streamID uuid.UUID
+func (_e *MockRoutePreviewer_Expecter) GenerateStreamYAMLs(projectID any, streamID any) *MockRoutePreviewer_GenerateStreamYAMLs_Call {
+	return &MockRoutePreviewer_GenerateStreamYAMLs_Call{Call: _e.mock.On("GenerateStreamYAMLs", projectID, streamID)}
+}
+
+func (_c *MockRoutePreviewer_GenerateStreamYAMLs_Call) Run(run func(projectID uuid.UUID, streamID uuid.UUID)) *MockRoutePreviewer_GenerateStreamYAMLs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRoutePreviewer_GenerateStreamYAMLs_Call) Return(streamYAMLs *services.StreamYAMLs, err error) *MockRoutePreviewer_GenerateStreamYAMLs_Call {
+	_c.Call.Return(streamYAMLs, err)
+	return _c
+}
+
+func (_c *MockRoutePreviewer_GenerateStreamYAMLs_Call) RunAndReturn(run func(projectID uuid.UUID, streamID uuid.UUID) (*services.StreamYAMLs, error)) *MockRoutePreviewer_GenerateStreamYAMLs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GenerateYAML provides a mock function for the type MockRoutePreviewer
 func (_mock *MockRoutePreviewer) GenerateYAML(id uuid.UUID) (string, error) {
 	ret := _mock.Called(id)
@@ -14465,6 +14533,74 @@ func (_c *MockRouteService_Deploy_Call) Return(route *models.Route, err error) *
 }
 
 func (_c *MockRouteService_Deploy_Call) RunAndReturn(run func(id uuid.UUID, deployedBy uuid.UUID) (*models.Route, error)) *MockRouteService_Deploy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GenerateStreamYAMLs provides a mock function for the type MockRouteService
+func (_mock *MockRouteService) GenerateStreamYAMLs(projectID uuid.UUID, streamID uuid.UUID) (*services.StreamYAMLs, error) {
+	ret := _mock.Called(projectID, streamID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GenerateStreamYAMLs")
+	}
+
+	var r0 *services.StreamYAMLs
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID) (*services.StreamYAMLs, error)); ok {
+		return returnFunc(projectID, streamID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID) *services.StreamYAMLs); ok {
+		r0 = returnFunc(projectID, streamID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*services.StreamYAMLs)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID) error); ok {
+		r1 = returnFunc(projectID, streamID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteService_GenerateStreamYAMLs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GenerateStreamYAMLs'
+type MockRouteService_GenerateStreamYAMLs_Call struct {
+	*mock.Call
+}
+
+// GenerateStreamYAMLs is a helper method to define mock.On call
+//   - projectID uuid.UUID
+//   - streamID uuid.UUID
+func (_e *MockRouteService_Expecter) GenerateStreamYAMLs(projectID any, streamID any) *MockRouteService_GenerateStreamYAMLs_Call {
+	return &MockRouteService_GenerateStreamYAMLs_Call{Call: _e.mock.On("GenerateStreamYAMLs", projectID, streamID)}
+}
+
+func (_c *MockRouteService_GenerateStreamYAMLs_Call) Run(run func(projectID uuid.UUID, streamID uuid.UUID)) *MockRouteService_GenerateStreamYAMLs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteService_GenerateStreamYAMLs_Call) Return(streamYAMLs *services.StreamYAMLs, err error) *MockRouteService_GenerateStreamYAMLs_Call {
+	_c.Call.Return(streamYAMLs, err)
+	return _c
+}
+
+func (_c *MockRouteService_GenerateStreamYAMLs_Call) RunAndReturn(run func(projectID uuid.UUID, streamID uuid.UUID) (*services.StreamYAMLs, error)) *MockRouteService_GenerateStreamYAMLs_Call {
 	_c.Call.Return(run)
 	return _c
 }

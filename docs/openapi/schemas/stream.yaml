@@ -238,3 +238,34 @@ StreamPort:
       enum: [TCP, UDP]
     port:
       type: integer
+
+StreamYAMLs:
+  type: object
+  required: [gatewayYaml, routes]
+  properties:
+    gatewayYaml:
+      type: string
+      description: The stream's Gateway YAML, rendered from its live routes (placeholder listener when none).
+    routes:
+      type: array
+      items:
+        $ref: '#/StreamRouteYAMLs'
+
+StreamRouteYAMLs:
+  type: object
+  required: [routeId, name, protocol, routeYaml, backendTrafficPolicyYaml]
+  properties:
+    routeId:
+      type: string
+      format: uuid
+    name:
+      type: string
+    protocol:
+      type: string
+      enum: [tcp, udp]
+    routeYaml:
+      type: string
+      description: TCPRoute or UDPRoute YAML.
+    backendTrafficPolicyYaml:
+      type: string
+      description: BackendTrafficPolicy YAML, empty when the route has no policy.

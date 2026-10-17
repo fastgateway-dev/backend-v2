@@ -2446,6 +2446,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/yamls:
+    get:
+      tags:
+        - Streams
+      summary: Get a stream's manifests (Gateway and every live L4 route)
+      description: |
+        The Gateway is rendered from the stream's live routes through the same
+        builders the deploy path applies; with no live routes it is the
+        placeholder Gateway. Each live route carries its TCPRoute/UDPRoute and
+        BackendTrafficPolicy (empty when it has none).
+      operationId: getStreamYamls
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+      responses:
+        '200':
+          description: The stream's manifests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamYAMLs'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: The stream's routes or policies could not be read (never a partial manifest set)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/streams/{streamId}/routes:
     get:
       tags:
@@ -7396,6 +7427,19 @@ components:
               description: (transport, port) of each non-rejected L4 route, ordered by port.
               items:
                 $ref: '#/components/schemas/StreamPort'
+    StreamYAMLs:
+      type: object
+      required:
+        - gatewayYaml
+        - routes
+      properties:
+        gatewayYaml:
+          type: string
+          description: The stream's Gateway YAML, rendered from its live routes (placeholder listener when none).
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/StreamRouteYAMLs'
     Domain:
       type: object
       properties:
@@ -12374,6 +12418,31 @@ components:
             - UDP
         port:
           type: integer
+    StreamRouteYAMLs:
+      type: object
+      required:
+        - routeId
+        - name
+        - protocol
+        - routeYaml
+        - backendTrafficPolicyYaml
+      properties:
+        routeId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        protocol:
+          type: string
+          enum:
+            - tcp
+            - udp
+        routeYaml:
+          type: string
+          description: TCPRoute or UDPRoute YAML.
+        backendTrafficPolicyYaml:
+          type: string
+          description: BackendTrafficPolicy YAML, empty when the route has no policy.
     ApprovalStageReview:
       type: object
       description: An individual reviewer decision on a multi-approver stage

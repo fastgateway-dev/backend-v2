@@ -53,3 +53,35 @@ func TestRouteHandler_GetYAMLsForStream_RouteOfOtherStreamIsNotFound(t *testing.
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	mockRoute.AssertNotCalled(t, "GenerateYAMLs", mock.Anything)
 }
+
+func TestRouteHandler_GetStreamYAMLs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		res  *services.StreamYAMLs
+		err  error
+		code int
+	}{
+		{"ok", &services.StreamYAMLs{GatewayYAML: "kind: Gateway\n", Routes: []services.StreamRouteYAMLs{}}, nil, http.StatusOK},
+		{"other project's stream", nil, services.ErrStreamNotFound, http.StatusNotFound},
+		{"read failure", nil, fmt.Errorf("failed to list active routes for stream: %w", assert.AnError), http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockRoute := new(mocks.MockRouteService)
+			h := handlers.NewRouteHandler(mockRoute, new(mocks.MockAuditService), routePermChecker())
+			projectID, streamID := uuid.New(), uuid.New()
+			mockRoute.On("GenerateStreamYAMLs", projectID, streamID).Return(tc.res, tc.err)
+			router := gin.New()
+			router.GET("/projects/:projectId/streams/:streamId/yamls", h.GetStreamYAMLs)
+
+			w := doJSON(router, "GET", fmt.Sprintf("/projects/%s/streams/%s/yamls", projectID, streamID), nil)
+
+			require.Equal(t, tc.code, w.Code, w.Body.String())
+			if tc.code == http.StatusOK {
+				var body map[string]any
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+				assert.Equal(t, "kind: Gateway\n", body["gatewayYaml"])
+				assert.Equal(t, []any{}, body["routes"])
+			}
+		})
+	}
+}

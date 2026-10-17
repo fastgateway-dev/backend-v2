@@ -332,6 +332,7 @@ type RouteWriter interface {
 type RoutePreviewer interface {
 	GenerateYAML(id uuid.UUID) (string, error)
 	GenerateYAMLs(id uuid.UUID) (*services.RouteYAMLs, error)
+	GenerateStreamYAMLs(projectID, streamID uuid.UUID) (*services.StreamYAMLs, error)
 	PreviewCreate(domainID uuid.UUID, input *services.CreateRouteInput) (*services.PreviewCreateResult, error)
 	PreviewUpdate(routeID uuid.UUID, input *services.UpdateRouteInput) (*services.PreviewUpdateResult, error)
 	PreviewDelete(routeID uuid.UUID) (*services.PreviewDeleteResult, error)

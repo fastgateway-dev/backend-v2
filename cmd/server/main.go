@@ -950,6 +950,8 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					streams.GET("/:streamId/metrics", deps.MetricsHandler.GetStreamMetrics)
 					// Read-only entry point: mode, address, who shares it, port map.
 					streams.GET("/:streamId/entrypoint", deps.StreamHandler.GetEntrypoint)
+					// Read-only manifests: the Gateway plus every live route's YAML.
+					streams.GET("/:streamId/yamls", deps.RouteHandler.GetStreamYAMLs)
 
 					// L4 routes of a stream: the stream-scoped counterpart of the
 					// domain routes group below. Registered unconditionally for the

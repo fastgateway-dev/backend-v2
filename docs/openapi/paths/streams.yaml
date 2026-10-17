@@ -175,3 +175,34 @@ streams_{streamId}_entrypoint:
           application/json:
             schema:
               $ref: '../schemas/common.yaml#/Error'
+
+streams_{streamId}_yamls:
+  get:
+    tags: [Streams]
+    summary: Get a stream's manifests (Gateway and every live L4 route)
+    description: |
+      The Gateway is rendered from the stream's live routes through the same
+      builders the deploy path applies; with no live routes it is the
+      placeholder Gateway. Each live route carries its TCPRoute/UDPRoute and
+      BackendTrafficPolicy (empty when it has none).
+    operationId: getStreamYamls
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+    responses:
+      '200':
+        description: The stream's manifests
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/stream.yaml#/StreamYAMLs'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '500':
+        description: The stream's routes or policies could not be read (never a partial manifest set)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
