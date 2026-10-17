@@ -167,6 +167,12 @@ approval-diff:
               $ref: '../schemas/approval.yaml#/ApprovalDiffResponse'
       '400':
         $ref: '../components/responses.yaml#/BadRequest'
+      '500':
+        description: The approval, its route, or the route's domain or stream could not be read, or a snapshot is corrupt (never a partial diff)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
 
 approve-stage:
   post:

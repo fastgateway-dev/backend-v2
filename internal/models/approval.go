@@ -70,8 +70,10 @@ type Approval struct {
 	Stages    []ApprovalStage `gorm:"foreignKey:ApprovalID" json:"stages,omitempty"`
 
 	// Computed (not stored in DB)
-	EntityName string `gorm:"-" json:"entityName,omitempty"`
-	DomainName string `gorm:"-" json:"domainName,omitempty"`
+	EntityName string     `gorm:"-" json:"entityName,omitempty"`
+	DomainName string     `gorm:"-" json:"domainName,omitempty"`
+	StreamID   *uuid.UUID `gorm:"-" json:"streamId,omitempty"`   // L4 route approvals: the route's stream
+	StreamName string     `gorm:"-" json:"streamName,omitempty"` // L4 route approvals: the stream's name
 }
 
 // TableName returns the table name for Approval

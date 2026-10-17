@@ -32,6 +32,18 @@ func (r *StreamRepository) GetByID(id uuid.UUID) (*models.Stream, error) {
 	return &stream, nil
 }
 
+// GetByIDs gets the streams with the given IDs in one query (approval
+// enrichment uses it, so listing approvals never issues a query per stream).
+// An empty input returns nil without querying.
+func (r *StreamRepository) GetByIDs(ids []uuid.UUID) ([]models.Stream, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var streams []models.Stream
+	err := r.db.Where("id IN ?", ids).Find(&streams).Error
+	return streams, err
+}
+
 // ListByProjectID lists all streams in a project, ordered by name
 func (r *StreamRepository) ListByProjectID(projectID uuid.UUID) ([]models.Stream, error) {
 	var streams []models.Stream

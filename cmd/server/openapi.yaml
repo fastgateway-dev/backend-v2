@@ -4998,6 +4998,12 @@ paths:
                 $ref: '#/components/schemas/ApprovalDiffResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '500':
+          description: The approval, its route, or the route's domain or stream could not be read, or a snapshot is corrupt (never a partial diff)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/approvals/{approvalId}/stages/{stageId}/approve:
     post:
       tags:
@@ -10540,6 +10546,13 @@ components:
         domainName:
           type: string
           description: Hostname of the domain for route approvals (computed, not stored)
+        streamId:
+          type: string
+          format: uuid
+          description: Stream of an L4 (tcp/udp) route approval (computed, not stored; absent otherwise)
+        streamName:
+          type: string
+          description: Name of the stream of an L4 route approval (computed, not stored; absent otherwise)
         changeDescription:
           type: string
           description: Optional human description of the changes
@@ -10611,6 +10624,7 @@ components:
       type: object
       required:
         - action
+        - routeKind
       properties:
         action:
           type: string
@@ -10619,12 +10633,20 @@ components:
             - update
             - delete
           description: Type of change being approved
+        routeKind:
+          type: string
+          enum:
+            - HTTPRoute
+            - GRPCRoute
+            - TCPRoute
+            - UDPRoute
+          description: Gateway API kind of the route in currentYaml/proposedYaml
         currentYaml:
           type: string
-          description: Current HTTPRoute YAML (for update/delete)
+          description: Current route YAML - HTTPRoute, GRPCRoute, TCPRoute or UDPRoute per routeKind (for update/delete)
         proposedYaml:
           type: string
-          description: Proposed HTTPRoute YAML (for create/update)
+          description: Proposed route YAML - HTTPRoute, GRPCRoute, TCPRoute or UDPRoute per routeKind (for create/update)
         currentSecurityPolicyYaml:
           type: string
           description: Current SecurityPolicy YAML (if exists)

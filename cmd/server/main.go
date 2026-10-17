@@ -248,6 +248,8 @@ func main() {
 		DomainRepo:   domainRepo,
 		WafConfig:    wafConfig,
 		Approvals:    approvalEngine,
+		Streams:      streamRepo,
+		L4Manifests:  routeService,
 	})
 	auditService := services.NewAuditService(auditLogRepo)
 	clientService := clients.NewClientService(clients.ClientServiceDeps{
