@@ -661,3 +661,34 @@ func TestStreamListItem_JSONContract(t *testing.T) {
 	assert.Equal(t, float64(1), got["routeCount"])
 	assert.Equal(t, []any{map[string]any{"transport": "TCP", "port": float64(5432)}}, got["ports"])
 }
+
+// Every Gateway on a merged template reports the one shared Service address,
+// domains' Gateways included. So a shared template that already serves
+// domains but has no stream (or whose streams have no address yet) still has
+// a known IP; the create panel must not say "assigned on first deploy".
+// Domains not deployed yet (no Gateway name) are skipped.
+func TestStreamEntrypoint_SharedAddressFallsBackToDomainGateways(t *testing.T) {
+	t.Run("template variant, no streams yet", func(t *testing.T) {
+		w, _, _, _ := newPortWorld(true)
+		w.streams = nil
+		w.domains[0].K8sGatewayName, w.domains[0].Namespace = "gw-api", "edge"
+		w.domains[1].K8sGatewayName, w.domains[1].Namespace = "gw-web", "edge"
+		gw := &fakeGatewayReader{addrs: map[string]string{"gw-web": "10.0.0.7"}}
+
+		ep, err := newViewService(w, gw).TemplateEntrypoint(context.Background(), w.tmpl.ProjectID, w.tmpl.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "10.0.0.7", ep.Address)
+		assert.Equal(t, []string{"gw-api", "gw-web"}, gw.calls)
+	})
+	t.Run("stream variant, no member stream has an address", func(t *testing.T) {
+		w, self, _, _ := newPortWorld(true)
+		w.domains[1].K8sGatewayName, w.domains[1].Namespace = "gw-web", "edge"
+		gw := &fakeGatewayReader{addrs: map[string]string{"gw-web": "10.0.0.7"}}
+
+		ep, err := newViewService(w, gw).StreamEntrypoint(context.Background(), self)
+		require.NoError(t, err)
+		assert.Equal(t, "10.0.0.7", ep.Address)
+		assert.Equal(t, []string{"str-test-stream", "str-cache", "str-fresh", "gw-web"}, gw.calls,
+			"streams first; the undeployed domain (no Gateway name) is skipped")
+	})
+}

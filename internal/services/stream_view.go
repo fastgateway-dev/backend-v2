@@ -233,7 +233,7 @@ func (s *StreamViewService) buildEntrypoint(ctx context.Context, tmpl *models.Do
 				return nil, fmt.Errorf("failed to load stream ports: %w", err)
 			}
 			ep.Ports = appendStreamRoutePorts(ep.Ports, owners)
-			addr, err := s.gatewayAddress(ctx, self)
+			addr, err := s.gatewayAddress(ctx, self.ProjectID, self.Namespace, self.K8sGatewayName)
 			if err != nil {
 				return nil, err
 			}
@@ -282,34 +282,50 @@ func (s *StreamViewService) buildEntrypoint(ctx context.Context, tmpl *models.Do
 	}
 
 	// Address: this stream's, else the first member stream (by name) that
-	// has one. Every member Gateway reflects the one shared Service.
+	// has one, else the first deployed domain on the template that has one.
+	// Every Gateway on a merged template, domains' included, reflects the one
+	// shared Service, so a template that only serves domains so far still
+	// has a known IP.
 	candidates := others
 	if self != nil {
 		candidates = append([]models.Stream{*self}, others...)
 	}
 	for i := range candidates {
-		addr, err := s.gatewayAddress(ctx, &candidates[i])
+		addr, err := s.gatewayAddress(ctx, candidates[i].ProjectID, candidates[i].Namespace, candidates[i].K8sGatewayName)
 		if err != nil {
 			return nil, err
 		}
 		if addr != "" {
 			ep.Address = addr
-			break
+			return ep, nil
+		}
+	}
+	for _, d := range domains {
+		if d.K8sGatewayName == "" {
+			continue // not deployed yet: it has no Gateway to read
+		}
+		addr, err := s.gatewayAddress(ctx, d.ProjectID, d.Namespace, d.K8sGatewayName)
+		if err != nil {
+			return nil, err
+		}
+		if addr != "" {
+			ep.Address = addr
+			return ep, nil
 		}
 	}
 	return ep, nil
 }
 
-// gatewayAddress reads the stream Gateway's first status address. A Gateway
-// that does not exist yet, or has no address yet, is "" (assigned on first
-// deploy); any other read failure is an error.
-func (s *StreamViewService) gatewayAddress(ctx context.Context, stream *models.Stream) (string, error) {
-	obj, err := s.gateways.GetGateway(ctx, stream.ProjectID, stream.Namespace, stream.K8sGatewayName)
+// gatewayAddress reads a Gateway's first status address. A Gateway that does
+// not exist yet, or has no address yet, is "" (assigned on first deploy); any
+// other read failure is an error.
+func (s *StreamViewService) gatewayAddress(ctx context.Context, projectID uuid.UUID, namespace, name string) (string, error) {
+	obj, err := s.gateways.GetGateway(ctx, projectID, namespace, name)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return "", nil
 		}
-		return "", fmt.Errorf("failed to read Gateway %s/%s: %w", stream.Namespace, stream.K8sGatewayName, err)
+		return "", fmt.Errorf("failed to read Gateway %s/%s: %w", namespace, name, err)
 	}
 	addr, ok := resolveGatewayAddress(obj)
 	if !ok {
