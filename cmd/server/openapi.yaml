@@ -2853,6 +2853,84 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions:
+    get:
+      tags:
+        - Streams
+      summary: List an L4 route's version history
+      description: A version is recorded on every successful create/update deploy. A route of another stream is 404.
+      operationId: listStreamRouteVersions
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Route version history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteVersionList'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions/{version}:
+    get:
+      tags:
+        - Streams
+      summary: Get a specific version of an L4 route
+      operationId: getStreamRouteVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Route version details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteVersion'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions/{version}/rollback:
+    post:
+      tags:
+        - Streams
+      summary: Roll an L4 route back to a previous version (submits for approval)
+      operationId: rollbackStreamRouteVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Rollback submitted as a route update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /projects/{projectId}/domains:
     get:
       tags:

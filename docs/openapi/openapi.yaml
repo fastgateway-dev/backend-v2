@@ -277,6 +277,12 @@ paths:
     $ref: 'paths/stream-routes.yaml#/stream-route-preview-delete'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/deploy:
     $ref: 'paths/stream-routes.yaml#/stream-route-deploy'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions:
+    $ref: 'paths/stream-routes.yaml#/stream-route-versions'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions/{version}:
+    $ref: 'paths/stream-routes.yaml#/stream-route-version'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions/{version}/rollback:
+    $ref: 'paths/stream-routes.yaml#/stream-route-version-rollback'
   /projects/{projectId}/domains:
     $ref: 'paths/domains.yaml#/domains'
   /projects/{projectId}/domains/tls-secrets:

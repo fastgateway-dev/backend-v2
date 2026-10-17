@@ -254,3 +254,17 @@ func (h *RouteHandler) PreviewDeleteForStream(c *gin.Context) {
 		h.PreviewDelete(c)
 	}
 }
+
+// ForStreamRoute wraps a route-scoped handler that reads only :projectId and
+// :routeId (the RouteVersionHandler methods) so it runs only for an L4 route
+// of :streamId in :projectId; any other route is 404 before next runs. It is
+// how the version history endpoints are mounted under the stream:
+//
+//	streamRoutes.GET("/:routeId/versions", deps.RouteHandler.ForStreamRoute(deps.RouteVersionHandler.List))
+func (h *RouteHandler) ForStreamRoute(next gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if h.requireStreamRoute(c) {
+			next(c)
+		}
+	}
+}

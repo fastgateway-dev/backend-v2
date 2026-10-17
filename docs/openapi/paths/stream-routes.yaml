@@ -366,3 +366,81 @@ stream-route-preview-delete:
         $ref: '../components/responses.yaml#/BadRequest'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
+
+stream-route-versions:
+  get:
+    tags: [Streams]
+    summary: List an L4 route's version history
+    description: A version is recorded on every successful create/update deploy. A route of another stream is 404.
+    operationId: listStreamRouteVersions
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+      - $ref: '../components/parameters.yaml#/routeId'
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/limit'
+    responses:
+      '200':
+        description: Route version history
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route-version.yaml#/RouteVersionList'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+stream-route-version:
+  get:
+    tags: [Streams]
+    summary: Get a specific version of an L4 route
+    operationId: getStreamRouteVersion
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+      - $ref: '../components/parameters.yaml#/routeId'
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: integer
+    responses:
+      '200':
+        description: Route version details
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route-version.yaml#/RouteVersion'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+
+stream-route-version-rollback:
+  post:
+    tags: [Streams]
+    summary: Roll an L4 route back to a previous version (submits for approval)
+    operationId: rollbackStreamRouteVersion
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+      - $ref: '../components/parameters.yaml#/routeId'
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: integer
+    responses:
+      '200':
+        description: Rollback submitted as a route update
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/Route'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'

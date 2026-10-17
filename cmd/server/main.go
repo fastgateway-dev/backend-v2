@@ -969,6 +969,12 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 						streamRoutes.POST("/:routeId/preview", deps.RouteHandler.PreviewUpdateForStream)
 						streamRoutes.GET("/:routeId/preview-delete", deps.RouteHandler.PreviewDeleteForStream)
 						streamRoutes.POST("/:routeId/deploy", deps.RouteHandler.DeployForStream) // Deploy to K8s - permission check in handler
+
+						// Version history of an L4 route: the domain route
+						// endpoints, guarded so a route of another stream is 404.
+						streamRoutes.GET("/:routeId/versions", deps.RouteHandler.ForStreamRoute(deps.RouteVersionHandler.List))
+						streamRoutes.GET("/:routeId/versions/:version", deps.RouteHandler.ForStreamRoute(deps.RouteVersionHandler.Get))
+						streamRoutes.POST("/:routeId/versions/:version/rollback", deps.RouteHandler.ForStreamRoute(deps.RouteVersionHandler.Rollback))
 					}
 				}
 
