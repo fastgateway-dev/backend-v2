@@ -378,3 +378,79 @@ func sortEntrypointPorts(ports []EntrypointPort) {
 		return a.Owner.StreamName+a.Owner.RouteName+a.Owner.DomainName < b.Owner.StreamName+b.Owner.RouteName+b.Owner.DomainName
 	})
 }
+
+// StreamListItem is one row of GET /projects/:projectId/streams: the stream
+// plus its entry point mode, template name and the ports its routes hold.
+// The embedded Stream keeps every existing field at the top level.
+type StreamListItem struct {
+	models.Stream
+	Mode                string       `json:"mode"`
+	GatewayTemplateName string       `json:"gatewayTemplateName"`
+	RouteCount          int          `json:"routeCount"`
+	Ports               []StreamPort `json:"ports"`
+}
+
+// StreamPort is a (transport, port) one of a stream's L4 routes holds.
+type StreamPort struct {
+	Transport string `json:"transport"`
+	Port      int    `json:"port"`
+}
+
+// ListWithSummary lists the project's streams, ordered by name, each with
+// its mode, template name, non-rejected L4 route count and their ports. It
+// issues one grouped route query and one template read per distinct
+// template - never a query per stream. A template lookup failure is an
+// error: the mode is never guessed.
+func (s *StreamViewService) ListWithSummary(projectID uuid.UUID) ([]StreamListItem, error) {
+	streams, err := s.streams.ListByProjectID(projectID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]StreamListItem, 0, len(streams))
+	if len(streams) == 0 {
+		return items, nil
+	}
+
+	ids := make([]uuid.UUID, 0, len(streams))
+	for _, st := range streams {
+		ids = append(ids, st.ID)
+	}
+	owners, err := s.streams.L4PortOwnersByStreamIDs(ids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load stream ports: %w", err)
+	}
+	portsByStream := make(map[uuid.UUID][]StreamPort, len(streams))
+	for _, o := range owners {
+		portsByStream[o.StreamID] = append(portsByStream[o.StreamID], StreamPort{Transport: o.Transport, Port: o.Port})
+	}
+
+	templates := make(map[uuid.UUID]*models.DomainTemplate)
+	for _, st := range streams {
+		tmpl, ok := templates[st.GatewayTemplateID]
+		if !ok {
+			tmpl, err = s.templates.GetByID(st.GatewayTemplateID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load gateway template %s for stream %q: %w", st.GatewayTemplateID, st.Name, err)
+			}
+			templates[st.GatewayTemplateID] = tmpl
+		}
+		ports := portsByStream[st.ID]
+		if ports == nil {
+			ports = []StreamPort{}
+		}
+		sort.Slice(ports, func(i, j int) bool {
+			if ports[i].Port != ports[j].Port {
+				return ports[i].Port < ports[j].Port
+			}
+			return ports[i].Transport < ports[j].Transport
+		})
+		items = append(items, StreamListItem{
+			Stream:              st,
+			Mode:                entrypointMode(tmpl),
+			GatewayTemplateName: tmpl.Name,
+			RouteCount:          len(ports),
+			Ports:               ports,
+		})
+	}
+	return items, nil
+}

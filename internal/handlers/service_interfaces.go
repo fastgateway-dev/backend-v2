@@ -203,6 +203,7 @@ type StreamServiceInterface interface {
 type StreamViewServiceInterface interface {
 	StreamEntrypoint(ctx context.Context, stream *models.Stream) (*services.StreamEntrypoint, error)
 	TemplateEntrypoint(ctx context.Context, projectID, templateID uuid.UUID) (*services.StreamEntrypoint, error)
+	ListWithSummary(projectID uuid.UUID) ([]services.StreamListItem, error)
 }
 
 // TemplateDomainLister is the slice of DomainTemplateService that

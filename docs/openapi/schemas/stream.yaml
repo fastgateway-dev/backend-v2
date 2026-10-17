@@ -206,3 +206,35 @@ EntrypointReservedPort:
     reason:
       type: string
       enum: [envoy_internal, placeholder, template_listener]
+
+StreamListItem:
+  description: A stream as listed, with the fields the stream list shows. Every Stream field is unchanged.
+  allOf:
+    - $ref: '#/Stream'
+    - type: object
+      required: [mode, gatewayTemplateName, routeCount, ports]
+      properties:
+        mode:
+          type: string
+          enum: [dedicated, shared]
+          description: shared if and only if the stream's gateway template merges gateways.
+        gatewayTemplateName:
+          type: string
+        routeCount:
+          type: integer
+          description: Non-rejected L4 routes on the stream.
+        ports:
+          type: array
+          description: (transport, port) of each non-rejected L4 route, ordered by port.
+          items:
+            $ref: '#/StreamPort'
+
+StreamPort:
+  type: object
+  required: [transport, port]
+  properties:
+    transport:
+      type: string
+      enum: [TCP, UDP]
+    port:
+      type: integer

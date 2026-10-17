@@ -73,20 +73,21 @@ func (h *StreamHandler) loadStream(c *gin.Context, projectID uuid.UUID) (*models
 	return stream, true
 }
 
-// List lists streams in a project.
+// List lists streams in a project, each with its entry point mode, template
+// name, route count and ports.
 func (h *StreamHandler) List(c *gin.Context) {
 	projectID, err := uuid.Parse(c.Param("projectId"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
 		return
 	}
-	streams, err := h.streamService.List(projectID)
+	streams, err := h.views.ListWithSummary(projectID)
 	if err != nil {
 		streamError(c, err)
 		return
 	}
 	if streams == nil {
-		streams = []models.Stream{}
+		streams = []services.StreamListItem{}
 	}
 	c.JSON(http.StatusOK, gin.H{"data": streams})
 }

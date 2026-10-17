@@ -2237,7 +2237,7 @@ paths:
         - $ref: '#/components/parameters/projectId'
       responses:
         '200':
-          description: List of streams, ordered by name
+          description: List of streams, ordered by name, each with its entry point mode, template name, route count and ports
           content:
             application/json:
               schema:
@@ -2246,7 +2246,13 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Stream'
+                      $ref: '#/components/schemas/StreamListItem'
+        '500':
+          description: A stream's gateway template or the route ports could not be read (modes are never guessed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - Streams
@@ -7330,6 +7336,33 @@ components:
             template's hostname-routed listener ports as TCP (template_listener).
           items:
             $ref: '#/components/schemas/EntrypointReservedPort'
+    StreamListItem:
+      description: A stream as listed, with the fields the stream list shows. Every Stream field is unchanged.
+      allOf:
+        - $ref: '#/components/schemas/Stream'
+        - type: object
+          required:
+            - mode
+            - gatewayTemplateName
+            - routeCount
+            - ports
+          properties:
+            mode:
+              type: string
+              enum:
+                - dedicated
+                - shared
+              description: shared if and only if the stream's gateway template merges gateways.
+            gatewayTemplateName:
+              type: string
+            routeCount:
+              type: integer
+              description: Non-rejected L4 routes on the stream.
+            ports:
+              type: array
+              description: (transport, port) of each non-rejected L4 route, ordered by port.
+              items:
+                $ref: '#/components/schemas/StreamPort'
     Domain:
       type: object
       properties:
@@ -12295,6 +12328,19 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/NamespaceCapability'
+    StreamPort:
+      type: object
+      required:
+        - transport
+        - port
+      properties:
+        transport:
+          type: string
+          enum:
+            - TCP
+            - UDP
+        port:
+          type: integer
     ApprovalStageReview:
       type: object
       description: An individual reviewer decision on a multi-approver stage

@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -205,18 +206,43 @@ func TestStreamHandler_Get_OtherProject_404(t *testing.T) {
 }
 
 func TestStreamHandler_List_Success(t *testing.T) {
-	h, svc, _ := newStreamHandler()
+	views := new(mocks.MockStreamViewService)
+	h := handlers.NewStreamHandler(new(mocks.MockStreamService), views, new(mocks.MockAuditService), domainPermChecker())
 	projectID := uuid.New()
-	svc.On("List", projectID).Return([]models.Stream{{ID: uuid.New(), Name: "a"}, {ID: uuid.New(), Name: "b"}}, nil)
+	views.On("ListWithSummary", projectID).Return([]services.StreamListItem{
+		{Stream: models.Stream{ID: uuid.New(), Name: "a", Namespace: "ns"}, Mode: "shared", GatewayTemplateName: "shared-envoy",
+			RouteCount: 1, Ports: []services.StreamPort{{Transport: "TCP", Port: 5432}}},
+		{Stream: models.Stream{ID: uuid.New(), Name: "b", Namespace: "ns"}, Mode: "dedicated", GatewayTemplateName: "edge-l4",
+			Ports: []services.StreamPort{}},
+	}, nil)
 
 	w := doStream(streamRouter(h, testUser()), "GET", "/projects/"+projectID.String()+"/streams", nil)
 
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp struct {
-		Data []models.Stream `json:"data"`
+		Data []map[string]any `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Len(t, resp.Data, 2)
+	require.Len(t, resp.Data, 2)
+	first := resp.Data[0]
+	assert.Equal(t, "a", first["name"], "existing Stream fields stay at the top level")
+	assert.Equal(t, "ns", first["namespace"])
+	assert.Equal(t, "shared", first["mode"])
+	assert.Equal(t, "shared-envoy", first["gatewayTemplateName"])
+	assert.Equal(t, float64(1), first["routeCount"])
+	assert.Equal(t, []any{map[string]any{"transport": "TCP", "port": float64(5432)}}, first["ports"])
+	assert.Equal(t, []any{}, resp.Data[1]["ports"], "no routes is an empty list, never null")
+}
+
+func TestStreamHandler_List_SummaryFailureIs500(t *testing.T) {
+	views := new(mocks.MockStreamViewService)
+	h := handlers.NewStreamHandler(new(mocks.MockStreamService), views, new(mocks.MockAuditService), domainPermChecker())
+	projectID := uuid.New()
+	views.On("ListWithSummary", projectID).Return(nil, errors.New("failed to load gateway template"))
+
+	w := doStream(streamRouter(h, testUser()), "GET", "/projects/"+projectID.String()+"/streams", nil)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestStreamHandler_Update_Success(t *testing.T) {

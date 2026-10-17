@@ -569,3 +569,95 @@ func TestStreamEntrypoint_Dedicated_GatewayNotDeployedYet(t *testing.T) {
 	assert.Equal(t, "", ep.Address, "shown as assigned on first deploy")
 	assert.Len(t, ep.Ports, 2)
 }
+
+// countingTemplates is a StreamTemplateReader that counts reads per template.
+type countingTemplates struct {
+	byID  map[uuid.UUID]*models.DomainTemplate
+	calls map[uuid.UUID]int
+}
+
+func (c *countingTemplates) GetByID(id uuid.UUID) (*models.DomainTemplate, error) {
+	c.calls[id]++
+	if t, ok := c.byID[id]; ok {
+		return t, nil
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
+func TestStreamListWithSummary(t *testing.T) {
+	w, self, cache, fresh := newPortWorld(true)
+	dedicated := &models.DomainTemplate{ID: uuid.New(), ProjectID: w.tmpl.ProjectID, Name: "edge-l4"}
+	solo := models.Stream{ID: uuid.New(), ProjectID: w.tmpl.ProjectID, Name: "solo", GatewayTemplateID: dedicated.ID}
+	w.streams = append(w.streams, solo)
+	w.routes = append(w.routes, worldRoute{id: uuid.New(), streamID: solo.ID, name: "mqtt", transport: "TCP", port: 1883, status: models.RouteStatusActive})
+	templates := &countingTemplates{byID: map[uuid.UUID]*models.DomainTemplate{w.tmpl.ID: w.tmpl, dedicated.ID: dedicated}, calls: map[uuid.UUID]int{}}
+	svc := services.NewStreamViewService(services.StreamViewServiceDeps{Streams: w, Templates: templates, Domains: w, Gateways: &fakeGatewayReader{}})
+
+	items, err := svc.ListWithSummary(w.tmpl.ProjectID)
+	require.NoError(t, err)
+
+	require.Len(t, items, 4)
+	byName := map[string]services.StreamListItem{}
+	for _, it := range items {
+		byName[it.Name] = it
+	}
+	assert.Equal(t, []string{"cache", "fresh", "solo", "test-stream"}, []string{items[0].Name, items[1].Name, items[2].Name, items[3].Name})
+
+	mine := byName["test-stream"]
+	assert.Equal(t, self.ID, mine.ID)
+	assert.Equal(t, services.EntrypointModeShared, mine.Mode)
+	assert.Equal(t, "shared-envoy", mine.GatewayTemplateName)
+	assert.Equal(t, 2, mine.RouteCount, "the rejected route is not counted")
+	assert.Equal(t, []services.StreamPort{{Transport: "TCP", Port: 19100}, {Transport: "UDP", Port: 19100}}, mine.Ports)
+
+	assert.Equal(t, cache.ID, byName["cache"].ID)
+	assert.Equal(t, 2, byName["cache"].RouteCount)
+	assert.Equal(t, fresh.ID, byName["fresh"].ID)
+	assert.Equal(t, 0, byName["fresh"].RouteCount)
+	assert.Equal(t, []services.StreamPort{}, byName["fresh"].Ports)
+	assert.Equal(t, services.EntrypointModeDedicated, byName["solo"].Mode)
+	assert.Equal(t, "edge-l4", byName["solo"].GatewayTemplateName)
+
+	// No N+1: one grouped route query, one read per distinct template.
+	assert.Equal(t, 1, w.ownerCalls.byStreamIDs)
+	assert.Zero(t, w.ownerCalls.byStream)
+	assert.Zero(t, w.ownerCalls.byTemplate)
+	assert.Equal(t, map[uuid.UUID]int{w.tmpl.ID: 1, dedicated.ID: 1}, templates.calls)
+}
+
+func TestStreamListWithSummary_EmptyProject(t *testing.T) {
+	w, _, _, _ := newPortWorld(false)
+	items, err := newViewService(w, &fakeGatewayReader{}).ListWithSummary(uuid.New())
+	require.NoError(t, err)
+	assert.Equal(t, []services.StreamListItem{}, items)
+	assert.Zero(t, w.ownerCalls.byStreamIDs, "no streams, no route query")
+}
+
+func TestStreamListWithSummary_TemplateFailureIsAnError(t *testing.T) {
+	w, _, _, _ := newPortWorld(false)
+	svc := services.NewStreamViewService(services.StreamViewServiceDeps{
+		Streams: w, Templates: &fakeTemplateReader{err: errors.New("db down")}, Domains: w, Gateways: &fakeGatewayReader{},
+	})
+	items, err := svc.ListWithSummary(w.tmpl.ProjectID)
+	assert.Nil(t, items, "never a list with guessed modes")
+	assert.ErrorContains(t, err, "db down")
+}
+
+func TestStreamListItem_JSONContract(t *testing.T) {
+	id := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	raw, err := json.Marshal(services.StreamListItem{
+		Stream: models.Stream{ID: id, Name: "test-stream", Status: "active"},
+		Mode:   "shared", GatewayTemplateName: "shared-envoy", RouteCount: 1,
+		Ports: []services.StreamPort{{Transport: "TCP", Port: 5432}},
+	})
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(raw, &got))
+	assert.Equal(t, "11111111-1111-1111-1111-111111111111", got["id"])
+	assert.Equal(t, "test-stream", got["name"])
+	assert.Equal(t, "active", got["status"])
+	assert.Equal(t, "shared", got["mode"])
+	assert.Equal(t, "shared-envoy", got["gatewayTemplateName"])
+	assert.Equal(t, float64(1), got["routeCount"])
+	assert.Equal(t, []any{map[string]any{"transport": "TCP", "port": float64(5432)}}, got["ports"])
+}

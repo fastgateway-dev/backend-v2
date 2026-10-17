@@ -675,6 +675,8 @@ components:
       $ref: 'schemas/stream.yaml#/UpdateStreamRequest'
     StreamEntrypoint:
       $ref: 'schemas/stream.yaml#/StreamEntrypoint'
+    StreamListItem:
+      $ref: 'schemas/stream.yaml#/StreamListItem'
 
     # ============== DOMAIN ==============
     Domain:

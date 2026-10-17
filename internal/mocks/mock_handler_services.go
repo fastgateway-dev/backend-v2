@@ -8857,6 +8857,68 @@ func (_m *MockStreamViewService) EXPECT() *MockStreamViewService_Expecter {
 	return &MockStreamViewService_Expecter{mock: &_m.Mock}
 }
 
+// ListWithSummary provides a mock function for the type MockStreamViewService
+func (_mock *MockStreamViewService) ListWithSummary(projectID uuid.UUID) ([]services.StreamListItem, error) {
+	ret := _mock.Called(projectID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListWithSummary")
+	}
+
+	var r0 []services.StreamListItem
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) ([]services.StreamListItem, error)); ok {
+		return returnFunc(projectID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) []services.StreamListItem); ok {
+		r0 = returnFunc(projectID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]services.StreamListItem)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(projectID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockStreamViewService_ListWithSummary_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListWithSummary'
+type MockStreamViewService_ListWithSummary_Call struct {
+	*mock.Call
+}
+
+// ListWithSummary is a helper method to define mock.On call
+//   - projectID uuid.UUID
+func (_e *MockStreamViewService_Expecter) ListWithSummary(projectID any) *MockStreamViewService_ListWithSummary_Call {
+	return &MockStreamViewService_ListWithSummary_Call{Call: _e.mock.On("ListWithSummary", projectID)}
+}
+
+func (_c *MockStreamViewService_ListWithSummary_Call) Run(run func(projectID uuid.UUID)) *MockStreamViewService_ListWithSummary_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStreamViewService_ListWithSummary_Call) Return(streamListItems []services.StreamListItem, err error) *MockStreamViewService_ListWithSummary_Call {
+	_c.Call.Return(streamListItems, err)
+	return _c
+}
+
+func (_c *MockStreamViewService_ListWithSummary_Call) RunAndReturn(run func(projectID uuid.UUID) ([]services.StreamListItem, error)) *MockStreamViewService_ListWithSummary_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // StreamEntrypoint provides a mock function for the type MockStreamViewService
 func (_mock *MockStreamViewService) StreamEntrypoint(ctx context.Context, stream *models.Stream) (*services.StreamEntrypoint, error) {
 	ret := _mock.Called(ctx, stream)
