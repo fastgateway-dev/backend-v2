@@ -19,7 +19,8 @@ import (
 func TestApprovalHandler_GetDiff_L4RouteIs200WithRouteKind(t *testing.T) {
 	mockApproval := new(mocks.MockApprovalService)
 	h := handlers.NewApprovalHandler(mockApproval, new(mocks.MockAuditService))
-	id := uuid.New()
+	id, projectID := uuid.New(), uuid.New()
+	mockApproval.On("GetByID", id).Return(&models.Approval{ID: id, ProjectID: projectID}, nil)
 	mockApproval.On("GetDiff", id).Return(&services.ApprovalDiffResult{
 		Action: "update", RouteKind: "TCPRoute", CurrentYAML: "kind: TCPRoute\n", ProposedYAML: "kind: TCPRoute\n",
 	}, nil)
@@ -27,7 +28,7 @@ func TestApprovalHandler_GetDiff_L4RouteIs200WithRouteKind(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/approvals/"+id.String()+"/diff", nil)
-	c.Params = gin.Params{{Key: "approvalId", Value: id.String()}}
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}, {Key: "approvalId", Value: id.String()}}
 	h.GetDiff(c)
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -39,13 +40,13 @@ func TestApprovalHandler_GetDiff_L4RouteIs200WithRouteKind(t *testing.T) {
 func TestApprovalHandler_Get_CarriesStreamFields(t *testing.T) {
 	mockApproval := new(mocks.MockApprovalService)
 	h := handlers.NewApprovalHandler(mockApproval, new(mocks.MockAuditService))
-	id, sid := uuid.New(), uuid.New()
-	mockApproval.On("GetByID", id).Return(&models.Approval{ID: id, EntityType: models.ApprovalEntityRoute, StreamID: &sid, StreamName: "test-stream"}, nil)
+	id, sid, projectID := uuid.New(), uuid.New(), uuid.New()
+	mockApproval.On("GetByID", id).Return(&models.Approval{ID: id, ProjectID: projectID, EntityType: models.ApprovalEntityRoute, StreamID: &sid, StreamName: "test-stream"}, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/approvals/"+id.String(), nil)
-	c.Params = gin.Params{{Key: "approvalId", Value: id.String()}}
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}, {Key: "approvalId", Value: id.String()}}
 	h.Get(c)
 
 	require.Equal(t, http.StatusOK, w.Code)

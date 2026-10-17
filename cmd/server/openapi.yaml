@@ -2908,6 +2908,7 @@ paths:
       tags:
         - Streams
       summary: Roll an L4 route back to a previous version (submits for approval)
+      description: Requires the route-write permission (route.create), like updating the route; a viewer gets 403.
       operationId: rollbackStreamRouteVersion
       security:
         - bearerAuth: []
@@ -2929,6 +2930,8 @@ paths:
                 $ref: '#/components/schemas/Route'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
   /projects/{projectId}/domains:
@@ -4977,7 +4980,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/Approval'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: Approval not found, including an approval of another project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/approvals/{approvalId}/diff:
     get:
       tags:
@@ -4998,6 +5005,12 @@ paths:
                 $ref: '#/components/schemas/ApprovalDiffResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Approval not found, including an approval of another project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           description: The approval, its route, or the route's domain or stream could not be read, or a snapshot is corrupt (never a partial diff)
           content:

@@ -146,7 +146,11 @@ approval:
             schema:
               $ref: '../schemas/approval.yaml#/Approval'
       '404':
-        $ref: '../components/responses.yaml#/NotFound'
+        description: Approval not found, including an approval of another project
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
 
 approval-diff:
   get:
@@ -167,6 +171,12 @@ approval-diff:
               $ref: '../schemas/approval.yaml#/ApprovalDiffResponse'
       '400':
         $ref: '../components/responses.yaml#/BadRequest'
+      '404':
+        description: Approval not found, including an approval of another project
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
       '500':
         description: The approval, its route, or the route's domain or stream could not be read, or a snapshot is corrupt (never a partial diff)
         content:
