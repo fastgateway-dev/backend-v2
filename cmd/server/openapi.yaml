@@ -2644,6 +2644,39 @@ paths:
                 type: string
         '404':
           $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/yamls:
+    get:
+      tags:
+        - Streams
+      summary: Get an L4 route's manifests (TCPRoute/UDPRoute and BackendTrafficPolicy)
+      description: |
+        The TCPRoute or UDPRoute is returned in `httpRouteYaml` (the same
+        response shape as the domain route endpoint) and the
+        BackendTrafficPolicy deploy applies in `backendTrafficPolicyYaml`
+        (absent when the route has no policy). Rendered through the deploy
+        builders.
+      operationId: getStreamRouteYamls
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+      responses:
+        '200':
+          description: Route YAMLs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteYAMLsResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: The route's stream or policy could not be read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/deploy:
     post:
       tags:
@@ -12494,6 +12527,32 @@ components:
           items:
             type: string
           description: Allowed values for the header
+    APIKeyClientResourceYAMLs:
+      type: object
+      required:
+        - clientId
+        - clientName
+        - httpRouteYaml
+        - securityPolicyYaml
+      description: Kubernetes resources generated for a single API-key client attachment, with secrets redacted
+      properties:
+        clientId:
+          type: string
+          format: uuid
+        clientName:
+          type: string
+        httpRouteYaml:
+          type: string
+          description: Per-client HTTPRoute/GRPCRoute Kubernetes YAML
+        securityPolicyYaml:
+          type: string
+          description: Per-client SecurityPolicy Kubernetes YAML
+        backendTrafficPolicyYaml:
+          type: string
+          description: Per-client BackendTrafficPolicy Kubernetes YAML (if configured)
+        envoyExtensionPolicyYaml:
+          type: string
+          description: Per-client EnvoyExtensionPolicy Kubernetes YAML (if configured)
     DefaultBackend:
       type: object
       required:
@@ -12644,32 +12703,6 @@ components:
             - spec_too_large
         message:
           type: string
-    APIKeyClientResourceYAMLs:
-      type: object
-      required:
-        - clientId
-        - clientName
-        - httpRouteYaml
-        - securityPolicyYaml
-      description: Kubernetes resources generated for a single API-key client attachment, with secrets redacted
-      properties:
-        clientId:
-          type: string
-          format: uuid
-        clientName:
-          type: string
-        httpRouteYaml:
-          type: string
-          description: Per-client HTTPRoute/GRPCRoute Kubernetes YAML
-        securityPolicyYaml:
-          type: string
-          description: Per-client SecurityPolicy Kubernetes YAML
-        backendTrafficPolicyYaml:
-          type: string
-          description: Per-client BackendTrafficPolicy Kubernetes YAML (if configured)
-        envoyExtensionPolicyYaml:
-          type: string
-          description: Per-client EnvoyExtensionPolicy Kubernetes YAML (if configured)
     CheckConflictsRequest:
       type: object
       required:

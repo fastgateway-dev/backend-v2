@@ -174,3 +174,11 @@ func (h *RouteHandler) GetYAMLForStream(c *gin.Context) {
 		h.GetYAML(c)
 	}
 }
+
+// GetYAMLsForStream gets an L4 route's manifests: the TCPRoute/UDPRoute (in
+// httpRouteYaml) and its BackendTrafficPolicy.
+func (h *RouteHandler) GetYAMLsForStream(c *gin.Context) {
+	if h.requireStreamRoute(c) {
+		h.GetYAMLs(c)
+	}
+}

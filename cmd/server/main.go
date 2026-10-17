@@ -962,6 +962,7 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 						streamRoutes.PUT("/:routeId", deps.RouteHandler.UpdateForStream)    // Permission check in handler
 						streamRoutes.DELETE("/:routeId", deps.RouteHandler.DeleteForStream) // Permission check in handler
 						streamRoutes.GET("/:routeId/yaml", deps.RouteHandler.GetYAMLForStream)
+						streamRoutes.GET("/:routeId/yamls", deps.RouteHandler.GetYAMLsForStream)
 						streamRoutes.POST("/:routeId/deploy", deps.RouteHandler.DeployForStream) // Deploy to K8s - permission check in handler
 					}
 				}

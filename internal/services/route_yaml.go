@@ -104,14 +104,11 @@ func (q *routeQuery) GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error) {
 		return nil, err
 	}
 
-	// L4 routes have no Domain and none of the HTTP-only policy resources: the
-	// preview is just the TCPRoute/UDPRoute. Must precede the *route.DomainID deref.
+	// L4 routes have no Domain and none of the HTTP-only policy resources:
+	// the manifests are the TCPRoute/UDPRoute (in httpRouteYaml) and the
+	// BackendTrafficPolicy deployL4 applies. Must precede the *route.DomainID deref.
 	if route.IsL4() {
-		l4YAML, err := q.generateL4RouteYAML(route)
-		if err != nil {
-			return nil, err
-		}
-		return &RouteYAMLs{HTTPRouteYAML: l4YAML}, nil
+		return q.generateL4RouteYAMLs(route)
 	}
 
 	domain, err := q.domainRepo.GetByID(*route.DomainID)
@@ -588,14 +585,29 @@ func (q *routeQuery) generateEnvoyExtensionPolicyYAMLFromDBWithWaf(route *models
 // generateL4RouteYAML renders the TCPRoute/UDPRoute (v1 or v1alpha2) for an L4 route.
 // The route's Stream (not a Domain) supplies the namespace and parent Gateway.
 func (q *routeQuery) generateL4RouteYAML(route *models.Route) (string, error) {
+	stream, err := q.l4Stream(route)
+	if err != nil {
+		return "", err
+	}
+	return q.renderL4RouteYAML(route, stream)
+}
+
+// l4Stream loads the Stream an L4 route belongs to.
+func (q *routeQuery) l4Stream(route *models.Route) (*models.Stream, error) {
 	if route.StreamID == nil {
-		return "", fmt.Errorf("L4 route %s has no stream", route.ID)
+		return nil, fmt.Errorf("L4 route %s has no stream", route.ID)
 	}
 	stream, err := q.streams.GetByID(*route.StreamID)
 	if err != nil {
-		return "", fmt.Errorf("failed to load stream for L4 route: %w", err)
+		return nil, fmt.Errorf("failed to load stream for L4 route: %w", err)
 	}
+	return stream, nil
+}
 
+// renderL4RouteYAML renders route's TCPRoute/UDPRoute on stream through the
+// deploy builders (routeplan.BuildTCPRouteConfig / BuildUDPRouteConfig and
+// kubernetes.BuildTCPRouteObject / BuildUDPRouteObject).
+func (q *routeQuery) renderL4RouteYAML(route *models.Route, stream *models.Stream) (string, error) {
 	// Match what deploy applies: v1 when the project's cluster supports it.
 	apiVersion := "gateway.networking.k8s.io/v1alpha2"
 	if q.capabilities.Has(context.Background(), stream.ProjectID, capabilities.CapL4RouteV1) {

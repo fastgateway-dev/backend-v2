@@ -220,3 +220,36 @@ stream-route-deploy:
         $ref: '../components/responses.yaml#/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
+
+stream-route-yamls:
+  get:
+    tags: [Streams]
+    summary: Get an L4 route's manifests (TCPRoute/UDPRoute and BackendTrafficPolicy)
+    description: |
+      The TCPRoute or UDPRoute is returned in `httpRouteYaml` (the same
+      response shape as the domain route endpoint) and the
+      BackendTrafficPolicy deploy applies in `backendTrafficPolicyYaml`
+      (absent when the route has no policy). Rendered through the deploy
+      builders.
+    operationId: getStreamRouteYamls
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+      - $ref: '../components/parameters.yaml#/routeId'
+    responses:
+      '200':
+        description: Route YAMLs
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/route.yaml#/RouteYAMLsResponse'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '500':
+        description: The route's stream or policy could not be read
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

@@ -265,6 +265,8 @@ paths:
     $ref: 'paths/stream-routes.yaml#/stream-routes_{routeId}'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/yaml:
     $ref: 'paths/stream-routes.yaml#/stream-route-yaml'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/yamls:
+    $ref: 'paths/stream-routes.yaml#/stream-route-yamls'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/deploy:
     $ref: 'paths/stream-routes.yaml#/stream-route-deploy'
   /projects/{projectId}/domains:
