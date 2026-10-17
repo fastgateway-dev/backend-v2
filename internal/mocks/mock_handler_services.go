@@ -14016,6 +14016,80 @@ func (_c *MockRoutePreviewer_PreviewCreate_Call) RunAndReturn(run func(domainID 
 	return _c
 }
 
+// PreviewCreateForStream provides a mock function for the type MockRoutePreviewer
+func (_mock *MockRoutePreviewer) PreviewCreateForStream(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput) (*services.PreviewCreateResult, error) {
+	ret := _mock.Called(projectID, streamID, input)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PreviewCreateForStream")
+	}
+
+	var r0 *services.PreviewCreateResult
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput) (*services.PreviewCreateResult, error)); ok {
+		return returnFunc(projectID, streamID, input)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput) *services.PreviewCreateResult); ok {
+		r0 = returnFunc(projectID, streamID, input)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*services.PreviewCreateResult)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput) error); ok {
+		r1 = returnFunc(projectID, streamID, input)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRoutePreviewer_PreviewCreateForStream_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PreviewCreateForStream'
+type MockRoutePreviewer_PreviewCreateForStream_Call struct {
+	*mock.Call
+}
+
+// PreviewCreateForStream is a helper method to define mock.On call
+//   - projectID uuid.UUID
+//   - streamID uuid.UUID
+//   - input *services.CreateRouteInput
+func (_e *MockRoutePreviewer_Expecter) PreviewCreateForStream(projectID any, streamID any, input any) *MockRoutePreviewer_PreviewCreateForStream_Call {
+	return &MockRoutePreviewer_PreviewCreateForStream_Call{Call: _e.mock.On("PreviewCreateForStream", projectID, streamID, input)}
+}
+
+func (_c *MockRoutePreviewer_PreviewCreateForStream_Call) Run(run func(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput)) *MockRoutePreviewer_PreviewCreateForStream_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 *services.CreateRouteInput
+		if args[2] != nil {
+			arg2 = args[2].(*services.CreateRouteInput)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRoutePreviewer_PreviewCreateForStream_Call) Return(previewCreateResult *services.PreviewCreateResult, err error) *MockRoutePreviewer_PreviewCreateForStream_Call {
+	_c.Call.Return(previewCreateResult, err)
+	return _c
+}
+
+func (_c *MockRoutePreviewer_PreviewCreateForStream_Call) RunAndReturn(run func(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput) (*services.PreviewCreateResult, error)) *MockRoutePreviewer_PreviewCreateForStream_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // PreviewDelete provides a mock function for the type MockRoutePreviewer
 func (_mock *MockRoutePreviewer) PreviewDelete(routeID uuid.UUID) (*services.PreviewDeleteResult, error) {
 	ret := _mock.Called(routeID)
@@ -14142,6 +14216,74 @@ func (_c *MockRoutePreviewer_PreviewUpdate_Call) Return(previewUpdateResult *ser
 }
 
 func (_c *MockRoutePreviewer_PreviewUpdate_Call) RunAndReturn(run func(routeID uuid.UUID, input *services.UpdateRouteInput) (*services.PreviewUpdateResult, error)) *MockRoutePreviewer_PreviewUpdate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PreviewUpdateForStream provides a mock function for the type MockRoutePreviewer
+func (_mock *MockRoutePreviewer) PreviewUpdateForStream(routeID uuid.UUID, input *services.UpdateRouteInput) (*services.PreviewUpdateResult, error) {
+	ret := _mock.Called(routeID, input)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PreviewUpdateForStream")
+	}
+
+	var r0 *services.PreviewUpdateResult
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, *services.UpdateRouteInput) (*services.PreviewUpdateResult, error)); ok {
+		return returnFunc(routeID, input)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, *services.UpdateRouteInput) *services.PreviewUpdateResult); ok {
+		r0 = returnFunc(routeID, input)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*services.PreviewUpdateResult)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, *services.UpdateRouteInput) error); ok {
+		r1 = returnFunc(routeID, input)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRoutePreviewer_PreviewUpdateForStream_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PreviewUpdateForStream'
+type MockRoutePreviewer_PreviewUpdateForStream_Call struct {
+	*mock.Call
+}
+
+// PreviewUpdateForStream is a helper method to define mock.On call
+//   - routeID uuid.UUID
+//   - input *services.UpdateRouteInput
+func (_e *MockRoutePreviewer_Expecter) PreviewUpdateForStream(routeID any, input any) *MockRoutePreviewer_PreviewUpdateForStream_Call {
+	return &MockRoutePreviewer_PreviewUpdateForStream_Call{Call: _e.mock.On("PreviewUpdateForStream", routeID, input)}
+}
+
+func (_c *MockRoutePreviewer_PreviewUpdateForStream_Call) Run(run func(routeID uuid.UUID, input *services.UpdateRouteInput)) *MockRoutePreviewer_PreviewUpdateForStream_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 *services.UpdateRouteInput
+		if args[1] != nil {
+			arg1 = args[1].(*services.UpdateRouteInput)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRoutePreviewer_PreviewUpdateForStream_Call) Return(previewUpdateResult *services.PreviewUpdateResult, err error) *MockRoutePreviewer_PreviewUpdateForStream_Call {
+	_c.Call.Return(previewUpdateResult, err)
+	return _c
+}
+
+func (_c *MockRoutePreviewer_PreviewUpdateForStream_Call) RunAndReturn(run func(routeID uuid.UUID, input *services.UpdateRouteInput) (*services.PreviewUpdateResult, error)) *MockRoutePreviewer_PreviewUpdateForStream_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -15663,6 +15805,80 @@ func (_c *MockRouteService_PreviewCreate_Call) RunAndReturn(run func(domainID uu
 	return _c
 }
 
+// PreviewCreateForStream provides a mock function for the type MockRouteService
+func (_mock *MockRouteService) PreviewCreateForStream(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput) (*services.PreviewCreateResult, error) {
+	ret := _mock.Called(projectID, streamID, input)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PreviewCreateForStream")
+	}
+
+	var r0 *services.PreviewCreateResult
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput) (*services.PreviewCreateResult, error)); ok {
+		return returnFunc(projectID, streamID, input)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput) *services.PreviewCreateResult); ok {
+		r0 = returnFunc(projectID, streamID, input)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*services.PreviewCreateResult)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, uuid.UUID, *services.CreateRouteInput) error); ok {
+		r1 = returnFunc(projectID, streamID, input)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteService_PreviewCreateForStream_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PreviewCreateForStream'
+type MockRouteService_PreviewCreateForStream_Call struct {
+	*mock.Call
+}
+
+// PreviewCreateForStream is a helper method to define mock.On call
+//   - projectID uuid.UUID
+//   - streamID uuid.UUID
+//   - input *services.CreateRouteInput
+func (_e *MockRouteService_Expecter) PreviewCreateForStream(projectID any, streamID any, input any) *MockRouteService_PreviewCreateForStream_Call {
+	return &MockRouteService_PreviewCreateForStream_Call{Call: _e.mock.On("PreviewCreateForStream", projectID, streamID, input)}
+}
+
+func (_c *MockRouteService_PreviewCreateForStream_Call) Run(run func(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput)) *MockRouteService_PreviewCreateForStream_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 *services.CreateRouteInput
+		if args[2] != nil {
+			arg2 = args[2].(*services.CreateRouteInput)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteService_PreviewCreateForStream_Call) Return(previewCreateResult *services.PreviewCreateResult, err error) *MockRouteService_PreviewCreateForStream_Call {
+	_c.Call.Return(previewCreateResult, err)
+	return _c
+}
+
+func (_c *MockRouteService_PreviewCreateForStream_Call) RunAndReturn(run func(projectID uuid.UUID, streamID uuid.UUID, input *services.CreateRouteInput) (*services.PreviewCreateResult, error)) *MockRouteService_PreviewCreateForStream_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // PreviewDelete provides a mock function for the type MockRouteService
 func (_mock *MockRouteService) PreviewDelete(routeID uuid.UUID) (*services.PreviewDeleteResult, error) {
 	ret := _mock.Called(routeID)
@@ -15789,6 +16005,74 @@ func (_c *MockRouteService_PreviewUpdate_Call) Return(previewUpdateResult *servi
 }
 
 func (_c *MockRouteService_PreviewUpdate_Call) RunAndReturn(run func(routeID uuid.UUID, input *services.UpdateRouteInput) (*services.PreviewUpdateResult, error)) *MockRouteService_PreviewUpdate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PreviewUpdateForStream provides a mock function for the type MockRouteService
+func (_mock *MockRouteService) PreviewUpdateForStream(routeID uuid.UUID, input *services.UpdateRouteInput) (*services.PreviewUpdateResult, error) {
+	ret := _mock.Called(routeID, input)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PreviewUpdateForStream")
+	}
+
+	var r0 *services.PreviewUpdateResult
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, *services.UpdateRouteInput) (*services.PreviewUpdateResult, error)); ok {
+		return returnFunc(routeID, input)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, *services.UpdateRouteInput) *services.PreviewUpdateResult); ok {
+		r0 = returnFunc(routeID, input)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*services.PreviewUpdateResult)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, *services.UpdateRouteInput) error); ok {
+		r1 = returnFunc(routeID, input)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRouteService_PreviewUpdateForStream_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PreviewUpdateForStream'
+type MockRouteService_PreviewUpdateForStream_Call struct {
+	*mock.Call
+}
+
+// PreviewUpdateForStream is a helper method to define mock.On call
+//   - routeID uuid.UUID
+//   - input *services.UpdateRouteInput
+func (_e *MockRouteService_Expecter) PreviewUpdateForStream(routeID any, input any) *MockRouteService_PreviewUpdateForStream_Call {
+	return &MockRouteService_PreviewUpdateForStream_Call{Call: _e.mock.On("PreviewUpdateForStream", routeID, input)}
+}
+
+func (_c *MockRouteService_PreviewUpdateForStream_Call) Run(run func(routeID uuid.UUID, input *services.UpdateRouteInput)) *MockRouteService_PreviewUpdateForStream_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 *services.UpdateRouteInput
+		if args[1] != nil {
+			arg1 = args[1].(*services.UpdateRouteInput)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRouteService_PreviewUpdateForStream_Call) Return(previewUpdateResult *services.PreviewUpdateResult, err error) *MockRouteService_PreviewUpdateForStream_Call {
+	_c.Call.Return(previewUpdateResult, err)
+	return _c
+}
+
+func (_c *MockRouteService_PreviewUpdateForStream_Call) RunAndReturn(run func(routeID uuid.UUID, input *services.UpdateRouteInput) (*services.PreviewUpdateResult, error)) *MockRouteService_PreviewUpdateForStream_Call {
 	_c.Call.Return(run)
 	return _c
 }

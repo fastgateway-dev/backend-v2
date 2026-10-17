@@ -203,3 +203,54 @@ func (h *RouteHandler) GetStreamYAMLs(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, yamls)
 }
+
+// PreviewCreateForStream renders the manifests an L4 route create would
+// produce, after the same validation as CreateForStream; its errors map to
+// the same statuses (400, 404, 409). Same permission as the domain route
+// preview: project access only.
+func (h *RouteHandler) PreviewCreateForStream(c *gin.Context) {
+	projectID, streamID, ok := streamRouteIDs(c)
+	if !ok {
+		return
+	}
+	var input services.CreateRouteInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := h.routeService.PreviewCreateForStream(projectID, streamID, &input)
+	if err != nil {
+		c.JSON(routeWriteErrorStatus(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// PreviewUpdateForStream renders the current and proposed manifests of an L4
+// route update, after the same validation as Update (a changed port is
+// re-checked); its errors map like the update's.
+func (h *RouteHandler) PreviewUpdateForStream(c *gin.Context) {
+	if !h.requireStreamRoute(c) {
+		return
+	}
+	routeID, _ := uuid.Parse(c.Param("routeId")) // validated by requireStreamRoute
+	var input services.UpdateRouteInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := h.routeService.PreviewUpdateForStream(routeID, &input)
+	if err != nil {
+		c.JSON(routeWriteErrorStatus(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// PreviewDeleteForStream renders what deleting an L4 route of a stream
+// removes: its TCPRoute/UDPRoute and BackendTrafficPolicy.
+func (h *RouteHandler) PreviewDeleteForStream(c *gin.Context) {
+	if h.requireStreamRoute(c) {
+		h.PreviewDelete(c)
+	}
+}

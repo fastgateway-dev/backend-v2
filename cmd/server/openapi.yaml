@@ -2569,6 +2569,54 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/routes/preview:
+    post:
+      tags:
+        - Streams
+      summary: Preview an L4 route create (TCPRoute/UDPRoute and BackendTrafficPolicy, no write)
+      description: |
+        Runs the same validation as creating the route (name, tcp/udp
+        protocol, listener port validity, reserved ports, template range and
+        collisions, protocol-gated policy inputs) and returns the manifests the
+        create would produce. Errors are the create's errors with the same
+        statuses, so a preview never shows a manifest create would reject.
+      operationId: previewCreateStreamRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStreamRouteRequest'
+      responses:
+        '200':
+          description: Proposed manifests (proposedYaml is the TCPRoute/UDPRoute)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewCreateResponse'
+        '400':
+          description: Invalid route (same cases as create)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Stream not found (including streams of other projects)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The listener port is already in use in the stream's scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}:
     get:
       tags:
@@ -2708,6 +2756,71 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/preview:
+    post:
+      tags:
+        - Streams
+      summary: Preview an L4 route update (current and proposed TCPRoute/UDPRoute and BackendTrafficPolicy)
+      description: |
+        Runs the same input validation as updating the route, including the
+        listener-port re-check with the route itself excluded.
+      operationId: previewUpdateStreamRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRouteRequest'
+      responses:
+        '200':
+          description: Current and proposed manifests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewUpdateResponse'
+        '400':
+          description: Invalid route configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The new listener port is already in use in the stream's scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/preview-delete:
+    get:
+      tags:
+        - Streams
+      summary: Preview an L4 route delete (TCPRoute/UDPRoute and BackendTrafficPolicy that will be removed)
+      operationId: previewDeleteStreamRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+      responses:
+        '200':
+          description: Manifests that the delete removes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewDeleteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/deploy:
     post:
       tags:

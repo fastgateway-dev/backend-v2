@@ -152,24 +152,37 @@ func mapL4PersistError(err error) error {
 	return err
 }
 
-func (w *routeWrite) create(domainID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID, wantProject *uuid.UUID) (*models.Route, error) {
+// createPlan is what validateCreate resolves for a route create: the owner,
+// its project, and the defaulted protocol and security mode.
+type createPlan struct {
+	domainPtr    *uuid.UUID
+	isStream     bool
+	projectID    uuid.UUID
+	protocol     models.RouteProtocol
+	securityMode models.SecurityMode
+}
+
+// validateCreate runs every input check of a route create, in create's
+// order, and persists nothing. create and PreviewCreateForStream both call
+// it, so a preview can never show a manifest that create would reject.
+func (w *routeWrite) validateCreate(domainID uuid.UUID, input *CreateRouteInput, wantProject *uuid.UUID) (createPlan, error) {
 	var domainPtr *uuid.UUID
 	if domainID != uuid.Nil {
 		domainPtr = &domainID
 	}
 	if err := validateRouteOwner(domainPtr, input.StreamID); err != nil {
-		return nil, err
+		return createPlan{}, err
 	}
 	isStream := input.StreamID != nil
 
 	// Validate route name - no spaces allowed
 	if strings.Contains(input.Name, " ") {
-		return nil, errors.New("route name cannot contain spaces")
+		return createPlan{}, errors.New("route name cannot contain spaces")
 	}
 
 	// Validate route name format - must be lowercase alphanumeric with dashes
 	if !isValidK8sName(input.Name) {
-		return nil, errors.New("route name must be lowercase alphanumeric with dashes only (e.g., 'user-api')")
+		return createPlan{}, errors.New("route name must be lowercase alphanumeric with dashes only (e.g., 'user-api')")
 	}
 
 	// Resolve the owner (domain or stream) and its project, and check the
@@ -177,50 +190,50 @@ func (w *routeWrite) create(domainID uuid.UUID, input *CreateRouteInput, created
 	var projectID uuid.UUID
 	if isStream {
 		if input.Protocol != models.RouteProtocolTCP && input.Protocol != models.RouteProtocolUDP {
-			return nil, ErrRouteProtocolNotL4
+			return createPlan{}, ErrRouteProtocolNotL4
 		}
 		stream, err := w.resolveStream(*input.StreamID, wantProject)
 		if err != nil {
-			return nil, err
+			return createPlan{}, err
 		}
 		projectID = stream.ProjectID
 
 		exists, err := w.routeRepo.ExistsByStreamAndName(stream.ID, input.Name)
 		if err != nil {
-			return nil, err
+			return createPlan{}, err
 		}
 		if exists {
-			return nil, errors.New("route name already exists in this stream")
+			return createPlan{}, errors.New("route name already exists in this stream")
 		}
 	} else {
 		// Check if route name already exists in domain
 		exists, err := w.routeRepo.ExistsByName(domainID, input.Name)
 		if err != nil {
-			return nil, err
+			return createPlan{}, err
 		}
 		if exists {
-			return nil, errors.New("route name already exists in this domain")
+			return createPlan{}, errors.New("route name already exists in this domain")
 		}
 
 		// Verify domain exists
 		domain, err := w.domainRepo.GetByID(domainID)
 		if err != nil {
-			return nil, errors.New("domain not found")
+			return createPlan{}, errors.New("domain not found")
 		}
 		projectID = domain.ProjectID
 	}
 
 	if err := w.validateRouteTrafficPolicies(&input.Config, input.BackendTrafficPolicy, projectID); err != nil {
-		return nil, err
+		return createPlan{}, err
 	}
 
 	if err := validateDirectResponseInput(&input.Config, input.BackendTrafficPolicy); err != nil {
-		return nil, err
+		return createPlan{}, err
 	}
 
 	// Verify team exists
 	if _, err := w.teamRepo.GetByID(input.TeamID); err != nil {
-		return nil, errors.New("team not found")
+		return createPlan{}, errors.New("team not found")
 	}
 
 	protocol := input.Protocol
@@ -235,19 +248,28 @@ func (w *routeWrite) create(domainID uuid.UUID, input *CreateRouteInput, created
 	}
 
 	if err := validateWriteSecurityMode(securityMode, input.SecurityPolicy, true); err != nil {
-		return nil, err
+		return createPlan{}, err
 	}
 
 	if protocol == models.RouteProtocolTCP || protocol == models.RouteProtocolUDP {
 		if err := validateL4PolicyInputs(protocol, securityMode, input.SecurityPolicy, input.ExtensionPolicy, input.WafPolicy, input.BackendTrafficPolicy); err != nil {
-			return nil, err
+			return createPlan{}, err
 		}
 	}
 
 	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, protocol, domainID, input.StreamID, nil); err != nil {
-		return nil, err
+		return createPlan{}, err
 	}
 
+	return createPlan{domainPtr: domainPtr, isStream: isStream, projectID: projectID, protocol: protocol, securityMode: securityMode}, nil
+}
+
+func (w *routeWrite) create(domainID uuid.UUID, input *CreateRouteInput, createdBy uuid.UUID, wantProject *uuid.UUID) (*models.Route, error) {
+	plan, err := w.validateCreate(domainID, input, wantProject)
+	if err != nil {
+		return nil, err
+	}
+	domainPtr, isStream, projectID, protocol, securityMode := plan.domainPtr, plan.isStream, plan.projectID, plan.protocol, plan.securityMode
 	// Generate route UUID first so we can use it for K8s resource name
 	routeID := w.assembler.newID()
 
@@ -367,36 +389,8 @@ func (w *routeWrite) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy u
 		return nil, err
 	}
 
-	// Resolve the owning project to validate namespaces. An L4 route has a
-	// Stream and no Domain, so this must precede every *route.DomainID use.
-	projectID, _, err := w.routeProjectID(route)
+	projectID, err := w.validateUpdate(id, route, input)
 	if err != nil {
-		return nil, err
-	}
-	var domainID uuid.UUID // zero for an L4 route, which has no matcher domain
-	if route.DomainID != nil {
-		domainID = *route.DomainID
-	}
-
-	if err := w.validateRouteTrafficPolicies(&input.Config, input.BackendTrafficPolicy, projectID); err != nil {
-		return nil, err
-	}
-
-	if err := validateWriteSecurityMode(route.SecurityMode, input.SecurityPolicy, false); err != nil {
-		return nil, err
-	}
-
-	if route.IsL4() {
-		if err := validateL4PolicyInputs(route.Protocol, route.SecurityMode, input.SecurityPolicy, input.ExtensionPolicy, input.WafPolicy, input.BackendTrafficPolicy); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, route.Protocol, domainID, route.StreamID, &id); err != nil {
-		return nil, err
-	}
-
-	if err := validateDirectResponseInput(&input.Config, input.BackendTrafficPolicy); err != nil {
 		return nil, err
 	}
 
@@ -549,6 +543,46 @@ func (w *routeWrite) Update(id uuid.UUID, input *UpdateRouteInput, submittedBy u
 
 	route.PendingApproval = approval
 	return route, nil
+}
+
+// validateUpdate runs every input check of a route update, in Update's
+// order, and persists nothing. It returns the route's project. Update and
+// PreviewUpdateForStream both call it.
+func (w *routeWrite) validateUpdate(id uuid.UUID, route *models.Route, input *UpdateRouteInput) (uuid.UUID, error) {
+	// Resolve the owning project to validate namespaces. An L4 route has a
+	// Stream and no Domain, so this must precede every *route.DomainID use.
+	projectID, _, err := w.routeProjectID(route)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	var domainID uuid.UUID // zero for an L4 route, which has no matcher domain
+	if route.DomainID != nil {
+		domainID = *route.DomainID
+	}
+
+	if err := w.validateRouteTrafficPolicies(&input.Config, input.BackendTrafficPolicy, projectID); err != nil {
+		return uuid.Nil, err
+	}
+
+	if err := validateWriteSecurityMode(route.SecurityMode, input.SecurityPolicy, false); err != nil {
+		return uuid.Nil, err
+	}
+
+	if route.IsL4() {
+		if err := validateL4PolicyInputs(route.Protocol, route.SecurityMode, input.SecurityPolicy, input.ExtensionPolicy, input.WafPolicy, input.BackendTrafficPolicy); err != nil {
+			return uuid.Nil, err
+		}
+	}
+
+	if err := w.validateRouteShapeAndConflicts(&input.Config, input.BackendTrafficPolicy, route.Protocol, domainID, route.StreamID, &id); err != nil {
+		return uuid.Nil, err
+	}
+
+	if err := validateDirectResponseInput(&input.Config, input.BackendTrafficPolicy); err != nil {
+		return uuid.Nil, err
+	}
+
+	return projectID, nil
 }
 
 // Delete requests deletion of a route (submits for approval)

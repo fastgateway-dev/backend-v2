@@ -93,3 +93,24 @@ func (s *RouteService) RenderL4RouteYAML(route *models.Route, stream *models.Str
 func (s *RouteService) RenderL4BackendTrafficPolicyYAML(route *models.Route, stream *models.Stream, cfg *models.BackendTrafficPolicyConfig) (string, error) {
 	return generateL4BackendTrafficPolicyYAML(route, stream, l4PolicyFromConfig(route, cfg))
 }
+
+// btpConfigFromInput is the policy config a create/update would persist for
+// input (the same ten fields persistCreatePolicies/persistUpdatePolicies
+// copy), or nil when the input carries no policy.
+func btpConfigFromInput(in *routeplan.BackendTrafficPolicyInput) *models.BackendTrafficPolicyConfig {
+	if in == nil || !in.HasContent() {
+		return nil
+	}
+	return &models.BackendTrafficPolicyConfig{
+		Compression:      in.Compression,
+		Retry:            in.Retry,
+		LoadBalancer:     in.LoadBalancer,
+		CircuitBreaker:   in.CircuitBreaker,
+		HealthCheck:      in.HealthCheck,
+		FaultInjection:   in.FaultInjection,
+		RateLimit:        in.RateLimit,
+		RequestBuffer:    in.RequestBuffer,
+		ResponseOverride: in.ResponseOverride,
+		Timeout:          in.Timeout,
+	}
+}

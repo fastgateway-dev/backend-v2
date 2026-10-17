@@ -263,12 +263,18 @@ paths:
     $ref: 'paths/streams.yaml#/streams_{streamId}_yamls'
   /projects/{projectId}/streams/{streamId}/routes:
     $ref: 'paths/stream-routes.yaml#/stream-routes'
+  /projects/{projectId}/streams/{streamId}/routes/preview:
+    $ref: 'paths/stream-routes.yaml#/stream-routes-preview'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}:
     $ref: 'paths/stream-routes.yaml#/stream-routes_{routeId}'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/yaml:
     $ref: 'paths/stream-routes.yaml#/stream-route-yaml'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/yamls:
     $ref: 'paths/stream-routes.yaml#/stream-route-yamls'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/preview:
+    $ref: 'paths/stream-routes.yaml#/stream-route-preview'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/preview-delete:
+    $ref: 'paths/stream-routes.yaml#/stream-route-preview-delete'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/deploy:
     $ref: 'paths/stream-routes.yaml#/stream-route-deploy'
   /projects/{projectId}/domains:

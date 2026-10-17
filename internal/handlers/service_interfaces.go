@@ -336,6 +336,8 @@ type RoutePreviewer interface {
 	PreviewCreate(domainID uuid.UUID, input *services.CreateRouteInput) (*services.PreviewCreateResult, error)
 	PreviewUpdate(routeID uuid.UUID, input *services.UpdateRouteInput) (*services.PreviewUpdateResult, error)
 	PreviewDelete(routeID uuid.UUID) (*services.PreviewDeleteResult, error)
+	PreviewCreateForStream(projectID, streamID uuid.UUID, input *services.CreateRouteInput) (*services.PreviewCreateResult, error)
+	PreviewUpdateForStream(routeID uuid.UUID, input *services.UpdateRouteInput) (*services.PreviewUpdateResult, error)
 }
 
 // RouteHandlerService is RouteHandler's dependency: the three roles above and

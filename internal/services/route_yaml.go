@@ -497,13 +497,15 @@ func (q *routeQuery) PreviewDelete(routeID uuid.UUID) (*PreviewDeleteResult, err
 		return nil, errors.New("route not found")
 	}
 
-	// L4 routes have no Domain; must precede the *route.DomainID deref.
+	// L4 routes have no Domain; must precede the *route.DomainID deref. The
+	// delete deploy removes the route's BackendTrafficPolicy too, so the
+	// preview shows it.
 	if route.IsL4() {
-		currentYAML, err := q.generateL4RouteYAML(route)
+		yamls, err := q.generateL4RouteYAMLs(route)
 		if err != nil {
 			return nil, err
 		}
-		return &PreviewDeleteResult{CurrentYAML: currentYAML}, nil
+		return &PreviewDeleteResult{CurrentYAML: yamls.HTTPRouteYAML, CurrentBackendTrafficPolicyYAML: yamls.BackendTrafficPolicyYAML}, nil
 	}
 
 	// Get domain
@@ -631,10 +633,23 @@ func (q *routeQuery) renderL4RouteYAML(route *models.Route, stream *models.Strea
 	return string(yamlBytes), nil
 }
 
-// previewUpdateL4 compares the current and proposed TCPRoute/UDPRoute for an
-// L4 route. Only the route object is previewed, matching the HTTP/gRPC preview.
+// previewUpdateL4 compares the current and proposed TCPRoute/UDPRoute and
+// BackendTrafficPolicy of an L4 route: current from the route and its stored
+// policy, proposed from the input (the policy an update would persist).
 func (q *routeQuery) previewUpdateL4(route *models.Route, input *UpdateRouteInput) (*PreviewUpdateResult, error) {
-	currentYAML, err := q.generateL4RouteYAML(route)
+	stream, err := q.l4Stream(route)
+	if err != nil {
+		return nil, err
+	}
+	currentYAML, err := q.renderL4RouteYAML(route, stream)
+	if err != nil {
+		return nil, err
+	}
+	stored, err := q.storedBackendTrafficPolicy(route.ID)
+	if err != nil {
+		return nil, err
+	}
+	currentBTP, err := generateL4BackendTrafficPolicyYAML(route, stream, stored)
 	if err != nil {
 		return nil, err
 	}
@@ -644,10 +659,19 @@ func (q *routeQuery) previewUpdateL4(route *models.Route, input *UpdateRouteInpu
 	if input.Description != "" {
 		proposed.Description = input.Description
 	}
-	proposedYAML, err := q.generateL4RouteYAML(&proposed)
+	proposedYAML, err := q.renderL4RouteYAML(&proposed, stream)
+	if err != nil {
+		return nil, err
+	}
+	proposedBTP, err := generateL4BackendTrafficPolicyYAML(&proposed, stream, l4PolicyFromConfig(&proposed, btpConfigFromInput(input.BackendTrafficPolicy)))
 	if err != nil {
 		return nil, err
 	}
 
-	return &PreviewUpdateResult{CurrentYAML: currentYAML, ProposedYAML: proposedYAML}, nil
+	return &PreviewUpdateResult{
+		CurrentYAML:                      currentYAML,
+		ProposedYAML:                     proposedYAML,
+		CurrentBackendTrafficPolicyYAML:  currentBTP,
+		ProposedBackendTrafficPolicyYAML: proposedBTP,
+	}, nil
 }
