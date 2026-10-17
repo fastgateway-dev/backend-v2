@@ -222,8 +222,9 @@ Rules:
   frontend types and is never set.
   - **dedicated:** this stream's Gateway; the template variant returns `""`.
   - **shared:** this stream's Gateway if it has an address, else any member
-    stream's Gateway, else `""`. The UI shows `""` as "assigned on first
-    deploy".
+    stream's Gateway, else any deployed domain's Gateway on the template
+    (every Gateway on a merged template reports the shared Service address),
+    else `""`. The UI shows `""` as "assigned on first deploy".
   - A missing Gateway or no address gives `""`; any other cluster read error
     is a 500.
 - **Failure:** if the template lookup fails, return an error (500). Never
@@ -625,3 +626,7 @@ above already includes them.
 - **"Current" side of an update diff.** It comes from the approval's
   previous-config snapshot, as for HTTP routes. The live route and stored
   policy already hold the proposed values by the time the diff is read.
+- **Shared address falls back to domain Gateways** (final code review). A
+  shared template that so far serves only domains already has an IP; the
+  entry point now reads it from a domain's Gateway instead of saying
+  "assigned on first deploy".
