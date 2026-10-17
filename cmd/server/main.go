@@ -326,7 +326,13 @@ func main() {
 	routeService.SetL4PortChecker(streamService)
 	domainService.SetStreamPorts(streamRepo)
 	domainTemplateService.SetPortSources(streamRepo, domainRepo)
-	streamHandler := handlers.NewStreamHandler(streamService, auditService, permChecker)
+	streamViewService := services.NewStreamViewService(services.StreamViewServiceDeps{
+		Streams:   streamRepo,
+		Templates: domainTemplateRepo,
+		Domains:   domainRepo,
+		Gateways:  k8sService,
+	})
+	streamHandler := handlers.NewStreamHandler(streamService, streamViewService, auditService, permChecker)
 	routeHandler := handlers.NewRouteHandler(routeService, auditService, permChecker)
 	routeVersionHandler := handlers.NewRouteVersionHandler(routeVersionService, auditService)
 	approvalPolicyService := services.NewApprovalPolicyService(approvalPolicyRepo)
@@ -890,6 +896,8 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					domainTemplatesRead.GET("/:domainTemplateId", deps.DomainTemplateHandler.Get)
 					domainTemplatesRead.GET("/:domainTemplateId/manifests", deps.DomainTemplateHandler.GetManifests)
 					domainTemplatesRead.GET("/:domainTemplateId/domains", deps.DomainTemplateHandler.ListDomains)
+					// The entry point a new stream on this template would join.
+					domainTemplatesRead.GET("/:domainTemplateId/entrypoint", deps.StreamHandler.GetTemplateEntrypoint)
 				}
 
 				// Domain Templates - Write access (Owner or Project Admin only)
@@ -940,6 +948,8 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					streams.DELETE("/:streamId", deps.StreamHandler.Delete) // Permission check in handler
 					// L4 metrics (connections/rate/throughput); not the HTTP route-metrics path.
 					streams.GET("/:streamId/metrics", deps.MetricsHandler.GetStreamMetrics)
+					// Read-only entry point: mode, address, who shares it, port map.
+					streams.GET("/:streamId/entrypoint", deps.StreamHandler.GetEntrypoint)
 
 					// L4 routes of a stream: the stream-scoped counterpart of the
 					// domain routes group below. Registered unconditionally for the

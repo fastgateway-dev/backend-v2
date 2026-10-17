@@ -235,6 +235,8 @@ paths:
     $ref: 'paths/domain-templates.yaml#/domain-templates_{id}_manifests'
   /projects/{projectId}/domain-templates/{domainTemplateId}/domains:
     $ref: 'paths/domain-templates.yaml#/domain-templates_{id}_domains'
+  /projects/{projectId}/domain-templates/{domainTemplateId}/entrypoint:
+    $ref: 'paths/domain-templates.yaml#/domain-templates_{id}_entrypoint'
   /projects/{projectId}/domain-templates/preview-create:
     $ref: 'paths/domain-templates.yaml#/domain-templates_preview-create'
   /projects/{projectId}/domain-templates/{domainTemplateId}/preview-changes:
@@ -255,6 +257,8 @@ paths:
     $ref: 'paths/streams.yaml#/streams_{streamId}'
   /projects/{projectId}/streams/{streamId}/metrics:
     $ref: 'paths/metrics.yaml#/stream-metrics'
+  /projects/{projectId}/streams/{streamId}/entrypoint:
+    $ref: 'paths/streams.yaml#/streams_{streamId}_entrypoint'
   /projects/{projectId}/streams/{streamId}/routes:
     $ref: 'paths/stream-routes.yaml#/stream-routes'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}:
@@ -669,6 +673,8 @@ components:
       $ref: 'schemas/stream.yaml#/CreateStreamRequest'
     UpdateStreamRequest:
       $ref: 'schemas/stream.yaml#/UpdateStreamRequest'
+    StreamEntrypoint:
+      $ref: 'schemas/stream.yaml#/StreamEntrypoint'
 
     # ============== DOMAIN ==============
     Domain:

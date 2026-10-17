@@ -197,6 +197,14 @@ type StreamServiceInterface interface {
 	Delete(id uuid.UUID) error
 }
 
+// StreamViewServiceInterface is the read-only stream views StreamHandler
+// serves: the entry point of a stream, and of a template before a stream
+// exists. *services.StreamViewService satisfies it.
+type StreamViewServiceInterface interface {
+	StreamEntrypoint(ctx context.Context, stream *models.Stream) (*services.StreamEntrypoint, error)
+	TemplateEntrypoint(ctx context.Context, projectID, templateID uuid.UUID) (*services.StreamEntrypoint, error)
+}
+
 // TemplateDomainLister is the slice of DomainTemplateService that
 // DomainTemplateHandler uses to answer "which domains use this template".
 // Named for the capability and satisfied structurally, following Phase 2E's
@@ -421,6 +429,7 @@ var _ AuditServiceInterface = (*services.AuditService)(nil)
 var _ AuthServiceInterface = (*services.AuthService)(nil)
 var _ CertificateIssuerServiceInterface = (*services.CertificateIssuerService)(nil)
 var _ StreamServiceInterface = (*services.StreamService)(nil)
+var _ StreamViewServiceInterface = (*services.StreamViewService)(nil)
 var _ CommentServiceInterface = (*services.CommentService)(nil)
 var _ DNSCredentialServiceInterface = (*services.DNSCredentialService)(nil)
 var _ DNSHostedZoneServiceInterface = (*services.DNSHostedZoneService)(nil)

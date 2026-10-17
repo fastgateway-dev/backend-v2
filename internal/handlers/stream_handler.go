@@ -27,13 +27,14 @@ type UpdateStreamRequest struct {
 // StreamHandler handles L4 stream endpoints.
 type StreamHandler struct {
 	streamService StreamServiceInterface
+	views         StreamViewServiceInterface
 	auditService  AuditServiceInterface
 	permChecker   *middleware.PermissionChecker
 }
 
 // NewStreamHandler creates a new stream handler.
-func NewStreamHandler(streamService StreamServiceInterface, auditService AuditServiceInterface, permChecker *middleware.PermissionChecker) *StreamHandler {
-	return &StreamHandler{streamService: streamService, auditService: auditService, permChecker: permChecker}
+func NewStreamHandler(streamService StreamServiceInterface, views StreamViewServiceInterface, auditService AuditServiceInterface, permChecker *middleware.PermissionChecker) *StreamHandler {
+	return &StreamHandler{streamService: streamService, views: views, auditService: auditService, permChecker: permChecker}
 }
 
 // streamError maps service errors to HTTP responses. Unknown errors are 500.
@@ -210,4 +211,46 @@ func (h *StreamHandler) Delete(c *gin.Context) {
 		middleware.AuditDetails(c), c.ClientIP(), c.Request.UserAgent())
 
 	c.Status(http.StatusNoContent)
+}
+
+// GetEntrypoint returns the stream's entry point: dedicated or shared IP, the
+// address, who shares it, and the port map (taken and reserved ports).
+func (h *StreamHandler) GetEntrypoint(c *gin.Context) {
+	projectID, err := uuid.Parse(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+	stream, ok := h.loadStream(c, projectID)
+	if !ok {
+		return
+	}
+	ep, err := h.views.StreamEntrypoint(c.Request.Context(), stream)
+	if err != nil {
+		streamError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, ep)
+}
+
+// GetTemplateEntrypoint returns the entry point a new stream on the gateway
+// template would join (the stream create form shows it before a stream
+// exists). A template of another project is reported as not found.
+func (h *StreamHandler) GetTemplateEntrypoint(c *gin.Context) {
+	projectID, err := uuid.Parse(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+	templateID, err := uuid.Parse(c.Param("domainTemplateId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain template ID"})
+		return
+	}
+	ep, err := h.views.TemplateEntrypoint(c.Request.Context(), projectID, templateID)
+	if err != nil {
+		streamError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, ep)
 }

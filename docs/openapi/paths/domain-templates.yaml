@@ -187,3 +187,33 @@ domain-templates_{id}_preview-changes:
           application/json:
             schema:
               $ref: '../schemas/domain-template.yaml#/DomainTemplatePreviewResult'
+
+domain-templates_{id}_entrypoint:
+  get:
+    tags: [Domain Templates]
+    summary: Get the entry point a new stream on this template would join
+    description: |
+      The stream create form's view of a template before a stream exists.
+      Same builder as the stream entry point; a dedicated template reports an
+      empty port map and no address.
+    operationId: getDomainTemplateEntrypoint
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/domainTemplateId'
+    responses:
+      '200':
+        description: The template's entry point
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/stream.yaml#/StreamEntrypoint'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '404':
+        description: Gateway Template not found (including templates of other projects)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

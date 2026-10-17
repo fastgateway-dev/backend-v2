@@ -143,3 +143,29 @@ streams_{streamId}:
           application/json:
             schema:
               $ref: '../schemas/common.yaml#/Error'
+
+streams_{streamId}_entrypoint:
+  get:
+    tags: [Streams]
+    summary: Get a stream's entry point (mode, address, who shares it, port map)
+    operationId: getStreamEntrypoint
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/parameters.yaml#/projectId'
+      - $ref: '../components/parameters.yaml#/streamId'
+    responses:
+      '200':
+        description: The stream's entry point
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/stream.yaml#/StreamEntrypoint'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '500':
+        description: The stream's gateway template, port sources or Gateway could not be read (the mode is never guessed)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

@@ -36,7 +36,7 @@ func newStreamHandler() (*handlers.StreamHandler, *mocks.MockStreamService, *moc
 	svc := new(mocks.MockStreamService)
 	audit := new(mocks.MockAuditService)
 	audit.On("LogAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	return handlers.NewStreamHandler(svc, audit, domainPermChecker()), svc, audit
+	return handlers.NewStreamHandler(svc, new(mocks.MockStreamViewService), audit, domainPermChecker()), svc, audit
 }
 
 func doStream(r *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {
