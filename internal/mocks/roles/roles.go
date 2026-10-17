@@ -37,6 +37,7 @@ type KubernetesService interface {
 	services.ReferenceGrantResetter
 	services.ReferenceGrants
 	services.GatewayApplier
+	services.GatewayStatusReader
 	services.GatewayClassApplier
 	services.NamespaceLister
 	services.Discovery

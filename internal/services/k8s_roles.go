@@ -203,6 +203,14 @@ type GatewayApplier interface {
 	DeleteClientTrafficPolicy(ctx context.Context, projectID uuid.UUID, namespace, name string) error
 }
 
+// GatewayStatusReader reads a Gateway back from a project's cluster so its
+// status.addresses can be shown. It never writes.
+//
+// Consumer: StreamViewService (stream_view.go).
+type GatewayStatusReader interface {
+	GetGateway(ctx context.Context, projectID uuid.UUID, namespace, name string) (*unstructured.Unstructured, error)
+}
+
 // GatewayClassApplier writes the cluster-scoped pair a domain template owns:
 // a GatewayClass and the EnvoyProxy its parametersRef points at. The two
 // always travel together, which is why they are one role.
@@ -278,6 +286,7 @@ var (
 	_ ReferenceGrantResetter = (*cluster.Client)(nil)
 	_ ReferenceGrants        = (*cluster.Client)(nil)
 	_ GatewayApplier         = (*cluster.Client)(nil)
+	_ GatewayStatusReader    = (*cluster.Client)(nil)
 	_ GatewayClassApplier    = (*cluster.Client)(nil)
 	_ NamespaceLister        = (*cluster.Client)(nil)
 	_ Discovery              = (*cluster.Client)(nil)
