@@ -421,6 +421,7 @@ stream-route-version-rollback:
   post:
     tags: [Streams]
     summary: Roll an L4 route back to a previous version (submits for approval)
+    description: Requires the route-write permission (route.create), like updating the route; a viewer gets 403.
     operationId: rollbackStreamRouteVersion
     security:
       - bearerAuth: []
@@ -442,5 +443,7 @@ stream-route-version-rollback:
               $ref: '../schemas/route.yaml#/Route'
       '400':
         $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/NotFound'

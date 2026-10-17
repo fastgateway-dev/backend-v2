@@ -268,3 +268,22 @@ func (h *RouteHandler) ForStreamRoute(next gin.HandlerFunc) gin.HandlerFunc {
 		}
 	}
 }
+
+// ForStreamRouteWrite is ForStreamRoute for a handler that writes: after the
+// route is confirmed to belong to the stream, the caller also needs the
+// route-write permission (the same CanCreateRoutes check Update makes). A
+// rollback resubmits the route through Update, so it is a write.
+func (h *RouteHandler) ForStreamRouteWrite(next gin.HandlerFunc) gin.HandlerFunc {
+	return h.ForStreamRoute(func(c *gin.Context) {
+		projectID, err := uuid.Parse(c.Param("projectId"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+			return
+		}
+		if !h.permChecker.CanCreateRoutes(projectID, middleware.GetCurrentUser(c)) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: only editors can change routes"})
+			return
+		}
+		next(c)
+	})
+}

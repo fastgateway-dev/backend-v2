@@ -976,7 +976,7 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 						// endpoints, guarded so a route of another stream is 404.
 						streamRoutes.GET("/:routeId/versions", deps.RouteHandler.ForStreamRoute(deps.RouteVersionHandler.List))
 						streamRoutes.GET("/:routeId/versions/:version", deps.RouteHandler.ForStreamRoute(deps.RouteVersionHandler.Get))
-						streamRoutes.POST("/:routeId/versions/:version/rollback", deps.RouteHandler.ForStreamRoute(deps.RouteVersionHandler.Rollback))
+						streamRoutes.POST("/:routeId/versions/:version/rollback", deps.RouteHandler.ForStreamRouteWrite(deps.RouteVersionHandler.Rollback))
 					}
 				}
 
