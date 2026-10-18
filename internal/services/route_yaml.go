@@ -104,14 +104,11 @@ func (q *routeQuery) GenerateYAMLs(id uuid.UUID) (*RouteYAMLs, error) {
 		return nil, err
 	}
 
-	// L4 routes have no Domain and none of the HTTP-only policy resources: the
-	// preview is just the TCPRoute/UDPRoute. Must precede the *route.DomainID deref.
+	// L4 routes have no Domain and none of the HTTP-only policy resources:
+	// the manifests are the TCPRoute/UDPRoute (in httpRouteYaml) and the
+	// BackendTrafficPolicy deployL4 applies. Must precede the *route.DomainID deref.
 	if route.IsL4() {
-		l4YAML, err := q.generateL4RouteYAML(route)
-		if err != nil {
-			return nil, err
-		}
-		return &RouteYAMLs{HTTPRouteYAML: l4YAML}, nil
+		return q.generateL4RouteYAMLs(route)
 	}
 
 	domain, err := q.domainRepo.GetByID(*route.DomainID)
@@ -500,13 +497,15 @@ func (q *routeQuery) PreviewDelete(routeID uuid.UUID) (*PreviewDeleteResult, err
 		return nil, errors.New("route not found")
 	}
 
-	// L4 routes have no Domain; must precede the *route.DomainID deref.
+	// L4 routes have no Domain; must precede the *route.DomainID deref. The
+	// delete deploy removes the route's BackendTrafficPolicy too, so the
+	// preview shows it.
 	if route.IsL4() {
-		currentYAML, err := q.generateL4RouteYAML(route)
+		yamls, err := q.generateL4RouteYAMLs(route)
 		if err != nil {
 			return nil, err
 		}
-		return &PreviewDeleteResult{CurrentYAML: currentYAML}, nil
+		return &PreviewDeleteResult{CurrentYAML: yamls.HTTPRouteYAML, CurrentBackendTrafficPolicyYAML: yamls.BackendTrafficPolicyYAML}, nil
 	}
 
 	// Get domain
@@ -588,14 +587,29 @@ func (q *routeQuery) generateEnvoyExtensionPolicyYAMLFromDBWithWaf(route *models
 // generateL4RouteYAML renders the TCPRoute/UDPRoute (v1 or v1alpha2) for an L4 route.
 // The route's Stream (not a Domain) supplies the namespace and parent Gateway.
 func (q *routeQuery) generateL4RouteYAML(route *models.Route) (string, error) {
+	stream, err := q.l4Stream(route)
+	if err != nil {
+		return "", err
+	}
+	return q.renderL4RouteYAML(route, stream)
+}
+
+// l4Stream loads the Stream an L4 route belongs to.
+func (q *routeQuery) l4Stream(route *models.Route) (*models.Stream, error) {
 	if route.StreamID == nil {
-		return "", fmt.Errorf("L4 route %s has no stream", route.ID)
+		return nil, fmt.Errorf("L4 route %s has no stream", route.ID)
 	}
 	stream, err := q.streams.GetByID(*route.StreamID)
 	if err != nil {
-		return "", fmt.Errorf("failed to load stream for L4 route: %w", err)
+		return nil, fmt.Errorf("failed to load stream for L4 route: %w", err)
 	}
+	return stream, nil
+}
 
+// renderL4RouteYAML renders route's TCPRoute/UDPRoute on stream through the
+// deploy builders (routeplan.BuildTCPRouteConfig / BuildUDPRouteConfig and
+// kubernetes.BuildTCPRouteObject / BuildUDPRouteObject).
+func (q *routeQuery) renderL4RouteYAML(route *models.Route, stream *models.Stream) (string, error) {
 	// Match what deploy applies: v1 when the project's cluster supports it.
 	apiVersion := "gateway.networking.k8s.io/v1alpha2"
 	if q.capabilities.Has(context.Background(), stream.ProjectID, capabilities.CapL4RouteV1) {
@@ -619,10 +633,23 @@ func (q *routeQuery) generateL4RouteYAML(route *models.Route) (string, error) {
 	return string(yamlBytes), nil
 }
 
-// previewUpdateL4 compares the current and proposed TCPRoute/UDPRoute for an
-// L4 route. Only the route object is previewed, matching the HTTP/gRPC preview.
+// previewUpdateL4 compares the current and proposed TCPRoute/UDPRoute and
+// BackendTrafficPolicy of an L4 route: current from the route and its stored
+// policy, proposed from the input (the policy an update would persist).
 func (q *routeQuery) previewUpdateL4(route *models.Route, input *UpdateRouteInput) (*PreviewUpdateResult, error) {
-	currentYAML, err := q.generateL4RouteYAML(route)
+	stream, err := q.l4Stream(route)
+	if err != nil {
+		return nil, err
+	}
+	currentYAML, err := q.renderL4RouteYAML(route, stream)
+	if err != nil {
+		return nil, err
+	}
+	stored, err := q.storedBackendTrafficPolicy(route.ID)
+	if err != nil {
+		return nil, err
+	}
+	currentBTP, err := generateL4BackendTrafficPolicyYAML(route, stream, stored)
 	if err != nil {
 		return nil, err
 	}
@@ -632,10 +659,19 @@ func (q *routeQuery) previewUpdateL4(route *models.Route, input *UpdateRouteInpu
 	if input.Description != "" {
 		proposed.Description = input.Description
 	}
-	proposedYAML, err := q.generateL4RouteYAML(&proposed)
+	proposedYAML, err := q.renderL4RouteYAML(&proposed, stream)
+	if err != nil {
+		return nil, err
+	}
+	proposedBTP, err := generateL4BackendTrafficPolicyYAML(&proposed, stream, l4PolicyFromConfig(&proposed, btpConfigFromInput(input.BackendTrafficPolicy)))
 	if err != nil {
 		return nil, err
 	}
 
-	return &PreviewUpdateResult{CurrentYAML: currentYAML, ProposedYAML: proposedYAML}, nil
+	return &PreviewUpdateResult{
+		CurrentYAML:                      currentYAML,
+		ProposedYAML:                     proposedYAML,
+		CurrentBackendTrafficPolicyYAML:  currentBTP,
+		ProposedBackendTrafficPolicyYAML: proposedBTP,
+	}, nil
 }

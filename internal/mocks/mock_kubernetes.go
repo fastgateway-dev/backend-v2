@@ -2408,6 +2408,86 @@ func (_c *MockKubernetesService_GetAPIKeySecretName_Call) RunAndReturn(run func(
 	return _c
 }
 
+// GetGateway provides a mock function for the type MockKubernetesService
+func (_mock *MockKubernetesService) GetGateway(ctx context.Context, projectID uuid.UUID, namespace string, name string) (*unstructured.Unstructured, error) {
+	ret := _mock.Called(ctx, projectID, namespace, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetGateway")
+	}
+
+	var r0 *unstructured.Unstructured
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, string) (*unstructured.Unstructured, error)); ok {
+		return returnFunc(ctx, projectID, namespace, name)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, string) *unstructured.Unstructured); ok {
+		r0 = returnFunc(ctx, projectID, namespace, name)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*unstructured.Unstructured)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uuid.UUID, string, string) error); ok {
+		r1 = returnFunc(ctx, projectID, namespace, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockKubernetesService_GetGateway_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetGateway'
+type MockKubernetesService_GetGateway_Call struct {
+	*mock.Call
+}
+
+// GetGateway is a helper method to define mock.On call
+//   - ctx context.Context
+//   - projectID uuid.UUID
+//   - namespace string
+//   - name string
+func (_e *MockKubernetesService_Expecter) GetGateway(ctx any, projectID any, namespace any, name any) *MockKubernetesService_GetGateway_Call {
+	return &MockKubernetesService_GetGateway_Call{Call: _e.mock.On("GetGateway", ctx, projectID, namespace, name)}
+}
+
+func (_c *MockKubernetesService_GetGateway_Call) Run(run func(ctx context.Context, projectID uuid.UUID, namespace string, name string)) *MockKubernetesService_GetGateway_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockKubernetesService_GetGateway_Call) Return(unstructured1 *unstructured.Unstructured, err error) *MockKubernetesService_GetGateway_Call {
+	_c.Call.Return(unstructured1, err)
+	return _c
+}
+
+func (_c *MockKubernetesService_GetGateway_Call) RunAndReturn(run func(ctx context.Context, projectID uuid.UUID, namespace string, name string) (*unstructured.Unstructured, error)) *MockKubernetesService_GetGateway_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // IsRateLimitAvailable provides a mock function for the type MockKubernetesService
 func (_mock *MockKubernetesService) IsRateLimitAvailable(ctx context.Context, projectID uuid.UUID) (bool, error) {
 	ret := _mock.Called(ctx, projectID)

@@ -2031,6 +2031,36 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Domain'
+  /projects/{projectId}/domain-templates/{domainTemplateId}/entrypoint:
+    get:
+      tags:
+        - Domain Templates
+      summary: Get the entry point a new stream on this template would join
+      description: |
+        The stream create form's view of a template before a stream exists.
+        Same builder as the stream entry point; a dedicated template reports an
+        empty port map and no address.
+      operationId: getDomainTemplateEntrypoint
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/domainTemplateId'
+      responses:
+        '200':
+          description: The template's entry point
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamEntrypoint'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Gateway Template not found (including templates of other projects)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/domain-templates/preview-create:
     post:
       tags:
@@ -2207,7 +2237,7 @@ paths:
         - $ref: '#/components/parameters/projectId'
       responses:
         '200':
-          description: List of streams, ordered by name
+          description: List of streams, ordered by name, each with its entry point mode, template name, route count and ports
           content:
             application/json:
               schema:
@@ -2216,7 +2246,13 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Stream'
+                      $ref: '#/components/schemas/StreamListItem'
+        '500':
+          description: A stream's gateway template or the route ports could not be read (modes are never guessed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - Streams
@@ -2384,6 +2420,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/entrypoint:
+    get:
+      tags:
+        - Streams
+      summary: Get a stream's entry point (mode, address, who shares it, port map)
+      operationId: getStreamEntrypoint
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+      responses:
+        '200':
+          description: The stream's entry point
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamEntrypoint'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: The stream's gateway template, port sources or Gateway could not be read (the mode is never guessed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/yamls:
+    get:
+      tags:
+        - Streams
+      summary: Get a stream's manifests (Gateway and every live L4 route)
+      description: |
+        The Gateway is rendered from the stream's live routes through the same
+        builders the deploy path applies; with no live routes it is the
+        placeholder Gateway. Each live route carries its TCPRoute/UDPRoute and
+        BackendTrafficPolicy (empty when it has none).
+      operationId: getStreamYamls
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+      responses:
+        '200':
+          description: The stream's manifests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamYAMLs'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: The stream's routes or policies could not be read (never a partial manifest set)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/streams/{streamId}/routes:
     get:
       tags:
@@ -2472,6 +2565,54 @@ paths:
                 $ref: '#/components/schemas/Error'
         '409':
           description: The listener port is already used by another route on the stream (same protocol), or by a merged Gateway Template's HTTP/HTTPS port
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/routes/preview:
+    post:
+      tags:
+        - Streams
+      summary: Preview an L4 route create (TCPRoute/UDPRoute and BackendTrafficPolicy, no write)
+      description: |
+        Runs the same validation as creating the route (name, tcp/udp
+        protocol, listener port validity, reserved ports, template range and
+        collisions, protocol-gated policy inputs) and returns the manifests the
+        create would produce. Errors are the create's errors with the same
+        statuses, so a preview never shows a manifest create would reject.
+      operationId: previewCreateStreamRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStreamRouteRequest'
+      responses:
+        '200':
+          description: Proposed manifests (proposedYaml is the TCPRoute/UDPRoute)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewCreateResponse'
+        '400':
+          description: Invalid route (same cases as create)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Stream not found (including streams of other projects)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The listener port is already in use in the stream's scope
           content:
             application/json:
               schema:
@@ -2582,6 +2723,104 @@ paths:
                 type: string
         '404':
           $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/yamls:
+    get:
+      tags:
+        - Streams
+      summary: Get an L4 route's manifests (TCPRoute/UDPRoute and BackendTrafficPolicy)
+      description: |
+        The TCPRoute or UDPRoute is returned in `httpRouteYaml` (the same
+        response shape as the domain route endpoint) and the
+        BackendTrafficPolicy deploy applies in `backendTrafficPolicyYaml`
+        (absent when the route has no policy). Rendered through the deploy
+        builders.
+      operationId: getStreamRouteYamls
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+      responses:
+        '200':
+          description: Route YAMLs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteYAMLsResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: The route's stream or policy could not be read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/preview:
+    post:
+      tags:
+        - Streams
+      summary: Preview an L4 route update (current and proposed TCPRoute/UDPRoute and BackendTrafficPolicy)
+      description: |
+        Runs the same input validation as updating the route, including the
+        listener-port re-check with the route itself excluded.
+      operationId: previewUpdateStreamRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRouteRequest'
+      responses:
+        '200':
+          description: Current and proposed manifests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewUpdateResponse'
+        '400':
+          description: Invalid route configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The new listener port is already in use in the stream's scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/preview-delete:
+    get:
+      tags:
+        - Streams
+      summary: Preview an L4 route delete (TCPRoute/UDPRoute and BackendTrafficPolicy that will be removed)
+      operationId: previewDeleteStreamRoute
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+      responses:
+        '200':
+          description: Manifests that the delete removes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewDeleteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/deploy:
     post:
       tags:
@@ -2610,6 +2849,87 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions:
+    get:
+      tags:
+        - Streams
+      summary: List an L4 route's version history
+      description: A version is recorded on every successful create/update deploy. A route of another stream is 404.
+      operationId: listStreamRouteVersions
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Route version history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteVersionList'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions/{version}:
+    get:
+      tags:
+        - Streams
+      summary: Get a specific version of an L4 route
+      operationId: getStreamRouteVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Route version details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteVersion'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions/{version}/rollback:
+    post:
+      tags:
+        - Streams
+      summary: Roll an L4 route back to a previous version (submits for approval)
+      description: Requires the route-write permission (route.create), like updating the route; a viewer gets 403.
+      operationId: rollbackStreamRouteVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/streamId'
+        - $ref: '#/components/parameters/routeId'
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Rollback submitted as a route update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
@@ -4660,7 +4980,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/Approval'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: Approval not found, including an approval of another project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/approvals/{approvalId}/diff:
     get:
       tags:
@@ -4681,6 +5005,18 @@ paths:
                 $ref: '#/components/schemas/ApprovalDiffResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Approval not found, including an approval of another project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The approval, its route, or the route's domain or stream could not be read, or a snapshot is corrupt (never a partial diff)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/approvals/{approvalId}/stages/{stageId}/approve:
     post:
       tags:
@@ -7209,6 +7545,111 @@ components:
           type: string
           maxLength: 59
           pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+    StreamEntrypoint:
+      type: object
+      description: |
+        The L4 entry point a stream lands on. `dedicated` (template mergeGateways
+        false): the stream has its own Envoy, Service and IP. `shared` (template
+        mergeGateways true): the stream is a named group of ports on the
+        template's one shared Envoy; ports are unique across every stream and
+        domain on it. The port map uses the same sources as the create-time
+        port check, so a port absent from `ports` and `reserved` and inside
+        `portRange` is accepted by create.
+      required:
+        - mode
+        - templateId
+        - templateName
+        - gatewayClass
+        - address
+        - portRange
+        - sharedWith
+        - ports
+        - reserved
+      properties:
+        mode:
+          type: string
+          enum:
+            - dedicated
+            - shared
+        templateId:
+          type: string
+          format: uuid
+        templateName:
+          type: string
+        gatewayClass:
+          type: string
+          description: The template's GatewayClass name.
+        address:
+          type: string
+          description: |
+            The Gateway's first status address. Dedicated - this stream's;
+            shared - this stream's, else any member stream's. Empty when none is
+            assigned yet (assigned on first deploy). The template variant is
+            always empty when dedicated.
+        portRange:
+          allOf:
+            - $ref: '#/components/schemas/EntrypointPortRange'
+          nullable: true
+          description: The template's TCP/UDP range, or null when it has none.
+        sharedWith:
+          $ref: '#/components/schemas/EntrypointSharedWith'
+        ports:
+          type: array
+          description: |
+            Taken (transport, port) pairs with their owner, ordered by port.
+            Dedicated - this stream's L4 routes (empty for the template variant);
+            shared - every stream's L4 routes on the template plus every domain's
+            bound listener ports. Rejected routes hold no port.
+          items:
+            $ref: '#/components/schemas/EntrypointPort'
+        reserved:
+          type: array
+          description: |
+            Ports no route may claim. 19000/19001 (envoy_internal) and 60000
+            (placeholder) for both TCP and UDP, plus - when shared - the
+            template's hostname-routed listener ports as TCP (template_listener).
+          items:
+            $ref: '#/components/schemas/EntrypointReservedPort'
+    StreamListItem:
+      description: A stream as listed, with the fields the stream list shows. Every Stream field is unchanged.
+      allOf:
+        - $ref: '#/components/schemas/Stream'
+        - type: object
+          required:
+            - mode
+            - gatewayTemplateName
+            - routeCount
+            - ports
+          properties:
+            mode:
+              type: string
+              enum:
+                - dedicated
+                - shared
+              description: shared if and only if the stream's gateway template merges gateways.
+            gatewayTemplateName:
+              type: string
+            routeCount:
+              type: integer
+              description: Non-rejected L4 routes on the stream.
+            ports:
+              type: array
+              description: (transport, port) of each non-rejected L4 route, ordered by port.
+              items:
+                $ref: '#/components/schemas/StreamPort'
+    StreamYAMLs:
+      type: object
+      required:
+        - gatewayYaml
+        - routes
+      properties:
+        gatewayYaml:
+          type: string
+          description: The stream's Gateway YAML, rendered from its live routes (placeholder listener when none).
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/StreamRouteYAMLs'
     Domain:
       type: object
       properties:
@@ -10118,6 +10559,13 @@ components:
         domainName:
           type: string
           description: Hostname of the domain for route approvals (computed, not stored)
+        streamId:
+          type: string
+          format: uuid
+          description: Stream of an L4 (tcp/udp) route approval (computed, not stored; absent otherwise)
+        streamName:
+          type: string
+          description: Name of the stream of an L4 route approval (computed, not stored; absent otherwise)
         changeDescription:
           type: string
           description: Optional human description of the changes
@@ -10189,6 +10637,7 @@ components:
       type: object
       required:
         - action
+        - routeKind
       properties:
         action:
           type: string
@@ -10197,12 +10646,20 @@ components:
             - update
             - delete
           description: Type of change being approved
+        routeKind:
+          type: string
+          enum:
+            - HTTPRoute
+            - GRPCRoute
+            - TCPRoute
+            - UDPRoute
+          description: Gateway API kind of the route in currentYaml/proposedYaml
         currentYaml:
           type: string
-          description: Current HTTPRoute YAML (for update/delete)
+          description: Current route YAML - HTTPRoute, GRPCRoute, TCPRoute or UDPRoute per routeKind (for update/delete)
         proposedYaml:
           type: string
-          description: Proposed HTTPRoute YAML (for create/update)
+          description: Proposed route YAML - HTTPRoute, GRPCRoute, TCPRoute or UDPRoute per routeKind (for create/update)
         currentSecurityPolicyYaml:
           type: string
           description: Current SecurityPolicy YAML (if exists)
@@ -12043,6 +12500,117 @@ components:
         portRangeMax:
           type: integer
           description: Last port of the shared stream range (TCP/UDP listeners)
+    EntrypointPortRange:
+      type: object
+      required:
+        - min
+        - max
+      properties:
+        min:
+          type: integer
+        max:
+          type: integer
+    EntrypointSharedWith:
+      type: object
+      description: Who else is on a shared entry point. Both lists are empty when dedicated; the stream variant excludes the stream itself.
+      required:
+        - streams
+        - domains
+      properties:
+        streams:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - name
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+        domains:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - name
+              - hostname
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              hostname:
+                type: string
+    EntrypointPortOwner:
+      type: object
+      description: kind stream_route sets the stream/route fields; kind domain sets the domain fields.
+      required:
+        - kind
+      properties:
+        kind:
+          type: string
+          enum:
+            - stream_route
+            - domain
+        streamId:
+          type: string
+          format: uuid
+        streamName:
+          type: string
+        routeId:
+          type: string
+          format: uuid
+        routeName:
+          type: string
+        status:
+          type: string
+          description: The route's status (any status except rejected).
+        domainId:
+          type: string
+          format: uuid
+        domainName:
+          type: string
+    EntrypointPort:
+      type: object
+      required:
+        - transport
+        - port
+        - owner
+      properties:
+        transport:
+          type: string
+          enum:
+            - TCP
+            - UDP
+        port:
+          type: integer
+        owner:
+          $ref: '#/components/schemas/EntrypointPortOwner'
+    EntrypointReservedPort:
+      type: object
+      required:
+        - transport
+        - port
+        - reason
+      properties:
+        transport:
+          type: string
+          enum:
+            - TCP
+            - UDP
+        port:
+          type: integer
+        reason:
+          type: string
+          enum:
+            - envoy_internal
+            - placeholder
+            - template_listener
     NamespaceCapability:
       type: string
       enum:
@@ -12063,6 +12631,44 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/NamespaceCapability'
+    StreamPort:
+      type: object
+      required:
+        - transport
+        - port
+      properties:
+        transport:
+          type: string
+          enum:
+            - TCP
+            - UDP
+        port:
+          type: integer
+    StreamRouteYAMLs:
+      type: object
+      required:
+        - routeId
+        - name
+        - protocol
+        - routeYaml
+        - backendTrafficPolicyYaml
+      properties:
+        routeId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        protocol:
+          type: string
+          enum:
+            - tcp
+            - udp
+        routeYaml:
+          type: string
+          description: TCPRoute or UDPRoute YAML.
+        backendTrafficPolicyYaml:
+          type: string
+          description: BackendTrafficPolicy YAML, empty when the route has no policy.
     ApprovalStageReview:
       type: object
       description: An individual reviewer decision on a multi-approver stage
@@ -12216,6 +12822,32 @@ components:
           items:
             type: string
           description: Allowed values for the header
+    APIKeyClientResourceYAMLs:
+      type: object
+      required:
+        - clientId
+        - clientName
+        - httpRouteYaml
+        - securityPolicyYaml
+      description: Kubernetes resources generated for a single API-key client attachment, with secrets redacted
+      properties:
+        clientId:
+          type: string
+          format: uuid
+        clientName:
+          type: string
+        httpRouteYaml:
+          type: string
+          description: Per-client HTTPRoute/GRPCRoute Kubernetes YAML
+        securityPolicyYaml:
+          type: string
+          description: Per-client SecurityPolicy Kubernetes YAML
+        backendTrafficPolicyYaml:
+          type: string
+          description: Per-client BackendTrafficPolicy Kubernetes YAML (if configured)
+        envoyExtensionPolicyYaml:
+          type: string
+          description: Per-client EnvoyExtensionPolicy Kubernetes YAML (if configured)
     DefaultBackend:
       type: object
       required:
@@ -12366,32 +12998,6 @@ components:
             - spec_too_large
         message:
           type: string
-    APIKeyClientResourceYAMLs:
-      type: object
-      required:
-        - clientId
-        - clientName
-        - httpRouteYaml
-        - securityPolicyYaml
-      description: Kubernetes resources generated for a single API-key client attachment, with secrets redacted
-      properties:
-        clientId:
-          type: string
-          format: uuid
-        clientName:
-          type: string
-        httpRouteYaml:
-          type: string
-          description: Per-client HTTPRoute/GRPCRoute Kubernetes YAML
-        securityPolicyYaml:
-          type: string
-          description: Per-client SecurityPolicy Kubernetes YAML
-        backendTrafficPolicyYaml:
-          type: string
-          description: Per-client BackendTrafficPolicy Kubernetes YAML (if configured)
-        envoyExtensionPolicyYaml:
-          type: string
-          description: Per-client EnvoyExtensionPolicy Kubernetes YAML (if configured)
     CheckConflictsRequest:
       type: object
       required:

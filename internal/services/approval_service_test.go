@@ -178,6 +178,11 @@ func newTestApprovalServiceWithEngine(
 		DomainRepo:   domainRepo,
 		WafConfig:    wafConfig,
 		Approvals:    engine,
+		// Bare mocks: a test that reaches an L4 lookup or render without
+		// saying so fails on the unexpected call. The L4 tests build their
+		// own service (newL4ApprovalFixture).
+		Streams:     new(mocks.MockApprovalStreamReader),
+		L4Manifests: new(mocks.MockL4ManifestRenderer),
 	})
 }
 
@@ -1128,28 +1133,6 @@ func TestApprovalService_CancelApproval_ClientAttachment(t *testing.T) {
 // GetDiff
 // ---------------------------------------------------------------------------
 
-// An L4 route has a Stream and no Domain: GetDiff must report that the YAML
-// diff is unavailable instead of dereferencing its nil DomainID.
-func TestApprovalService_GetDiff_L4Route_NoPanic(t *testing.T) {
-	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
-	routeRepo := new(mocks.MockRouteRepository)
-	svc := newTestApprovalService(approvalRepo, nil, nil, routeRepo, nil, new(mocks.MockDomainRepository), routeplan.WAFConfig{})
-
-	approvalID, entityID, streamID := uuid.New(), uuid.New(), uuid.New()
-	approvalRepo.On("GetByID", approvalID).Return(&models.Approval{
-		ID: approvalID, EntityType: models.ApprovalEntityRoute, EntityID: entityID, Action: models.ApprovalActionCreate,
-	}, nil)
-	routeRepo.On("GetByID", entityID).Return(&models.Route{
-		ID: entityID, StreamID: &streamID, Protocol: models.RouteProtocolTCP, Name: "pg",
-	}, nil)
-
-	require.NotPanics(t, func() {
-		result, err := svc.GetDiff(approvalID)
-		assert.Nil(t, result)
-		assert.ErrorIs(t, err, services.ErrDiffNotAvailableForL4)
-	})
-}
-
 func TestApprovalService_GetDiff_CreateAction(t *testing.T) {
 	approvalRepo := new(mocks.MockUnifiedApprovalRepository)
 	routeRepo := new(mocks.MockRouteRepository)
@@ -1371,6 +1354,8 @@ func fullApprovalServiceDeps() services.ApprovalServiceDeps {
 		RouteRepo:    new(mocks.MockRouteRepository),
 		DomainRepo:   new(mocks.MockDomainRepository),
 		Approvals:    newApprovalEngine(nil, nil, nil, nil),
+		Streams:      new(mocks.MockApprovalStreamReader),
+		L4Manifests:  new(mocks.MockL4ManifestRenderer),
 	}
 }
 
@@ -1383,6 +1368,8 @@ func TestNewApprovalService_RequiresEveryDependency(t *testing.T) {
 		"RouteRepo":    func(d *services.ApprovalServiceDeps) { d.RouteRepo = nil },
 		"DomainRepo":   func(d *services.ApprovalServiceDeps) { d.DomainRepo = nil },
 		"Approvals":    func(d *services.ApprovalServiceDeps) { d.Approvals = nil },
+		"Streams":      func(d *services.ApprovalServiceDeps) { d.Streams = nil },
+		"L4Manifests":  func(d *services.ApprovalServiceDeps) { d.L4Manifests = nil },
 	}
 	for name, breakIt := range cases {
 		t.Run("nil "+name, func(t *testing.T) {

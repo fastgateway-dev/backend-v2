@@ -61,8 +61,16 @@ func (h *ApprovalHandler) Get(c *gin.Context) {
 		return
 	}
 
-	approval, err := h.approvalService.GetByID(id)
+	projectID, err := uuid.Parse(c.Param("projectId"))
 	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+
+	approval, err := h.approvalService.GetByID(id)
+	// Approval IDs are global; an approval of another project reads as not
+	// found, the same check AIHandler.ReviewApproval makes.
+	if err != nil || approval.ProjectID != projectID {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Approval request not found"})
 		return
 	}
@@ -75,6 +83,21 @@ func (h *ApprovalHandler) GetDiff(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("approvalId"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid approval ID"})
+		return
+	}
+
+	projectID, err := uuid.Parse(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+
+	// The diff carries the route's manifests (for an L4 route: backend
+	// services, namespaces and ports), so it is shown only for an approval of
+	// the project in the URL.
+	approval, err := h.approvalService.GetByID(id)
+	if err != nil || approval.ProjectID != projectID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Approval request not found"})
 		return
 	}
 

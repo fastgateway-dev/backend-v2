@@ -41,6 +41,13 @@ Approval:
     domainName:
       type: string
       description: Hostname of the domain for route approvals (computed, not stored)
+    streamId:
+      type: string
+      format: uuid
+      description: Stream of an L4 (tcp/udp) route approval (computed, not stored; absent otherwise)
+    streamName:
+      type: string
+      description: Name of the stream of an L4 route approval (computed, not stored; absent otherwise)
     changeDescription:
       type: string
       description: Optional human description of the changes
@@ -134,18 +141,22 @@ RejectRequest:
 
 ApprovalDiffResponse:
   type: object
-  required: [action]
+  required: [action, routeKind]
   properties:
     action:
       type: string
       enum: [create, update, delete]
       description: Type of change being approved
+    routeKind:
+      type: string
+      enum: [HTTPRoute, GRPCRoute, TCPRoute, UDPRoute]
+      description: Gateway API kind of the route in currentYaml/proposedYaml
     currentYaml:
       type: string
-      description: Current HTTPRoute YAML (for update/delete)
+      description: Current route YAML - HTTPRoute, GRPCRoute, TCPRoute or UDPRoute per routeKind (for update/delete)
     proposedYaml:
       type: string
-      description: Proposed HTTPRoute YAML (for create/update)
+      description: Proposed route YAML - HTTPRoute, GRPCRoute, TCPRoute or UDPRoute per routeKind (for create/update)
     currentSecurityPolicyYaml:
       type: string
       description: Current SecurityPolicy YAML (if exists)

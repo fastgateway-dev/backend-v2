@@ -65,14 +65,14 @@ func TestApprovalHandler_Get_Success(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	h := handlers.NewApprovalHandler(mockApproval, mockAudit)
 
-	approvalID := uuid.New()
-	approval := &models.Approval{ID: approvalID, Status: "pending"}
+	approvalID, projectID := uuid.New(), uuid.New()
+	approval := &models.Approval{ID: approvalID, ProjectID: projectID, Status: "pending"}
 	mockApproval.On("GetByID", approvalID).Return(approval, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/approvals/"+approvalID.String(), nil)
-	c.Params = gin.Params{{Key: "approvalId", Value: approvalID.String()}}
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}, {Key: "approvalId", Value: approvalID.String()}}
 
 	h.Get(c)
 
@@ -85,13 +85,13 @@ func TestApprovalHandler_Get_NotFound(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	h := handlers.NewApprovalHandler(mockApproval, mockAudit)
 
-	approvalID := uuid.New()
+	approvalID, projectID := uuid.New(), uuid.New()
 	mockApproval.On("GetByID", approvalID).Return(nil, errors.New("not found"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/approvals/"+approvalID.String(), nil)
-	c.Params = gin.Params{{Key: "approvalId", Value: approvalID.String()}}
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}, {Key: "approvalId", Value: approvalID.String()}}
 
 	h.Get(c)
 
@@ -223,7 +223,8 @@ func TestApprovalHandler_GetDiff_Success(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	h := handlers.NewApprovalHandler(mockApproval, mockAudit)
 
-	approvalID := uuid.New()
+	approvalID, projectID := uuid.New(), uuid.New()
+	mockApproval.On("GetByID", approvalID).Return(&models.Approval{ID: approvalID, ProjectID: projectID}, nil)
 	diff := &services.ApprovalDiffResult{
 		Action:       "create",
 		ProposedYAML: "apiVersion: v1\nkind: HTTPRoute",
@@ -233,7 +234,7 @@ func TestApprovalHandler_GetDiff_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/approvals/"+approvalID.String()+"/diff", nil)
-	c.Params = gin.Params{{Key: "approvalId", Value: approvalID.String()}}
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}, {Key: "approvalId", Value: approvalID.String()}}
 
 	h.GetDiff(c)
 
@@ -261,13 +262,14 @@ func TestApprovalHandler_GetDiff_ServiceError(t *testing.T) {
 	mockAudit := new(mocks.MockAuditService)
 	h := handlers.NewApprovalHandler(mockApproval, mockAudit)
 
-	approvalID := uuid.New()
+	approvalID, projectID := uuid.New(), uuid.New()
+	mockApproval.On("GetByID", approvalID).Return(&models.Approval{ID: approvalID, ProjectID: projectID}, nil)
 	mockApproval.On("GetDiff", approvalID).Return(nil, errors.New("internal error"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/approvals/"+approvalID.String()+"/diff", nil)
-	c.Params = gin.Params{{Key: "approvalId", Value: approvalID.String()}}
+	c.Params = gin.Params{{Key: "projectId", Value: projectID.String()}, {Key: "approvalId", Value: approvalID.String()}}
 
 	h.GetDiff(c)
 

@@ -32,6 +32,18 @@ func (r *StreamRepository) GetByID(id uuid.UUID) (*models.Stream, error) {
 	return &stream, nil
 }
 
+// GetByIDs gets the streams with the given IDs in one query (approval
+// enrichment uses it, so listing approvals never issues a query per stream).
+// An empty input returns nil without querying.
+func (r *StreamRepository) GetByIDs(ids []uuid.UUID) ([]models.Stream, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var streams []models.Stream
+	err := r.db.Where("id IN ?", ids).Find(&streams).Error
+	return streams, err
+}
+
 // ListByProjectID lists all streams in a project, ordered by name
 func (r *StreamRepository) ListByProjectID(projectID uuid.UUID) ([]models.Stream, error) {
 	var streams []models.Stream
@@ -123,4 +135,92 @@ func (r *StreamRepository) UsedL4Ports(templateID uuid.UUID, excludeRouteID *uui
 		return nil, err
 	}
 	return portUsesFromRows(rows), nil
+}
+
+// ListByGatewayTemplateID lists every stream created from the given gateway
+// template, ordered by name. The entry-point view uses it for the streams
+// that share a merged template's Gateway.
+func (r *StreamRepository) ListByGatewayTemplateID(templateID uuid.UUID) ([]models.Stream, error) {
+	var streams []models.Stream
+	err := r.db.Where("gateway_template_id = ?", templateID).Order("name ASC").Find(&streams).Error
+	return streams, err
+}
+
+// L4PortOwner is one listener an L4 route holds, together with the route and
+// the stream that own it. Transport is "TCP" or "UDP".
+type L4PortOwner struct {
+	Transport  string
+	Port       int
+	StreamID   uuid.UUID
+	StreamName string
+	RouteID    uuid.UUID
+	RouteName  string
+	Status     string
+}
+
+// l4PortOwnerRow is the scan target for the owner-aware L4 port queries.
+type l4PortOwnerRow struct {
+	Protocol   string
+	Port       int
+	StreamID   uuid.UUID
+	StreamName string
+	RouteID    uuid.UUID
+	RouteName  string
+	Status     string
+}
+
+// l4PortOwners runs one owner-aware L4 port query. where must carry the
+// rejected/listenerPort conditions of UsedPortsByStream / UsedL4Ports so the
+// owner view and the collision check can never disagree.
+func (r *StreamRepository) l4PortOwners(where string, args ...interface{}) ([]L4PortOwner, error) {
+	var rows []l4PortOwnerRow
+	err := r.db.Table("routes").
+		Select("routes.protocol AS protocol, (routes.config->>'listenerPort')::int AS port, "+
+			"streams.id AS stream_id, streams.name AS stream_name, "+
+			"routes.id AS route_id, routes.name AS route_name, routes.status AS status").
+		Joins("JOIN streams ON streams.id = routes.stream_id").
+		Where(where, args...).
+		Order("port ASC, routes.protocol ASC, routes.id ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	owners := make([]L4PortOwner, 0, len(rows))
+	for _, row := range rows {
+		owners = append(owners, L4PortOwner{
+			Transport:  strings.ToUpper(row.Protocol),
+			Port:       row.Port,
+			StreamID:   row.StreamID,
+			StreamName: row.StreamName,
+			RouteID:    row.RouteID,
+			RouteName:  row.RouteName,
+			Status:     row.Status,
+		})
+	}
+	return owners, nil
+}
+
+// L4PortOwnersByStream is UsedPortsByStream with owners: the listener of
+// every non-rejected L4 route on the stream. Same WHERE clause.
+func (r *StreamRepository) L4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error) {
+	return r.l4PortOwners("routes.stream_id = ? AND routes.protocol IN ? AND routes.status <> ? AND routes.config->>'listenerPort' IS NOT NULL",
+		streamID, []string{string(models.RouteProtocolTCP), string(models.RouteProtocolUDP)}, models.RouteStatusRejected)
+}
+
+// L4PortOwnersByTemplate is UsedL4Ports with owners: the listener of every
+// non-rejected L4 route on every stream of the template. Same WHERE clause.
+func (r *StreamRepository) L4PortOwnersByTemplate(templateID uuid.UUID) ([]L4PortOwner, error) {
+	return r.l4PortOwners("streams.gateway_template_id = ? AND routes.protocol IN ? AND routes.status <> ? AND routes.config->>'listenerPort' IS NOT NULL",
+		templateID, []string{string(models.RouteProtocolTCP), string(models.RouteProtocolUDP)}, models.RouteStatusRejected)
+}
+
+// L4PortOwnersByStreamIDs is L4PortOwnersByStream for many streams in one
+// query (the stream list uses it, so listing never issues a query per
+// stream). An empty input returns an empty result without querying.
+func (r *StreamRepository) L4PortOwnersByStreamIDs(streamIDs []uuid.UUID) ([]L4PortOwner, error) {
+	if len(streamIDs) == 0 {
+		return []L4PortOwner{}, nil
+	}
+	return r.l4PortOwners("routes.stream_id IN ? AND routes.protocol IN ? AND routes.status <> ? AND routes.config->>'listenerPort' IS NOT NULL",
+		streamIDs, []string{string(models.RouteProtocolTCP), string(models.RouteProtocolUDP)}, models.RouteStatusRejected)
 }

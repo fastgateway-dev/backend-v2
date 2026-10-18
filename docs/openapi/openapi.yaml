@@ -235,6 +235,8 @@ paths:
     $ref: 'paths/domain-templates.yaml#/domain-templates_{id}_manifests'
   /projects/{projectId}/domain-templates/{domainTemplateId}/domains:
     $ref: 'paths/domain-templates.yaml#/domain-templates_{id}_domains'
+  /projects/{projectId}/domain-templates/{domainTemplateId}/entrypoint:
+    $ref: 'paths/domain-templates.yaml#/domain-templates_{id}_entrypoint'
   /projects/{projectId}/domain-templates/preview-create:
     $ref: 'paths/domain-templates.yaml#/domain-templates_preview-create'
   /projects/{projectId}/domain-templates/{domainTemplateId}/preview-changes:
@@ -255,14 +257,32 @@ paths:
     $ref: 'paths/streams.yaml#/streams_{streamId}'
   /projects/{projectId}/streams/{streamId}/metrics:
     $ref: 'paths/metrics.yaml#/stream-metrics'
+  /projects/{projectId}/streams/{streamId}/entrypoint:
+    $ref: 'paths/streams.yaml#/streams_{streamId}_entrypoint'
+  /projects/{projectId}/streams/{streamId}/yamls:
+    $ref: 'paths/streams.yaml#/streams_{streamId}_yamls'
   /projects/{projectId}/streams/{streamId}/routes:
     $ref: 'paths/stream-routes.yaml#/stream-routes'
+  /projects/{projectId}/streams/{streamId}/routes/preview:
+    $ref: 'paths/stream-routes.yaml#/stream-routes-preview'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}:
     $ref: 'paths/stream-routes.yaml#/stream-routes_{routeId}'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/yaml:
     $ref: 'paths/stream-routes.yaml#/stream-route-yaml'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/yamls:
+    $ref: 'paths/stream-routes.yaml#/stream-route-yamls'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/preview:
+    $ref: 'paths/stream-routes.yaml#/stream-route-preview'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/preview-delete:
+    $ref: 'paths/stream-routes.yaml#/stream-route-preview-delete'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/deploy:
     $ref: 'paths/stream-routes.yaml#/stream-route-deploy'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions:
+    $ref: 'paths/stream-routes.yaml#/stream-route-versions'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions/{version}:
+    $ref: 'paths/stream-routes.yaml#/stream-route-version'
+  /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions/{version}/rollback:
+    $ref: 'paths/stream-routes.yaml#/stream-route-version-rollback'
   /projects/{projectId}/domains:
     $ref: 'paths/domains.yaml#/domains'
   /projects/{projectId}/domains/tls-secrets:
@@ -669,6 +689,12 @@ components:
       $ref: 'schemas/stream.yaml#/CreateStreamRequest'
     UpdateStreamRequest:
       $ref: 'schemas/stream.yaml#/UpdateStreamRequest'
+    StreamEntrypoint:
+      $ref: 'schemas/stream.yaml#/StreamEntrypoint'
+    StreamListItem:
+      $ref: 'schemas/stream.yaml#/StreamListItem'
+    StreamYAMLs:
+      $ref: 'schemas/stream.yaml#/StreamYAMLs'
 
     # ============== DOMAIN ==============
     Domain:

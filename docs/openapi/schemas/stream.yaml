@@ -60,3 +60,212 @@ UpdateStreamRequest:
       type: string
       maxLength: 59
       pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+
+StreamEntrypoint:
+  type: object
+  description: |
+    The L4 entry point a stream lands on. `dedicated` (template mergeGateways
+    false): the stream has its own Envoy, Service and IP. `shared` (template
+    mergeGateways true): the stream is a named group of ports on the
+    template's one shared Envoy; ports are unique across every stream and
+    domain on it. The port map uses the same sources as the create-time
+    port check, so a port absent from `ports` and `reserved` and inside
+    `portRange` is accepted by create.
+  required: [mode, templateId, templateName, gatewayClass, address, portRange, sharedWith, ports, reserved]
+  properties:
+    mode:
+      type: string
+      enum: [dedicated, shared]
+    templateId:
+      type: string
+      format: uuid
+    templateName:
+      type: string
+    gatewayClass:
+      type: string
+      description: The template's GatewayClass name.
+    address:
+      type: string
+      description: |
+        The Gateway's first status address. Dedicated - this stream's;
+        shared - this stream's, else any member stream's. Empty when none is
+        assigned yet (assigned on first deploy). The template variant is
+        always empty when dedicated.
+    portRange:
+      allOf:
+        - $ref: '#/EntrypointPortRange'
+      nullable: true
+      description: The template's TCP/UDP range, or null when it has none.
+    sharedWith:
+      $ref: '#/EntrypointSharedWith'
+    ports:
+      type: array
+      description: |
+        Taken (transport, port) pairs with their owner, ordered by port.
+        Dedicated - this stream's L4 routes (empty for the template variant);
+        shared - every stream's L4 routes on the template plus every domain's
+        bound listener ports. Rejected routes hold no port.
+      items:
+        $ref: '#/EntrypointPort'
+    reserved:
+      type: array
+      description: |
+        Ports no route may claim. 19000/19001 (envoy_internal) and 60000
+        (placeholder) for both TCP and UDP, plus - when shared - the
+        template's hostname-routed listener ports as TCP (template_listener).
+      items:
+        $ref: '#/EntrypointReservedPort'
+
+EntrypointPortRange:
+  type: object
+  required: [min, max]
+  properties:
+    min:
+      type: integer
+    max:
+      type: integer
+
+EntrypointSharedWith:
+  type: object
+  description: Who else is on a shared entry point. Both lists are empty when dedicated; the stream variant excludes the stream itself.
+  required: [streams, domains]
+  properties:
+    streams:
+      type: array
+      items:
+        type: object
+        required: [id, name]
+        properties:
+          id:
+            type: string
+            format: uuid
+          name:
+            type: string
+    domains:
+      type: array
+      items:
+        type: object
+        required: [id, name, hostname]
+        properties:
+          id:
+            type: string
+            format: uuid
+          name:
+            type: string
+          hostname:
+            type: string
+
+EntrypointPort:
+  type: object
+  required: [transport, port, owner]
+  properties:
+    transport:
+      type: string
+      enum: [TCP, UDP]
+    port:
+      type: integer
+    owner:
+      $ref: '#/EntrypointPortOwner'
+
+EntrypointPortOwner:
+  type: object
+  description: kind stream_route sets the stream/route fields; kind domain sets the domain fields.
+  required: [kind]
+  properties:
+    kind:
+      type: string
+      enum: [stream_route, domain]
+    streamId:
+      type: string
+      format: uuid
+    streamName:
+      type: string
+    routeId:
+      type: string
+      format: uuid
+    routeName:
+      type: string
+    status:
+      type: string
+      description: The route's status (any status except rejected).
+    domainId:
+      type: string
+      format: uuid
+    domainName:
+      type: string
+
+EntrypointReservedPort:
+  type: object
+  required: [transport, port, reason]
+  properties:
+    transport:
+      type: string
+      enum: [TCP, UDP]
+    port:
+      type: integer
+    reason:
+      type: string
+      enum: [envoy_internal, placeholder, template_listener]
+
+StreamListItem:
+  description: A stream as listed, with the fields the stream list shows. Every Stream field is unchanged.
+  allOf:
+    - $ref: '#/Stream'
+    - type: object
+      required: [mode, gatewayTemplateName, routeCount, ports]
+      properties:
+        mode:
+          type: string
+          enum: [dedicated, shared]
+          description: shared if and only if the stream's gateway template merges gateways.
+        gatewayTemplateName:
+          type: string
+        routeCount:
+          type: integer
+          description: Non-rejected L4 routes on the stream.
+        ports:
+          type: array
+          description: (transport, port) of each non-rejected L4 route, ordered by port.
+          items:
+            $ref: '#/StreamPort'
+
+StreamPort:
+  type: object
+  required: [transport, port]
+  properties:
+    transport:
+      type: string
+      enum: [TCP, UDP]
+    port:
+      type: integer
+
+StreamYAMLs:
+  type: object
+  required: [gatewayYaml, routes]
+  properties:
+    gatewayYaml:
+      type: string
+      description: The stream's Gateway YAML, rendered from its live routes (placeholder listener when none).
+    routes:
+      type: array
+      items:
+        $ref: '#/StreamRouteYAMLs'
+
+StreamRouteYAMLs:
+  type: object
+  required: [routeId, name, protocol, routeYaml, backendTrafficPolicyYaml]
+  properties:
+    routeId:
+      type: string
+      format: uuid
+    name:
+      type: string
+    protocol:
+      type: string
+      enum: [tcp, udp]
+    routeYaml:
+      type: string
+      description: TCPRoute or UDPRoute YAML.
+    backendTrafficPolicyYaml:
+      type: string
+      description: BackendTrafficPolicy YAML, empty when the route has no policy.

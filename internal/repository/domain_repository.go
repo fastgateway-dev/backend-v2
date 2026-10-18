@@ -160,6 +160,49 @@ func (r *DomainRepository) UsedPortsByTemplate(templateID uuid.UUID) ([]PortUse,
 	return uses, nil
 }
 
+// DomainPortOwner is one hostname-routed listener port a domain binds on its
+// gateway template, with the domain that binds it. Transport is always "TCP"
+// (HTTP/HTTPS/TLS listeners run over TCP).
+type DomainPortOwner struct {
+	Transport  string
+	Port       int
+	DomainID   uuid.UUID
+	DomainName string
+}
+
+// PortOwnersByTemplate is UsedPortsByTemplate with owners: the port of each
+// template hostname-routed listener every domain on the template binds,
+// ordered by domain name. It resolves listeners exactly as
+// UsedPortsByTemplate does, so the two can never disagree.
+func (r *DomainRepository) PortOwnersByTemplate(templateID uuid.UUID) ([]DomainPortOwner, error) {
+	var tmpl models.DomainTemplate
+	if err := r.db.Select("id", "listeners").First(&tmpl, "id = ?", templateID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []DomainPortOwner{}, nil
+		}
+		return nil, err
+	}
+	portByName := make(map[string]int)
+	for _, l := range tmpl.Listeners.HostnameRouted() {
+		portByName[l.Name] = l.Port
+	}
+
+	var domains []models.Domain
+	if err := r.db.Select("id", "name", "bound_listeners").
+		Where("domain_template_id = ?", templateID).Order("name ASC").Find(&domains).Error; err != nil {
+		return nil, err
+	}
+	owners := make([]DomainPortOwner, 0, len(domains)*2)
+	for _, d := range domains {
+		for _, name := range d.BoundListeners {
+			if port, ok := portByName[name]; ok {
+				owners = append(owners, DomainPortOwner{Transport: "TCP", Port: port, DomainID: d.ID, DomainName: d.Name})
+			}
+		}
+	}
+	return owners, nil
+}
+
 // CountByProjectID returns the number of domains in a project
 func (r *DomainRepository) CountByProjectID(projectID uuid.UUID) (int, error) {
 	var count int64

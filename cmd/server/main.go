@@ -248,6 +248,8 @@ func main() {
 		DomainRepo:   domainRepo,
 		WafConfig:    wafConfig,
 		Approvals:    approvalEngine,
+		Streams:      streamRepo,
+		L4Manifests:  routeService,
 	})
 	auditService := services.NewAuditService(auditLogRepo)
 	clientService := clients.NewClientService(clients.ClientServiceDeps{
@@ -326,7 +328,13 @@ func main() {
 	routeService.SetL4PortChecker(streamService)
 	domainService.SetStreamPorts(streamRepo)
 	domainTemplateService.SetPortSources(streamRepo, domainRepo)
-	streamHandler := handlers.NewStreamHandler(streamService, auditService, permChecker)
+	streamViewService := services.NewStreamViewService(services.StreamViewServiceDeps{
+		Streams:   streamRepo,
+		Templates: domainTemplateRepo,
+		Domains:   domainRepo,
+		Gateways:  k8sService,
+	})
+	streamHandler := handlers.NewStreamHandler(streamService, streamViewService, auditService, permChecker)
 	routeHandler := handlers.NewRouteHandler(routeService, auditService, permChecker)
 	routeVersionHandler := handlers.NewRouteVersionHandler(routeVersionService, auditService)
 	approvalPolicyService := services.NewApprovalPolicyService(approvalPolicyRepo)
@@ -890,6 +898,8 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					domainTemplatesRead.GET("/:domainTemplateId", deps.DomainTemplateHandler.Get)
 					domainTemplatesRead.GET("/:domainTemplateId/manifests", deps.DomainTemplateHandler.GetManifests)
 					domainTemplatesRead.GET("/:domainTemplateId/domains", deps.DomainTemplateHandler.ListDomains)
+					// The entry point a new stream on this template would join.
+					domainTemplatesRead.GET("/:domainTemplateId/entrypoint", deps.StreamHandler.GetTemplateEntrypoint)
 				}
 
 				// Domain Templates - Write access (Owner or Project Admin only)
@@ -940,6 +950,10 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					streams.DELETE("/:streamId", deps.StreamHandler.Delete) // Permission check in handler
 					// L4 metrics (connections/rate/throughput); not the HTTP route-metrics path.
 					streams.GET("/:streamId/metrics", deps.MetricsHandler.GetStreamMetrics)
+					// Read-only entry point: mode, address, who shares it, port map.
+					streams.GET("/:streamId/entrypoint", deps.StreamHandler.GetEntrypoint)
+					// Read-only manifests: the Gateway plus every live route's YAML.
+					streams.GET("/:streamId/yamls", deps.RouteHandler.GetStreamYAMLs)
 
 					// L4 routes of a stream: the stream-scoped counterpart of the
 					// domain routes group below. Registered unconditionally for the
@@ -947,12 +961,22 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 					streamRoutes := streams.Group("/:streamId/routes")
 					{
 						streamRoutes.GET("", deps.RouteHandler.ListByStream)
-						streamRoutes.POST("", deps.RouteHandler.CreateForStream) // Permission check in handler
+						streamRoutes.POST("", deps.RouteHandler.CreateForStream)                // Permission check in handler
+						streamRoutes.POST("/preview", deps.RouteHandler.PreviewCreateForStream) // Preview create - same validation as create, no write
 						streamRoutes.GET("/:routeId", deps.RouteHandler.GetForStream)
 						streamRoutes.PUT("/:routeId", deps.RouteHandler.UpdateForStream)    // Permission check in handler
 						streamRoutes.DELETE("/:routeId", deps.RouteHandler.DeleteForStream) // Permission check in handler
 						streamRoutes.GET("/:routeId/yaml", deps.RouteHandler.GetYAMLForStream)
+						streamRoutes.GET("/:routeId/yamls", deps.RouteHandler.GetYAMLsForStream)
+						streamRoutes.POST("/:routeId/preview", deps.RouteHandler.PreviewUpdateForStream)
+						streamRoutes.GET("/:routeId/preview-delete", deps.RouteHandler.PreviewDeleteForStream)
 						streamRoutes.POST("/:routeId/deploy", deps.RouteHandler.DeployForStream) // Deploy to K8s - permission check in handler
+
+						// Version history of an L4 route: the domain route
+						// endpoints, guarded so a route of another stream is 404.
+						streamRoutes.GET("/:routeId/versions", deps.RouteHandler.ForStreamRoute(deps.RouteVersionHandler.List))
+						streamRoutes.GET("/:routeId/versions/:version", deps.RouteHandler.ForStreamRoute(deps.RouteVersionHandler.Get))
+						streamRoutes.POST("/:routeId/versions/:version/rollback", deps.RouteHandler.ForStreamRouteWrite(deps.RouteVersionHandler.Rollback))
 					}
 				}
 

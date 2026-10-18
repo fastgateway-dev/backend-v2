@@ -197,6 +197,15 @@ type StreamServiceInterface interface {
 	Delete(id uuid.UUID) error
 }
 
+// StreamViewServiceInterface is the read-only stream views StreamHandler
+// serves: the entry point of a stream, and of a template before a stream
+// exists. *services.StreamViewService satisfies it.
+type StreamViewServiceInterface interface {
+	StreamEntrypoint(ctx context.Context, stream *models.Stream) (*services.StreamEntrypoint, error)
+	TemplateEntrypoint(ctx context.Context, projectID, templateID uuid.UUID) (*services.StreamEntrypoint, error)
+	ListWithSummary(projectID uuid.UUID) ([]services.StreamListItem, error)
+}
+
 // TemplateDomainLister is the slice of DomainTemplateService that
 // DomainTemplateHandler uses to answer "which domains use this template".
 // Named for the capability and satisfied structurally, following Phase 2E's
@@ -323,9 +332,12 @@ type RouteWriter interface {
 type RoutePreviewer interface {
 	GenerateYAML(id uuid.UUID) (string, error)
 	GenerateYAMLs(id uuid.UUID) (*services.RouteYAMLs, error)
+	GenerateStreamYAMLs(projectID, streamID uuid.UUID) (*services.StreamYAMLs, error)
 	PreviewCreate(domainID uuid.UUID, input *services.CreateRouteInput) (*services.PreviewCreateResult, error)
 	PreviewUpdate(routeID uuid.UUID, input *services.UpdateRouteInput) (*services.PreviewUpdateResult, error)
 	PreviewDelete(routeID uuid.UUID) (*services.PreviewDeleteResult, error)
+	PreviewCreateForStream(projectID, streamID uuid.UUID, input *services.CreateRouteInput) (*services.PreviewCreateResult, error)
+	PreviewUpdateForStream(routeID uuid.UUID, input *services.UpdateRouteInput) (*services.PreviewUpdateResult, error)
 }
 
 // RouteHandlerService is RouteHandler's dependency: the three roles above and
@@ -421,6 +433,7 @@ var _ AuditServiceInterface = (*services.AuditService)(nil)
 var _ AuthServiceInterface = (*services.AuthService)(nil)
 var _ CertificateIssuerServiceInterface = (*services.CertificateIssuerService)(nil)
 var _ StreamServiceInterface = (*services.StreamService)(nil)
+var _ StreamViewServiceInterface = (*services.StreamViewService)(nil)
 var _ CommentServiceInterface = (*services.CommentService)(nil)
 var _ DNSCredentialServiceInterface = (*services.DNSCredentialService)(nil)
 var _ DNSHostedZoneServiceInterface = (*services.DNSHostedZoneService)(nil)

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
@@ -83,6 +84,18 @@ func (s *Client) UpdateGateway(ctx context.Context, projectID uuid.UUID, config 
 	}
 
 	return nil
+}
+
+// GetGateway reads a Gateway back from the project's cluster. Read-only: the
+// stream entry-point view uses it for status.addresses. The API server's
+// error is returned unwrapped, so callers can test it with
+// k8serrors.IsNotFound (a Gateway that is not deployed yet).
+func (s *Client) GetGateway(ctx context.Context, projectID uuid.UUID, namespace, name string) (*unstructured.Unstructured, error) {
+	client, err := s.getClient(projectID)
+	if err != nil {
+		return nil, err
+	}
+	return client.Resource(kubernetes.GatewayGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 }
 
 // DeleteGateway deletes a Gateway resource from Kubernetes

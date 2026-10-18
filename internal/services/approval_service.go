@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	approvalpkg "github.com/fastgateway-dev/backend-v2/internal/approval"
@@ -19,6 +20,11 @@ type ApprovalService struct {
 	routeRepo    repository.RouteRepositoryInterface
 	domainRepo   repository.DomainRepositoryInterface
 	wafConfig    routeplan.WAFConfig
+
+	// streams resolves an L4 route's Stream; l4Manifests renders its
+	// TCPRoute/UDPRoute and BackendTrafficPolicy. Both are required.
+	streams     ApprovalStreamReader
+	l4Manifests L4ManifestRenderer
 
 	// engine owns approval planning and traversal for every entity type.
 	// A required constructor dependency since Phase 2E Task 6.
@@ -47,6 +53,29 @@ type ApprovalServiceDeps struct {
 	// into the entity services as Completers, so main.go builds the engine
 	// first and registers the completers afterwards.
 	Approvals *approvalpkg.Engine
+
+	// Streams resolves the Stream of an L4 route approval, for the diff and
+	// for the streamId/streamName enrichment. *repository.StreamRepository
+	// satisfies it.
+	Streams ApprovalStreamReader
+
+	// L4Manifests renders an L4 route's TCPRoute/UDPRoute and
+	// BackendTrafficPolicy through the deploy builders, for the L4 diff.
+	// *RouteService satisfies it.
+	L4Manifests L4ManifestRenderer
+}
+
+// ApprovalStreamReader is the slice of StreamRepository ApprovalService uses.
+type ApprovalStreamReader interface {
+	GetByID(id uuid.UUID) (*models.Stream, error)
+	GetByIDs(ids []uuid.UUID) ([]models.Stream, error)
+}
+
+// L4ManifestRenderer renders an L4 route's manifests exactly as the deploy
+// path builds them. *RouteService satisfies it.
+type L4ManifestRenderer interface {
+	RenderL4RouteYAML(route *models.Route, stream *models.Stream) (string, error)
+	RenderL4BackendTrafficPolicyYAML(route *models.Route, stream *models.Stream, cfg *models.BackendTrafficPolicyConfig) (string, error)
 }
 
 // NewApprovalService builds a fully-wired ApprovalService. It panics if a
@@ -70,6 +99,12 @@ func NewApprovalService(deps ApprovalServiceDeps) *ApprovalService {
 	if deps.Approvals == nil {
 		missing = append(missing, "Approvals")
 	}
+	if deps.Streams == nil {
+		missing = append(missing, "Streams")
+	}
+	if deps.L4Manifests == nil {
+		missing = append(missing, "L4Manifests")
+	}
 	if len(missing) > 0 {
 		panic("services.NewApprovalService: missing required dependency: " + strings.Join(missing, ", "))
 	}
@@ -81,12 +116,29 @@ func NewApprovalService(deps ApprovalServiceDeps) *ApprovalService {
 		domainRepo:   deps.DomainRepo,
 		wafConfig:    deps.WafConfig,
 		engine:       deps.Approvals,
+		streams:      deps.Streams,
+		l4Manifests:  deps.L4Manifests,
 	}
 }
 
-// GetByID gets an approval by ID
+// GetByID gets an approval by ID. A route approval for an L4 route also
+// carries StreamID/StreamName, as in ListByProjectID; that enrichment is
+// best-effort like DomainName (a lookup failure leaves the names empty).
 func (s *ApprovalService) GetByID(id uuid.UUID) (*models.Approval, error) {
-	return s.approvalRepo.GetByID(id)
+	approval, err := s.approvalRepo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if approval.EntityType == models.ApprovalEntityRoute {
+		if route, err := s.routeRepo.GetByID(approval.EntityID); err == nil && route != nil && route.StreamID != nil {
+			sid := *route.StreamID
+			approval.StreamID = &sid
+			if stream, err := s.streams.GetByID(sid); err == nil && stream != nil {
+				approval.StreamName = stream.Name
+			}
+		}
+	}
+	return approval, nil
 }
 
 // ListByProjectID lists approvals for a project with an optional entity type filter
@@ -122,10 +174,14 @@ func (s *ApprovalService) ListByProjectID(projectID uuid.UUID, page, limit int, 
 
 	routeMap := make(map[uuid.UUID]models.Route, len(routes))
 	domainIDSet := make(map[uuid.UUID]struct{})
+	streamIDSet := make(map[uuid.UUID]struct{})
 	for _, r := range routes {
 		routeMap[r.ID] = r
 		if r.DomainID != nil {
 			domainIDSet[*r.DomainID] = struct{}{}
+		}
+		if r.StreamID != nil {
+			streamIDSet[*r.StreamID] = struct{}{}
 		}
 	}
 
@@ -143,6 +199,20 @@ func (s *ApprovalService) ListByProjectID(projectID uuid.UUID, page, limit int, 
 		}
 	}
 
+	// Batch-fetch streams (one query, only when an L4 route is listed)
+	streamMap := make(map[uuid.UUID]models.Stream)
+	if len(streamIDSet) > 0 {
+		streamIDs := make([]uuid.UUID, 0, len(streamIDSet))
+		for id := range streamIDSet {
+			streamIDs = append(streamIDs, id)
+		}
+		if streams, err := s.streams.GetByIDs(streamIDs); err == nil {
+			for _, st := range streams {
+				streamMap[st.ID] = st
+			}
+		}
+	}
+
 	// Enrich approvals
 	for i := range approvals {
 		if approvals[i].EntityType == models.ApprovalEntityRoute {
@@ -151,6 +221,13 @@ func (s *ApprovalService) ListByProjectID(projectID uuid.UUID, page, limit int, 
 				if route.DomainID != nil {
 					if domain, ok := domainMap[*route.DomainID]; ok {
 						approvals[i].DomainName = domain.Hostname
+					}
+				}
+				if route.StreamID != nil {
+					sid := *route.StreamID
+					approvals[i].StreamID = &sid
+					if stream, ok := streamMap[sid]; ok {
+						approvals[i].StreamName = stream.Name
 					}
 				}
 			}
@@ -216,10 +293,10 @@ type ApprovalDiffResult struct {
 	ProposedBackendYAML              string          `json:"proposedBackendYaml,omitempty"`
 	ChangeDescription                string          `json:"changeDescription,omitempty"`
 	AIReview                         json.RawMessage `json:"aiReview,omitempty"`
+	// RouteKind is the Gateway API kind currentYaml/proposedYaml hold:
+	// HTTPRoute, GRPCRoute, TCPRoute or UDPRoute.
+	RouteKind string `json:"routeKind"`
 }
-
-// ErrDiffNotAvailableForL4 is returned by GetDiff for an L4 (tcp/udp) route.
-var ErrDiffNotAvailableForL4 = errors.New("YAML diff is not available for L4 routes")
 
 // GetDiff generates YAML diff for an approval request
 func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
@@ -238,10 +315,13 @@ func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 		return nil, err
 	}
 
-	// An L4 route belongs to a Stream and has no Domain; the diff is built
-	// from Domain-scoped HTTPRoute/policy YAML, which does not apply to it.
-	if route.IsL4() || route.DomainID == nil {
-		return nil, ErrDiffNotAvailableForL4
+	// An L4 route belongs to a Stream and has no Domain: its diff is the
+	// TCPRoute/UDPRoute and BackendTrafficPolicy on the stream.
+	if route.IsL4() {
+		return s.l4Diff(approval, route)
+	}
+	if route.DomainID == nil {
+		return nil, fmt.Errorf("route %s has no domain", route.ID)
 	}
 
 	domain, err := s.domainRepo.GetByID(*route.DomainID)
@@ -250,7 +330,8 @@ func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 	}
 
 	result := &ApprovalDiffResult{
-		Action: string(approval.Action),
+		Action:    string(approval.Action),
+		RouteKind: routeplan.GetRouteKind(route.Protocol),
 	}
 
 	// Helper to build a temporary route for YAML generation
@@ -386,4 +467,84 @@ func (s *ApprovalService) GetDiff(id uuid.UUID) (*ApprovalDiffResult, error) {
 // UpdateAIReview atomically sets the AI review on an approval, only if none exists yet.
 func (s *ApprovalService) UpdateAIReview(approval *models.Approval) error {
 	return s.approvalRepo.SetAIReview(approval.ID, approval.AIReview)
+}
+
+// l4Diff is GetDiff for an L4 route. Every manifest is rendered through the
+// deploy builders (L4ManifestRenderer) on the route's stream:
+//
+//   - create: proposed from the approval snapshot;
+//   - update: current from the approval's previous snapshot (what was live
+//     when the change was submitted), proposed from the snapshot. The stored
+//     policy and the route row are not used for current: the update submit
+//     already overwrote the stored policy with the proposed one, and
+//     approving it copies the proposed config onto the row;
+//   - delete: current from the live route and the policy the delete snapshot
+//     captured.
+//
+// Any lookup or render failure is an error, never a partial diff.
+func (s *ApprovalService) l4Diff(approval *models.Approval, route *models.Route) (*ApprovalDiffResult, error) {
+	if route.StreamID == nil {
+		return nil, fmt.Errorf("L4 route %s has no stream", route.ID)
+	}
+	stream, err := s.streams.GetByID(*route.StreamID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load stream for L4 route: %w", err)
+	}
+
+	var snapshot, previousSnapshot models.RouteApprovalSnapshot
+	if approval.ConfigSnapshot != nil {
+		if err := json.Unmarshal(approval.ConfigSnapshot, &snapshot); err != nil {
+			return nil, err
+		}
+	}
+	if approval.PreviousConfig != nil {
+		if err := json.Unmarshal(approval.PreviousConfig, &previousSnapshot); err != nil {
+			return nil, err
+		}
+	}
+
+	render := func(cfg models.RouteConfig, btp *models.BackendTrafficPolicyConfig) (string, string, error) {
+		temp := *route
+		temp.Config = cfg
+		routeYAML, err := s.l4Manifests.RenderL4RouteYAML(&temp, stream)
+		if err != nil {
+			return "", "", err
+		}
+		btpYAML, err := s.l4Manifests.RenderL4BackendTrafficPolicyYAML(&temp, stream, btp)
+		if err != nil {
+			return "", "", err
+		}
+		return routeYAML, btpYAML, nil
+	}
+
+	result := &ApprovalDiffResult{
+		Action:            string(approval.Action),
+		RouteKind:         routeplan.GetRouteKind(route.Protocol),
+		ChangeDescription: approval.ChangeDescription,
+		AIReview:          approval.AIReview,
+	}
+	switch approval.Action {
+	case models.ApprovalActionCreate:
+		if snapshot.RouteConfig != nil {
+			if result.ProposedYAML, result.ProposedBackendTrafficPolicyYAML, err = render(*snapshot.RouteConfig, snapshot.BackendTrafficPolicy); err != nil {
+				return nil, err
+			}
+		}
+	case models.ApprovalActionUpdate:
+		if previousSnapshot.RouteConfig != nil {
+			if result.CurrentYAML, result.CurrentBackendTrafficPolicyYAML, err = render(*previousSnapshot.RouteConfig, previousSnapshot.BackendTrafficPolicy); err != nil {
+				return nil, err
+			}
+		}
+		if snapshot.RouteConfig != nil {
+			if result.ProposedYAML, result.ProposedBackendTrafficPolicyYAML, err = render(*snapshot.RouteConfig, snapshot.BackendTrafficPolicy); err != nil {
+				return nil, err
+			}
+		}
+	case models.ApprovalActionDelete:
+		if result.CurrentYAML, result.CurrentBackendTrafficPolicyYAML, err = render(route.Config, snapshot.BackendTrafficPolicy); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }

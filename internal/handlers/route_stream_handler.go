@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -173,4 +174,116 @@ func (h *RouteHandler) GetYAMLForStream(c *gin.Context) {
 	if h.requireStreamRoute(c) {
 		h.GetYAML(c)
 	}
+}
+
+// GetYAMLsForStream gets an L4 route's manifests: the TCPRoute/UDPRoute (in
+// httpRouteYaml) and its BackendTrafficPolicy.
+func (h *RouteHandler) GetYAMLsForStream(c *gin.Context) {
+	if h.requireStreamRoute(c) {
+		h.GetYAMLs(c)
+	}
+}
+
+// GetStreamYAMLs gets the stream's manifests: its Gateway (rendered from the
+// live route set deploy uses) and each live L4 route's TCPRoute/UDPRoute and
+// BackendTrafficPolicy. A stream of another project is 404.
+func (h *RouteHandler) GetStreamYAMLs(c *gin.Context) {
+	projectID, streamID, ok := streamRouteIDs(c)
+	if !ok {
+		return
+	}
+	yamls, err := h.routeService.GenerateStreamYAMLs(projectID, streamID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, services.ErrStreamNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, yamls)
+}
+
+// PreviewCreateForStream renders the manifests an L4 route create would
+// produce, after the same validation as CreateForStream; its errors map to
+// the same statuses (400, 404, 409). Same permission as the domain route
+// preview: project access only.
+func (h *RouteHandler) PreviewCreateForStream(c *gin.Context) {
+	projectID, streamID, ok := streamRouteIDs(c)
+	if !ok {
+		return
+	}
+	var input services.CreateRouteInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := h.routeService.PreviewCreateForStream(projectID, streamID, &input)
+	if err != nil {
+		c.JSON(routeWriteErrorStatus(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// PreviewUpdateForStream renders the current and proposed manifests of an L4
+// route update, after the same validation as Update (a changed port is
+// re-checked); its errors map like the update's.
+func (h *RouteHandler) PreviewUpdateForStream(c *gin.Context) {
+	if !h.requireStreamRoute(c) {
+		return
+	}
+	routeID, _ := uuid.Parse(c.Param("routeId")) // validated by requireStreamRoute
+	var input services.UpdateRouteInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := h.routeService.PreviewUpdateForStream(routeID, &input)
+	if err != nil {
+		c.JSON(routeWriteErrorStatus(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// PreviewDeleteForStream renders what deleting an L4 route of a stream
+// removes: its TCPRoute/UDPRoute and BackendTrafficPolicy.
+func (h *RouteHandler) PreviewDeleteForStream(c *gin.Context) {
+	if h.requireStreamRoute(c) {
+		h.PreviewDelete(c)
+	}
+}
+
+// ForStreamRoute wraps a route-scoped handler that reads only :projectId and
+// :routeId (the RouteVersionHandler methods) so it runs only for an L4 route
+// of :streamId in :projectId; any other route is 404 before next runs. It is
+// how the version history endpoints are mounted under the stream:
+//
+//	streamRoutes.GET("/:routeId/versions", deps.RouteHandler.ForStreamRoute(deps.RouteVersionHandler.List))
+func (h *RouteHandler) ForStreamRoute(next gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if h.requireStreamRoute(c) {
+			next(c)
+		}
+	}
+}
+
+// ForStreamRouteWrite is ForStreamRoute for a handler that writes: after the
+// route is confirmed to belong to the stream, the caller also needs the
+// route-write permission (the same CanCreateRoutes check Update makes). A
+// rollback resubmits the route through Update, so it is a write.
+func (h *RouteHandler) ForStreamRouteWrite(next gin.HandlerFunc) gin.HandlerFunc {
+	return h.ForStreamRoute(func(c *gin.Context) {
+		projectID, err := uuid.Parse(c.Param("projectId"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+			return
+		}
+		if !h.permChecker.CanCreateRoutes(projectID, middleware.GetCurrentUser(c)) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: only editors can change routes"})
+			return
+		}
+		next(c)
+	})
 }
