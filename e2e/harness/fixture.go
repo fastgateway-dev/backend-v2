@@ -109,6 +109,13 @@ var slugSanitizer = regexp.MustCompile(`[^a-z0-9-]+`)
 // left conflicting state behind and the suite could never run in parallel.
 func UniqueName(t *testing.T) string {
 	t.Helper()
+	return UniqueNameMax(t, 63)
+}
+
+// UniqueNameMax is UniqueName for a resource whose name limit is below the
+// 63-char Kubernetes cap, e.g. a stream: its Gateway is "str-" + name.
+func UniqueNameMax(t *testing.T, maxLen int) string {
+	t.Helper()
 
 	slug := strings.ToLower(t.Name())
 	slug = strings.ReplaceAll(slug, "/", "-")
@@ -118,9 +125,8 @@ func UniqueName(t *testing.T) string {
 	if slug == "" {
 		slug = "test"
 	}
-	// Kubernetes object names are capped at 63 chars; leave room for the
-	// "e2e-" prefix and "-<8hex>" suffix.
-	const maxSlugLen = 63 - len("e2e-") - len("-12345678")
+	// Leave room for the "e2e-" prefix and "-<8hex>" suffix.
+	maxSlugLen := maxLen - len("e2e-") - len("-12345678")
 	if len(slug) > maxSlugLen {
 		slug = slug[:maxSlugLen]
 		slug = strings.Trim(slug, "-")
