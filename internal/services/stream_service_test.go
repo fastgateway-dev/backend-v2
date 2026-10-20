@@ -600,3 +600,33 @@ func TestStreamDelete_GatewayDeleteFailureStillDeletesRow(t *testing.T) {
 	require.NoError(t, e.svc.Delete(s.ID))
 	assert.Equal(t, []uuid.UUID{s.ID}, e.store.deleted)
 }
+
+// statusWriteFailingStore fails Update once armed, to model a DB outage that
+// hits the status write after the Gateway apply failed.
+type statusWriteFailingStore struct {
+	*fakeStreamStore
+	updateErr error
+}
+
+func (f *statusWriteFailingStore) Update(s *models.Stream) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	return f.fakeStreamStore.Update(s)
+}
+
+func TestApplyGateway_ErrorStatusWriteFailureIsReported(t *testing.T) {
+	e := newGatewayEnv(t)
+	s := e.seed(models.StreamPorts{{Transport: "TCP", Port: 5432}})
+	dbErr := errors.New("db down")
+	store := &statusWriteFailingStore{fakeStreamStore: e.store, updateErr: dbErr}
+	_, tmpl, _, _ := streamEnabledSetup()
+	svc := services.NewStreamService(store, tmpl, &fakeRouteCounter{}, e.applier, allowAllNamespaces{})
+	e.applier.EXPECT().UpdateGateway(mock.Anything, e.projectID, mock.Anything).Return(errors.New("boom")).Once()
+
+	err := svc.ApplyGateway(context.Background(), s)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom", "the apply failure is reported")
+	assert.ErrorIs(t, err, dbErr, "so is the failure to record the error status")
+	assert.Equal(t, "error", s.Status)
+}

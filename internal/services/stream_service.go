@@ -304,8 +304,13 @@ func (s *StreamService) ApplyGateway(ctx context.Context, stream *models.Stream)
 	if applyErr != nil {
 		stream.Status = StreamStatusError
 		stream.StatusMessage = fmt.Sprintf("Failed to apply Gateway: %v", applyErr)
-		_ = s.streamRepo.Update(stream)
-		return fmt.Errorf("failed to apply stream gateway: %w", applyErr)
+		err := fmt.Errorf("failed to apply stream gateway: %w", applyErr)
+		// If the error status cannot be saved either, the row keeps its old
+		// status; surface that alongside the apply failure so the caller logs both.
+		if uerr := s.streamRepo.Update(stream); uerr != nil {
+			err = errors.Join(err, fmt.Errorf("failed to record error status: %w", uerr))
+		}
+		return err
 	}
 	stream.Status = StreamStatusActive
 	stream.StatusMessage = message
