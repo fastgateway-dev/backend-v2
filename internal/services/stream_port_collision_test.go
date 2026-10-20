@@ -8,7 +8,6 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
-	"github.com/fastgateway-dev/backend-v2/internal/streamplan"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -233,8 +232,8 @@ func TestValidateListenerPort_RejectsEnvoyInternal(t *testing.T) {
 	assert.ErrorIs(t, services.ValidateListenerPort(19001, defaultReserved), services.ErrReservedPort)
 }
 
-func TestValidateListenerPort_RejectsPlaceholder(t *testing.T) {
-	assert.ErrorIs(t, services.ValidateListenerPort(streamplan.PlaceholderPort, defaultReserved), services.ErrReservedPort)
+func TestValidateListenerPort_PlaceholderPortIsNormal(t *testing.T) {
+	assert.NoError(t, services.ValidateListenerPort(60000, defaultReserved))
 }
 
 func TestValidateListenerPort_RejectsOutOfRange(t *testing.T) {
@@ -294,6 +293,222 @@ func TestCheckPortCollision_RejectsStaticReserved(t *testing.T) {
 	e := newCollisionEnv(t)
 	streamID := e.stream(t, e.template(t, false))
 	assert.ErrorIs(t, e.svc.CheckPortCollision(streamID, "TCP", 19001, nil), services.ErrReservedPort)
-	assert.ErrorIs(t, e.svc.CheckPortCollision(streamID, "UDP", streamplan.PlaceholderPort, nil), services.ErrReservedPort)
+	assert.NoError(t, e.svc.CheckPortCollision(streamID, "UDP", 60000, nil))
 	assert.ErrorIs(t, e.svc.CheckPortCollision(streamID, "TCP", 0, nil), services.ErrInvalidListenerPort)
+}
+
+// ---------------------------------------------------------------------------
+// Claim validation (mock-based, no DB)
+// ---------------------------------------------------------------------------
+
+// claimsFixture is a StreamService wired with mock port sources.
+type claimsFixture struct {
+	svc     *services.StreamService
+	store   *mocks.MockStreamPortStore
+	domains *mocks.MockDomainPortReader
+}
+
+func newClaimsFixture(t *testing.T) *claimsFixture {
+	t.Helper()
+	f := &claimsFixture{
+		store:   mocks.NewMockStreamPortStore(t),
+		domains: mocks.NewMockDomainPortReader(t),
+	}
+	f.svc = services.NewStreamService(mocks.NewMockStreamStore(t), &fakeTemplateReader{}, &fakeRouteCounter{},
+		mocks.NewMockGatewayApplier(t), allowAllNamespaces{})
+	f.svc.SetPortSources(f.store, f.domains)
+	return f
+}
+
+// claimsTemplate is HTTP:80 + HTTPS:443 + a TCP/UDP range of 1-65535.
+func claimsTemplate(merge bool) *models.DomainTemplate {
+	return &models.DomainTemplate{
+		ID: uuid.New(), Name: "tpl", MergeGateways: merge,
+		Listeners: models.Listeners{
+			{Name: "http", Protocol: models.ListenerHTTP, Port: 80},
+			{Name: "https", Protocol: models.ListenerHTTPS, Port: 443},
+			{Name: "stream", Protocol: models.ListenerTCP, PortRangeMin: 1, PortRangeMax: 65535},
+		},
+	}
+}
+
+func TestValidateStreamPorts_Rules(t *testing.T) {
+	narrow := claimsTemplate(false)
+	narrow.Listeners[2].PortRangeMin, narrow.Listeners[2].PortRangeMax = 1024, 2000
+	for _, tc := range []struct {
+		name  string
+		tmpl  *models.DomainTemplate
+		ports models.StreamPorts
+		is    error
+	}{
+		{"empty", claimsTemplate(false), models.StreamPorts{}, services.ErrNoStreamPorts},
+		{"nil", claimsTemplate(false), nil, services.ErrNoStreamPorts},
+		{"bad transport", claimsTemplate(false), models.StreamPorts{{Transport: "SCTP", Port: 80}}, services.ErrInvalidStreamPort},
+		{"duplicate after normalizing", claimsTemplate(false), models.StreamPorts{{Transport: "TCP", Port: 80}, {Transport: "tcp", Port: 80}}, services.ErrInvalidStreamPort},
+		{"port zero", claimsTemplate(false), models.StreamPorts{{Transport: "TCP", Port: 0}}, services.ErrInvalidListenerPort},
+		{"port above 65535", claimsTemplate(false), models.StreamPorts{{Transport: "UDP", Port: 70000}}, services.ErrInvalidListenerPort},
+		{"envoy internal", claimsTemplate(false), models.StreamPorts{{Transport: "TCP", Port: 19000}}, services.ErrReservedPort},
+		{"envoy internal UDP", claimsTemplate(false), models.StreamPorts{{Transport: "UDP", Port: 19001}}, services.ErrReservedPort},
+		{"outside template range", narrow, models.StreamPorts{{Transport: "TCP", Port: 5432}}, services.ErrPortOutOfRange},
+		{"template without range", &models.DomainTemplate{Name: "domains-only", Listeners: models.Listeners{{Name: "http", Protocol: models.ListenerHTTP, Port: 80}}},
+			models.StreamPorts{{Transport: "TCP", Port: 5432}}, services.ErrPortOutOfRange},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newClaimsFixture(t) // dedicated templates read no store: strict mocks catch any call
+			got, err := services.ValidateStreamPortsForTest(f.svc, tc.tmpl, nil, tc.ports)
+			require.ErrorIs(t, err, tc.is)
+			assert.Nil(t, got)
+		})
+	}
+
+	t.Run("60000 is a normal port", func(t *testing.T) {
+		f := newClaimsFixture(t)
+		got, err := services.ValidateStreamPortsForTest(f.svc, claimsTemplate(false), nil, models.StreamPorts{{Transport: "UDP", Port: 60000}})
+		require.NoError(t, err)
+		assert.Equal(t, models.StreamPorts{{Transport: "UDP", Port: 60000}}, got)
+	})
+}
+
+func TestValidateStreamPorts_SharedCollisions(t *testing.T) {
+	tmpl := claimsTemplate(true)
+	selfID := uuid.New()
+	one := func(transport string, port int) models.StreamPorts {
+		return models.StreamPorts{{Transport: transport, Port: port}}
+	}
+	for _, tc := range []struct {
+		name    string
+		claimed []services.PortUse
+		domain  []services.PortUse
+		ports   models.StreamPorts
+		is      error
+	}{
+		{"another stream's claim", []services.PortUse{{Transport: "TCP", Port: 5432}}, nil, one("TCP", 5432), services.ErrPortCollision},
+		{"domain port", nil, []services.PortUse{{Transport: "TCP", Port: 8443}}, one("TCP", 8443), services.ErrPortCollision},
+		{"template hostname-routed TCP port", nil, nil, one("TCP", 443), services.ErrReservedPort},
+		{"UDP on the HTTPS number is fine", nil, nil, one("UDP", 443), nil},
+		{"same number other transport is fine", []services.PortUse{{Transport: "TCP", Port: 53}}, nil, one("UDP", 53), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newClaimsFixture(t)
+			f.store.EXPECT().ClaimedPortsByTemplate(tmpl.ID, &selfID).Return(tc.claimed, nil).Maybe()
+			f.domains.EXPECT().UsedPortsByTemplate(tmpl.ID).Return(tc.domain, nil).Maybe()
+			_, err := services.ValidateStreamPortsForTest(f.svc, tmpl, &selfID, tc.ports)
+			if tc.is == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.is)
+		})
+	}
+
+	t.Run("collision message names the port", func(t *testing.T) {
+		f := newClaimsFixture(t)
+		f.store.EXPECT().ClaimedPortsByTemplate(tmpl.ID, (*uuid.UUID)(nil)).Return([]services.PortUse{{Transport: "TCP", Port: 5432}}, nil)
+		f.domains.EXPECT().UsedPortsByTemplate(tmpl.ID).Return(nil, nil)
+		_, err := services.ValidateStreamPortsForTest(f.svc, tmpl, nil, one("TCP", 5432))
+		require.ErrorIs(t, err, services.ErrPortCollision)
+		assert.Contains(t, err.Error(), "TCP/5432")
+	})
+
+	t.Run("selfID is passed so the stream's own claims are excluded", func(t *testing.T) {
+		f := newClaimsFixture(t)
+		// The store applies the exclusion; the service must hand it selfID
+		// (the strict expectation fails on any other argument).
+		f.store.EXPECT().ClaimedPortsByTemplate(tmpl.ID, &selfID).Return(nil, nil).Once()
+		f.domains.EXPECT().UsedPortsByTemplate(tmpl.ID).Return(nil, nil).Once()
+		_, err := services.ValidateStreamPortsForTest(f.svc, tmpl, &selfID, one("TCP", 5432))
+		require.NoError(t, err)
+	})
+}
+
+func TestValidateStreamPorts_DedicatedIgnoresOthers(t *testing.T) {
+	// Strict mocks: a dedicated template must not read the store or domains,
+	// so another stream's TCP/5432 claim cannot matter.
+	f := newClaimsFixture(t)
+	got, err := services.ValidateStreamPortsForTest(f.svc, claimsTemplate(false), nil, models.StreamPorts{{Transport: "TCP", Port: 5432}})
+	require.NoError(t, err)
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 5432}}, got)
+}
+
+func TestValidateStreamPorts_SourceErrorsPropagate(t *testing.T) {
+	tmpl := claimsTemplate(true)
+	f := newClaimsFixture(t)
+	f.store.EXPECT().ClaimedPortsByTemplate(tmpl.ID, (*uuid.UUID)(nil)).Return(nil, assert.AnError)
+	_, err := services.ValidateStreamPortsForTest(f.svc, tmpl, nil, models.StreamPorts{{Transport: "TCP", Port: 5432}})
+	require.ErrorIs(t, err, assert.AnError)
+	assert.NotErrorIs(t, err, services.ErrPortCollision)
+}
+
+func TestValidateStreamPorts_UnwiredFailsClosed(t *testing.T) {
+	svc := services.NewStreamService(mocks.NewMockStreamStore(t), &fakeTemplateReader{}, &fakeRouteCounter{},
+		mocks.NewMockGatewayApplier(t), allowAllNamespaces{})
+	_, err := services.ValidateStreamPortsForTest(svc, claimsTemplate(true), nil, models.StreamPorts{{Transport: "TCP", Port: 5432}})
+	assert.ErrorContains(t, err, "not configured")
+}
+
+func TestValidateStreamPorts_NormalizesTransportAndOrder(t *testing.T) {
+	f := newClaimsFixture(t)
+	got, err := services.ValidateStreamPortsForTest(f.svc, claimsTemplate(false), nil,
+		models.StreamPorts{{Transport: "udp", Port: 53}, {Transport: "tcp", Port: 9000}})
+	require.NoError(t, err)
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 9000}, {Transport: "UDP", Port: 53}}, got)
+}
+
+func TestCheckUsedClaimsKept(t *testing.T) {
+	stream := &models.Stream{ID: uuid.New(), Name: "db"}
+	setup := func(t *testing.T) *claimsFixture {
+		f := newClaimsFixture(t)
+		// 5432 is held by a route row, 5433 only by a pending approval.
+		f.store.EXPECT().UsedPortsByStream(stream.ID, (*uuid.UUID)(nil)).
+			Return([]services.PortUse{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 5433}}, nil)
+		f.store.EXPECT().L4PortOwnersByStream(stream.ID).Return([]services.L4PortOwner{
+			{Transport: "TCP", Port: 5432, RouteName: "primary", Status: "active"},
+		}, nil).Maybe()
+		f.store.EXPECT().PendingL4PortOwnersByStream(stream.ID).Return([]services.L4PortOwner{
+			{Transport: "TCP", Port: 5433, RouteName: "cache", Status: "active", Pending: true},
+		}, nil).Maybe()
+		return f
+	}
+
+	t.Run("dropping a pending-held claim is refused", func(t *testing.T) {
+		f := setup(t)
+		err := services.CheckUsedClaimsKeptForTest(f.svc, stream, models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 9000}})
+		require.ErrorIs(t, err, services.ErrStreamPortInUse)
+		assert.Contains(t, err.Error(), "TCP/5433")
+		assert.Contains(t, err.Error(), `"cache"`)
+		assert.Contains(t, err.Error(), "pending")
+	})
+
+	t.Run("dropping a row-held claim names the route, not pending", func(t *testing.T) {
+		f := setup(t)
+		err := services.CheckUsedClaimsKeptForTest(f.svc, stream, models.StreamPorts{{Transport: "TCP", Port: 5433}})
+		require.ErrorIs(t, err, services.ErrStreamPortInUse)
+		assert.Contains(t, err.Error(), "TCP/5432")
+		assert.Contains(t, err.Error(), `"primary"`)
+		assert.NotContains(t, err.Error(), "pending")
+	})
+
+	t.Run("keeping every used claim passes", func(t *testing.T) {
+		f := setup(t)
+		require.NoError(t, services.CheckUsedClaimsKeptForTest(f.svc, stream,
+			models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 5433}, {Transport: "UDP", Port: 53}}))
+	})
+
+	t.Run("transport is part of the claim", func(t *testing.T) {
+		f := setup(t)
+		err := services.CheckUsedClaimsKeptForTest(f.svc, stream, models.StreamPorts{{Transport: "UDP", Port: 5432}, {Transport: "UDP", Port: 5433}})
+		require.ErrorIs(t, err, services.ErrStreamPortInUse)
+	})
+
+	t.Run("no used ports means nothing is held", func(t *testing.T) {
+		f := newClaimsFixture(t)
+		f.store.EXPECT().UsedPortsByStream(stream.ID, (*uuid.UUID)(nil)).Return(nil, nil)
+		require.NoError(t, services.CheckUsedClaimsKeptForTest(f.svc, stream, models.StreamPorts{{Transport: "TCP", Port: 1}}))
+	})
+
+	t.Run("load error propagates", func(t *testing.T) {
+		f := newClaimsFixture(t)
+		f.store.EXPECT().UsedPortsByStream(stream.ID, (*uuid.UUID)(nil)).Return(nil, assert.AnError)
+		require.ErrorIs(t, services.CheckUsedClaimsKeptForTest(f.svc, stream, nil), assert.AnError)
+	})
 }

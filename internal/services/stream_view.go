@@ -39,7 +39,6 @@ const (
 	PortOwnerDomain      = "domain"
 
 	ReservedReasonEnvoyInternal    = "envoy_internal"
-	ReservedReasonPlaceholder      = "placeholder"
 	ReservedReasonTemplateListener = "template_listener"
 )
 
@@ -350,9 +349,6 @@ func reservedPorts(tmpl *models.DomainTemplate) []EntrypointReservedPort {
 	for _, transport := range []string{"TCP", "UDP"} {
 		for _, p := range DefaultReservedPorts.EnvoyInternal {
 			add(transport, p, ReservedReasonEnvoyInternal)
-		}
-		if DefaultReservedPorts.Placeholder != 0 {
-			add(transport, DefaultReservedPorts.Placeholder, ReservedReasonPlaceholder)
 		}
 	}
 	for _, p := range templateDomainDefaults(tmpl) {

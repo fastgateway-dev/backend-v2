@@ -52,7 +52,7 @@ func TestValidateRouteShape_L4_RunsReservedThenCollision(t *testing.T) {
 
 func TestValidateRouteShape_L4_ReservedPortRejectedBeforeCollisionCheck(t *testing.T) {
 	streamID := uuid.New()
-	for _, port := range []int{19000, 19001, 60000, 70000} {
+	for _, port := range []int{19000, 19001, 70000} {
 		fake := &fakeL4Checker{}
 		w := &routeWrite{l4Ports: fake}
 		err := w.validateRouteShapeAndConflicts(l4Config(port), nil, models.RouteProtocolTCP, uuid.Nil, &streamID, nil)

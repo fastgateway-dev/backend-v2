@@ -12,13 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeL4PortReader returns a canned set of stream L4 ports for any template.
+// fakeL4PortReader returns a canned set of stream port claims for any template.
 type fakeL4PortReader struct {
 	used  []services.PortUse
 	calls int
 }
 
-func (f *fakeL4PortReader) UsedL4Ports(uuid.UUID, *uuid.UUID) ([]services.PortUse, error) {
+func (f *fakeL4PortReader) ClaimedPortsByTemplate(uuid.UUID, *uuid.UUID) ([]services.PortUse, error) {
 	f.calls++
 	return f.used, nil
 }
@@ -38,7 +38,7 @@ func (f *fakeDomainPortReader) UsedPortsByTemplate(uuid.UUID) ([]services.PortUs
 }
 
 // ---------------------------------------------------------------------------
-// Domain create: a merged template's domain ports must not hit a stream L4 port
+// Domain create: a merged template's domain ports must not hit a stream claim
 // ---------------------------------------------------------------------------
 
 func domainCreateFixture(merged bool) (uuid.UUID, uuid.UUID, *services.CreateDomainInput, *models.DomainTemplate) {
@@ -74,6 +74,45 @@ func TestDomainService_Create_Merged_RejectsPortHittingStreamL4Port(t *testing.T
 		assert.ErrorIs(t, err, services.ErrPortCollision, "stream tcp/%d on a merged template", port)
 		domainRepo.AssertNotCalled(t, "Create", mock.Anything)
 	}
+}
+
+// claimsOnlyReader answers ClaimedPortsByTemplate from the streams' claims
+// alone: no route exists anywhere in this world.
+type claimsOnlyReader struct{ streams []models.Stream }
+
+func (c claimsOnlyReader) ClaimedPortsByTemplate(_ uuid.UUID, exclude *uuid.UUID) ([]services.PortUse, error) {
+	var out []services.PortUse
+	for _, s := range c.streams {
+		if exclude != nil && s.ID == *exclude {
+			continue
+		}
+		for _, p := range s.Ports {
+			out = append(out, services.PortUse{Transport: p.Transport, Port: p.Port})
+		}
+	}
+	return out, nil
+}
+
+func TestDomainCreate_CollidesWithUnroutedStreamClaim(t *testing.T) {
+	svc, domainRepo, _, dtRepo, _, _, _ := newTestDomainService()
+	projectID, dtID, input, dt := domainCreateFixture(true)
+	dt.Listeners = models.Listeners{
+		{Name: "http", Protocol: models.ListenerHTTP, Port: 80},
+		{Name: "https", Protocol: models.ListenerHTTPS, Port: 8443, TLSMode: models.TLSListenerTerminate},
+	}
+	svc.SetStreamPorts(claimsOnlyReader{streams: []models.Stream{
+		{ID: uuid.New(), GatewayTemplateID: dtID, Ports: models.StreamPorts{{Transport: "TCP", Port: 8443}}},
+	}})
+
+	domainRepo.On("ExistsByHostname", projectID, input.Hostname).Return(false, nil)
+	dtRepo.On("GetByID", dtID).Return(dt, nil)
+
+	result, err := svc.Create(projectID, input, uuid.New())
+
+	assert.Nil(t, result)
+	require.ErrorIs(t, err, services.ErrPortCollision)
+	assert.Contains(t, err.Error(), "TCP/8443")
+	domainRepo.AssertNotCalled(t, "Create", mock.Anything)
 }
 
 func TestDomainService_Create_Merged_UDPStreamPortDoesNotCollide(t *testing.T) {

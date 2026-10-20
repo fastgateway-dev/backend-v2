@@ -141,7 +141,7 @@ func TestPreviewUpdateForStream_SameErrorsAsUpdate(t *testing.T) {
 		is      error
 	}{
 		{"collision on the new port", 6432, fmt.Errorf("%w: TCP/6432", services.ErrPortCollision), services.ErrPortCollision},
-		{"reserved port", 60000, nil, services.ErrReservedPort},
+		{"reserved port", 19000, nil, services.ErrReservedPort},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			run := func(call func(f *l4WriteFixture, routeID uuid.UUID, in *services.UpdateRouteInput) error) error {

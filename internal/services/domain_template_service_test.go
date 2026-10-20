@@ -112,14 +112,14 @@ func TestDomainTemplateService_Delete_NotFound(t *testing.T) {
 }
 
 // stubStreamCounter satisfies the template service's stream-side dependency
-// (UsedL4Ports for merged-listener validation + CountByGatewayTemplateID for
+// (ClaimedPortsByTemplate for merged-listener validation + CountByGatewayTemplateID for
 // the delete in-use guard) without a generated mock.
 type stubStreamCounter struct {
 	count int64
 	err   error
 }
 
-func (s stubStreamCounter) UsedL4Ports(uuid.UUID, *uuid.UUID) ([]services.PortUse, error) {
+func (s stubStreamCounter) ClaimedPortsByTemplate(uuid.UUID, *uuid.UUID) ([]services.PortUse, error) {
 	return nil, nil
 }
 func (s stubStreamCounter) CountByGatewayTemplateID(uuid.UUID) (int64, error) {

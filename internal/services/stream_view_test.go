@@ -120,6 +120,21 @@ func (w *portWorld) UsedL4Ports(_ uuid.UUID, exclude *uuid.UUID) ([]services.Por
 	}
 	return out, nil
 }
+func (w *portWorld) ClaimedPortsByTemplate(_ uuid.UUID, exclude *uuid.UUID) ([]services.PortUse, error) {
+	var out []services.PortUse
+	for _, s := range w.streams {
+		if s.GatewayTemplateID != w.tmpl.ID || (exclude != nil && s.ID == *exclude) {
+			continue
+		}
+		for _, p := range s.Ports {
+			out = append(out, services.PortUse{Transport: p.Transport, Port: p.Port})
+		}
+	}
+	return out, nil
+}
+func (w *portWorld) PendingL4PortOwnersByStream(uuid.UUID) ([]services.L4PortOwner, error) {
+	return []services.L4PortOwner{}, nil
+}
 func (w *portWorld) UsedPortsByTemplate(uuid.UUID) ([]services.PortUse, error) {
 	var out []services.PortUse
 	for _, o := range w.domainOwners() {
@@ -204,7 +219,7 @@ func (f *fakeGatewayReader) GetGateway(_ context.Context, _ uuid.UUID, _, name s
 
 // newPortWorld is the shared fixture: a template with HTTP:80 (outside the
 // range), HTTPS:19443 (inside it) and a TCP/UDP range 18990-60010 that also
-// covers the reserved 19000, 19001 and 60000; three streams ("test-stream"
+// covers the reserved 19000 and 19001; three streams ("test-stream"
 // owns routes, "cache" owns routes, "fresh" owns none) and two domains.
 func newPortWorld(merge bool) (*portWorld, *models.Stream, *models.Stream, *models.Stream) {
 	projectID := uuid.New()
@@ -298,9 +313,22 @@ func TestStreamEntrypoint_Dedicated(t *testing.T) {
 	assert.Equal(t, []services.EntrypointReservedPort{
 		{Transport: "TCP", Port: 19000, Reason: "envoy_internal"}, {Transport: "UDP", Port: 19000, Reason: "envoy_internal"},
 		{Transport: "TCP", Port: 19001, Reason: "envoy_internal"}, {Transport: "UDP", Port: 19001, Reason: "envoy_internal"},
-		{Transport: "TCP", Port: 60000, Reason: "placeholder"}, {Transport: "UDP", Port: 60000, Reason: "placeholder"},
 	}, ep.Reserved, "dedicated: no template_listener reservations")
 	assert.Equal(t, []string{"str-test-stream"}, gw.calls, "dedicated reads only its own Gateway")
+}
+
+func TestStreamEntrypoint_ReservedHasNoPlaceholder(t *testing.T) {
+	w, self, _, _ := newPortWorld(false)
+	ep, err := newViewService(w, &fakeGatewayReader{}).StreamEntrypoint(context.Background(), self)
+	require.NoError(t, err)
+
+	got := map[string][]int{}
+	for _, r := range ep.Reserved {
+		assert.NotEqual(t, 60000, r.Port, "60000 is a normal port now")
+		assert.NotEqual(t, "placeholder", r.Reason)
+		got[r.Transport] = append(got[r.Transport], r.Port)
+	}
+	assert.Equal(t, map[string][]int{"TCP": {19000, 19001}, "UDP": {19000, 19001}}, got)
 }
 
 func TestStreamEntrypoint_Shared(t *testing.T) {
