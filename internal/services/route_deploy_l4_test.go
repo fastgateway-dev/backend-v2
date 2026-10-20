@@ -83,16 +83,17 @@ func (f *l4Fixture) expectDeploy(route *models.Route, action models.ApprovalActi
 		Return(&models.Approval{Action: action}, nil)
 }
 
-func listenerPorts(cfg *kubernetes.GatewayConfig) map[string]int {
-	m := map[string]int{}
+func listenerNames(cfg *kubernetes.GatewayConfig) []string {
+	var out []string
 	for _, l := range cfg.Listeners {
-		m[l.Name] = l.Port
+		out = append(out, l.Name)
 	}
-	return m
+	return out
 }
 
-func TestRouteDeploy_L4_CreateSecondTCPRoute_RecomputesFullListenerSet(t *testing.T) {
+func TestRouteDeploy_L4_CreateSecondTCPRoute_AppliesGatewayThenRoute(t *testing.T) {
 	f := newL4Fixture(t)
+	f.stream.Ports = models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 6379}}
 	existing := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusActive)
 	newRoute := f.route("redis", models.RouteProtocolTCP, 6379, models.RouteStatusApproved)
 
@@ -113,8 +114,8 @@ func TestRouteDeploy_L4_CreateSecondTCPRoute_RecomputesFullListenerSet(t *testin
 
 	require.NotNil(t, gw)
 	assert.Equal(t, "str-db", gw.Name)
-	assert.Equal(t, map[string]int{"l4-tcp-5432": 5432, "l4-tcp-6379": 6379}, listenerPorts(gw),
-		"the Gateway must carry the full recomputed listener set, existing + new")
+	assert.Equal(t, []string{"l4-tcp-5432", "l4-tcp-6379"}, listenerNames(gw),
+		"the Gateway carries the stream's claimed ports, not the route set")
 	require.NotNil(t, tcp)
 	assert.Equal(t, "redis-abcd1234", tcp.Name)
 	assert.Equal(t, "l4-tcp-6379", tcp.SectionName)
@@ -140,31 +141,6 @@ func TestRouteDeploy_L4_GatewayAppliedBeforeRoute(t *testing.T) {
 	assert.Equal(t, []string{"gateway", "route"}, order)
 }
 
-func TestRouteDeploy_L4_UpdateDoesNotDuplicateCurrentRoute(t *testing.T) {
-	f := newL4Fixture(t)
-	// The route being updated is already in the live set (with its old port);
-	// the recompute must use the new config exactly once.
-	current := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusPendingDeploy)
-	stale := *current
-	stale.Status = models.RouteStatusActive
-	stale.Config.ListenerPort = 5000
-	other := f.route("dns", models.RouteProtocolUDP, 53, models.RouteStatusActive)
-
-	f.expectDeploy(current, models.ApprovalActionUpdate)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{stale, *other}, nil)
-	f.routeRepo.On("Update", mock.Anything).Return(nil)
-
-	var gw *kubernetes.GatewayConfig
-	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.AnythingOfType("*kubernetes.GatewayConfig")).
-		Run(func(args mock.Arguments) { gw = args.Get(2).(*kubernetes.GatewayConfig) }).Return(nil)
-	f.k8s.On("UpdateTCPRoute", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.TCPRouteConfig"), kubernetes.TCPRouteGVR).Return(nil)
-
-	_, err := f.svc.Deploy(current.ID, uuid.New())
-	require.NoError(t, err)
-	assert.Equal(t, map[string]int{"l4-tcp-5432": 5432, "l4-udp-53": 53}, listenerPorts(gw))
-	f.k8s.AssertCalled(t, "UpdateTCPRoute", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.TCPRouteConfig"), kubernetes.TCPRouteGVR)
-}
-
 func TestRouteDeploy_L4_CreateUDPRoute(t *testing.T) {
 	f := newL4Fixture(t)
 	route := f.route("dns", models.RouteProtocolUDP, 53, models.RouteStatusApproved)
@@ -184,7 +160,7 @@ func TestRouteDeploy_L4_CreateUDPRoute(t *testing.T) {
 	f.k8s.AssertNotCalled(t, "CreateTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestRouteDeploy_L4_DeleteExcludesCurrentRouteAndRemovesCRD(t *testing.T) {
+func TestRouteDeploy_L4_DeleteRemovesCRD(t *testing.T) {
 	f := newL4Fixture(t)
 	removing := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusPendingDeploy)
 	keep := f.route("redis", models.RouteProtocolTCP, 6379, models.RouteStatusActive)
@@ -201,28 +177,9 @@ func TestRouteDeploy_L4_DeleteExcludesCurrentRouteAndRemovesCRD(t *testing.T) {
 
 	_, err := f.svc.Deploy(removing.ID, uuid.New())
 	require.NoError(t, err)
-	assert.Equal(t, map[string]int{"l4-tcp-6379": 6379}, listenerPorts(gw))
+	require.NotNil(t, gw)
 	f.k8s.AssertCalled(t, "DeleteTCPRoute", mock.Anything, f.stream.ProjectID, f.stream.Namespace, removing.K8sRouteName, kubernetes.TCPRouteGVR)
 	f.routeRepo.AssertCalled(t, "Delete", removing.ID)
-}
-
-func TestRouteDeploy_L4_DeleteLastRouteLeavesPlaceholderListener(t *testing.T) {
-	f := newL4Fixture(t)
-	removing := f.route("dns", models.RouteProtocolUDP, 53, models.RouteStatusPendingDeploy)
-	f.expectDeploy(removing, models.ApprovalActionDelete)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{*removing}, nil)
-	f.approvalRepo.On("DeleteByEntityID", models.ApprovalEntityRoute, removing.ID).Return(nil)
-	f.routeRepo.On("Delete", removing.ID).Return(nil)
-
-	var gw *kubernetes.GatewayConfig
-	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.AnythingOfType("*kubernetes.GatewayConfig")).
-		Run(func(args mock.Arguments) { gw = args.Get(2).(*kubernetes.GatewayConfig) }).Return(nil)
-	f.k8s.On("DeleteUDPRoute", mock.Anything, f.stream.ProjectID, f.stream.Namespace, removing.K8sRouteName, kubernetes.UDPRouteGVR).Return(nil)
-
-	_, err := f.svc.Deploy(removing.ID, uuid.New())
-	require.NoError(t, err)
-	require.Len(t, gw.Listeners, 1)
-	assert.Equal(t, "l4-placeholder", gw.Listeners[0].Name)
 }
 
 func TestRouteDeploy_L4_GatewayFailureSkipsRouteAndKeepsStatus(t *testing.T) {

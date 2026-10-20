@@ -21,6 +21,15 @@ Stream:
       description: Kubernetes Gateway name, "str-" followed by the DNS-label-safe stream name.
     k8sGatewayClass:
       type: string
+    ports:
+      type: array
+      description: |
+        The (transport, port) pairs the stream claims, ordered TCP before UDP
+        then by port. The stream's Gateway has exactly one listener per claim,
+        and its routes pick their listener port from this set. Empty only for
+        a stream created before port claims existed, which has no Gateway.
+      items:
+        $ref: '#/StreamPort'
     status:
       type: string
       description: pending, active or error.
@@ -38,7 +47,7 @@ Stream:
 
 CreateStreamRequest:
   type: object
-  required: [name, namespace, gatewayTemplateId]
+  required: [name, namespace, gatewayTemplateId, ports]
   properties:
     name:
       type: string
@@ -51,15 +60,36 @@ CreateStreamRequest:
       type: string
       format: uuid
       description: Must belong to the project and have the stream capability enabled.
+    ports:
+      type: array
+      minItems: 1
+      description: |
+        The ports the stream claims; its Gateway listens on exactly these.
+        Transports are case-insensitive (stored upper-case). Each port must be
+        inside the template's TCP/UDP range, not reserved, listed once per
+        transport, and - on a template that merges gateways - not claimed by
+        another stream or used by a domain on that template.
+      items:
+        $ref: '#/StreamPort'
 
 UpdateStreamRequest:
   type: object
-  description: Only the name is updatable; the Gateway Template is immutable.
+  description: Only the name and the claimed ports are updatable; the Gateway Template is immutable. An omitted field is left unchanged.
   properties:
     name:
       type: string
       maxLength: 59
       pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+    ports:
+      type: array
+      minItems: 1
+      description: |
+        The full replacement claim set (not a delta). It must keep every port
+        a route, or a pending route approval, still uses (409 otherwise). The
+        Gateway is re-applied; an apply failure is recorded on the returned
+        stream's status and statusMessage, not returned as an error.
+      items:
+        $ref: '#/StreamPort'
 
 StreamEntrypoint:
   type: object
@@ -245,7 +275,7 @@ StreamYAMLs:
   properties:
     gatewayYaml:
       type: string
-      description: The stream's Gateway YAML, rendered from its live routes (placeholder listener when none).
+      description: The stream's Gateway YAML, rendered from its claimed ports. Empty when the stream claims none (no Gateway is deployed).
     routes:
       type: array
       items:

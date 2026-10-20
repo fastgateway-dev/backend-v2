@@ -16,12 +16,17 @@ type CreateStreamRequest struct {
 	Name              string    `json:"name" binding:"required"`
 	Namespace         string    `json:"namespace" binding:"required"`
 	GatewayTemplateID uuid.UUID `json:"gatewayTemplateId" binding:"required"`
+	// Ports are the (transport, port) pairs the stream claims; its Gateway
+	// listens on exactly these. At least one is required.
+	Ports []models.StreamPort `json:"ports" binding:"required,min=1"`
 }
 
 // UpdateStreamRequest is the JSON body for PATCH /projects/:projectId/streams/:streamId.
-// The Gateway Template is immutable, so only the name can change.
+// The Gateway Template is immutable, so only the name and the claimed ports can
+// change. An omitted field is left as is; ports, when sent, replace the claim set.
 type UpdateStreamRequest struct {
-	Name *string `json:"name"`
+	Name  *string              `json:"name"`
+	Ports *[]models.StreamPort `json:"ports"`
 }
 
 // StreamHandler handles L4 stream endpoints.
@@ -40,9 +45,10 @@ func NewStreamHandler(streamService StreamServiceInterface, views StreamViewServ
 // streamError maps service errors to HTTP responses. Unknown errors are 500.
 func streamError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, services.ErrTemplateNotStreamEnabled), errors.Is(err, services.ErrInvalidStreamName), errors.Is(err, services.ErrStreamNamespaceNotRegistered), errors.Is(err, services.ErrStreamNamespaceNotDeployable), errors.Is(err, services.ErrStreamTemplateImmutable), errors.Is(err, services.ErrStreamsUnsupported), errors.Is(err, services.ErrPortOutOfRange):
+	case errors.Is(err, services.ErrTemplateNotStreamEnabled), errors.Is(err, services.ErrInvalidStreamName), errors.Is(err, services.ErrStreamNamespaceNotRegistered), errors.Is(err, services.ErrStreamNamespaceNotDeployable), errors.Is(err, services.ErrStreamTemplateImmutable), errors.Is(err, services.ErrStreamsUnsupported), errors.Is(err, services.ErrPortOutOfRange),
+		errors.Is(err, services.ErrNoStreamPorts), errors.Is(err, services.ErrInvalidStreamPort), errors.Is(err, services.ErrReservedPort), errors.Is(err, services.ErrInvalidListenerPort):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-	case errors.Is(err, services.ErrStreamHasRoutes), errors.Is(err, services.ErrStreamNameTaken):
+	case errors.Is(err, services.ErrStreamHasRoutes), errors.Is(err, services.ErrStreamNameTaken), errors.Is(err, services.ErrStreamPortInUse), errors.Is(err, services.ErrPortCollision):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, services.ErrStreamNotFound), errors.Is(err, services.ErrStreamTemplateNotFound), errors.Is(err, services.ErrStreamTemplateWrongProject):
 		// Cross-project template references are reported as not-found.
@@ -119,6 +125,7 @@ func (h *StreamHandler) Create(c *gin.Context) {
 		Name:              req.Name,
 		Namespace:         req.Namespace,
 		GatewayTemplateID: req.GatewayTemplateID,
+		Ports:             models.StreamPorts(req.Ports),
 	}, user)
 	if err != nil {
 		streamError(c, err)
@@ -145,7 +152,8 @@ func (h *StreamHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, stream)
 }
 
-// Update renames a stream.
+// Update renames a stream and/or replaces its claimed ports (409 when a port
+// still in use by a route would be dropped).
 func (h *StreamHandler) Update(c *gin.Context) {
 	user := middleware.GetCurrentUser(c)
 	projectID, err := uuid.Parse(c.Param("projectId"))
@@ -174,7 +182,12 @@ func (h *StreamHandler) Update(c *gin.Context) {
 		}
 	}
 
-	stream, err := h.streamService.Update(existing.ID, services.UpdateStreamInput{Name: req.Name})
+	in := services.UpdateStreamInput{Name: req.Name}
+	if req.Ports != nil {
+		ports := models.StreamPorts(*req.Ports)
+		in.Ports = &ports
+	}
+	stream, err := h.streamService.Update(existing.ID, in)
 	if err != nil {
 		streamError(c, err)
 		return

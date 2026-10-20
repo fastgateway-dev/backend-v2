@@ -368,18 +368,10 @@ func (d *routeDeploy) finishDeploy(route *models.Route, approval *models.Approva
 
 // deployL4 deploys an approved L4 (TCP/UDP) route.
 //
-// Every L4 route change recomputes the Stream's FULL listener set from the
-// routes that are live on it and re-applies the whole Gateway, rather than
-// adding or removing one listener. That is idempotent and protects against a
-// single route's own stale or partially-written listener set. It does NOT make
-// concurrent deploys safe: there is no per-stream deploy serialization, so two
-// concurrent deploys of DIFFERENT routes on the same stream can each read a
-// stale live-route set, and the second UpdateGateway is last-writer-wins and
-// can drop the other route's listener. Closing that race needs per-stream
-// deploy serialization (a known follow-up). A create/update deploy includes the
-// current route (it is about to be live, with its new config); a delete deploy
-// excludes it. The Gateway is applied before the route so a route never
-// references a listener that does not exist yet.
+// The Stream's Gateway listeners come from the stream's port claims (see
+// StreamService.ApplyGateway), not from its routes; the Gateway is re-applied
+// here ahead of the route so the route never references a listener that does
+// not exist yet. (The Gateway write is removed from deploy in a later change.)
 //
 // The GatewayConfig is built and applied in-process: its L4 Listeners are
 // json:"-" and would be lost if the config were serialized or queued.
@@ -392,22 +384,14 @@ func (d *routeDeploy) deployL4(ctx context.Context, route *models.Route, approva
 		return nil, fmt.Errorf("failed to load stream for L4 route: %w", err)
 	}
 
-	live, err := d.routeRepo.ListActiveByStreamID(stream.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list active routes for stream: %w", err)
-	}
-
-	var routes []models.Route
 	switch approval.Action {
-	case models.ApprovalActionCreate, models.ApprovalActionUpdate:
-		routes = withL4Route(live, route)
-	case models.ApprovalActionDelete:
-		routes = withoutL4Route(live, route.ID)
+	case models.ApprovalActionCreate, models.ApprovalActionUpdate, models.ApprovalActionDelete:
 	default:
 		return nil, fmt.Errorf("unsupported approval action %q for L4 route", approval.Action)
 	}
 
-	gwConfig := streamplan.BuildStreamGatewayConfig(*stream, routes)
+	// The Gateway comes from the stream's port claims, not from the route set.
+	gwConfig := streamplan.BuildStreamGatewayConfig(*stream)
 	if err := d.k8sGateways.UpdateGateway(ctx, stream.ProjectID, &gwConfig); err != nil {
 		log.Printf("Failed to apply Stream Gateway in Kubernetes: %v", err)
 		return nil, fmt.Errorf("failed to apply Stream Gateway in Kubernetes: %w", err)
@@ -507,35 +491,4 @@ func (d *routeDeploy) deleteL4Route(ctx context.Context, route *models.Route, st
 		return fmt.Errorf("unsupported L4 protocol %q", route.Protocol)
 	}
 	return nil
-}
-
-// withL4Route returns live with route included: replacing its entry in place
-// (so its listener keeps its position and carries the new config) or
-// appending it when it is not live yet.
-func withL4Route(live []models.Route, route *models.Route) []models.Route {
-	out := make([]models.Route, 0, len(live)+1)
-	replaced := false
-	for _, r := range live {
-		if r.ID == route.ID {
-			out = append(out, *route)
-			replaced = true
-			continue
-		}
-		out = append(out, r)
-	}
-	if !replaced {
-		out = append(out, *route)
-	}
-	return out
-}
-
-// withoutL4Route returns live without the route that has the given ID.
-func withoutL4Route(live []models.Route, id uuid.UUID) []models.Route {
-	out := make([]models.Route, 0, len(live))
-	for _, r := range live {
-		if r.ID != id {
-			out = append(out, r)
-		}
-	}
-	return out
 }

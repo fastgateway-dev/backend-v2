@@ -23,6 +23,7 @@ import (
 // live route set.
 func TestStreamYAMLs_EqualWhatDeployL4Applies(t *testing.T) {
 	f := newL4Fixture(t)
+	f.stream.Ports = models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "UDP", Port: 53}}
 	current := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusPendingDeploy)
 	other := f.route("dns", models.RouteProtocolUDP, 53, models.RouteStatusActive)
 	f.withBTP(current, tcpBTPConfig())
@@ -70,20 +71,34 @@ func TestStreamYAMLs_EqualWhatDeployL4Applies(t *testing.T) {
 	assert.Empty(t, yamls.Routes[1].BackendTrafficPolicyYAML, "no policy, no policy YAML")
 }
 
-func TestStreamYAMLs_NoLiveRoutes_PlaceholderGateway(t *testing.T) {
+func TestGenerateStreamYAMLs_GatewayFromClaims(t *testing.T) {
 	f := newL4Fixture(t)
+	f.stream.Ports = models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "UDP", Port: 53}}
 	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
 
 	yamls, err := f.svc.GenerateStreamYAMLs(f.stream.ProjectID, f.stream.ID)
 	require.NoError(t, err)
 
+	// The listeners are the claims, whether or not a route uses them.
 	assert.Contains(t, yamls.GatewayYAML, "kind: Gateway")
-	assert.Contains(t, yamls.GatewayYAML, "name: l4-placeholder")
-	assert.Contains(t, yamls.GatewayYAML, "port: 60000")
+	assert.Contains(t, yamls.GatewayYAML, "name: l4-tcp-5432")
+	assert.Contains(t, yamls.GatewayYAML, "port: 5432")
+	assert.Contains(t, yamls.GatewayYAML, "name: l4-udp-53")
+	assert.Contains(t, yamls.GatewayYAML, "port: 53")
 	assert.Equal(t, []services.StreamRouteYAMLs{}, yamls.Routes)
 	raw, err := json.Marshal(yamls)
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), `"routes":[]`)
+}
+
+func TestGenerateStreamYAMLs_NoClaimsNoGateway(t *testing.T) {
+	f := newL4Fixture(t)
+	f.stream.Ports = nil
+	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
+
+	yamls, err := f.svc.GenerateStreamYAMLs(f.stream.ProjectID, f.stream.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "", yamls.GatewayYAML, "no claims: no Gateway is deployed, so there is no YAML")
 }
 
 func TestStreamYAMLs_OtherProjectStreamIsNotFound(t *testing.T) {

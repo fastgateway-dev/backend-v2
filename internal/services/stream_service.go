@@ -3,7 +3,8 @@
 // A Stream is the L4 analogue of a Domain: one Stream maps to one Gateway
 // and is created from a Gateway Template that has the stream capability
 // (it declares a TCP/UDP listener range). The referenced template is immutable after
-// creation. Create eagerly deploys the Gateway (see Deploy).
+// creation. A stream owns its Gateway: the listeners are its claimed ports,
+// and create/update/delete write (or delete) the Gateway (see ApplyGateway).
 
 package services
 
@@ -21,6 +22,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/streamplan"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 var (
@@ -96,12 +98,15 @@ type CreateStreamInput struct {
 	Name              string
 	Namespace         string
 	GatewayTemplateID uuid.UUID
+	Ports             models.StreamPorts
 }
 
 // UpdateStreamInput is the input for StreamService.Update. The Gateway
-// Template is immutable, so only the name is updatable.
+// Template is immutable, so only the name and the claimed ports are updatable.
+// A nil Ports leaves the claims (and the Gateway) untouched.
 type UpdateStreamInput struct {
-	Name *string
+	Name  *string
+	Ports *models.StreamPorts
 }
 
 // StreamStore is the slice of StreamRepository that StreamService uses.
@@ -197,9 +202,10 @@ func StreamGatewayName(name string) string {
 
 // Create persists a new stream in the project. The Gateway Template must
 // belong to the project and have the stream capability; the Gateway class is
-// copied from it. The Gateway is then deployed eagerly (placeholder listener
-// until routes exist); like DomainService.Create, a deploy failure is recorded
-// on the returned stream's status rather than returned as an error.
+// copied from it. The claimed ports are validated against the template and
+// persisted normalized, and the Gateway is then applied with one listener per
+// claim; like DomainService.Create, an apply failure is recorded on the
+// returned stream's status rather than returned as an error.
 func (s *StreamService) Create(projectID uuid.UUID, in CreateStreamInput, user *models.User) (*models.Stream, error) {
 	if s.capabilities != nil && !s.capabilities.Has(context.Background(), projectID, capabilities.CapStreams) {
 		return nil, ErrStreamsUnsupported
@@ -241,6 +247,11 @@ func (s *StreamService) Create(projectID uuid.UUID, in CreateStreamInput, user *
 		return nil, ErrStreamNameTaken
 	}
 
+	ports, err := s.validateStreamPorts(tmpl, nil, in.Ports)
+	if err != nil {
+		return nil, err
+	}
+
 	stream := &models.Stream{
 		ProjectID:         projectID,
 		Name:              in.Name,
@@ -248,6 +259,7 @@ func (s *StreamService) Create(projectID uuid.UUID, in CreateStreamInput, user *
 		GatewayTemplateID: in.GatewayTemplateID,
 		K8sGatewayName:    StreamGatewayName(in.Name),
 		K8sGatewayClass:   tmpl.K8sGatewayClassName,
+		Ports:             ports,
 	}
 	if user != nil {
 		id := user.ID
@@ -256,42 +268,63 @@ func (s *StreamService) Create(projectID uuid.UUID, in CreateStreamInput, user *
 	if err := s.streamRepo.Create(stream); err != nil {
 		return nil, mapStreamWriteError(err)
 	}
-	if err := s.Deploy(context.Background(), stream); err != nil {
-		log.Printf("Failed to deploy Stream Gateway %s/%s: %v", stream.Namespace, stream.K8sGatewayName, err)
+	if err := s.ApplyGateway(context.Background(), stream); err != nil {
+		log.Printf("Failed to apply Stream Gateway %s/%s: %v", stream.Namespace, stream.K8sGatewayName, err)
 	}
 	return stream, nil
 }
 
-// Deploy builds the stream's Gateway and applies it to the project's cluster,
-// then records the outcome on the stream (Status active, or error with the
-// failure in StatusMessage).
+// ApplyGateway makes the cluster match the stream's claims, then records the
+// outcome on the stream (Status active, or error with the failure in
+// StatusMessage).
+//
+// With claims, the Gateway (one listener per claim) is applied with
+// UpdateGateway, which creates it when missing. With none there is nothing to
+// listen on and a Gateway needs at least one listener, so the Gateway is
+// deleted instead; one that is already gone counts as success.
 //
 // The GatewayConfig is built and handed to the applier entirely in-process:
 // its L4 Listeners are json:"-" and would be lost if the config were
 // serialized (e.g. queued as a job payload), silently degrading the Gateway
 // to an HTTP listener. The applier renders it with kubernetes.BuildGatewayObject.
-//
-// No routes are passed yet, so the placeholder listener is emitted; the
-// route-driven listener projection is wired in when routes attach.
-func (s *StreamService) Deploy(ctx context.Context, stream *models.Stream) error {
-	cfg := streamplan.BuildStreamGatewayConfig(*stream, nil)
-	if err := s.k8sGateways.CreateGateway(ctx, stream.ProjectID, &cfg); err != nil {
+func (s *StreamService) ApplyGateway(ctx context.Context, stream *models.Stream) error {
+	var applyErr error
+	var message string
+	if len(stream.Ports) == 0 {
+		applyErr = s.k8sGateways.DeleteGateway(ctx, stream.ProjectID, stream.Namespace, stream.K8sGatewayName)
+		if k8serrors.IsNotFound(applyErr) {
+			applyErr = nil
+		}
+		message = "No ports claimed; no Gateway deployed"
+	} else {
+		cfg := streamplan.BuildStreamGatewayConfig(*stream)
+		applyErr = s.k8sGateways.UpdateGateway(ctx, stream.ProjectID, &cfg)
+		message = "Gateway applied successfully"
+	}
+	if applyErr != nil {
 		stream.Status = StreamStatusError
-		stream.StatusMessage = fmt.Sprintf("Failed to create Gateway: %v", err)
+		stream.StatusMessage = fmt.Sprintf("Failed to apply Gateway: %v", applyErr)
 		_ = s.streamRepo.Update(stream)
-		return fmt.Errorf("failed to deploy stream gateway: %w", err)
+		return fmt.Errorf("failed to apply stream gateway: %w", applyErr)
 	}
 	stream.Status = StreamStatusActive
-	stream.StatusMessage = "Gateway created successfully"
+	stream.StatusMessage = message
 	if err := s.streamRepo.Update(stream); err != nil {
 		return fmt.Errorf("failed to update stream status: %w", err)
 	}
 	return nil
 }
 
-// Update renames a stream. The Gateway Template is immutable, and the
-// Kubernetes Gateway name is fixed at creation (renaming it would orphan the
-// deployed Gateway), so only the display name changes.
+// Update renames a stream and/or changes its claimed ports. The Gateway
+// Template is immutable, and the Kubernetes Gateway name is fixed at creation
+// (renaming it would orphan the deployed Gateway), so only the display name
+// changes.
+//
+// A new claim set is validated against the template, must keep every port a
+// route (or pending route approval) still uses, and is persisted normalized;
+// the Gateway is then re-applied. As in Create, an apply failure is recorded
+// on the returned stream's status rather than returned as an error. A
+// name-only update never touches the cluster.
 func (s *StreamService) Update(id uuid.UUID, in UpdateStreamInput) (*models.Stream, error) {
 	stream, err := s.getStream(id)
 	if err != nil {
@@ -307,8 +340,27 @@ func (s *StreamService) Update(id uuid.UUID, in UpdateStreamInput) (*models.Stre
 		}
 		stream.Name = *in.Name
 	}
+	if in.Ports != nil {
+		tmpl, err := s.templateRepo.GetByID(stream.GatewayTemplateID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load gateway template: %w", err)
+		}
+		ports, err := s.validateStreamPorts(tmpl, &stream.ID, *in.Ports)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.checkUsedClaimsKept(stream, ports); err != nil {
+			return nil, err
+		}
+		stream.Ports = ports
+	}
 	if err := s.streamRepo.Update(stream); err != nil {
 		return nil, mapStreamWriteError(err)
+	}
+	if in.Ports != nil {
+		if err := s.ApplyGateway(context.Background(), stream); err != nil {
+			log.Printf("Failed to apply Stream Gateway %s/%s: %v", stream.Namespace, stream.K8sGatewayName, err)
+		}
 	}
 	return stream, nil
 }
@@ -323,9 +375,12 @@ func (s *StreamService) List(projectID uuid.UUID) ([]models.Stream, error) {
 	return s.streamRepo.ListByProjectID(projectID)
 }
 
-// Delete removes a stream, refusing while it still has routes.
+// Delete removes a stream, refusing while it still has routes. Its Gateway is
+// deleted first; a failure there is logged, not returned, so the row can still
+// be removed (the Gateway is then an orphan an operator can clean up).
 func (s *StreamService) Delete(id uuid.UUID) error {
-	if _, err := s.getStream(id); err != nil {
+	stream, err := s.getStream(id)
+	if err != nil {
 		return err
 	}
 	n, err := s.routeRepo.CountByStreamID(id)
@@ -334,6 +389,9 @@ func (s *StreamService) Delete(id uuid.UUID) error {
 	}
 	if n > 0 {
 		return ErrStreamHasRoutes
+	}
+	if err := s.k8sGateways.DeleteGateway(context.Background(), stream.ProjectID, stream.Namespace, stream.K8sGatewayName); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("Failed to delete Stream Gateway %s/%s: %v", stream.Namespace, stream.K8sGatewayName, err)
 	}
 	return s.streamRepo.Delete(id)
 }

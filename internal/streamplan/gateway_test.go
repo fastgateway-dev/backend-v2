@@ -19,32 +19,26 @@ func listenerSet(ls []streamplan.StreamListener) map[string]int {
 	return m
 }
 
-func TestBuildStreamGatewayConfig_EmptyUsesPlaceholder(t *testing.T) {
-	cfg := streamplan.BuildStreamGatewayConfig(models.Stream{Name: "s", K8sGatewayName: "str-s", K8sGatewayClass: "pub"}, nil)
-	require.Len(t, cfg.Listeners, 1)
-	assert.Equal(t, "TCP", cfg.Listeners[0].Protocol)
-	assert.Equal(t, streamplan.PlaceholderPort, cfg.Listeners[0].Port)
-	assert.Equal(t, "l4-placeholder", cfg.Listeners[0].Name)
+func TestBuildStreamGatewayConfig_ListenersFromClaims(t *testing.T) {
+	cfg := streamplan.BuildStreamGatewayConfig(models.Stream{
+		Name: "s", K8sGatewayName: "str-s", K8sGatewayClass: "pub",
+		Ports: models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "UDP", Port: 53}},
+	})
 	assert.Equal(t, "str-s", cfg.Name)
 	assert.Equal(t, "pub", cfg.GatewayClassName)
+	assert.Equal(t, []streamplan.StreamListener{
+		{Name: "l4-tcp-5432", Protocol: "TCP", Port: 5432},
+		{Name: "l4-udp-53", Protocol: "UDP", Port: 53},
+	}, cfg.Listeners, "one listener per claim, in claim order")
 }
 
-func TestBuildStreamGatewayConfig_ProjectsRoutes(t *testing.T) {
-	routes := []models.Route{
-		{Protocol: models.RouteProtocolTCP, Config: models.RouteConfig{ListenerPort: 5432}},
-		{Protocol: models.RouteProtocolUDP, Config: models.RouteConfig{ListenerPort: 53}},
-	}
-	cfg := streamplan.BuildStreamGatewayConfig(models.Stream{K8sGatewayName: "str-s", K8sGatewayClass: "pub"}, routes)
-	ports := listenerSet(cfg.Listeners)
-	assert.Equal(t, 5432, ports["l4-tcp-5432"])
-	assert.Equal(t, 53, ports["l4-udp-53"])
-	assert.NotContains(t, ports, "l4-placeholder")
-	assert.NotContains(t, ports, "placeholder")
-	assert.Len(t, cfg.Listeners, 2)
+func TestBuildStreamGatewayConfig_NoClaimsNoListeners(t *testing.T) {
+	cfg := streamplan.BuildStreamGatewayConfig(models.Stream{Name: "s", K8sGatewayName: "str-s", K8sGatewayClass: "pub"})
+	assert.Empty(t, cfg.Listeners)
 }
 
 func TestBuildStreamGatewayConfig_NamespaceAndNoHostname(t *testing.T) {
-	cfg := streamplan.BuildStreamGatewayConfig(models.Stream{Namespace: "ns1", K8sGatewayName: "str-s", K8sGatewayClass: "pub"}, nil)
+	cfg := streamplan.BuildStreamGatewayConfig(models.Stream{Namespace: "ns1", K8sGatewayName: "str-s", K8sGatewayClass: "pub"})
 	assert.Equal(t, "ns1", cfg.Namespace)
 	assert.Empty(t, cfg.Hostname)
 }
@@ -55,8 +49,8 @@ func TestListenerName(t *testing.T) {
 }
 
 func TestStreamGatewayConfig_BuildsL4Gateway(t *testing.T) {
-	cfg := streamplan.BuildStreamGatewayConfig(models.Stream{Namespace: "ns1", K8sGatewayName: "str-s", K8sGatewayClass: "pub"},
-		[]models.Route{{Protocol: models.RouteProtocolUDP, Config: models.RouteConfig{ListenerPort: 53}}})
+	cfg := streamplan.BuildStreamGatewayConfig(models.Stream{Namespace: "ns1", K8sGatewayName: "str-s", K8sGatewayClass: "pub",
+		Ports: models.StreamPorts{{Transport: "UDP", Port: 53}}})
 	obj := kubernetes.BuildGatewayObject(&cfg)
 	require.NotNil(t, obj)
 	ls, found, err := unstructuredSlice(obj.Object, "spec", "listeners")
