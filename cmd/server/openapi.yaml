@@ -2237,7 +2237,7 @@ paths:
         - $ref: '#/components/parameters/projectId'
       responses:
         '200':
-          description: List of streams, ordered by name, each with its entry point mode, template name, route count and ports
+          description: List of streams, ordered by name, each with its entry point mode, template name, route count and port claims
           content:
             application/json:
               schema:
@@ -2248,7 +2248,7 @@ paths:
                     items:
                       $ref: '#/components/schemas/StreamListItem'
         '500':
-          description: A stream's gateway template or the route ports could not be read (modes are never guessed)
+          description: A stream's gateway template or the route counts could not be read (modes are never guessed)
           content:
             application/json:
               schema:
@@ -7642,21 +7642,23 @@ components:
           type: array
           description: |
             Taken (transport, port) pairs with their owner, ordered by port.
-            Dedicated - this stream's L4 routes (empty for the template variant);
-            shared - every stream's L4 routes on the template plus every domain's
-            bound listener ports. Rejected routes hold no port.
+            Dedicated - this stream's port claims (empty for the template
+            variant); shared - every stream's port claims on the template plus
+            every domain's bound listener ports. Only a claim of the viewed
+            stream carries route detail; other streams' claims name the stream
+            and nothing more.
           items:
             $ref: '#/components/schemas/EntrypointPort'
         reserved:
           type: array
           description: |
-            Ports no route may claim. 19000/19001 (envoy_internal) and 60000
-            (placeholder) for both TCP and UDP, plus - when shared - the
-            template's hostname-routed listener ports as TCP (template_listener).
+            Ports no stream may claim. 19000/19001 (envoy_internal) for both TCP
+            and UDP, plus - when shared - the template's hostname-routed listener
+            ports as TCP (template_listener).
           items:
             $ref: '#/components/schemas/EntrypointReservedPort'
     StreamListItem:
-      description: A stream as listed, with the fields the stream list shows. Every Stream field is unchanged.
+      description: A stream as listed, with the fields the stream list shows. Every Stream field is unchanged, ports (the stream's claims) included.
       allOf:
         - $ref: '#/components/schemas/Stream'
         - type: object
@@ -7664,7 +7666,6 @@ components:
             - mode
             - gatewayTemplateName
             - routeCount
-            - ports
           properties:
             mode:
               type: string
@@ -7677,11 +7678,6 @@ components:
             routeCount:
               type: integer
               description: Non-rejected L4 routes on the stream.
-            ports:
-              type: array
-              description: (transport, port) of each non-rejected L4 route, ordered by port.
-              items:
-                $ref: '#/components/schemas/StreamPort'
     StreamYAMLs:
       type: object
       required:
@@ -12593,14 +12589,19 @@ components:
                 type: string
     EntrypointPortOwner:
       type: object
-      description: kind stream_route sets the stream/route fields; kind domain sets the domain fields.
+      description: |
+        kind stream sets the stream fields; kind domain sets the domain fields.
+        The route fields (routeId, routeName, status, pending) are set only on a
+        claim of the stream being viewed that a route holds or an approval
+        proposes; they are absent on other streams' claims and on claims no
+        route uses.
       required:
         - kind
       properties:
         kind:
           type: string
           enum:
-            - stream_route
+            - stream
             - domain
         streamId:
           type: string
@@ -12615,6 +12616,9 @@ components:
         status:
           type: string
           description: The route's status (any status except rejected).
+        pending:
+          type: boolean
+          description: True when the route does not hold this port yet - a pending approval proposes it. Omitted when false.
         domainId:
           type: string
           format: uuid
@@ -12654,7 +12658,6 @@ components:
           type: string
           enum:
             - envoy_internal
-            - placeholder
             - template_listener
     NamespaceCapability:
       type: string

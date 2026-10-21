@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/google/uuid"
@@ -40,8 +41,11 @@ type portWorld struct {
 	streams []models.Stream
 	routes  []worldRoute
 	domains []models.Domain
+	// pending are the pending-approval proposals PendingL4PortOwnersByStream
+	// reports, filtered by stream.
+	pending []services.L4PortOwner
 
-	ownerCalls struct{ byStream, byTemplate, byStreamIDs int }
+	ownerCalls struct{ byStream, pendingByStream, byStreamIDs int }
 }
 
 func (w *portWorld) streamByID(id uuid.UUID) (*models.Stream, bool) {
@@ -72,11 +76,6 @@ func (w *portWorld) owners(rs []worldRoute) []services.L4PortOwner {
 			StreamName: s.Name, RouteID: r.id, RouteName: r.name, Status: string(r.status)})
 	}
 	return out
-}
-
-func (w *portWorld) onTemplate(r worldRoute) bool {
-	s, ok := w.streamByID(r.streamID)
-	return ok && s.GatewayTemplateID == w.tmpl.ID
 }
 
 // --- services.StreamStore (for NewStreamService) ---
@@ -123,8 +122,16 @@ func (w *portWorld) ClaimedPortsByTemplate(_ uuid.UUID, exclude *uuid.UUID) ([]s
 	}
 	return out, nil
 }
-func (w *portWorld) PendingL4PortOwnersByStream(uuid.UUID) ([]services.L4PortOwner, error) {
-	return []services.L4PortOwner{}, nil
+func (w *portWorld) PendingL4PortOwnersByStream(streamID uuid.UUID) ([]services.L4PortOwner, error) {
+	w.ownerCalls.pendingByStream++
+	out := []services.L4PortOwner{}
+	for _, o := range w.pending {
+		if o.StreamID == streamID {
+			o.Pending = true
+			out = append(out, o)
+		}
+	}
+	return out, nil
 }
 func (w *portWorld) UsedPortsByTemplate(uuid.UUID) ([]services.PortUse, error) {
 	var out []services.PortUse
@@ -149,10 +156,6 @@ func (w *portWorld) ListByGatewayTemplateID(templateID uuid.UUID) ([]models.Stre
 func (w *portWorld) L4PortOwnersByStream(streamID uuid.UUID) ([]services.L4PortOwner, error) {
 	w.ownerCalls.byStream++
 	return w.owners(w.liveRoutes(func(r worldRoute) bool { return r.streamID == streamID })), nil
-}
-func (w *portWorld) L4PortOwnersByTemplate(uuid.UUID) ([]services.L4PortOwner, error) {
-	w.ownerCalls.byTemplate++
-	return w.owners(w.liveRoutes(w.onTemplate)), nil
 }
 func (w *portWorld) L4PortOwnersByStreamIDs(ids []uuid.UUID) ([]services.L4PortOwner, error) {
 	w.ownerCalls.byStreamIDs++
@@ -210,8 +213,9 @@ func (f *fakeGatewayReader) GetGateway(_ context.Context, _ uuid.UUID, _, name s
 
 // newPortWorld is the shared fixture: a template with HTTP:80 (outside the
 // range), HTTPS:19443 (inside it) and a TCP/UDP range 18990-60010 that also
-// covers the reserved 19000 and 19001; three streams ("test-stream"
-// owns routes, "cache" owns routes, "fresh" owns none) and two domains.
+// covers the reserved 19000 and 19001; three streams ("test-stream" and
+// "cache" claim ports and own routes on them, "fresh" claims none) and two
+// domains.
 func newPortWorld(merge bool) (*portWorld, *models.Stream, *models.Stream, *models.Stream) {
 	projectID := uuid.New()
 	tmpl := &models.DomainTemplate{
@@ -228,6 +232,8 @@ func newPortWorld(merge bool) (*portWorld, *models.Stream, *models.Stream, *mode
 			GatewayTemplateID: tmpl.ID, K8sGatewayName: "str-" + name, K8sGatewayClass: tmpl.K8sGatewayClassName}
 	}
 	self, cache, fresh := mk("test-stream"), mk("cache"), mk("fresh")
+	self.Ports = models.StreamPorts{{Transport: "TCP", Port: 19100}, {Transport: "UDP", Port: 19100}}
+	cache.Ports = models.StreamPorts{{Transport: "TCP", Port: 19102}, {Transport: "UDP", Port: 19103}}
 	w := &portWorld{tmpl: tmpl, streams: []models.Stream{self, cache, fresh}}
 	route := func(s models.Stream, name, transport string, port int, status models.RouteStatus) {
 		w.routes = append(w.routes, worldRoute{id: uuid.New(), streamID: s.ID, name: name, transport: transport, port: port, status: status})
@@ -292,8 +298,8 @@ func TestStreamEntrypoint_Dedicated(t *testing.T) {
 	assert.Equal(t, &services.EntrypointPortRange{Min: 18990, Max: 60010}, ep.PortRange)
 	assert.Empty(t, ep.SharedWith.Streams)
 	assert.Empty(t, ep.SharedWith.Domains)
-	assert.Equal(t, []string{"TCP/19100 stream_route", "UDP/19100 stream_route"}, portKeys(ep),
-		"dedicated: only this stream's routes; the rejected route holds no port")
+	assert.Equal(t, []string{"TCP/19100 stream", "UDP/19100 stream"}, portKeys(ep),
+		"dedicated: only this stream's claims")
 	assert.Equal(t, []services.EntrypointReservedPort{
 		{Transport: "TCP", Port: 19000, Reason: "envoy_internal"}, {Transport: "UDP", Port: 19000, Reason: "envoy_internal"},
 		{Transport: "TCP", Port: 19001, Reason: "envoy_internal"}, {Transport: "UDP", Port: 19001, Reason: "envoy_internal"},
@@ -330,10 +336,10 @@ func TestStreamEntrypoint_Shared(t *testing.T) {
 	assert.Equal(t, services.EntrypointDomainRef{ID: w.domains[0].ID, Name: "api", Hostname: "api.example.com"}, ep.SharedWith.Domains[0])
 	assert.Equal(t, []string{
 		"TCP/80 domain",
-		"TCP/19100 stream_route", "UDP/19100 stream_route",
-		"TCP/19102 stream_route", "UDP/19103 stream_route",
+		"TCP/19100 stream", "UDP/19100 stream",
+		"TCP/19102 stream", "UDP/19103 stream",
 		"TCP/19443 domain", "TCP/19443 domain",
-	}, portKeys(ep), "shared: every stream's routes plus every domain's bound listener ports")
+	}, portKeys(ep), "shared: every stream's claims plus every domain's bound listener ports")
 	assert.Contains(t, ep.Reserved, services.EntrypointReservedPort{Transport: "TCP", Port: 80, Reason: "template_listener"})
 	assert.Contains(t, ep.Reserved, services.EntrypointReservedPort{Transport: "TCP", Port: 19443, Reason: "template_listener"})
 	assert.NotContains(t, ep.Reserved, services.EntrypointReservedPort{Transport: "UDP", Port: 19443, Reason: "template_listener"},
@@ -415,7 +421,7 @@ func TestTemplateEntrypoint(t *testing.T) {
 		assert.Equal(t, []services.EntrypointPort{}, ep.Ports)
 		assert.Equal(t, "", ep.Address)
 		assert.Empty(t, gw.calls)
-		assert.Zero(t, w.ownerCalls.byStream+w.ownerCalls.byTemplate)
+		assert.Zero(t, w.ownerCalls.byStream+w.ownerCalls.pendingByStream)
 	})
 	t.Run("shared: whole template, every stream in sharedWith, any member address", func(t *testing.T) {
 		w, _, _, _ := newPortWorld(true)
@@ -451,6 +457,208 @@ func TestTemplateEntrypoint(t *testing.T) {
 	})
 }
 
+func ownerOf(t *testing.T, ep *services.StreamEntrypoint, transport string, port int) services.EntrypointPortOwner {
+	t.Helper()
+	for _, p := range ep.Ports {
+		if p.Transport == transport && p.Port == port && p.Owner.Kind == services.PortOwnerStream {
+			return p.Owner
+		}
+	}
+	t.Fatalf("no stream owner listed for %s/%d", transport, port)
+	return services.EntrypointPortOwner{}
+}
+
+func TestStreamEntrypoint_Dedicated_ListsClaimsWithRoutes(t *testing.T) {
+	w, self, _, _ := newPortWorld(false)
+	self.Ports = models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 5433}, {Transport: "UDP", Port: 53}}
+	pgID, cacheID := uuid.New(), uuid.New()
+	w.routes = []worldRoute{{id: pgID, streamID: self.ID, name: "pg", transport: "TCP", port: 5432, status: models.RouteStatusActive}}
+	w.pending = []services.L4PortOwner{{Transport: "TCP", Port: 5433, StreamID: self.ID, StreamName: self.Name,
+		RouteID: cacheID, RouteName: "cache", Status: string(models.RouteStatusPendingUpdate)}}
+
+	ep, err := newViewService(w, &fakeGatewayReader{}).StreamEntrypoint(context.Background(), self)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"UDP/53 stream", "TCP/5432 stream", "TCP/5433 stream"}, portKeys(ep),
+		"every claim is listed, route or not")
+
+	pg := ownerOf(t, ep, "TCP", 5432)
+	require.NotNil(t, pg.StreamID)
+	assert.Equal(t, self.ID, *pg.StreamID)
+	assert.Equal(t, self.Name, pg.StreamName)
+	require.NotNil(t, pg.RouteID)
+	assert.Equal(t, pgID, *pg.RouteID)
+	assert.Equal(t, "pg", pg.RouteName)
+	assert.Equal(t, "active", pg.Status)
+	assert.False(t, pg.Pending)
+
+	cache := ownerOf(t, ep, "TCP", 5433)
+	require.NotNil(t, cache.RouteID)
+	assert.Equal(t, cacheID, *cache.RouteID)
+	assert.Equal(t, "cache", cache.RouteName)
+	assert.True(t, cache.Pending, "an approval proposes this port")
+
+	dns := ownerOf(t, ep, "UDP", 53)
+	assert.Equal(t, self.Name, dns.StreamName)
+	assert.Nil(t, dns.RouteID)
+	assert.Empty(t, dns.RouteName)
+	assert.Empty(t, dns.Status)
+	assert.False(t, dns.Pending)
+}
+
+func TestStreamEntrypoint_Dedicated_LiveRouteWinsOverPendingProposal(t *testing.T) {
+	w, self, _, _ := newPortWorld(false)
+	self.Ports = models.StreamPorts{{Transport: "TCP", Port: 5432}}
+	w.routes = []worldRoute{{id: uuid.New(), streamID: self.ID, name: "pg", transport: "TCP", port: 5432, status: models.RouteStatusActive}}
+	w.pending = []services.L4PortOwner{{Transport: "TCP", Port: 5432, StreamID: self.ID, StreamName: self.Name,
+		RouteID: uuid.New(), RouteName: "other", Status: "active"}}
+
+	ep, err := newViewService(w, &fakeGatewayReader{}).StreamEntrypoint(context.Background(), self)
+	require.NoError(t, err)
+
+	require.Len(t, ep.Ports, 1, "one claim, one entry")
+	assert.Equal(t, "pg", ep.Ports[0].Owner.RouteName)
+	assert.False(t, ep.Ports[0].Owner.Pending)
+}
+
+func TestStreamEntrypoint_Shared_ListsOtherStreamsClaimsAndDomains(t *testing.T) {
+	w, self, cache, _ := newPortWorld(true)
+
+	ep, err := newViewService(w, &fakeGatewayReader{}).StreamEntrypoint(context.Background(), self)
+	require.NoError(t, err)
+
+	// The other stream's claim is named, but carries no route detail (its
+	// redis route exists in the fixture and must not leak).
+	other := ownerOf(t, ep, "TCP", 19102)
+	require.NotNil(t, other.StreamID)
+	assert.Equal(t, cache.ID, *other.StreamID)
+	assert.Equal(t, "cache", other.StreamName)
+	assert.Nil(t, other.RouteID)
+	assert.Empty(t, other.RouteName)
+	assert.Empty(t, other.Status)
+	assert.False(t, other.Pending)
+	assert.Empty(t, ownerOf(t, ep, "UDP", 19103).RouteName)
+
+	// The viewed stream's own claims carry their route.
+	assert.Equal(t, "postgres", ownerOf(t, ep, "TCP", 19100).RouteName)
+
+	var domains []string
+	for _, p := range ep.Ports {
+		if p.Owner.Kind == services.PortOwnerDomain {
+			require.NotNil(t, p.Owner.DomainID)
+			assert.Nil(t, p.Owner.StreamID)
+			domains = append(domains, p.Transport+"/"+strconv.Itoa(p.Port)+" "+p.Owner.DomainName)
+		}
+	}
+	assert.Equal(t, []string{"TCP/80 api", "TCP/19443 api", "TCP/19443 web"}, domains)
+	assert.Zero(t, w.ownerCalls.byStreamIDs)
+}
+
+func TestTemplateEntrypoint_Shared_ListsAllClaims(t *testing.T) {
+	w, _, _, _ := newPortWorld(true)
+
+	ep, err := newViewService(w, &fakeGatewayReader{}).TemplateEntrypoint(context.Background(), w.tmpl.ProjectID, w.tmpl.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"TCP/80 domain",
+		"TCP/19100 stream", "UDP/19100 stream",
+		"TCP/19102 stream", "UDP/19103 stream",
+		"TCP/19443 domain", "TCP/19443 domain",
+	}, portKeys(ep), "every stream's claims plus every domain's ports")
+	for _, p := range ep.Ports {
+		assert.Nil(t, p.Owner.RouteID, "no stream is being viewed, so no route detail")
+		assert.False(t, p.Owner.Pending)
+	}
+	assert.Equal(t, "test-stream", ownerOf(t, ep, "TCP", 19100).StreamName)
+	assert.Equal(t, "cache", ownerOf(t, ep, "TCP", 19102).StreamName)
+	assert.Zero(t, w.ownerCalls.byStream+w.ownerCalls.pendingByStream, "route owners are only read for a viewed stream")
+}
+
+func newClaimsService(t *testing.T, w *portWorld) *services.StreamService {
+	t.Helper()
+	svc := services.NewStreamService(w, &fakeTemplateReader{tmpl: w.tmpl}, &fakeRouteCounter{}, mocks.NewMockGatewayApplier(t), allowAllNamespaces{})
+	svc.SetPortSources(w, w)
+	return svc
+}
+
+// TestTemplateEntrypoint_AgreesWithClaimValidation: what the template entry
+// point lists as taken is what claim validation refuses. For every port in
+// [min-1, max+1] and both transports on a shared template, a new stream
+// (selfID nil) may claim the port if and only if it is in range and neither
+// listed in ports nor reserved - and each refusal carries the matching error.
+func TestTemplateEntrypoint_AgreesWithClaimValidation(t *testing.T) {
+	w, _, _, _ := newPortWorld(true)
+	ep, err := newViewService(w, &fakeGatewayReader{}).TemplateEntrypoint(context.Background(), w.tmpl.ProjectID, w.tmpl.ID)
+	require.NoError(t, err)
+	require.NotNil(t, ep.PortRange)
+	svc := newClaimsService(t, w)
+
+	listed := func(transport string, port int) bool {
+		for _, p := range ep.Ports {
+			if p.Transport == transport && p.Port == port {
+				return true
+			}
+		}
+		return false
+	}
+	reserved := func(transport string, port int) bool {
+		for _, r := range ep.Reserved {
+			if r.Transport == transport && r.Port == port {
+				return true
+			}
+		}
+		return false
+	}
+
+	sawStream, sawDomain, sawReserved, sawFree := false, false, false, false
+	var mismatches []string
+	for _, transport := range []string{"TCP", "UDP"} {
+		for port := ep.PortRange.Min - 1; port <= ep.PortRange.Max+1; port++ {
+			_, err := services.ValidateStreamPortsForTest(svc, w.tmpl, nil, models.StreamPorts{{Transport: transport, Port: port}})
+			key := transport + "/" + strconv.Itoa(port)
+			switch {
+			case port < ep.PortRange.Min || port > ep.PortRange.Max:
+				if !errors.Is(err, services.ErrPortOutOfRange) {
+					mismatches = append(mismatches, key+" outside the range must be ErrPortOutOfRange")
+				}
+			case listed(transport, port):
+				if !errors.Is(err, services.ErrPortCollision) {
+					mismatches = append(mismatches, key+" is listed as taken but was not a collision: "+errString(err))
+				}
+				for _, p := range ep.Ports {
+					if p.Transport == transport && p.Port == port {
+						sawStream = sawStream || p.Owner.Kind == services.PortOwnerStream
+						sawDomain = sawDomain || p.Owner.Kind == services.PortOwnerDomain
+					}
+				}
+			case reserved(transport, port):
+				sawReserved = true
+				if !errors.Is(err, services.ErrReservedPort) {
+					mismatches = append(mismatches, key+" is listed as reserved but was not ErrReservedPort: "+errString(err))
+				}
+			default:
+				sawFree = true
+				if err != nil {
+					mismatches = append(mismatches, key+" is free but was refused: "+errString(err))
+				}
+			}
+			if len(mismatches) > 10 {
+				break
+			}
+		}
+	}
+	assert.Empty(t, mismatches)
+	assert.True(t, sawStream && sawDomain && sawReserved && sawFree, "the fixture must exercise a stream claim, a domain port, a reserved port and a free port")
+}
+
+func errString(err error) string {
+	if err == nil {
+		return "no error"
+	}
+	return err.Error()
+}
+
 func TestStreamEntrypoint_JSONContract(t *testing.T) {
 	streamID, routeID, domainID, tmplID := uuid.MustParse("11111111-1111-1111-1111-111111111111"),
 		uuid.MustParse("22222222-2222-2222-2222-222222222222"), uuid.MustParse("33333333-3333-3333-3333-333333333333"),
@@ -464,7 +672,9 @@ func TestStreamEntrypoint_JSONContract(t *testing.T) {
 			Domains: []services.EntrypointDomainRef{{ID: domainID, Name: "api", Hostname: "api.example.com"}},
 		},
 		Ports: []services.EntrypointPort{
-			{Transport: "TCP", Port: 5432, Owner: services.EntrypointPortOwner{Kind: "stream_route", StreamID: &streamID, StreamName: "test-stream", RouteID: &routeID, RouteName: "postgres", Status: "active"}},
+			{Transport: "TCP", Port: 5432, Owner: services.EntrypointPortOwner{Kind: "stream", StreamID: &streamID, StreamName: "test-stream", RouteID: &routeID, RouteName: "postgres", Status: "active"}},
+			{Transport: "TCP", Port: 5433, Owner: services.EntrypointPortOwner{Kind: "stream", StreamID: &streamID, StreamName: "test-stream", RouteID: &routeID, RouteName: "cache", Status: "active", Pending: true}},
+			{Transport: "UDP", Port: 53, Owner: services.EntrypointPortOwner{Kind: "stream", StreamID: &streamID, StreamName: "test-stream"}},
 			{Transport: "TCP", Port: 443, Owner: services.EntrypointPortOwner{Kind: "domain", DomainID: &domainID, DomainName: "api"}},
 		},
 		Reserved: []services.EntrypointReservedPort{{Transport: "TCP", Port: 19000, Reason: "envoy_internal"}},
@@ -483,8 +693,11 @@ func TestStreamEntrypoint_JSONContract(t *testing.T) {
 	    "domains": [{"id": "33333333-3333-3333-3333-333333333333", "name": "api", "hostname": "api.example.com"}]
 	  },
 	  "ports": [
-	    {"transport": "TCP", "port": 5432, "owner": {"kind": "stream_route", "streamId": "11111111-1111-1111-1111-111111111111",
+	    {"transport": "TCP", "port": 5432, "owner": {"kind": "stream", "streamId": "11111111-1111-1111-1111-111111111111",
 	      "streamName": "test-stream", "routeId": "22222222-2222-2222-2222-222222222222", "routeName": "postgres", "status": "active"}},
+	    {"transport": "TCP", "port": 5433, "owner": {"kind": "stream", "streamId": "11111111-1111-1111-1111-111111111111",
+	      "streamName": "test-stream", "routeId": "22222222-2222-2222-2222-222222222222", "routeName": "cache", "status": "active", "pending": true}},
+	    {"transport": "UDP", "port": 53, "owner": {"kind": "stream", "streamId": "11111111-1111-1111-1111-111111111111", "streamName": "test-stream"}},
 	    {"transport": "TCP", "port": 443, "owner": {"kind": "domain", "domainId": "33333333-3333-3333-3333-333333333333", "domainName": "api"}}
 	  ],
 	  "reserved": [{"transport": "TCP", "port": 19000, "reason": "envoy_internal"}]
@@ -558,21 +771,50 @@ func TestStreamListWithSummary(t *testing.T) {
 	assert.Equal(t, services.EntrypointModeShared, mine.Mode)
 	assert.Equal(t, "shared-envoy", mine.GatewayTemplateName)
 	assert.Equal(t, 2, mine.RouteCount, "the rejected route is not counted")
-	assert.Equal(t, []services.StreamPort{{Transport: "TCP", Port: 19100}, {Transport: "UDP", Port: 19100}}, mine.Ports)
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 19100}, {Transport: "UDP", Port: 19100}}, mine.Ports)
 
 	assert.Equal(t, cache.ID, byName["cache"].ID)
 	assert.Equal(t, 2, byName["cache"].RouteCount)
 	assert.Equal(t, fresh.ID, byName["fresh"].ID)
 	assert.Equal(t, 0, byName["fresh"].RouteCount)
-	assert.Equal(t, []services.StreamPort{}, byName["fresh"].Ports)
+	assert.Equal(t, models.StreamPorts{}, byName["fresh"].Ports)
 	assert.Equal(t, services.EntrypointModeDedicated, byName["solo"].Mode)
 	assert.Equal(t, "edge-l4", byName["solo"].GatewayTemplateName)
 
 	// No N+1: one grouped route query, one read per distinct template.
 	assert.Equal(t, 1, w.ownerCalls.byStreamIDs)
 	assert.Zero(t, w.ownerCalls.byStream)
-	assert.Zero(t, w.ownerCalls.byTemplate)
+	assert.Zero(t, w.ownerCalls.pendingByStream)
 	assert.Equal(t, map[uuid.UUID]int{w.tmpl.ID: 1, dedicated.ID: 1}, templates.calls)
+}
+
+func TestListWithSummary_PortsAreClaims(t *testing.T) {
+	w, _, _, _ := newPortWorld(false)
+	// Claims given out of order, in mixed case, on a stream with no routes at
+	// all: the list reports the claims, normalized, and routeCount is the
+	// route count.
+	claimsOnly := models.Stream{ID: uuid.New(), ProjectID: w.tmpl.ProjectID, Name: "claims-only", GatewayTemplateID: w.tmpl.ID,
+		Ports: models.StreamPorts{{Transport: "UDP", Port: 53}, {Transport: "tcp", Port: 9000}, {Transport: "TCP", Port: 5432}}}
+	w.streams = append(w.streams, claimsOnly)
+
+	items, err := newViewService(w, &fakeGatewayReader{}).ListWithSummary(w.tmpl.ProjectID)
+	require.NoError(t, err)
+
+	byName := map[string]services.StreamListItem{}
+	for _, it := range items {
+		byName[it.Name] = it
+	}
+	got := byName["claims-only"]
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 9000}, {Transport: "UDP", Port: 53}}, got.Ports,
+		"claims, TCP before UDP, then by port")
+	assert.Equal(t, 0, got.RouteCount, "routeCount counts routes, not claims")
+	assert.Equal(t, 2, byName["test-stream"].RouteCount)
+
+	// A stream whose claim column is NULL/absent still lists [] and not null.
+	byName2 := byName["fresh"]
+	raw, err := json.Marshal(byName2)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"ports":[]`)
 }
 
 func TestStreamListWithSummary_EmptyProject(t *testing.T) {
@@ -596,9 +838,8 @@ func TestStreamListWithSummary_TemplateFailureIsAnError(t *testing.T) {
 func TestStreamListItem_JSONContract(t *testing.T) {
 	id := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	raw, err := json.Marshal(services.StreamListItem{
-		Stream: models.Stream{ID: id, Name: "test-stream", Status: "active"},
+		Stream: models.Stream{ID: id, Name: "test-stream", Status: "active", Ports: models.StreamPorts{{Transport: "TCP", Port: 5432}}},
 		Mode:   "shared", GatewayTemplateName: "shared-envoy", RouteCount: 1,
-		Ports: []services.StreamPort{{Transport: "TCP", Port: 5432}},
 	})
 	require.NoError(t, err)
 	var got map[string]any

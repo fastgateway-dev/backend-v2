@@ -215,10 +215,9 @@ func TestStreamHandler_List_Success(t *testing.T) {
 	h := handlers.NewStreamHandler(new(mocks.MockStreamService), views, new(mocks.MockAuditService), domainPermChecker())
 	projectID := uuid.New()
 	views.On("ListWithSummary", projectID).Return([]services.StreamListItem{
-		{Stream: models.Stream{ID: uuid.New(), Name: "a", Namespace: "ns"}, Mode: "shared", GatewayTemplateName: "shared-envoy",
-			RouteCount: 1, Ports: []services.StreamPort{{Transport: "TCP", Port: 5432}}},
-		{Stream: models.Stream{ID: uuid.New(), Name: "b", Namespace: "ns"}, Mode: "dedicated", GatewayTemplateName: "edge-l4",
-			Ports: []services.StreamPort{}},
+		{Stream: models.Stream{ID: uuid.New(), Name: "a", Namespace: "ns", Ports: models.StreamPorts{{Transport: "TCP", Port: 5432}}},
+			Mode: "shared", GatewayTemplateName: "shared-envoy", RouteCount: 1},
+		{Stream: models.Stream{ID: uuid.New(), Name: "b", Namespace: "ns", Ports: models.StreamPorts{}}, Mode: "dedicated", GatewayTemplateName: "edge-l4"},
 	}, nil)
 
 	w := doStream(streamRouter(h, testUser()), "GET", "/projects/"+projectID.String()+"/streams", nil)
@@ -236,7 +235,7 @@ func TestStreamHandler_List_Success(t *testing.T) {
 	assert.Equal(t, "shared-envoy", first["gatewayTemplateName"])
 	assert.Equal(t, float64(1), first["routeCount"])
 	assert.Equal(t, []any{map[string]any{"transport": "TCP", "port": float64(5432)}}, first["ports"])
-	assert.Equal(t, []any{}, resp.Data[1]["ports"], "no routes is an empty list, never null")
+	assert.Equal(t, []any{}, resp.Data[1]["ports"], "no claims is an empty list, never null")
 }
 
 func TestStreamHandler_List_SummaryFailureIs500(t *testing.T) {

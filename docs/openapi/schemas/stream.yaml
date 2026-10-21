@@ -132,17 +132,19 @@ StreamEntrypoint:
       type: array
       description: |
         Taken (transport, port) pairs with their owner, ordered by port.
-        Dedicated - this stream's L4 routes (empty for the template variant);
-        shared - every stream's L4 routes on the template plus every domain's
-        bound listener ports. Rejected routes hold no port.
+        Dedicated - this stream's port claims (empty for the template
+        variant); shared - every stream's port claims on the template plus
+        every domain's bound listener ports. Only a claim of the viewed
+        stream carries route detail; other streams' claims name the stream
+        and nothing more.
       items:
         $ref: '#/EntrypointPort'
     reserved:
       type: array
       description: |
-        Ports no route may claim. 19000/19001 (envoy_internal) and 60000
-        (placeholder) for both TCP and UDP, plus - when shared - the
-        template's hostname-routed listener ports as TCP (template_listener).
+        Ports no stream may claim. 19000/19001 (envoy_internal) for both TCP
+        and UDP, plus - when shared - the template's hostname-routed listener
+        ports as TCP (template_listener).
       items:
         $ref: '#/EntrypointReservedPort'
 
@@ -199,12 +201,17 @@ EntrypointPort:
 
 EntrypointPortOwner:
   type: object
-  description: kind stream_route sets the stream/route fields; kind domain sets the domain fields.
+  description: |
+    kind stream sets the stream fields; kind domain sets the domain fields.
+    The route fields (routeId, routeName, status, pending) are set only on a
+    claim of the stream being viewed that a route holds or an approval
+    proposes; they are absent on other streams' claims and on claims no
+    route uses.
   required: [kind]
   properties:
     kind:
       type: string
-      enum: [stream_route, domain]
+      enum: [stream, domain]
     streamId:
       type: string
       format: uuid
@@ -218,6 +225,9 @@ EntrypointPortOwner:
     status:
       type: string
       description: The route's status (any status except rejected).
+    pending:
+      type: boolean
+      description: True when the route does not hold this port yet - a pending approval proposes it. Omitted when false.
     domainId:
       type: string
       format: uuid
@@ -235,14 +245,14 @@ EntrypointReservedPort:
       type: integer
     reason:
       type: string
-      enum: [envoy_internal, placeholder, template_listener]
+      enum: [envoy_internal, template_listener]
 
 StreamListItem:
-  description: A stream as listed, with the fields the stream list shows. Every Stream field is unchanged.
+  description: A stream as listed, with the fields the stream list shows. Every Stream field is unchanged, ports (the stream's claims) included.
   allOf:
     - $ref: '#/Stream'
     - type: object
-      required: [mode, gatewayTemplateName, routeCount, ports]
+      required: [mode, gatewayTemplateName, routeCount]
       properties:
         mode:
           type: string
@@ -253,11 +263,6 @@ StreamListItem:
         routeCount:
           type: integer
           description: Non-rejected L4 routes on the stream.
-        ports:
-          type: array
-          description: (transport, port) of each non-rejected L4 route, ordered by port.
-          items:
-            $ref: '#/StreamPort'
 
 StreamPort:
   type: object

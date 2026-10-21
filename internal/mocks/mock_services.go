@@ -9352,68 +9352,6 @@ func (_c *MockStreamViewStore_L4PortOwnersByStreamIDs_Call) RunAndReturn(run fun
 	return _c
 }
 
-// L4PortOwnersByTemplate provides a mock function for the type MockStreamViewStore
-func (_mock *MockStreamViewStore) L4PortOwnersByTemplate(templateID uuid.UUID) ([]services.L4PortOwner, error) {
-	ret := _mock.Called(templateID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for L4PortOwnersByTemplate")
-	}
-
-	var r0 []services.L4PortOwner
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) ([]services.L4PortOwner, error)); ok {
-		return returnFunc(templateID)
-	}
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) []services.L4PortOwner); ok {
-		r0 = returnFunc(templateID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]services.L4PortOwner)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
-		r1 = returnFunc(templateID)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockStreamViewStore_L4PortOwnersByTemplate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'L4PortOwnersByTemplate'
-type MockStreamViewStore_L4PortOwnersByTemplate_Call struct {
-	*mock.Call
-}
-
-// L4PortOwnersByTemplate is a helper method to define mock.On call
-//   - templateID uuid.UUID
-func (_e *MockStreamViewStore_Expecter) L4PortOwnersByTemplate(templateID any) *MockStreamViewStore_L4PortOwnersByTemplate_Call {
-	return &MockStreamViewStore_L4PortOwnersByTemplate_Call{Call: _e.mock.On("L4PortOwnersByTemplate", templateID)}
-}
-
-func (_c *MockStreamViewStore_L4PortOwnersByTemplate_Call) Run(run func(templateID uuid.UUID)) *MockStreamViewStore_L4PortOwnersByTemplate_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 uuid.UUID
-		if args[0] != nil {
-			arg0 = args[0].(uuid.UUID)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockStreamViewStore_L4PortOwnersByTemplate_Call) Return(l4PortOwners []services.L4PortOwner, err error) *MockStreamViewStore_L4PortOwnersByTemplate_Call {
-	_c.Call.Return(l4PortOwners, err)
-	return _c
-}
-
-func (_c *MockStreamViewStore_L4PortOwnersByTemplate_Call) RunAndReturn(run func(templateID uuid.UUID) ([]services.L4PortOwner, error)) *MockStreamViewStore_L4PortOwnersByTemplate_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ListByGatewayTemplateID provides a mock function for the type MockStreamViewStore
 func (_mock *MockStreamViewStore) ListByGatewayTemplateID(templateID uuid.UUID) ([]models.Stream, error) {
 	ret := _mock.Called(templateID)
@@ -9534,6 +9472,68 @@ func (_c *MockStreamViewStore_ListByProjectID_Call) Return(streams []models.Stre
 }
 
 func (_c *MockStreamViewStore_ListByProjectID_Call) RunAndReturn(run func(projectID uuid.UUID) ([]models.Stream, error)) *MockStreamViewStore_ListByProjectID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PendingL4PortOwnersByStream provides a mock function for the type MockStreamViewStore
+func (_mock *MockStreamViewStore) PendingL4PortOwnersByStream(streamID uuid.UUID) ([]services.L4PortOwner, error) {
+	ret := _mock.Called(streamID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PendingL4PortOwnersByStream")
+	}
+
+	var r0 []services.L4PortOwner
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) ([]services.L4PortOwner, error)); ok {
+		return returnFunc(streamID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) []services.L4PortOwner); ok {
+		r0 = returnFunc(streamID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]services.L4PortOwner)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uuid.UUID) error); ok {
+		r1 = returnFunc(streamID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockStreamViewStore_PendingL4PortOwnersByStream_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PendingL4PortOwnersByStream'
+type MockStreamViewStore_PendingL4PortOwnersByStream_Call struct {
+	*mock.Call
+}
+
+// PendingL4PortOwnersByStream is a helper method to define mock.On call
+//   - streamID uuid.UUID
+func (_e *MockStreamViewStore_Expecter) PendingL4PortOwnersByStream(streamID any) *MockStreamViewStore_PendingL4PortOwnersByStream_Call {
+	return &MockStreamViewStore_PendingL4PortOwnersByStream_Call{Call: _e.mock.On("PendingL4PortOwnersByStream", streamID)}
+}
+
+func (_c *MockStreamViewStore_PendingL4PortOwnersByStream_Call) Run(run func(streamID uuid.UUID)) *MockStreamViewStore_PendingL4PortOwnersByStream_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStreamViewStore_PendingL4PortOwnersByStream_Call) Return(l4PortOwners []services.L4PortOwner, err error) *MockStreamViewStore_PendingL4PortOwnersByStream_Call {
+	_c.Call.Return(l4PortOwners, err)
+	return _c
+}
+
+func (_c *MockStreamViewStore_PendingL4PortOwnersByStream_Call) RunAndReturn(run func(streamID uuid.UUID) ([]services.L4PortOwner, error)) *MockStreamViewStore_PendingL4PortOwnersByStream_Call {
 	_c.Call.Return(run)
 	return _c
 }

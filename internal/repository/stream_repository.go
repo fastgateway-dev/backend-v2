@@ -244,13 +244,6 @@ func (r *StreamRepository) L4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwn
 		streamID, []string{string(models.RouteProtocolTCP), string(models.RouteProtocolUDP)}, models.RouteStatusRejected)
 }
 
-// L4PortOwnersByTemplate returns, with owners, the listener of every
-// non-rejected L4 route on every stream of the template.
-func (r *StreamRepository) L4PortOwnersByTemplate(templateID uuid.UUID) ([]L4PortOwner, error) {
-	return r.l4PortOwners("streams.gateway_template_id = ? AND routes.protocol IN ? AND routes.status <> ? AND routes.config->>'listenerPort' IS NOT NULL",
-		templateID, []string{string(models.RouteProtocolTCP), string(models.RouteProtocolUDP)}, models.RouteStatusRejected)
-}
-
 // L4PortOwnersByStreamIDs is L4PortOwnersByStream for many streams in one
 // query (the stream list uses it, so listing never issues a query per
 // stream). An empty input returns an empty result without querying.

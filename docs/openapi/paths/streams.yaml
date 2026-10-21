@@ -9,7 +9,7 @@ streams:
       - $ref: '../components/parameters.yaml#/projectId'
     responses:
       '200':
-        description: List of streams, ordered by name, each with its entry point mode, template name, route count and ports
+        description: List of streams, ordered by name, each with its entry point mode, template name, route count and port claims
         content:
           application/json:
             schema:
@@ -20,7 +20,7 @@ streams:
                   items:
                     $ref: '../schemas/stream.yaml#/StreamListItem'
       '500':
-        description: A stream's gateway template or the route ports could not be read (modes are never guessed)
+        description: A stream's gateway template or the route counts could not be read (modes are never guessed)
         content:
           application/json:
             schema:
