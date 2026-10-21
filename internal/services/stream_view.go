@@ -125,6 +125,7 @@ type StreamViewStore interface {
 	ListByGatewayTemplateID(templateID uuid.UUID) ([]models.Stream, error)
 	L4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
 	PendingL4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
+	DeployedL4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
 	L4PortOwnersByStreamIDs(streamIDs []uuid.UUID) ([]L4PortOwner, error)
 }
 
@@ -385,8 +386,11 @@ func claimPorts(st models.Stream, detail map[PortUse]L4PortOwner) []EntrypointPo
 }
 
 // ownClaimPorts is claimPorts for the stream being viewed, joined with the
-// routes that hold its claims and the pending approvals that propose them. A
-// route that holds a port wins over an approval proposing it.
+// three "used" sources: the routes that hold its claims, the pending
+// approvals that propose them, and the routes' latest deployed versions (an
+// approved change waiting for its deploy still serves the old port). When
+// several name the same port, the route row wins over a pending approval,
+// which wins over a deployed version.
 func (s *StreamViewService) ownClaimPorts(st *models.Stream) ([]EntrypointPort, error) {
 	held, err := s.streams.L4PortOwnersByStream(st.ID)
 	if err != nil {
@@ -396,9 +400,15 @@ func (s *StreamViewService) ownClaimPorts(st *models.Stream) ([]EntrypointPort, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to load pending stream ports: %w", err)
 	}
-	detail := make(map[PortUse]L4PortOwner, len(held)+len(proposed))
-	for _, o := range append(proposed, held...) { // held last: it overwrites
-		detail[PortUse{Transport: o.Transport, Port: o.Port}] = o
+	deployed, err := s.streams.DeployedL4PortOwnersByStream(st.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load deployed stream ports: %w", err)
+	}
+	detail := make(map[PortUse]L4PortOwner, len(held)+len(proposed)+len(deployed))
+	for _, sources := range [][]L4PortOwner{deployed, proposed, held} { // later overwrites earlier
+		for _, o := range sources {
+			detail[PortUse{Transport: o.Transport, Port: o.Port}] = o
+		}
 	}
 	return claimPorts(*st, detail), nil
 }

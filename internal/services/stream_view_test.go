@@ -44,8 +44,11 @@ type portWorld struct {
 	// pending are the pending-approval proposals PendingL4PortOwnersByStream
 	// reports, filtered by stream.
 	pending []services.L4PortOwner
+	// deployed are the latest-deployed-version ports
+	// DeployedL4PortOwnersByStream reports, filtered by stream.
+	deployed []services.L4PortOwner
 
-	ownerCalls struct{ byStream, pendingByStream, byStreamIDs int }
+	ownerCalls struct{ byStream, pendingByStream, deployedByStream, byStreamIDs int }
 }
 
 func (w *portWorld) streamByID(id uuid.UUID) (*models.Stream, bool) {
@@ -114,6 +117,11 @@ func (w *portWorld) UsedPortsByStream(streamID uuid.UUID, exclude *uuid.UUID) ([
 	for _, r := range w.liveRoutes(func(r worldRoute) bool { return r.streamID == streamID && (exclude == nil || r.id != *exclude) }) {
 		out = append(out, services.PortUse{Transport: r.transport, Port: r.port})
 	}
+	for _, o := range w.deployed {
+		if o.StreamID == streamID && (exclude == nil || o.RouteID != *exclude) {
+			out = append(out, services.PortUse{Transport: o.Transport, Port: o.Port})
+		}
+	}
 	return out, nil
 }
 func (w *portWorld) ClaimedPortsByTemplate(_ uuid.UUID, exclude *uuid.UUID) ([]services.PortUse, error) {
@@ -134,6 +142,16 @@ func (w *portWorld) PendingL4PortOwnersByStream(streamID uuid.UUID) ([]services.
 	for _, o := range w.pending {
 		if o.StreamID == streamID {
 			o.Pending = true
+			out = append(out, o)
+		}
+	}
+	return out, nil
+}
+func (w *portWorld) DeployedL4PortOwnersByStream(streamID uuid.UUID) ([]services.L4PortOwner, error) {
+	w.ownerCalls.deployedByStream++
+	out := []services.L4PortOwner{}
+	for _, o := range w.deployed {
+		if o.StreamID == streamID {
 			out = append(out, o)
 		}
 	}
@@ -427,7 +445,7 @@ func TestTemplateEntrypoint(t *testing.T) {
 		assert.Equal(t, []services.EntrypointPort{}, ep.Ports)
 		assert.Equal(t, "", ep.Address)
 		assert.Empty(t, gw.calls)
-		assert.Zero(t, w.ownerCalls.byStream+w.ownerCalls.pendingByStream)
+		assert.Zero(t, w.ownerCalls.byStream+w.ownerCalls.pendingByStream+w.ownerCalls.deployedByStream)
 	})
 	t.Run("shared: whole template, every stream in sharedWith, any member address", func(t *testing.T) {
 		w, _, _, _ := newPortWorld(true)
@@ -527,6 +545,52 @@ func TestStreamEntrypoint_Dedicated_LiveRouteWinsOverPendingProposal(t *testing.
 	assert.False(t, ep.Ports[0].Owner.Pending)
 }
 
+// An approved update moved route "pg" to 5433 in its row (pending_deploy);
+// its deployed version still serves 5432. Both claims name the route.
+func TestStreamEntrypoint_Dedicated_DeployedVersionNamesRoute(t *testing.T) {
+	w, self, _, _ := newPortWorld(false)
+	self.Ports = models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 5433}}
+	pgID := uuid.New()
+	w.routes = []worldRoute{{id: pgID, streamID: self.ID, name: "pg", transport: "TCP", port: 5433, status: models.RouteStatusPendingDeploy}}
+	w.deployed = []services.L4PortOwner{{Transport: "TCP", Port: 5432, StreamID: self.ID, StreamName: self.Name,
+		RouteID: pgID, RouteName: "pg", Status: string(models.RouteStatusPendingDeploy)}}
+
+	ep, err := newViewService(w, &fakeGatewayReader{}).StreamEntrypoint(context.Background(), self)
+	require.NoError(t, err)
+
+	for _, port := range []int{5432, 5433} {
+		o := ownerOf(t, ep, "TCP", port)
+		require.NotNil(t, o.RouteID, "TCP/%d", port)
+		assert.Equal(t, pgID, *o.RouteID)
+		assert.Equal(t, "pg", o.RouteName)
+		assert.Equal(t, string(models.RouteStatusPendingDeploy), o.Status)
+		assert.False(t, o.Pending)
+	}
+}
+
+// Precedence when several sources name the same port: route row, then
+// pending approval, then deployed version.
+func TestStreamEntrypoint_Dedicated_OwnerPrecedence(t *testing.T) {
+	w, self, _, _ := newPortWorld(false)
+	self.Ports = models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 5433}}
+	w.routes = []worldRoute{{id: uuid.New(), streamID: self.ID, name: "row", transport: "TCP", port: 5432, status: models.RouteStatusActive}}
+	w.pending = []services.L4PortOwner{{Transport: "TCP", Port: 5433, StreamID: self.ID, StreamName: self.Name,
+		RouteID: uuid.New(), RouteName: "proposal", Status: "active"}}
+	w.deployed = []services.L4PortOwner{
+		{Transport: "TCP", Port: 5432, StreamID: self.ID, StreamName: self.Name, RouteID: uuid.New(), RouteName: "deployed-a", Status: "active"},
+		{Transport: "TCP", Port: 5433, StreamID: self.ID, StreamName: self.Name, RouteID: uuid.New(), RouteName: "deployed-b", Status: "active"},
+	}
+
+	ep, err := newViewService(w, &fakeGatewayReader{}).StreamEntrypoint(context.Background(), self)
+	require.NoError(t, err)
+
+	require.Len(t, ep.Ports, 2, "one claim, one entry")
+	assert.Equal(t, "row", ownerOf(t, ep, "TCP", 5432).RouteName)
+	proposal := ownerOf(t, ep, "TCP", 5433)
+	assert.Equal(t, "proposal", proposal.RouteName)
+	assert.True(t, proposal.Pending)
+}
+
 func TestStreamEntrypoint_Shared_ListsOtherStreamsClaimsAndDomains(t *testing.T) {
 	w, self, cache, _ := newPortWorld(true)
 
@@ -578,7 +642,7 @@ func TestTemplateEntrypoint_Shared_ListsAllClaims(t *testing.T) {
 	}
 	assert.Equal(t, "test-stream", ownerOf(t, ep, "TCP", 19100).StreamName)
 	assert.Equal(t, "cache", ownerOf(t, ep, "TCP", 19102).StreamName)
-	assert.Zero(t, w.ownerCalls.byStream+w.ownerCalls.pendingByStream, "route owners are only read for a viewed stream")
+	assert.Zero(t, w.ownerCalls.byStream+w.ownerCalls.pendingByStream+w.ownerCalls.deployedByStream, "route owners are only read for a viewed stream")
 }
 
 func newClaimsService(t *testing.T, w *portWorld) *services.StreamService {
@@ -791,6 +855,7 @@ func TestStreamListWithSummary(t *testing.T) {
 	assert.Equal(t, 1, w.ownerCalls.byStreamIDs)
 	assert.Zero(t, w.ownerCalls.byStream)
 	assert.Zero(t, w.ownerCalls.pendingByStream)
+	assert.Zero(t, w.ownerCalls.deployedByStream)
 	assert.Equal(t, map[uuid.UUID]int{w.tmpl.ID: 1, dedicated.ID: 1}, templates.calls)
 }
 

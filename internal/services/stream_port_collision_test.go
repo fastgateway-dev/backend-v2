@@ -234,6 +234,28 @@ func TestCheckUsedClaimsKept(t *testing.T) {
 		assert.NotContains(t, err.Error(), "pending")
 	})
 
+	t.Run("dropping a claim held only by a deployed version is refused", func(t *testing.T) {
+		// An approved update moved route "pg" from 6432 to 6433 in its row
+		// (pending_deploy); the cluster still serves its deployed version on
+		// 6432, so dropping the 6432 claim would cut live traffic.
+		f := newClaimsFixture(t)
+		f.store.EXPECT().UsedPortsByStream(stream.ID, (*uuid.UUID)(nil)).
+			Return([]services.PortUse{{Transport: "TCP", Port: 6433}, {Transport: "TCP", Port: 6432}}, nil)
+		f.store.EXPECT().L4PortOwnersByStream(stream.ID).Return([]services.L4PortOwner{
+			{Transport: "TCP", Port: 6433, RouteName: "pg", Status: "pending_deploy"},
+		}, nil).Maybe()
+		f.store.EXPECT().PendingL4PortOwnersByStream(stream.ID).Return(nil, nil).Maybe()
+		f.store.EXPECT().DeployedL4PortOwnersByStream(stream.ID).Return([]services.L4PortOwner{
+			{Transport: "TCP", Port: 6432, RouteName: "pg", Status: "pending_deploy"},
+		}, nil).Maybe()
+
+		err := services.CheckUsedClaimsKeptForTest(f.svc, stream, models.StreamPorts{{Transport: "TCP", Port: 6433}})
+		require.ErrorIs(t, err, services.ErrStreamPortInUse)
+		assert.Contains(t, err.Error(), "TCP/6432")
+		assert.Contains(t, err.Error(), `"pg"`)
+		assert.Contains(t, err.Error(), "deployed")
+	})
+
 	t.Run("keeping every used claim passes", func(t *testing.T) {
 		f := setup(t)
 		require.NoError(t, services.CheckUsedClaimsKeptForTest(f.svc, stream,

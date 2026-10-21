@@ -111,16 +111,19 @@ func checkPortInRange(port int, tmpl *models.DomainTemplate) error {
 // StreamPortStore is the slice of StreamRepository the claim and route-port
 // checks use. *repository.StreamRepository satisfies it structurally.
 type StreamPortStore interface {
-	// UsedPortsByStream returns the L4 ports a stream's routes hold: route rows
-	// plus pending create/update approvals.
+	// UsedPortsByStream returns the L4 ports a stream's routes hold: route
+	// rows, pending create/update approvals, and each route's latest deployed
+	// version.
 	UsedPortsByStream(streamID uuid.UUID, excludeRouteID *uuid.UUID) ([]PortUse, error)
 	// ClaimedPortsByTemplate returns the ports every stream on a template has
 	// claimed, skipping excludeStreamID.
 	ClaimedPortsByTemplate(templateID uuid.UUID, excludeStreamID *uuid.UUID) ([]PortUse, error)
-	// L4PortOwnersByStream and PendingL4PortOwnersByStream name the routes
-	// behind UsedPortsByStream (rows, and pending approvals) for error messages.
+	// L4PortOwnersByStream, PendingL4PortOwnersByStream and
+	// DeployedL4PortOwnersByStream name the routes behind UsedPortsByStream
+	// (rows, pending approvals, deployed versions) for error messages.
 	L4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
 	PendingL4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
+	DeployedL4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
 }
 
 // DomainPortReader returns the HTTP/HTTPS listener ports (as TCP) of every
@@ -210,8 +213,8 @@ func (s *StreamService) SetPortSources(streams StreamPortStore, domains DomainPo
 // CheckRoutePort validates that (transport, port) can be used by a new or
 // updated L4 route on the stream: the stream must claim it (ErrPortNotClaimed,
 // the message lists the stream's claims for that transport) and no other route
-// of the stream, nor a pending create/update approval, may hold it
-// (ErrPortCollision). excludeRouteID skips the route being updated so it does
+// of the stream may hold it - by its row, a pending create/update approval or
+// its latest deployed version (ErrPortCollision). excludeRouteID skips the route being updated so it does
 // not collide with itself.
 func (s *StreamService) CheckRoutePort(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error {
 	if s.portStore == nil {
@@ -335,9 +338,11 @@ func (s *StreamService) validateStreamPorts(tmpl *models.DomainTemplate, selfID 
 }
 
 // checkUsedClaimsKept rejects a claim set that drops a port a route still
-// uses: a route row of the stream, or a pending create/update approval for one
-// of its routes. It returns ErrStreamPortInUse (wrapped) naming the port and
-// the route, marking the use "pending" when only an approval holds it.
+// uses: a route row of the stream, a pending create/update approval for one
+// of its routes, or a route's latest deployed version. It returns
+// ErrStreamPortInUse (wrapped) naming the port and the route, marking the use
+// "pending" when only an approval holds it and "deployed version" when only
+// the cluster's deployed copy does.
 func (s *StreamService) checkUsedClaimsKept(stream *models.Stream, next models.StreamPorts) error {
 	if s.portStore == nil {
 		return errors.New("stream port sources are not configured")
@@ -358,7 +363,9 @@ func (s *StreamService) checkUsedClaimsKept(stream *models.Stream, next models.S
 
 // portInUseError builds the ErrStreamPortInUse for a dropped, used claim. The
 // owner lookups only name the route; a failed lookup degrades to an unnamed
-// message rather than hiding the conflict.
+// message rather than hiding the conflict. When several sources name the
+// port, the route row wins over a pending approval, which wins over a
+// deployed version (the same precedence as the entry point).
 func (s *StreamService) portInUseError(stream *models.Stream, u PortUse) error {
 	rows, _ := s.portStore.L4PortOwnersByStream(stream.ID)
 	for _, o := range rows {
@@ -370,6 +377,13 @@ func (s *StreamService) portInUseError(stream *models.Stream, u PortUse) error {
 	for _, o := range pending {
 		if o.Transport == u.Transport && o.Port == u.Port {
 			return fmt.Errorf("%w: %s/%d is used by route %q (pending change)", ErrStreamPortInUse, u.Transport, u.Port, o.RouteName)
+		}
+	}
+	deployed, _ := s.portStore.DeployedL4PortOwnersByStream(stream.ID)
+	for _, o := range deployed {
+		if o.Transport == u.Transport && o.Port == u.Port {
+			return fmt.Errorf("%w: %s/%d is used by route %q (deployed version, until its pending change is deployed)",
+				ErrStreamPortInUse, u.Transport, u.Port, o.RouteName)
 		}
 	}
 	return fmt.Errorf("%w: %s/%d is used by a route of stream %q", ErrStreamPortInUse, u.Transport, u.Port, stream.Name)

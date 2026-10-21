@@ -115,14 +115,33 @@ const pendingApprovalFrom = `FROM approvals a
 	   AND a.action IN ('create','update')
 	   AND a.config_snapshot->'routeConfig'->>'listenerPort' IS NOT NULL`
 
+// deployedVersionFrom is the FROM/WHERE shared by every query that reads the
+// listener port of a route's latest deployed version (the highest
+// route_versions.version of the route): what the cluster serves until the
+// next deploy. Only non-rejected routes count, like the route-row source.
+// Its placeholders are the L4 protocols, then the rejected status.
+const deployedVersionFrom = `FROM routes r
+	 JOIN streams ON streams.id = r.stream_id
+	 JOIN LATERAL (SELECT rv.config_snapshot FROM route_versions rv
+	                WHERE rv.route_id = r.id ORDER BY rv.version DESC LIMIT 1) v ON true
+	 WHERE r.protocol IN ? AND r.status <> ?
+	   AND v.config_snapshot->'routeConfig'->>'listenerPort' IS NOT NULL`
+
 // UsedPortsByStream returns the (transport, port) a stream's L4 routes use,
-// optionally skipping excludeRouteID (the route being written).
+// optionally skipping excludeRouteID (the route being written) in every
+// source.
 //
-// A port is used when a route row of the stream holds it (any status but
-// rejected: rejected routes never reach the cluster, every other status
-// including not-yet-approved ones holds its port so two pending routes cannot
-// claim the same listener) or when a pending create/update approval for a
-// route of the stream proposes it (approving it would write that port).
+// A port is used when any of three sources names it:
+//   - a route row of the stream holds it (any status but rejected: rejected
+//     routes never reach the cluster, every other status including
+//     not-yet-approved ones holds its port so two pending routes cannot claim
+//     the same listener);
+//   - a pending create/update approval for a route of the stream proposes it
+//     (approving it would write that port);
+//   - the latest deployed version of a non-rejected route of the stream holds
+//     it. An approved update writes its new port to the row (status
+//     pending_deploy) while the cluster still serves the old one until the
+//     separate deploy step runs.
 func (r *StreamRepository) UsedPortsByStream(streamID uuid.UUID, excludeRouteID *uuid.UUID) ([]PortUse, error) {
 	l4 := []string{string(models.RouteProtocolTCP), string(models.RouteProtocolUDP)}
 	rowsSQL := `SELECT r.protocol AS protocol, (r.config->>'listenerPort')::int AS port
@@ -140,8 +159,15 @@ func (r *StreamRepository) UsedPortsByStream(streamID uuid.UUID, excludeRouteID 
 		pendingSQL += " AND r.id <> ?"
 		args = append(args, *excludeRouteID)
 	}
+	deployedSQL := `SELECT r.protocol AS protocol, (v.config_snapshot->'routeConfig'->>'listenerPort')::int AS port ` +
+		deployedVersionFrom + " AND streams.id = ?"
+	args = append(args, l4, models.RouteStatusRejected, streamID)
+	if excludeRouteID != nil {
+		deployedSQL += " AND r.id <> ?"
+		args = append(args, *excludeRouteID)
+	}
 	var rows []l4PortRow
-	if err := r.db.Raw(rowsSQL+" UNION "+pendingSQL, args...).Scan(&rows).Error; err != nil {
+	if err := r.db.Raw(rowsSQL+" UNION "+pendingSQL+" UNION "+deployedSQL, args...).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	return portUsesFromRows(rows), nil
@@ -167,7 +193,7 @@ func (r *StreamRepository) ClaimedPortsByTemplate(templateID uuid.UUID, excludeS
 	return portUsesFromRows(rows), nil
 }
 
-// ListAll returns every stream, ordered by name. Startup backfills use it.
+// ListAll returns every stream, ordered by name. The startup reconcile uses it.
 func (r *StreamRepository) ListAll() ([]models.Stream, error) {
 	var streams []models.Stream
 	err := r.db.Order("name ASC, id ASC").Find(&streams).Error
@@ -246,8 +272,10 @@ func ownersFromRows(rows []l4PortOwnerRow, pending bool) []L4PortOwner {
 	return owners
 }
 
-// L4PortOwnersByStream is UsedPortsByStream with owners: the listener of
-// every non-rejected L4 route on the stream. Same WHERE clause.
+// L4PortOwnersByStream is the route-row half of UsedPortsByStream with
+// owners: the listener of every non-rejected L4 route on the stream. Same
+// WHERE clause. PendingL4PortOwnersByStream and DeployedL4PortOwnersByStream
+// name the other two halves.
 func (r *StreamRepository) L4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error) {
 	return r.l4PortOwners("routes.stream_id = ? AND routes.protocol IN ? AND routes.status <> ? AND routes.config->>'listenerPort' IS NOT NULL",
 		streamID, []string{string(models.RouteProtocolTCP), string(models.RouteProtocolUDP)}, models.RouteStatusRejected)
@@ -281,4 +309,25 @@ func (r *StreamRepository) PendingL4PortOwnersByStream(streamID uuid.UUID) ([]L4
 		return nil, err
 	}
 	return ownersFromRows(rows, true), nil
+}
+
+// DeployedL4PortOwnersByStream is the deployed-version half of
+// UsedPortsByStream with owners: the listener port of the latest deployed
+// version of every non-rejected L4 route of the stream. Status is the route's
+// current status (pending_deploy while an approved change waits for its
+// deploy). The route's own row is reported by L4PortOwnersByStream, which
+// names the same port whenever the row and the deployed version agree.
+func (r *StreamRepository) DeployedL4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error) {
+	var rows []l4PortOwnerRow
+	err := r.db.Raw(`SELECT r.protocol AS protocol,
+			(v.config_snapshot->'routeConfig'->>'listenerPort')::int AS port,
+			streams.id AS stream_id, streams.name AS stream_name,
+			r.id AS route_id, r.name AS route_name, r.status AS status `+
+		deployedVersionFrom+` AND streams.id = ? ORDER BY port ASC, protocol ASC, route_id ASC`,
+		[]string{string(models.RouteProtocolTCP), string(models.RouteProtocolUDP)}, models.RouteStatusRejected, streamID).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return ownersFromRows(rows, false), nil
 }
