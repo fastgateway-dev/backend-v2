@@ -289,3 +289,39 @@ func TestMigration000052_Backfill(t *testing.T) {
 	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 5433}}, portsOf(withPending.ID))
 	assert.Equal(t, models.StreamPorts{}, portsOf(empty.ID))
 }
+
+// UpdateStatus writes only the status columns, and never inserts a missing row.
+func TestStreamRepository_UpdateStatus(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, _, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	repo := repository.NewStreamRepository(db)
+
+	s := &models.Stream{ProjectID: projectID, Name: "status-gw", Namespace: "fastgateway-system",
+		GatewayTemplateID: tmplID, K8sGatewayName: "str-status-gw", K8sGatewayClass: "public-lb",
+		Ports: models.StreamPorts{{Transport: "TCP", Port: 5432}}}
+	require.NoError(t, repo.Create(s))
+
+	// A concurrent edit changes name and ports after a snapshot was taken.
+	stale, err := repo.GetByID(s.ID)
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&models.Stream{}).Where("id = ?", s.ID).
+		Updates(map[string]any{"name": "renamed"}).Error)
+
+	require.NoError(t, repo.UpdateStatus(stale.ID, "active", "Gateway applied successfully"))
+	got, err := repo.GetByID(s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "active", got.Status)
+	assert.Equal(t, "Gateway applied successfully", got.StatusMessage)
+	assert.Equal(t, "renamed", got.Name, "stale snapshot fields must not be written back")
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 5432}}, got.Ports)
+
+	// A missing row stays missing.
+	missing := uuid.New()
+	require.NoError(t, repo.UpdateStatus(missing, "active", "x"))
+	_, err = repo.GetByID(missing)
+	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	var n int64
+	require.NoError(t, db.Model(&models.Stream{}).Where("id = ?", missing).Count(&n).Error)
+	assert.Zero(t, n)
+}

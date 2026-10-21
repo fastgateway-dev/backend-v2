@@ -104,6 +104,7 @@ func (w *portWorld) ListAll() ([]models.Stream, error) {
 }
 func (w *portWorld) ExistsByName(uuid.UUID, string) (bool, error) { return false, nil }
 func (w *portWorld) Update(*models.Stream) error                  { return nil }
+func (w *portWorld) UpdateStatus(uuid.UUID, string, string) error { return nil }
 func (w *portWorld) Delete(uuid.UUID) error                       { return nil }
 
 // --- services.StreamPortStore / DomainPortReader ---

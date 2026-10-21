@@ -118,6 +118,9 @@ type StreamStore interface {
 	ListAll() ([]models.Stream, error)
 	ExistsByName(projectID uuid.UUID, name string) (bool, error)
 	Update(stream *models.Stream) error
+	// UpdateStatus writes only the status columns of an existing row; it never
+	// inserts, so a stream deleted concurrently is not resurrected.
+	UpdateStatus(id uuid.UUID, status, message string) error
 	Delete(id uuid.UUID) error
 }
 
@@ -308,14 +311,14 @@ func (s *StreamService) ApplyGateway(ctx context.Context, stream *models.Stream)
 		err := fmt.Errorf("failed to apply stream gateway: %w", applyErr)
 		// If the error status cannot be saved either, the row keeps its old
 		// status; surface that alongside the apply failure so the caller logs both.
-		if uerr := s.streamRepo.Update(stream); uerr != nil {
+		if uerr := s.streamRepo.UpdateStatus(stream.ID, stream.Status, stream.StatusMessage); uerr != nil {
 			err = errors.Join(err, fmt.Errorf("failed to record error status: %w", uerr))
 		}
 		return err
 	}
 	stream.Status = StreamStatusActive
 	stream.StatusMessage = message
-	if err := s.streamRepo.Update(stream); err != nil {
+	if err := s.streamRepo.UpdateStatus(stream.ID, stream.Status, stream.StatusMessage); err != nil {
 		return fmt.Errorf("failed to update stream status: %w", err)
 	}
 	return nil
@@ -325,22 +328,36 @@ func (s *StreamService) ApplyGateway(ctx context.Context, stream *models.Stream)
 // It runs once at startup so streams created before streams owned their
 // Gateway (empty streams carried a placeholder listener) converge on the
 // claim-built shape. Apply is idempotent, so a re-run is harmless. An error is
-// returned only when the streams cannot be listed; a per-stream failure is
-// logged and recorded on that stream's status, and the rest still proceed.
+// returned when the streams cannot be listed or ctx is cancelled mid-run; a
+// per-stream failure is logged and recorded on that stream's status, and the
+// rest still proceed. Each stream is re-read just before it is applied, and
+// only its status columns are written back.
 func (s *StreamService) ReconcileGateways(ctx context.Context) error {
-	streams, err := s.streamRepo.ListAll()
+	listed, err := s.streamRepo.ListAll()
 	if err != nil {
 		return fmt.Errorf("failed to list streams: %w", err)
 	}
-	for i := range streams {
-		if ctx.Err() != nil {
-			return nil
+	for _, snapshot := range listed {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		if err := s.ApplyGateway(ctx, &streams[i]); err != nil {
-			log.Printf("stream gateway reconcile: stream %s (%s): %v", streams[i].ID, streams[i].Name, err)
+		// The listing can be stale by the time this stream's turn comes (the
+		// router is already serving), so re-read it: apply from its current
+		// claims, and skip it if it was deleted meanwhile.
+		stream, err := s.streamRepo.GetByID(snapshot.ID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				log.Printf("stream gateway reconcile: stream %s (%s) was deleted; skipping", snapshot.ID, snapshot.Name)
+			} else {
+				log.Printf("stream gateway reconcile: stream %s (%s): failed to reload: %v", snapshot.ID, snapshot.Name, err)
+			}
+			continue
+		}
+		if err := s.ApplyGateway(ctx, stream); err != nil {
+			log.Printf("stream gateway reconcile: stream %s (%s): %v", stream.ID, stream.Name, err)
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Update renames a stream and/or changes its claimed ports. The Gateway

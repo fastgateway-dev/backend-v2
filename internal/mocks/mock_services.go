@@ -8895,6 +8895,69 @@ func (_c *MockStreamStore_Update_Call) RunAndReturn(run func(stream *models.Stre
 	return _c
 }
 
+// UpdateStatus provides a mock function for the type MockStreamStore
+func (_mock *MockStreamStore) UpdateStatus(id uuid.UUID, status string, message string) error {
+	ret := _mock.Called(id, status, message)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateStatus")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, string, string) error); ok {
+		r0 = returnFunc(id, status, message)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStreamStore_UpdateStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateStatus'
+type MockStreamStore_UpdateStatus_Call struct {
+	*mock.Call
+}
+
+// UpdateStatus is a helper method to define mock.On call
+//   - id uuid.UUID
+//   - status string
+//   - message string
+func (_e *MockStreamStore_Expecter) UpdateStatus(id any, status any, message any) *MockStreamStore_UpdateStatus_Call {
+	return &MockStreamStore_UpdateStatus_Call{Call: _e.mock.On("UpdateStatus", id, status, message)}
+}
+
+func (_c *MockStreamStore_UpdateStatus_Call) Run(run func(id uuid.UUID, status string, message string)) *MockStreamStore_UpdateStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStreamStore_UpdateStatus_Call) Return(err error) *MockStreamStore_UpdateStatus_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStreamStore_UpdateStatus_Call) RunAndReturn(run func(id uuid.UUID, status string, message string) error) *MockStreamStore_UpdateStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockStreamTemplateReader creates a new instance of MockStreamTemplateReader. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockStreamTemplateReader(t interface {

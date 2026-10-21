@@ -41,7 +41,7 @@ func TestStreamYAMLs_EqualWhatDeployL4Applies(t *testing.T) {
 	gateways.EXPECT().UpdateGateway(mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).
 		Run(func(_ context.Context, _ uuid.UUID, cfg *kubernetes.GatewayConfig) { gw = cfg }).Return(nil)
 	streamStore := mocks.NewMockStreamStore(t)
-	streamStore.EXPECT().Update(mock.Anything).Return(nil)
+	streamStore.EXPECT().UpdateStatus(f.stream.ID, mock.Anything, mock.Anything).Return(nil)
 	streams := services.NewStreamService(streamStore, &fakeTemplateReader{}, &fakeRouteCounter{}, gateways, allowAllNamespaces{})
 	require.NoError(t, streams.ApplyGateway(context.Background(), f.stream))
 	require.NotNil(t, gw)

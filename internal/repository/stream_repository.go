@@ -63,6 +63,15 @@ func (r *StreamRepository) Update(stream *models.Stream) error {
 	return r.db.Save(stream).Error
 }
 
+// UpdateStatus sets only a stream's status and status message (and
+// updated_at). Unlike Update it never writes other columns and never inserts:
+// a row deleted in the meantime stays deleted, and concurrent edits to the
+// stream's name or ports are not overwritten by a stale snapshot.
+func (r *StreamRepository) UpdateStatus(id uuid.UUID, status, message string) error {
+	return r.db.Model(&models.Stream{}).Where("id = ?", id).
+		Updates(map[string]any{"status": status, "status_message": message}).Error
+}
+
 // Delete deletes a stream by ID
 func (r *StreamRepository) Delete(id uuid.UUID) error {
 	return r.db.Delete(&models.Stream{}, "id = ?", id).Error

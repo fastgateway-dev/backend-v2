@@ -25,6 +25,13 @@ type fakeStreamStore struct {
 	streams map[uuid.UUID]*models.Stream
 	created []*models.Stream
 	deleted []uuid.UUID
+
+	// updates counts full-row Update calls; statusUpdates counts UpdateStatus.
+	updates       int
+	statusUpdates int
+	// afterListAll, when set, runs once ListAll has taken its snapshot - it
+	// stands in for a request that lands between the listing and a stream's turn.
+	afterListAll func()
 }
 
 // streamRangeListeners is the listener set of a stream-capable template: a
@@ -69,6 +76,9 @@ func (f *fakeStreamStore) ListAll() ([]models.Stream, error) {
 		out = append(out, *s)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	if f.afterListAll != nil {
+		f.afterListAll()
+	}
 	return out, nil
 }
 
@@ -82,7 +92,19 @@ func (f *fakeStreamStore) ExistsByName(projectID uuid.UUID, name string) (bool, 
 }
 
 func (f *fakeStreamStore) Update(s *models.Stream) error {
+	f.updates++
 	f.streams[s.ID] = s
+	return nil
+}
+
+// UpdateStatus mirrors the repository: status columns only, and never an
+// insert for a row that is gone.
+func (f *fakeStreamStore) UpdateStatus(id uuid.UUID, status, message string) error {
+	f.statusUpdates++
+	if st, ok := f.streams[id]; ok {
+		st.Status = status
+		st.StatusMessage = message
+	}
 	return nil
 }
 
@@ -611,18 +633,18 @@ func TestStreamDelete_GatewayDeleteFailureStillDeletesRow(t *testing.T) {
 	assert.Equal(t, []uuid.UUID{s.ID}, e.store.deleted)
 }
 
-// statusWriteFailingStore fails Update once armed, to model a DB outage that
+// statusWriteFailingStore fails UpdateStatus once armed, to model a DB outage that
 // hits the status write after the Gateway apply failed.
 type statusWriteFailingStore struct {
 	*fakeStreamStore
 	updateErr error
 }
 
-func (f *statusWriteFailingStore) Update(s *models.Stream) error {
+func (f *statusWriteFailingStore) UpdateStatus(id uuid.UUID, status, message string) error {
 	if f.updateErr != nil {
 		return f.updateErr
 	}
-	return f.fakeStreamStore.Update(s)
+	return f.fakeStreamStore.UpdateStatus(id, status, message)
 }
 
 func TestApplyGateway_ErrorStatusWriteFailureIsReported(t *testing.T) {
@@ -700,4 +722,65 @@ func TestReconcileGateways_Idempotent(t *testing.T) {
 	for _, s := range e.store.streams {
 		assert.Equal(t, "active", s.Status, s.Name)
 	}
+}
+
+func TestReconcileGateways_UsesFreshStreamState(t *testing.T) {
+	e := newGatewayEnv(t)
+	s := e.seedNamed("a-db", models.StreamPorts{{Transport: "TCP", Port: 5432}})
+	// A PATCH lands after the listing: the stream now claims 6379 and has a new name.
+	e.store.afterListAll = func() {
+		e.store.streams[s.ID].Ports = models.StreamPorts{{Transport: "TCP", Port: 6379}}
+		e.store.streams[s.ID].Name = "renamed"
+	}
+	got := e.expectUpdateGateway(nil)
+
+	require.NoError(t, e.svc.ReconcileGateways(context.Background()))
+	require.NotNil(t, *got)
+	assert.Equal(t, []string{"l4-tcp-6379/TCP/6379"}, listenerTriples(*got))
+	stored := e.store.streams[s.ID]
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 6379}}, stored.Ports)
+	assert.Equal(t, "renamed", stored.Name)
+	assert.Equal(t, "active", stored.Status)
+	assert.Zero(t, e.store.updates, "reconcile must not write back the whole row")
+}
+
+func TestReconcileGateways_SkipsStreamDeletedMidRun(t *testing.T) {
+	e := newGatewayEnv(t)
+	gone := e.seedNamed("a-gone", models.StreamPorts{{Transport: "TCP", Port: 5432}})
+	kept := e.seedNamed("b-kept", nil)
+	e.store.afterListAll = func() { delete(e.store.streams, gone.ID) }
+	// No UpdateGateway for the deleted stream; only the surviving one is applied.
+	e.applier.EXPECT().DeleteGateway(mock.Anything, e.projectID, "ns", "str-b-kept").Return(nil).Once()
+
+	require.NoError(t, e.svc.ReconcileGateways(context.Background()))
+	assert.NotContains(t, e.store.streams, gone.ID, "a deleted stream must not be re-created")
+	assert.Equal(t, "active", e.store.streams[kept.ID].Status)
+	assert.Equal(t, 1, e.store.statusUpdates)
+	assert.Zero(t, e.store.updates)
+}
+
+func TestReconcileGateways_CancelledContext(t *testing.T) {
+	e := newGatewayEnv(t)
+	e.seedNamed("a-claims", models.StreamPorts{{Transport: "TCP", Port: 5432}})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := e.svc.ReconcileGateways(ctx)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Zero(t, e.store.statusUpdates)
+}
+
+func TestApplyGateway_WritesOnlyStatus(t *testing.T) {
+	e := newGatewayEnv(t)
+	s := e.seed(models.StreamPorts{{Transport: "TCP", Port: 5432}})
+	e.expectUpdateGateway(nil)
+	require.NoError(t, e.svc.ApplyGateway(context.Background(), s))
+	assert.Equal(t, 1, e.store.statusUpdates)
+	assert.Zero(t, e.store.updates)
+
+	e.expectUpdateGateway(errors.New("boom"))
+	require.Error(t, e.svc.ApplyGateway(context.Background(), s))
+	assert.Equal(t, 2, e.store.statusUpdates)
+	assert.Zero(t, e.store.updates)
+	assert.Equal(t, "error", e.store.streams[s.ID].Status)
 }
