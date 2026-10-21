@@ -11,14 +11,6 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/streamplan"
 )
 
-func listenerSet(ls []streamplan.StreamListener) map[string]int {
-	m := make(map[string]int, len(ls))
-	for _, l := range ls {
-		m[l.Name] = l.Port
-	}
-	return m
-}
-
 func TestBuildStreamGatewayConfig_ListenersFromClaims(t *testing.T) {
 	cfg := streamplan.BuildStreamGatewayConfig(models.Stream{
 		Name: "s", K8sGatewayName: "str-s", K8sGatewayClass: "pub",

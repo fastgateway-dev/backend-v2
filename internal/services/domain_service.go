@@ -427,7 +427,7 @@ func (s *DomainService) Create(projectID uuid.UUID, input *CreateDomainInput, cr
 	}
 
 	// On a merged template the domain's HTTP/HTTPS ports share one Gateway with
-	// every stream: reject a port a stream L4 route already holds. (Update
+	// every stream: reject a port a stream on the template has claimed. (Update
 	// cannot change ports - they are inherited from the template - so this is
 	// the only domain-side check needed.)
 	if err := ValidateBoundListeners(dt, input.BoundListeners); err != nil {
