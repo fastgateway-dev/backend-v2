@@ -97,6 +97,11 @@ func (w *portWorld) ListByProjectID(projectID uuid.UUID) ([]models.Stream, error
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
+func (w *portWorld) ListAll() ([]models.Stream, error) {
+	out := append([]models.Stream(nil), w.streams...)
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
 func (w *portWorld) ExistsByName(uuid.UUID, string) (bool, error) { return false, nil }
 func (w *portWorld) Update(*models.Stream) error                  { return nil }
 func (w *portWorld) Delete(uuid.UUID) error                       { return nil }

@@ -115,6 +115,7 @@ type StreamStore interface {
 	Create(stream *models.Stream) error
 	GetByID(id uuid.UUID) (*models.Stream, error)
 	ListByProjectID(projectID uuid.UUID) ([]models.Stream, error)
+	ListAll() ([]models.Stream, error)
 	ExistsByName(projectID uuid.UUID, name string) (bool, error)
 	Update(stream *models.Stream) error
 	Delete(id uuid.UUID) error
@@ -316,6 +317,28 @@ func (s *StreamService) ApplyGateway(ctx context.Context, stream *models.Stream)
 	stream.StatusMessage = message
 	if err := s.streamRepo.Update(stream); err != nil {
 		return fmt.Errorf("failed to update stream status: %w", err)
+	}
+	return nil
+}
+
+// ReconcileGateways re-applies every stream's Gateway from its port claims.
+// It runs once at startup so streams created before streams owned their
+// Gateway (empty streams carried a placeholder listener) converge on the
+// claim-built shape. Apply is idempotent, so a re-run is harmless. An error is
+// returned only when the streams cannot be listed; a per-stream failure is
+// logged and recorded on that stream's status, and the rest still proceed.
+func (s *StreamService) ReconcileGateways(ctx context.Context) error {
+	streams, err := s.streamRepo.ListAll()
+	if err != nil {
+		return fmt.Errorf("failed to list streams: %w", err)
+	}
+	for i := range streams {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if err := s.ApplyGateway(ctx, &streams[i]); err != nil {
+			log.Printf("stream gateway reconcile: stream %s (%s): %v", streams[i].ID, streams[i].Name, err)
+		}
 	}
 	return nil
 }

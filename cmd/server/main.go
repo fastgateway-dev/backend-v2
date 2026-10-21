@@ -543,6 +543,16 @@ func main() {
 		DNSRecordHandler:          dnsRecordHandler,
 	})
 
+	// Re-apply every stream's Gateway from its port claims so streams created
+	// before they owned their Gateway converge. One-shot; idempotent.
+	go func() {
+		if err := streamService.ReconcileGateways(ctx); err != nil {
+			log.Printf("WARNING: stream gateway reconcile failed: %v", err)
+			return
+		}
+		log.Printf("Stream gateway reconcile complete")
+	}()
+
 	// Start server
 	go func() {
 		log.Printf("Starting server on port %s", cfg.APIPort)

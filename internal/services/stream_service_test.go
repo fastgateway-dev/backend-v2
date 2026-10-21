@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -59,6 +60,15 @@ func (f *fakeStreamStore) ListByProjectID(projectID uuid.UUID) ([]models.Stream,
 			out = append(out, *s)
 		}
 	}
+	return out, nil
+}
+
+func (f *fakeStreamStore) ListAll() ([]models.Stream, error) {
+	var out []models.Stream
+	for _, s := range f.streams {
+		out = append(out, *s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 
@@ -629,4 +639,65 @@ func TestApplyGateway_ErrorStatusWriteFailureIsReported(t *testing.T) {
 	assert.ErrorContains(t, err, "boom", "the apply failure is reported")
 	assert.ErrorIs(t, err, dbErr, "so is the failure to record the error status")
 	assert.Equal(t, "error", s.Status)
+}
+
+// ---------------------------------------------------------------------------
+// Startup reconcile
+// ---------------------------------------------------------------------------
+
+// seedNamed stores a stream with the given name and K8s Gateway name.
+func (e *gatewayEnv) seedNamed(name string, ports models.StreamPorts) *models.Stream {
+	s := e.seed(ports)
+	s.Name = name
+	s.K8sGatewayName = "str-" + name
+	return s
+}
+
+func TestReconcileGateways_AppliesEveryStream(t *testing.T) {
+	e := newGatewayEnv(t)
+	e.seedNamed("a-claims", models.StreamPorts{{Transport: "TCP", Port: 5432}})
+	e.seedNamed("b-empty", nil)
+	got := e.expectUpdateGateway(nil)
+	e.applier.EXPECT().DeleteGateway(mock.Anything, e.projectID, "ns", "str-b-empty").Return(nil).Once()
+
+	require.NoError(t, e.svc.ReconcileGateways(context.Background()))
+	require.NotNil(t, *got)
+	assert.Equal(t, "str-a-claims", (*got).Name)
+	assert.Equal(t, []string{"l4-tcp-5432/TCP/5432"}, listenerTriples(*got))
+	for _, s := range e.store.streams {
+		assert.Equal(t, "active", s.Status, s.Name)
+	}
+}
+
+func TestReconcileGateways_ContinuesAfterFailure(t *testing.T) {
+	e := newGatewayEnv(t)
+	first := e.seedNamed("a-first", models.StreamPorts{{Transport: "TCP", Port: 5432}})
+	second := e.seedNamed("b-second", models.StreamPorts{{Transport: "UDP", Port: 5353}})
+	e.applier.EXPECT().UpdateGateway(mock.Anything, e.projectID, mock.MatchedBy(func(c *kubernetes.GatewayConfig) bool {
+		return c.Name == "str-a-first"
+	})).Return(errors.New("boom")).Once()
+	e.applier.EXPECT().UpdateGateway(mock.Anything, e.projectID, mock.MatchedBy(func(c *kubernetes.GatewayConfig) bool {
+		return c.Name == "str-b-second"
+	})).Return(nil).Once()
+
+	require.NoError(t, e.svc.ReconcileGateways(context.Background()))
+	assert.Equal(t, "error", e.store.streams[first.ID].Status)
+	assert.Equal(t, "active", e.store.streams[second.ID].Status)
+}
+
+func TestReconcileGateways_Idempotent(t *testing.T) {
+	e := newGatewayEnv(t)
+	e.seedNamed("a-claims", models.StreamPorts{{Transport: "TCP", Port: 5432}})
+	e.seedNamed("b-empty", nil)
+	notFound := apierrors.NewNotFound(schema.GroupResource{Group: "gateway.networking.k8s.io", Resource: "gateways"}, "str-b-empty")
+	e.applier.EXPECT().UpdateGateway(mock.Anything, e.projectID, mock.Anything).Return(nil).Twice()
+	e.applier.EXPECT().DeleteGateway(mock.Anything, e.projectID, "ns", "str-b-empty").Return(nil).Once()
+	e.applier.EXPECT().DeleteGateway(mock.Anything, e.projectID, "ns", "str-b-empty").
+		Return(fmt.Errorf("failed to delete gateway: %w", notFound)).Once()
+
+	require.NoError(t, e.svc.ReconcileGateways(context.Background()))
+	require.NoError(t, e.svc.ReconcileGateways(context.Background()))
+	for _, s := range e.store.streams {
+		assert.Equal(t, "active", s.Status, s.Name)
+	}
 }
