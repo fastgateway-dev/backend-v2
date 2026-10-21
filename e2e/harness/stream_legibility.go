@@ -6,11 +6,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sort"
+	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 )
@@ -115,4 +119,97 @@ func GatewayYAMLListeners(gatewayYAML string) ([]GatewayListener, error) {
 		return nil, fmt.Errorf("parse gateway YAML: %w", err)
 	}
 	return GatewayListeners(obj)
+}
+
+// WaitForGatewayListeners polls the live Gateway until its listeners (name,
+// protocol, port) equal want (sorted by name, as GatewayListeners returns
+// them), or fails once timeout elapses with the last observed listeners.
+func WaitForGatewayListeners(ctx context.Context, k *Kube, ns, name string, want []GatewayListener, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last string
+	for {
+		obj, err := k.GetUnstructured(ctx, kubernetes.GatewayGVR, ns, name)
+		if err != nil {
+			last = fmt.Sprintf("error: %v", err)
+		} else if got, lerr := GatewayListeners(obj.Object); lerr != nil {
+			last = fmt.Sprintf("error: %v", lerr)
+		} else if reflect.DeepEqual(got, want) {
+			return nil
+		} else {
+			last = fmt.Sprintf("%v", got)
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return fmt.Errorf("gateway %s/%s listeners never became %v within %s (last: %s)", ns, name, want, timeout, last)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+// WaitForGatewayConditions polls the live Gateway until every condType in
+// condTypes (e.g. "Accepted", "Programmed") has status True, or fails once
+// timeout elapses with the last observed state.
+func WaitForGatewayConditions(ctx context.Context, k *Kube, ns, name string, timeout time.Duration, condTypes ...string) error {
+	deadline := time.Now().Add(timeout)
+	var last string
+	for {
+		obj, err := k.GetUnstructured(ctx, kubernetes.GatewayGVR, ns, name)
+		if err != nil {
+			last = fmt.Sprintf("error: %v", err)
+		} else {
+			conds, _, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
+			status := map[string]string{}
+			for _, c := range conds {
+				if m, ok := c.(map[string]interface{}); ok {
+					t, _ := m["type"].(string)
+					st, _ := m["status"].(string)
+					status[t] = st
+				}
+			}
+			all := true
+			for _, ct := range condTypes {
+				if status[ct] != "True" {
+					all = false
+				}
+			}
+			if all {
+				return nil
+			}
+			last = fmt.Sprintf("%v", status)
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return fmt.Errorf("gateway %s/%s conditions %v never all True within %s (last: %s)", ns, name, condTypes, timeout, last)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// WaitForGatewayGone polls until the Gateway no longer exists, or fails once
+// timeout elapses.
+func WaitForGatewayGone(ctx context.Context, k *Kube, ns, name string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last string
+	for {
+		_, err := k.GetUnstructured(ctx, kubernetes.GatewayGVR, ns, name)
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			last = fmt.Sprintf("error: %v", err)
+		} else {
+			last = "still present"
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return fmt.Errorf("gateway %s/%s not deleted within %s (last: %s)", ns, name, timeout, last)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+		}
+	}
 }

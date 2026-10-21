@@ -18,7 +18,7 @@ import (
 // (no distribution assertion), consistent with the spec decision that the L4
 // suite matches the HTTP/gRPC precedent and does not observe weighting.
 func TestStreamLoadBalancing(t *testing.T) {
-	s := newStream(t)
+	s := newStream(t, models.StreamPort{Transport: "TCP", Port: 15700}, models.StreamPort{Transport: "UDP", Port: 15701})
 	fx := harness.NewStreamFixture(t, env)
 	lb := &routeplan.BackendTrafficPolicyInput{
 		LoadBalancer: &models.LoadBalancerConfig{Type: models.LoadBalancerTypeRoundRobin},

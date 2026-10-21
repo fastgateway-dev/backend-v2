@@ -25,7 +25,7 @@ func i64(v int64) *int64 { return &v }
 // ledger/spec: behavioral asserts fall back to config-Accepted where they
 // cannot be made reliable).
 func TestStreamTCPCircuitBreaker(t *testing.T) {
-	s := newStream(t)
+	s := newStream(t, models.StreamPort{Transport: "TCP", Port: 15400})
 	fx := harness.NewStreamFixture(t, env)
 	fx.Route(s, services.CreateRouteInput{
 		Name:     harness.UniqueName(t),

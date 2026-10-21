@@ -18,7 +18,7 @@ import (
 // weighted-backends precedent exactly: this asserts the route serves, NOT the
 // traffic distribution (the suite does not observe weighting).
 func TestStreamWeightedBackends(t *testing.T) {
-	s := newStream(t)
+	s := newStream(t, models.StreamPort{Transport: "TCP", Port: 15800})
 	fx := harness.NewStreamFixture(t, env)
 	fx.Route(s, services.CreateRouteInput{
 		Name:     harness.UniqueName(t),

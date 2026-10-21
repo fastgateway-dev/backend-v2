@@ -61,16 +61,17 @@ func teamID(t *testing.T) uuid.UUID {
 	return id
 }
 
-// newStream creates a Stream under the suite's stream-enabled template in the
-// seeded "default" namespace, registering cleanup to delete it after its
-// routes are torn down.
 // maxStreamNameLen mirrors the backend's limit: the stream's Gateway is
 // "str-" + name, which must fit the 63-char DNS-label limit.
 const maxStreamNameLen = 63 - len("str-")
 
-func newStream(t *testing.T) models.Stream {
+// newStream creates a Stream under the suite's stream-enabled template in the
+// seeded "default" namespace, claiming ports (at least one: a stream's Gateway
+// listens on exactly its claims, and L4 routes may only use a claimed port),
+// registering cleanup to delete it after its routes are torn down.
+func newStream(t *testing.T, ports ...models.StreamPort) models.Stream {
 	t.Helper()
-	s, err := env.Admin.CreateStream(context.Background(), env.ProjectID, harness.UniqueNameMax(t, maxStreamNameLen), "default", streamTemplateID)
+	s, err := env.Admin.CreateStream(context.Background(), env.ProjectID, harness.UniqueNameMax(t, maxStreamNameLen), "default", streamTemplateID, ports)
 	if err != nil {
 		t.Fatalf("create stream: %v", err)
 	}

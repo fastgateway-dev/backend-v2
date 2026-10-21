@@ -21,7 +21,7 @@ import (
 // route's port, /versions has the deploy's snapshot, and the approval diff of
 // a following update is a 200 carrying TCPRoute YAML.
 func TestStreamLegibility_ManifestsEntrypointVersionsAndDiff(t *testing.T) {
-	s := newStream(t)
+	s := newStream(t, models.StreamPort{Transport: "TCP", Port: 15400}, models.StreamPort{Transport: "TCP", Port: 15401})
 	fx := harness.NewStreamFixture(t, env)
 	cfg := services.CreateRouteInput{
 		Name:     harness.UniqueName(t),

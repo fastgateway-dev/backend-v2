@@ -19,7 +19,7 @@ import (
 // reliably reproducible; the BTP-Accepted gate inside StreamFixture.Route is
 // the policy assertion, and the dial below is the liveness assertion.
 func TestStreamTCPTimeout(t *testing.T) {
-	s := newStream(t)
+	s := newStream(t, models.StreamPort{Transport: "TCP", Port: 15500})
 	fx := harness.NewStreamFixture(t, env)
 	fx.Route(s, services.CreateRouteInput{
 		Name:     harness.UniqueName(t),
