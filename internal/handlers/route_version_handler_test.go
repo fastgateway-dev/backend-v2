@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/handlers"
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
+	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -313,4 +315,39 @@ func TestRouteVersionHandler_Rollback_BadRequestError(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	mockRV.AssertExpectations(t)
+}
+
+// A rollback resubmits the old config through the route update, so its
+// stream-port errors map exactly as a route write's do (Contract: a
+// collision is 409, an unclaimed port 400).
+func TestRouteVersionHandler_Rollback_StreamPortErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		code int
+	}{
+		{"port not claimed", fmt.Errorf("%w: TCP/5433 is not one of the stream's TCP claims (TCP/5432)", services.ErrPortNotClaimed), http.StatusBadRequest},
+		{"port collision", fmt.Errorf("%w: TCP/5432 is used by another route on stream \"db\"", services.ErrPortCollision), http.StatusConflict},
+		{"route not found", fmt.Errorf("wrapped: %w", services.ErrRouteNotFound), http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockRV := new(mocks.MockRouteVersionService)
+			h := handlers.NewRouteVersionHandler(mockRV, new(mocks.MockAuditService))
+			user := testUser()
+			routeID := uuid.New()
+			mockRV.On("Rollback", routeID, 1, user.ID).Return(nil, tc.err)
+
+			router := gin.New()
+			router.POST("/projects/:projectId/routes/:routeId/rollback/:version", func(c *gin.Context) {
+				c.Set("user", user)
+				h.Rollback(c)
+			})
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/projects/"+uuid.New().String()+"/routes/"+routeID.String()+"/rollback/1", nil)
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, tc.code, w.Code, w.Body.String())
+			mockRV.AssertExpectations(t)
+		})
+	}
 }

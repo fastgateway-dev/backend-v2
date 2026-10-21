@@ -2570,7 +2570,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: The listener port is already used by another route on the stream (same protocol), or held by a pending route approval
+          description: The listener port is already used by another route on the stream (same protocol) - by its route row, a pending route approval, or its deployed version
           content:
             application/json:
               schema:
@@ -2681,7 +2681,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: The new listener port is already used by another route on the stream
+          description: The new listener port is already used by another route on the stream (its route row, a pending route approval, or its deployed version)
           content:
             application/json:
               schema:
@@ -2948,6 +2948,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: The version's listener port is already used by another route of the stream (its route row, a pending route approval, or its deployed version)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/domains:
     get:
       tags:

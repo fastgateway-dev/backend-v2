@@ -101,14 +101,7 @@ func (h *RouteVersionHandler) Rollback(c *gin.Context) {
 
 	route, err := h.routeVersionService.Rollback(routeID, version, user.ID)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "not found") {
-			c.JSON(http.StatusNotFound, gin.H{"error": errMsg})
-		} else if strings.Contains(errMsg, "failed to unmarshal") || strings.Contains(errMsg, "failed to get version") {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": errMsg})
-		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
-		}
+		c.JSON(rollbackErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 
@@ -126,4 +119,24 @@ func (h *RouteVersionHandler) Rollback(c *gin.Context) {
 	)
 
 	c.JSON(http.StatusOK, route)
+}
+
+// rollbackErrorStatus maps a rollback error to its HTTP status. A rollback
+// resubmits the old config through the route update, so the sentinel errors
+// a route write knows map as they do there (a stream-port collision is 409,
+// an unclaimed port 400). Anything else keeps the message-based mapping: a
+// missing version or route is 404, a version that cannot be loaded or decoded
+// is 500, everything else 400.
+func rollbackErrorStatus(err error) int {
+	if status, ok := routeWriteKnownErrorStatus(err); ok {
+		return status
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "not found"):
+		return http.StatusNotFound
+	case strings.Contains(msg, "failed to unmarshal"), strings.Contains(msg, "failed to get version"):
+		return http.StatusInternalServerError
+	}
+	return http.StatusBadRequest
 }

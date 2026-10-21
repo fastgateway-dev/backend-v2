@@ -77,7 +77,7 @@ stream-routes:
             schema:
               $ref: '../schemas/common.yaml#/Error'
       '409':
-        description: The listener port is already used by another route on the stream (same protocol), or held by a pending route approval
+        description: The listener port is already used by another route on the stream (same protocol) - by its route row, a pending route approval, or its deployed version
         content:
           application/json:
             schema:
@@ -140,7 +140,7 @@ stream-routes_{routeId}:
       '404':
         $ref: '../components/responses.yaml#/NotFound'
       '409':
-        description: The new listener port is already used by another route on the stream
+        description: The new listener port is already used by another route on the stream (its route row, a pending route approval, or its deployed version)
         content:
           application/json:
             schema:
@@ -455,3 +455,9 @@ stream-route-version-rollback:
         $ref: '../components/responses.yaml#/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: The version's listener port is already used by another route of the stream (its route row, a pending route approval, or its deployed version)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'

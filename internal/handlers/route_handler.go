@@ -17,23 +17,31 @@ import (
 // an L4 listener-port collision is a 409; a port the stream does not claim is a
 // 400 (the caller picked a bad port); a missing (or other-project) stream
 // is a 404; L4 shape violations (L7 field, external backend, missing
-// port/backend), reserved ports and ports outside the template's TCP/UDP range
-// are 400, as is everything else.
+// port/backend) and reserved ports are 400, as is everything else.
 func routeWriteErrorStatus(err error) int {
+	if status, ok := routeWriteKnownErrorStatus(err); ok {
+		return status
+	}
+	return http.StatusBadRequest
+}
+
+// routeWriteKnownErrorStatus is routeWriteErrorStatus for the sentinel errors
+// it names; ok is false for any other error, so callers that resubmit through
+// the route update (rollback) can map the rest their own way.
+func routeWriteKnownErrorStatus(err error) (status int, ok bool) {
 	switch {
 	case errors.Is(err, services.ErrPortCollision):
-		return http.StatusConflict
+		return http.StatusConflict, true
 	case errors.Is(err, services.ErrStreamNotFound), errors.Is(err, services.ErrRouteNotFound):
-		return http.StatusNotFound
+		return http.StatusNotFound, true
 	case errors.Is(err, services.ErrL4RejectsL7Field),
 		errors.Is(err, services.ErrL4ExternalBackend),
 		errors.Is(err, services.ErrL4MissingListenerPort),
 		errors.Is(err, services.ErrL4MissingBackend),
-		errors.Is(err, services.ErrPortOutOfRange),
 		errors.Is(err, services.ErrPortNotClaimed):
-		return http.StatusBadRequest
+		return http.StatusBadRequest, true
 	}
-	return http.StatusBadRequest
+	return 0, false
 }
 
 // routeDeployErrorStatus maps a route deploy error to its HTTP status. A route
