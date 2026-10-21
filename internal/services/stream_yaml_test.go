@@ -70,7 +70,7 @@ func TestStreamYAMLs_EqualWhatDeployL4Applies(t *testing.T) {
 	assert.Equal(t, current.ID, yamls.Routes[0].RouteID)
 	assert.Equal(t, "pg", yamls.Routes[0].Name)
 	assert.Equal(t, models.RouteProtocolTCP, yamls.Routes[0].Protocol)
-	wantRoute, err := yaml.Marshal(kubernetes.BuildTCPRouteObject(*tcp, kubernetes.TCPRouteGVR.GroupVersion().String()))
+	wantRoute, err := kubernetes.MarshalRouteYAML(kubernetes.BuildTCPRouteObject(*tcp, kubernetes.TCPRouteGVR.GroupVersion().String()))
 	require.NoError(t, err)
 	assert.Equal(t, string(wantRoute), yamls.Routes[0].RouteYAML, "routeYaml must be the TCPRoute UpdateTCPRoute applied")
 	wantBTP, err := yaml.Marshal(kubernetes.BuildBackendTrafficPolicy(btp).Object)

@@ -256,7 +256,7 @@ func (q *routeQuery) generateAPIKeyClientResourceYAMLs(route *models.Route, doma
 			grpcRouteConfig := q.assembler.buildAPIKeyGRPCRouteConfig(route, domain, client)
 			grpcRoute := kubernetes.BuildGRPCRouteObject(grpcRouteConfig)
 			if grpcRoute != nil {
-				yamlBytes, err := yaml.Marshal(grpcRoute)
+				yamlBytes, err := kubernetes.MarshalRouteYAML(grpcRoute)
 				if err == nil {
 					clientResource.HTTPRouteYAML = string(yamlBytes)
 				}
@@ -265,7 +265,7 @@ func (q *routeQuery) generateAPIKeyClientResourceYAMLs(route *models.Route, doma
 			httpRouteConfig := q.assembler.buildAPIKeyHTTPRouteConfigRedacted(route, domain, client)
 			httpRoute := kubernetes.BuildHTTPRouteObject(httpRouteConfig)
 			if httpRoute != nil {
-				yamlBytes, err := yaml.Marshal(httpRoute)
+				yamlBytes, err := kubernetes.MarshalRouteYAML(httpRoute)
 				if err == nil {
 					clientResource.HTTPRouteYAML = string(yamlBytes)
 				}
@@ -626,7 +626,7 @@ func (q *routeQuery) renderL4RouteYAML(route *models.Route, stream *models.Strea
 		return "", fmt.Errorf("unsupported L4 protocol %q", route.Protocol)
 	}
 
-	yamlBytes, err := yaml.Marshal(obj)
+	yamlBytes, err := kubernetes.MarshalRouteYAML(obj)
 	if err != nil {
 		return "", fmt.Errorf("marshal L4 route YAML: %w", err)
 	}
