@@ -189,6 +189,65 @@ func WaitForGatewayConditions(ctx context.Context, k *Kube, ns, name string, tim
 	}
 }
 
+// WaitForGatewayListenerConditions polls the live Gateway until every listener
+// in names appears in status.listeners with Accepted=True and Programmed=True
+// (and ResolvedRefs=True when the controller reports it), or fails once timeout
+// elapses with the last observed per-listener conditions. A single listener's
+// rejection is reported here, not in the Gateway-level conditions.
+func WaitForGatewayListenerConditions(ctx context.Context, k *Kube, ns, name string, names []string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last string
+	for {
+		obj, err := k.GetUnstructured(ctx, kubernetes.GatewayGVR, ns, name)
+		if err != nil {
+			last = fmt.Sprintf("error: %v", err)
+		} else {
+			listeners, _, _ := unstructured.NestedSlice(obj.Object, "status", "listeners")
+			observed := map[string]map[string]string{}
+			for _, l := range listeners {
+				lm, ok := l.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				ln, _ := lm["name"].(string)
+				conds := map[string]string{}
+				cs, _ := lm["conditions"].([]interface{})
+				for _, c := range cs {
+					if cm, ok := c.(map[string]interface{}); ok {
+						t, _ := cm["type"].(string)
+						st, _ := cm["status"].(string)
+						conds[t] = st
+					}
+				}
+				observed[ln] = conds
+			}
+			all := true
+			for _, n := range names {
+				conds, ok := observed[n]
+				if !ok || conds["Accepted"] != "True" || conds["Programmed"] != "True" {
+					all = false
+					break
+				}
+				if rr, has := conds["ResolvedRefs"]; has && rr != "True" {
+					all = false
+					break
+				}
+			}
+			if all {
+				return nil
+			}
+			last = fmt.Sprintf("%v", observed)
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return fmt.Errorf("gateway %s/%s listeners %v never all Accepted+Programmed within %s (last status.listeners conditions: %s)", ns, name, names, timeout, last)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
 // WaitForGatewayGone polls until the Gateway no longer exists, or fails once
 // timeout elapses.
 func WaitForGatewayGone(ctx context.Context, k *Kube, ns, name string, timeout time.Duration) error {

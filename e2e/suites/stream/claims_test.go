@@ -73,6 +73,12 @@ func TestStreamClaims_UnroutedListenersAccepted(t *testing.T) {
 	if err := harness.WaitForGatewayConditions(ctx, env.Kube, s.Namespace, s.K8sGatewayName, 2*time.Minute, "Accepted", "Programmed"); err != nil {
 		t.Fatal(err)
 	}
+	// A rejected listener is reported only in status.listeners (the Gateway-level
+	// Accepted stays True), so gate on each claimed listener individually.
+	if err := harness.WaitForGatewayListenerConditions(ctx, env.Kube, s.Namespace, s.K8sGatewayName,
+		[]string{"l4-tcp-15900", "l4-tcp-15902", "l4-udp-15901"}, 2*time.Minute); err != nil {
+		t.Fatal(err)
+	}
 
 	// The routed claim carries traffic.
 	addr, err := env.StreamGatewayAddr(ctx, s, 2*time.Minute)
@@ -151,6 +157,13 @@ func TestStreamClaims_RemovingUsedClaimIs409(t *testing.T) {
 	if err := harness.WaitForGatewayListeners(ctx, env.Kube, s.Namespace, s.K8sGatewayName, both, time.Minute); err != nil {
 		t.Fatal(err)
 	}
+	// Let Envoy Gateway finish its own status writes before the PATCH re-applies
+	// the Gateway: the backend's apply is a Get+Update without conflict retry, so
+	// a concurrent status write could fail it.
+	if err := harness.WaitForGatewayListenerConditions(ctx, env.Kube, s.Namespace, s.K8sGatewayName,
+		[]string{"l4-tcp-15900", "l4-tcp-15902"}, 2*time.Minute); err != nil {
+		t.Fatal(err)
+	}
 
 	// Dropping 15902, which the route uses: 409.
 	_, err := env.Admin.UpdateStreamPorts(ctx, projectID, streamID, []models.StreamPort{{Transport: "TCP", Port: 15900}})
@@ -160,6 +173,9 @@ func TestStreamClaims_RemovingUsedClaimIs409(t *testing.T) {
 	updated, err := env.Admin.UpdateStreamPorts(ctx, projectID, streamID, []models.StreamPort{{Transport: "TCP", Port: 15902}})
 	if err != nil {
 		t.Fatalf("drop unused claim tcp/15900: want 200, got %v", err)
+	}
+	if updated.Status != services.StreamStatusActive {
+		t.Fatalf("stream status after dropping tcp/15900 = %q (%s), want %q: the Gateway re-apply failed", updated.Status, updated.StatusMessage, services.StreamStatusActive)
 	}
 	if len(updated.Ports) != 1 || updated.Ports[0].Transport != "TCP" || updated.Ports[0].Port != 15902 {
 		t.Fatalf("updated stream ports = %+v, want [TCP/15902]", updated.Ports)
