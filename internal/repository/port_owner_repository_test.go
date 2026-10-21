@@ -50,12 +50,10 @@ func TestStreamRepository_L4PortOwners_MatchUsedPortQueries(t *testing.T) {
 		{Transport: "TCP", Port: 5432, StreamID: a.ID, StreamName: "owner-a", RouteID: pg, RouteName: "r-" + pg.String(), Status: "active"},
 	}, byStream, "rejected routes hold no port; rows are ordered by port")
 
-	// By template: same rows as UsedL4Ports.
+	// By template: every non-rejected L4 route of the template's streams.
 	byTmpl, err := repo.L4PortOwnersByTemplate(tmplID)
 	require.NoError(t, err)
-	usedTmpl, err := repo.UsedL4Ports(tmplID, nil)
-	require.NoError(t, err)
-	assert.ElementsMatch(t, usedTmpl, portUsesOf(byTmpl), "owner query must match UsedL4Ports")
+	assert.ElementsMatch(t, []repository.PortUse{{Transport: "UDP", Port: 53}, {Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 6379}}, portUsesOf(byTmpl))
 	require.Len(t, byTmpl, 3)
 	assert.Equal(t, redis, byTmpl[2].RouteID)
 	assert.Equal(t, "owner-b", byTmpl[2].StreamName)

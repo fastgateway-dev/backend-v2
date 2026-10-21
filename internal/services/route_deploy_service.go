@@ -11,7 +11,6 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
 	"github.com/fastgateway-dev/backend-v2/internal/routestate"
-	"github.com/fastgateway-dev/backend-v2/internal/streamplan"
 	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -57,7 +56,6 @@ type routeDeploy struct {
 	clientAttachmentRepo     repository.ClientAttachmentRepositoryInterface
 
 	streams          StreamReader
-	k8sGateways      GatewayApplier
 	k8sL4Routes      L4RouteApplier
 	k8sRoutes        RouteApplier
 	k8sPolicies      PolicyApplier
@@ -368,13 +366,13 @@ func (d *routeDeploy) finishDeploy(route *models.Route, approval *models.Approva
 
 // deployL4 deploys an approved L4 (TCP/UDP) route.
 //
-// The Stream's Gateway listeners come from the stream's port claims (see
-// StreamService.ApplyGateway), not from its routes; the Gateway is re-applied
-// here ahead of the route so the route never references a listener that does
-// not exist yet. (The Gateway write is removed from deploy in a later change.)
-//
-// The GatewayConfig is built and applied in-process: its L4 Listeners are
-// json:"-" and would be lost if the config were serialized or queued.
+// It never writes the Stream's Gateway: the stream owns it and applies it from
+// its port claims (StreamService.ApplyGateway), so the listener a route's
+// sectionName points at already exists. Deploy only re-checks that the route's
+// port is still claimed. The route row already holds the port and the unique
+// index blocks a second row on it, so "still claimed" is the whole re-check.
+// A delete needs no claim: the TCPRoute/UDPRoute goes away whatever the
+// stream claims now.
 func (d *routeDeploy) deployL4(ctx context.Context, route *models.Route, approval *models.Approval, deployedBy uuid.UUID) (*models.Route, error) {
 	if route.StreamID == nil {
 		return nil, fmt.Errorf("L4 route %s has no stream", route.ID)
@@ -385,16 +383,16 @@ func (d *routeDeploy) deployL4(ctx context.Context, route *models.Route, approva
 	}
 
 	switch approval.Action {
-	case models.ApprovalActionCreate, models.ApprovalActionUpdate, models.ApprovalActionDelete:
+	case models.ApprovalActionCreate, models.ApprovalActionUpdate:
+		transport := route.Transport()
+		if !stream.Ports.Has(transport, route.Config.ListenerPort) {
+			return nil, fmt.Errorf("%w: %s/%d is no longer claimed by stream %q",
+				ErrPortNotClaimed, transport, route.Config.ListenerPort, stream.Name)
+		}
+	case models.ApprovalActionDelete:
+		// Nothing to re-check; see above.
 	default:
 		return nil, fmt.Errorf("unsupported approval action %q for L4 route", approval.Action)
-	}
-
-	// The Gateway comes from the stream's port claims, not from the route set.
-	gwConfig := streamplan.BuildStreamGatewayConfig(*stream)
-	if err := d.k8sGateways.UpdateGateway(ctx, stream.ProjectID, &gwConfig); err != nil {
-		log.Printf("Failed to apply Stream Gateway in Kubernetes: %v", err)
-		return nil, fmt.Errorf("failed to apply Stream Gateway in Kubernetes: %w", err)
 	}
 
 	switch approval.Action {

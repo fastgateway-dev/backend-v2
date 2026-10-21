@@ -237,7 +237,6 @@ func main() {
 		K8sAPIKeys:               k8sService,
 		K8sRefGrants:             k8sService,
 		Streams:                  streamRepo,
-		K8sGateways:              k8sService,
 		K8sL4Routes:              k8sService,
 		Capabilities:             capabilityService,
 	})

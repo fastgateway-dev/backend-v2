@@ -8122,74 +8122,6 @@ func (_c *MockStreamPortStore_PendingL4PortOwnersByStream_Call) RunAndReturn(run
 	return _c
 }
 
-// UsedL4Ports provides a mock function for the type MockStreamPortStore
-func (_mock *MockStreamPortStore) UsedL4Ports(templateID uuid.UUID, excludeRouteID *uuid.UUID) ([]services.PortUse, error) {
-	ret := _mock.Called(templateID, excludeRouteID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UsedL4Ports")
-	}
-
-	var r0 []services.PortUse
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, *uuid.UUID) ([]services.PortUse, error)); ok {
-		return returnFunc(templateID, excludeRouteID)
-	}
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID, *uuid.UUID) []services.PortUse); ok {
-		r0 = returnFunc(templateID, excludeRouteID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]services.PortUse)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(uuid.UUID, *uuid.UUID) error); ok {
-		r1 = returnFunc(templateID, excludeRouteID)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockStreamPortStore_UsedL4Ports_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UsedL4Ports'
-type MockStreamPortStore_UsedL4Ports_Call struct {
-	*mock.Call
-}
-
-// UsedL4Ports is a helper method to define mock.On call
-//   - templateID uuid.UUID
-//   - excludeRouteID *uuid.UUID
-func (_e *MockStreamPortStore_Expecter) UsedL4Ports(templateID any, excludeRouteID any) *MockStreamPortStore_UsedL4Ports_Call {
-	return &MockStreamPortStore_UsedL4Ports_Call{Call: _e.mock.On("UsedL4Ports", templateID, excludeRouteID)}
-}
-
-func (_c *MockStreamPortStore_UsedL4Ports_Call) Run(run func(templateID uuid.UUID, excludeRouteID *uuid.UUID)) *MockStreamPortStore_UsedL4Ports_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 uuid.UUID
-		if args[0] != nil {
-			arg0 = args[0].(uuid.UUID)
-		}
-		var arg1 *uuid.UUID
-		if args[1] != nil {
-			arg1 = args[1].(*uuid.UUID)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockStreamPortStore_UsedL4Ports_Call) Return(portUses []services.PortUse, err error) *MockStreamPortStore_UsedL4Ports_Call {
-	_c.Call.Return(portUses, err)
-	return _c
-}
-
-func (_c *MockStreamPortStore_UsedL4Ports_Call) RunAndReturn(run func(templateID uuid.UUID, excludeRouteID *uuid.UUID) ([]services.PortUse, error)) *MockStreamPortStore_UsedL4Ports_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // UsedPortsByStream provides a mock function for the type MockStreamPortStore
 func (_mock *MockStreamPortStore) UsedPortsByStream(streamID uuid.UUID, excludeRouteID *uuid.UUID) ([]services.PortUse, error) {
 	ret := _mock.Called(streamID, excludeRouteID)
@@ -8469,12 +8401,12 @@ func (_m *MockL4PortChecker) EXPECT() *MockL4PortChecker_Expecter {
 	return &MockL4PortChecker_Expecter{mock: &_m.Mock}
 }
 
-// CheckPortCollision provides a mock function for the type MockL4PortChecker
-func (_mock *MockL4PortChecker) CheckPortCollision(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error {
+// CheckRoutePort provides a mock function for the type MockL4PortChecker
+func (_mock *MockL4PortChecker) CheckRoutePort(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error {
 	ret := _mock.Called(streamID, transport, port, excludeRouteID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CheckPortCollision")
+		panic("no return value specified for CheckRoutePort")
 	}
 
 	var r0 error
@@ -8486,21 +8418,21 @@ func (_mock *MockL4PortChecker) CheckPortCollision(streamID uuid.UUID, transport
 	return r0
 }
 
-// MockL4PortChecker_CheckPortCollision_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CheckPortCollision'
-type MockL4PortChecker_CheckPortCollision_Call struct {
+// MockL4PortChecker_CheckRoutePort_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CheckRoutePort'
+type MockL4PortChecker_CheckRoutePort_Call struct {
 	*mock.Call
 }
 
-// CheckPortCollision is a helper method to define mock.On call
+// CheckRoutePort is a helper method to define mock.On call
 //   - streamID uuid.UUID
 //   - transport string
 //   - port int
 //   - excludeRouteID *uuid.UUID
-func (_e *MockL4PortChecker_Expecter) CheckPortCollision(streamID any, transport any, port any, excludeRouteID any) *MockL4PortChecker_CheckPortCollision_Call {
-	return &MockL4PortChecker_CheckPortCollision_Call{Call: _e.mock.On("CheckPortCollision", streamID, transport, port, excludeRouteID)}
+func (_e *MockL4PortChecker_Expecter) CheckRoutePort(streamID any, transport any, port any, excludeRouteID any) *MockL4PortChecker_CheckRoutePort_Call {
+	return &MockL4PortChecker_CheckRoutePort_Call{Call: _e.mock.On("CheckRoutePort", streamID, transport, port, excludeRouteID)}
 }
 
-func (_c *MockL4PortChecker_CheckPortCollision_Call) Run(run func(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID)) *MockL4PortChecker_CheckPortCollision_Call {
+func (_c *MockL4PortChecker_CheckRoutePort_Call) Run(run func(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID)) *MockL4PortChecker_CheckRoutePort_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 uuid.UUID
 		if args[0] != nil {
@@ -8528,12 +8460,12 @@ func (_c *MockL4PortChecker_CheckPortCollision_Call) Run(run func(streamID uuid.
 	return _c
 }
 
-func (_c *MockL4PortChecker_CheckPortCollision_Call) Return(err error) *MockL4PortChecker_CheckPortCollision_Call {
+func (_c *MockL4PortChecker_CheckRoutePort_Call) Return(err error) *MockL4PortChecker_CheckRoutePort_Call {
 	_c.Call.Return(err)
 	return _c
 }
 
-func (_c *MockL4PortChecker_CheckPortCollision_Call) RunAndReturn(run func(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error) *MockL4PortChecker_CheckPortCollision_Call {
+func (_c *MockL4PortChecker_CheckRoutePort_Call) RunAndReturn(run func(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error) *MockL4PortChecker_CheckRoutePort_Call {
 	_c.Call.Return(run)
 	return _c
 }

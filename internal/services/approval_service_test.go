@@ -103,7 +103,6 @@ func newApprovalEngine(
 		K8sAPIKeys:       k8s,
 		K8sRefGrants:     k8s,
 		Streams:          new(mocks.MockStreamReader),
-		K8sGateways:      k8s,
 		K8sL4Routes:      k8s,
 		Capabilities:     stubL4Capabilities{},
 	})

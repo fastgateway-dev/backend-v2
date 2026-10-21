@@ -155,10 +155,11 @@ func (w *routeWrite) validateRouteTrafficPolicies(config *models.RouteConfig, bt
 }
 
 // validateL4Listener enforces the listener-port rules of an L4 (tcp/udp)
-// route: the static reserved/range check first (no DB), then the merge-aware
-// collision check, which also reserves a merged template's HTTP/HTTPS ports.
-// Errors wrap ErrInvalidListenerPort/ErrReservedPort (-> 400) or
-// ErrPortCollision (-> 409); an unwired checker or missing stream fails closed.
+// route: the static reserved check first (no DB), then CheckRoutePort, which
+// requires the stream to claim the port and no other route to use it.
+// Errors wrap ErrInvalidListenerPort/ErrReservedPort/ErrPortNotClaimed
+// (-> 400) or ErrPortCollision (-> 409); an unwired checker or missing stream
+// fails closed.
 func (w *routeWrite) validateL4Listener(config *models.RouteConfig, protocol models.RouteProtocol, streamID *uuid.UUID, excludeRouteID *uuid.UUID) error {
 	if streamID == nil {
 		return errors.New("an L4 route must belong to a stream")
@@ -167,10 +168,10 @@ func (w *routeWrite) validateL4Listener(config *models.RouteConfig, protocol mod
 		return err
 	}
 	if w.l4Ports == nil {
-		return errors.New("L4 port collision checker is not configured")
+		return errors.New("L4 port checker is not configured")
 	}
 	transport := models.Route{Protocol: protocol}.Transport()
-	return w.l4Ports.CheckPortCollision(*streamID, transport, config.ListenerPort, excludeRouteID)
+	return w.l4Ports.CheckRoutePort(*streamID, transport, config.ListenerPort, excludeRouteID)
 }
 
 // validateRouteShapeAndConflicts runs the protocol, essential-config and

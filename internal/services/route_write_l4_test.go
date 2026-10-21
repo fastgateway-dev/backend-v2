@@ -1,7 +1,9 @@
 package services_test
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/fastgateway-dev/backend-v2/internal/mocks"
@@ -83,7 +85,7 @@ func TestRouteWrite_CreateForStream_Success_SubmitsRouteApproval(t *testing.T) {
 	user := uuid.New()
 
 	f.routeRepo.On("ExistsByStreamAndName", f.stream.ID, "pg").Return(false, nil)
-	f.ports.On("CheckPortCollision", f.stream.ID, "TCP", 5432, (*uuid.UUID)(nil)).Return(nil)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 5432, (*uuid.UUID)(nil)).Return(nil)
 	var persisted *models.Route
 	f.routeRepo.On("Create", mock.AnythingOfType("*models.Route")).Run(func(args mock.Arguments) {
 		persisted = args.Get(0).(*models.Route)
@@ -110,7 +112,7 @@ func TestRouteWrite_CreateForStream_Success_SubmitsRouteApproval(t *testing.T) {
 func TestRouteWrite_CreateForStream_UDP(t *testing.T) {
 	f := newL4WriteFixture(t, true)
 	f.routeRepo.On("ExistsByStreamAndName", f.stream.ID, "dns").Return(false, nil)
-	f.ports.On("CheckPortCollision", f.stream.ID, "UDP", 5353, (*uuid.UUID)(nil)).Return(nil)
+	f.ports.On("CheckRoutePort", f.stream.ID, "UDP", 5353, (*uuid.UUID)(nil)).Return(nil)
 	f.routeRepo.On("Create", mock.Anything).Return(nil)
 	f.approvalRepo.On("Create", mock.Anything).Return(nil)
 
@@ -123,7 +125,7 @@ func TestRouteWrite_CreateForStream_UDP(t *testing.T) {
 func TestRouteWrite_CreateForStream_ApprovalsDisabled_FastPath(t *testing.T) {
 	f := newL4WriteFixture(t, false)
 	f.routeRepo.On("ExistsByStreamAndName", f.stream.ID, "pg").Return(false, nil)
-	f.ports.On("CheckPortCollision", f.stream.ID, "TCP", 5432, (*uuid.UUID)(nil)).Return(nil)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 5432, (*uuid.UUID)(nil)).Return(nil)
 	f.routeRepo.On("Create", mock.Anything).Return(nil)
 	f.routeRepo.On("Update", mock.Anything).Return(nil)
 
@@ -178,7 +180,7 @@ func TestRouteWrite_CreateForStream_NameTaken(t *testing.T) {
 func TestRouteWrite_CreateForStream_PortCollisionPrecheck(t *testing.T) {
 	f := newL4WriteFixture(t, true)
 	f.routeRepo.On("ExistsByStreamAndName", f.stream.ID, "pg").Return(false, nil)
-	f.ports.On("CheckPortCollision", f.stream.ID, "TCP", 5432, (*uuid.UUID)(nil)).Return(services.ErrPortCollision)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 5432, (*uuid.UUID)(nil)).Return(services.ErrPortCollision)
 
 	_, err := f.svc.CreateForStream(f.stream.ProjectID, f.stream.ID, f.input("pg", models.RouteProtocolTCP, 5432), uuid.New())
 
@@ -204,7 +206,7 @@ func TestRouteWrite_CreateForStream_UniqueViolationOnPersist_MapsToPortCollision
 		t.Run(name, func(t *testing.T) {
 			f := newL4WriteFixture(t, true)
 			f.routeRepo.On("ExistsByStreamAndName", f.stream.ID, "pg").Return(false, nil)
-			f.ports.On("CheckPortCollision", f.stream.ID, "TCP", 5432, (*uuid.UUID)(nil)).Return(nil)
+			f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 5432, (*uuid.UUID)(nil)).Return(nil)
 			f.routeRepo.On("Create", mock.Anything).Return(persistErr)
 
 			_, err := f.svc.CreateForStream(f.stream.ProjectID, f.stream.ID, f.input("pg", models.RouteProtocolTCP, 5432), uuid.New())
@@ -218,7 +220,7 @@ func TestRouteWrite_CreateForStream_UniqueViolationOnPersist_MapsToPortCollision
 func TestRouteWrite_CreateForStream_OtherPersistErrorIsNotMapped(t *testing.T) {
 	f := newL4WriteFixture(t, true)
 	f.routeRepo.On("ExistsByStreamAndName", f.stream.ID, "pg").Return(false, nil)
-	f.ports.On("CheckPortCollision", f.stream.ID, "TCP", 5432, (*uuid.UUID)(nil)).Return(nil)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 5432, (*uuid.UUID)(nil)).Return(nil)
 	boom := errors.New("connection reset")
 	f.routeRepo.On("Create", mock.Anything).Return(boom)
 
@@ -247,7 +249,7 @@ func TestRouteWrite_Update_L4Route_DoesNotPanicAndSubmitsApproval(t *testing.T) 
 	route := f.existingRoute(models.RouteStatusActive)
 	f.routeRepo.On("GetByID", route.ID).Return(route, nil)
 	f.approvalRepo.On("GetPendingByEntityID", models.ApprovalEntityRoute, route.ID).Return(nil, errors.New("none"))
-	f.ports.On("CheckPortCollision", f.stream.ID, "TCP", 6432, &route.ID).Return(nil)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 6432, &route.ID).Return(nil)
 	f.routeRepo.On("Update", mock.Anything).Return(nil)
 	f.approvalRepo.On("Create", mock.MatchedBy(func(a *models.Approval) bool {
 		return a.EntityType == models.ApprovalEntityRoute && a.Action == models.ApprovalActionUpdate &&
@@ -271,7 +273,7 @@ func TestRouteWrite_Update_L4Route_PortCollisionRejected(t *testing.T) {
 	f := newL4WriteFixture(t, true)
 	route := f.existingRoute(models.RouteStatusActive)
 	f.routeRepo.On("GetByID", route.ID).Return(route, nil)
-	f.ports.On("CheckPortCollision", f.stream.ID, "TCP", 6432, &route.ID).Return(services.ErrPortCollision)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 6432, &route.ID).Return(services.ErrPortCollision)
 
 	_, err := f.svc.Update(route.ID, &services.UpdateRouteInput{Config: f.input("pg", models.RouteProtocolTCP, 6432).Config}, uuid.New())
 
@@ -338,4 +340,62 @@ func TestRouteQuery_GetForStream(t *testing.T) {
 	assert.ErrorIs(t, err, services.ErrRouteNotFound)
 	_, err = f.svc.GetForStream(uuid.New(), f.stream.ID, route.ID)
 	assert.ErrorIs(t, err, services.ErrStreamNotFound)
+}
+
+func TestRouteWrite_CreateForStream_UnclaimedPortRejected(t *testing.T) {
+	f := newL4WriteFixture(t, true)
+	f.routeRepo.On("ExistsByStreamAndName", f.stream.ID, "pg").Return(false, nil)
+	notClaimed := fmt.Errorf("%w: TCP/5434 is not one of the stream's TCP claims (TCP/5432, TCP/5433)", services.ErrPortNotClaimed)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 5434, (*uuid.UUID)(nil)).Return(notClaimed)
+
+	_, err := f.svc.CreateForStream(f.stream.ProjectID, f.stream.ID, f.input("pg", models.RouteProtocolTCP, 5434), uuid.New())
+
+	assert.ErrorIs(t, err, services.ErrPortNotClaimed)
+	f.routeRepo.AssertNotCalled(t, "Create", mock.Anything)
+	f.approvalRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+func TestRouteWrite_Update_L4Route_UnclaimedPortRejected(t *testing.T) {
+	f := newL4WriteFixture(t, true)
+	route := f.existingRoute(models.RouteStatusActive)
+	f.routeRepo.On("GetByID", route.ID).Return(route, nil)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 5434, &route.ID).Return(services.ErrPortNotClaimed)
+
+	_, err := f.svc.Update(route.ID, &services.UpdateRouteInput{Config: f.input("pg", models.RouteProtocolTCP, 5434).Config}, uuid.New())
+
+	assert.ErrorIs(t, err, services.ErrPortNotClaimed)
+	f.routeRepo.AssertNotCalled(t, "Update", mock.Anything)
+}
+
+// A version saved on TCP/5434 cannot be rolled back to once the stream
+// stopped claiming 5434: Rollback goes through the normal update validation,
+// which rejects the port and writes nothing.
+func TestRollbackL4_ToUnclaimedPortIs400(t *testing.T) {
+	f := newL4WriteFixture(t, true)
+	route := f.existingRoute(models.RouteStatusActive)
+	f.routeRepo.On("GetByID", route.ID).Return(route, nil)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 5434, &route.ID).Return(services.ErrPortNotClaimed)
+
+	cfg := f.input("pg", models.RouteProtocolTCP, 5434).Config
+	snap, err := json.Marshal(models.RouteApprovalSnapshot{RouteConfig: &cfg})
+	require.NoError(t, err)
+	versionRepo := new(mocks.MockRouteVersionRepository)
+	versionRepo.On("GetByRouteIDAndVersion", route.ID, 3).Return(&models.RouteVersion{RouteID: route.ID, Version: 3, ConfigSnapshot: snap}, nil)
+	versions := services.NewRouteVersionService(services.RouteVersionServiceDeps{
+		VersionRepo:              versionRepo,
+		RouteRepo:                f.routeRepo,
+		SecurityPolicyRepo:       new(mocks.MockSecurityPolicyRepository),
+		BackendTrafficPolicyRepo: new(mocks.MockBackendTrafficPolicyRepository),
+		EnvoyExtensionPolicyRepo: new(mocks.MockEnvoyExtensionPolicyRepository),
+		WafPolicyRepo:            new(mocks.MockWafPolicyRepository),
+		RouteUpdater:             f.svc,
+	})
+
+	_, err = versions.Rollback(route.ID, 3, uuid.New())
+
+	require.ErrorIs(t, err, services.ErrPortNotClaimed)
+	f.routeRepo.AssertNotCalled(t, "Update", mock.Anything)
+	f.approvalRepo.AssertNotCalled(t, "Create", mock.Anything)
+	assert.Equal(t, 5432, route.Config.ListenerPort, "the route is untouched")
+	assert.Equal(t, models.RouteStatusActive, route.Status)
 }

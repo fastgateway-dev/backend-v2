@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/fastgateway-dev/backend-v2/internal/handlers"
@@ -1213,4 +1214,53 @@ func TestRouteHandler_CreateUpdate_PortErrorMapping(t *testing.T) {
 			assert.Equal(t, tc.code, w.Code, "update")
 		})
 	}
+}
+
+// A route port the stream does not claim is the caller's mistake on write and
+// preview (400), but on deploy it means the world changed after approval: the
+// claim was dropped in between, so the deploy conflicts with current state
+// (409). Deploy used to answer 400 to everything; this pins the split.
+func TestRouteHandler_PortNotClaimedMapping(t *testing.T) {
+	notClaimed := fmt.Errorf("%w: TCP/5434 is not one of the stream's TCP claims (TCP/5432)", services.ErrPortNotClaimed)
+	user := testUser()
+	projectID, streamID, routeID := uuid.New(), uuid.New(), uuid.New()
+	sid := streamID
+	route := &models.Route{ID: routeID, Name: "pg", TeamID: uuid.New(), StreamID: &sid}
+
+	mockRoute := new(mocks.MockRouteService)
+	h := handlers.NewRouteHandler(mockRoute, new(mocks.MockAuditService), routePermChecker())
+	mockRoute.On("GetByID", routeID).Return(route, nil)
+	mockRoute.On("GetForStream", projectID, streamID, routeID).Return(route, nil)
+	mockRoute.On("CreateForStream", projectID, streamID, mock.Anything, user.ID).Return(nil, notClaimed)
+	mockRoute.On("Update", routeID, mock.Anything, user.ID).Return(nil, notClaimed)
+	mockRoute.On("PreviewCreateForStream", projectID, streamID, mock.Anything).Return(nil, notClaimed)
+	mockRoute.On("PreviewUpdateForStream", routeID, mock.Anything).Return(nil, notClaimed)
+	mockRoute.On("Deploy", routeID, user.ID).Return(nil, notClaimed)
+
+	with := func(f func(c *gin.Context)) gin.HandlerFunc {
+		return func(c *gin.Context) { c.Set("user", user); f(c) }
+	}
+	router := gin.New()
+	base := "/projects/:projectId/streams/:streamId/routes"
+	router.POST(base, with(h.CreateForStream))
+	router.POST(base+"/preview", with(h.PreviewCreateForStream))
+	router.PUT(base+"/:routeId", with(h.UpdateForStream))
+	router.POST(base+"/:routeId/preview", with(h.PreviewUpdateForStream))
+	router.POST(base+"/:routeId/deploy", with(h.DeployForStream))
+
+	root := "/projects/" + projectID.String() + "/streams/" + streamID.String() + "/routes"
+	body := `{"name":"pg","teamId":"` + uuid.New().String() + `","protocol":"tcp","config":{"listenerPort":5434}}`
+	call := func(method, url string) int {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(method, url, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	assert.Equal(t, http.StatusBadRequest, call("POST", root), "create")
+	assert.Equal(t, http.StatusBadRequest, call("POST", root+"/preview"), "preview create")
+	assert.Equal(t, http.StatusBadRequest, call("PUT", root+"/"+routeID.String()), "update")
+	assert.Equal(t, http.StatusBadRequest, call("POST", root+"/"+routeID.String()+"/preview"), "preview update")
+	assert.Equal(t, http.StatusConflict, call("POST", root+"/"+routeID.String()+"/deploy"), "deploy")
 }

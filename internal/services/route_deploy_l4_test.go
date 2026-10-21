@@ -39,7 +39,6 @@ func newL4Fixture(t *testing.T) *l4Fixture {
 	}
 	f.svc, f.routeRepo, f.approvalRepo, _, _, _ = newTestRouteServiceWith(func(d *services.RouteServiceDeps) {
 		d.Streams = f.streamRepo
-		d.K8sGateways = f.k8s
 		d.K8sL4Routes = f.k8s
 		d.K8sPolicies = f.k8s
 		d.BackendTrafficPolicyRepo = f.btpRepo
@@ -47,6 +46,7 @@ func newL4Fixture(t *testing.T) *l4Fixture {
 	f.stream = &models.Stream{
 		ID: uuid.New(), ProjectID: uuid.New(), Name: "db", Namespace: "fastgateway-system",
 		K8sGatewayName: "str-db", K8sGatewayClass: "public-lb",
+		Ports: models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 6379}, {Transport: "UDP", Port: 53}},
 	}
 	f.streamRepo.On("GetByID", f.stream.ID).Return(f.stream, nil)
 	return f
@@ -83,71 +83,116 @@ func (f *l4Fixture) expectDeploy(route *models.Route, action models.ApprovalActi
 		Return(&models.Approval{Action: action}, nil)
 }
 
-func listenerNames(cfg *kubernetes.GatewayConfig) []string {
-	var out []string
-	for _, l := range cfg.Listeners {
-		out = append(out, l.Name)
-	}
-	return out
-}
-
-func TestRouteDeploy_L4_CreateSecondTCPRoute_AppliesGatewayThenRoute(t *testing.T) {
-	f := newL4Fixture(t)
-	f.stream.Ports = models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 6379}}
-	existing := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusActive)
-	newRoute := f.route("redis", models.RouteProtocolTCP, 6379, models.RouteStatusApproved)
-
-	f.expectDeploy(newRoute, models.ApprovalActionCreate)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{*existing}, nil)
-	f.routeRepo.On("Update", mock.Anything).Return(nil)
-
-	var gw *kubernetes.GatewayConfig
-	f.k8s.On("UpdateGateway", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).
-		Run(func(args mock.Arguments) { gw = args.Get(2).(*kubernetes.GatewayConfig) }).Return(nil)
-	var tcp *kubernetes.TCPRouteConfig
-	f.k8s.On("CreateTCPRoute", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.TCPRouteConfig"), kubernetes.TCPRouteGVR).
-		Run(func(args mock.Arguments) { tcp = args.Get(2).(*kubernetes.TCPRouteConfig) }).Return(nil)
-
-	got, err := f.svc.Deploy(newRoute.ID, uuid.New())
-	require.NoError(t, err)
-	assert.Equal(t, models.RouteStatusActive, got.Status)
-
-	require.NotNil(t, gw)
-	assert.Equal(t, "str-db", gw.Name)
-	assert.Equal(t, []string{"l4-tcp-5432", "l4-tcp-6379"}, listenerNames(gw),
-		"the Gateway carries the stream's claimed ports, not the route set")
-	require.NotNil(t, tcp)
-	assert.Equal(t, "redis-abcd1234", tcp.Name)
-	assert.Equal(t, "l4-tcp-6379", tcp.SectionName)
+// assertNoGatewayWrites fails if deploy touched the Stream's Gateway. The
+// mock panics on any call without an expectation; this makes the intent explicit.
+func (f *l4Fixture) assertNoGatewayWrites(t *testing.T) {
+	t.Helper()
+	f.k8s.AssertNotCalled(t, "UpdateGateway", mock.Anything, mock.Anything, mock.Anything)
 	f.k8s.AssertNotCalled(t, "CreateGateway", mock.Anything, mock.Anything, mock.Anything)
-	f.k8s.AssertNotCalled(t, "CreateHTTPRoute", mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestRouteDeploy_L4_GatewayAppliedBeforeRoute(t *testing.T) {
-	f := newL4Fixture(t)
-	route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusApproved)
-	f.expectDeploy(route, models.ApprovalActionCreate)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
-	f.routeRepo.On("Update", mock.Anything).Return(nil)
+func TestDeployL4_NoGatewayWrites(t *testing.T) {
+	t.Run("create", func(t *testing.T) {
+		f := newL4Fixture(t)
+		route := f.route("redis", models.RouteProtocolTCP, 6379, models.RouteStatusApproved)
+		f.expectDeploy(route, models.ApprovalActionCreate)
+		f.routeRepo.On("Update", mock.Anything).Return(nil)
+		var tcp *kubernetes.TCPRouteConfig
+		f.k8s.On("CreateTCPRoute", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.TCPRouteConfig"), kubernetes.TCPRouteGVR).
+			Run(func(args mock.Arguments) { tcp = args.Get(2).(*kubernetes.TCPRouteConfig) }).Return(nil)
 
-	var order []string
-	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).
-		Run(func(mock.Arguments) { order = append(order, "gateway") }).Return(nil)
-	f.k8s.On("CreateTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(mock.Arguments) { order = append(order, "route") }).Return(nil)
+		got, err := f.svc.Deploy(route.ID, uuid.New())
+		require.NoError(t, err)
+		assert.Equal(t, models.RouteStatusActive, got.Status)
+		require.NotNil(t, tcp)
+		assert.Equal(t, "l4-tcp-6379", tcp.SectionName)
+		f.assertNoGatewayWrites(t)
+	})
 
-	_, err := f.svc.Deploy(route.ID, uuid.New())
-	require.NoError(t, err)
-	assert.Equal(t, []string{"gateway", "route"}, order)
+	t.Run("update moving the port 5432 to 5433 follows in sectionName", func(t *testing.T) {
+		f := newL4Fixture(t)
+		f.stream.Ports = models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 5433}}
+		route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusPendingDeploy)
+		f.expectDeploy(route, models.ApprovalActionUpdate)
+		f.routeRepo.On("Update", mock.Anything).Return(nil)
+		var sections []string
+		f.k8s.On("UpdateTCPRoute", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.TCPRouteConfig"), kubernetes.TCPRouteGVR).
+			Run(func(args mock.Arguments) {
+				sections = append(sections, args.Get(2).(*kubernetes.TCPRouteConfig).SectionName)
+			}).Return(nil)
+
+		_, err := f.svc.Deploy(route.ID, uuid.New())
+		require.NoError(t, err)
+		route.Config.ListenerPort = 5433
+		route.Status = models.RouteStatusPendingDeploy
+		_, err = f.svc.Deploy(route.ID, uuid.New())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"l4-tcp-5432", "l4-tcp-5433"}, sections)
+		f.assertNoGatewayWrites(t)
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		f := newL4Fixture(t)
+		removing := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusPendingDeploy)
+		f.expectDeploy(removing, models.ApprovalActionDelete)
+		f.approvalRepo.On("DeleteByEntityID", models.ApprovalEntityRoute, removing.ID).Return(nil)
+		f.routeRepo.On("Delete", removing.ID).Return(nil)
+		f.k8s.On("DeleteTCPRoute", mock.Anything, f.stream.ProjectID, f.stream.Namespace, removing.K8sRouteName, kubernetes.TCPRouteGVR).Return(nil)
+
+		_, err := f.svc.Deploy(removing.ID, uuid.New())
+		require.NoError(t, err)
+		f.k8s.AssertCalled(t, "DeleteTCPRoute", mock.Anything, f.stream.ProjectID, f.stream.Namespace, removing.K8sRouteName, kubernetes.TCPRouteGVR)
+		f.routeRepo.AssertCalled(t, "Delete", removing.ID)
+		f.assertNoGatewayWrites(t)
+	})
+
+	t.Run("delete still works when the port is no longer claimed", func(t *testing.T) {
+		f := newL4Fixture(t)
+		f.stream.Ports = models.StreamPorts{{Transport: "TCP", Port: 6379}}
+		removing := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusPendingDeploy)
+		f.expectDeploy(removing, models.ApprovalActionDelete)
+		f.approvalRepo.On("DeleteByEntityID", models.ApprovalEntityRoute, removing.ID).Return(nil)
+		f.routeRepo.On("Delete", removing.ID).Return(nil)
+		f.k8s.On("DeleteTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		_, err := f.svc.Deploy(removing.ID, uuid.New())
+		require.NoError(t, err)
+		f.assertNoGatewayWrites(t)
+	})
+}
+
+func TestDeployL4_PortNoLongerClaimedFailsBeforeK8s(t *testing.T) {
+	for _, action := range []models.ApprovalAction{models.ApprovalActionCreate, models.ApprovalActionUpdate} {
+		t.Run(string(action), func(t *testing.T) {
+			f := newL4Fixture(t)
+			f.stream.Ports = models.StreamPorts{{Transport: "TCP", Port: 6379}} // 5432 was unclaimed
+			route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusApproved)
+			f.expectDeploy(route, action)
+
+			_, err := f.svc.Deploy(route.ID, uuid.New())
+			require.ErrorIs(t, err, services.ErrPortNotClaimed)
+			// Strict mocks: any K8s call or routeRepo.Update would have panicked.
+			f.routeRepo.AssertNotCalled(t, "Update", mock.Anything)
+			assert.Equal(t, models.RouteStatusApproved, route.Status)
+			f.assertNoGatewayWrites(t)
+		})
+	}
+
+	t.Run("claimed under the other transport is not claimed", func(t *testing.T) {
+		f := newL4Fixture(t)
+		f.stream.Ports = models.StreamPorts{{Transport: "UDP", Port: 5432}}
+		route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusApproved)
+		f.expectDeploy(route, models.ApprovalActionCreate)
+		_, err := f.svc.Deploy(route.ID, uuid.New())
+		require.ErrorIs(t, err, services.ErrPortNotClaimed)
+	})
 }
 
 func TestRouteDeploy_L4_CreateUDPRoute(t *testing.T) {
 	f := newL4Fixture(t)
 	route := f.route("dns", models.RouteProtocolUDP, 53, models.RouteStatusApproved)
 	f.expectDeploy(route, models.ApprovalActionCreate)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
 	f.routeRepo.On("Update", mock.Anything).Return(nil)
-	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	var udp *kubernetes.UDPRouteConfig
 	f.k8s.On("CreateUDPRoute", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.UDPRouteConfig"), kubernetes.UDPRouteGVR).
 		Run(func(args mock.Arguments) { udp = args.Get(2).(*kubernetes.UDPRouteConfig) }).Return(nil)
@@ -160,42 +205,6 @@ func TestRouteDeploy_L4_CreateUDPRoute(t *testing.T) {
 	f.k8s.AssertNotCalled(t, "CreateTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestRouteDeploy_L4_DeleteRemovesCRD(t *testing.T) {
-	f := newL4Fixture(t)
-	removing := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusPendingDeploy)
-	keep := f.route("redis", models.RouteProtocolTCP, 6379, models.RouteStatusActive)
-
-	f.expectDeploy(removing, models.ApprovalActionDelete)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{*removing, *keep}, nil)
-	f.approvalRepo.On("DeleteByEntityID", models.ApprovalEntityRoute, removing.ID).Return(nil)
-	f.routeRepo.On("Delete", removing.ID).Return(nil)
-
-	var gw *kubernetes.GatewayConfig
-	f.k8s.On("UpdateGateway", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).
-		Run(func(args mock.Arguments) { gw = args.Get(2).(*kubernetes.GatewayConfig) }).Return(nil)
-	f.k8s.On("DeleteTCPRoute", mock.Anything, f.stream.ProjectID, f.stream.Namespace, removing.K8sRouteName, kubernetes.TCPRouteGVR).Return(nil)
-
-	_, err := f.svc.Deploy(removing.ID, uuid.New())
-	require.NoError(t, err)
-	require.NotNil(t, gw)
-	f.k8s.AssertCalled(t, "DeleteTCPRoute", mock.Anything, f.stream.ProjectID, f.stream.Namespace, removing.K8sRouteName, kubernetes.TCPRouteGVR)
-	f.routeRepo.AssertCalled(t, "Delete", removing.ID)
-}
-
-func TestRouteDeploy_L4_GatewayFailureSkipsRouteAndKeepsStatus(t *testing.T) {
-	f := newL4Fixture(t)
-	route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusApproved)
-	f.expectDeploy(route, models.ApprovalActionCreate)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
-	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("boom"))
-
-	_, err := f.svc.Deploy(route.ID, uuid.New())
-	require.Error(t, err)
-	f.k8s.AssertNotCalled(t, "CreateTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-	f.routeRepo.AssertNotCalled(t, "Update", mock.Anything)
-	assert.Equal(t, models.RouteStatusApproved, route.Status)
-}
-
 func TestRouteDeploy_L4_StreamLookupFailure(t *testing.T) {
 	f := newL4Fixture(t)
 	route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusApproved)
@@ -206,7 +215,7 @@ func TestRouteDeploy_L4_StreamLookupFailure(t *testing.T) {
 
 	_, err := f.svc.Deploy(route.ID, uuid.New())
 	require.Error(t, err)
-	f.k8s.AssertNotCalled(t, "UpdateGateway", mock.Anything, mock.Anything, mock.Anything)
+	f.assertNoGatewayWrites(t)
 }
 
 func TestRouteDeploy_L4_MissingStreamID(t *testing.T) {
@@ -232,11 +241,9 @@ func TestRouteDeploy_L4_CreateTCPWithBTP_AppliesBackendTrafficPolicy(t *testing.
 	route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusApproved)
 	f.withBTP(route, tcpBTPConfig())
 	f.expectDeploy(route, models.ApprovalActionCreate)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
 	f.routeRepo.On("Update", mock.Anything).Return(nil)
 
 	var order []string
-	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	f.k8s.On("CreateTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(mock.Arguments) { order = append(order, "route") }).Return(nil)
 	var btp *kubernetes.BackendTrafficPolicyConfig
@@ -269,9 +276,7 @@ func TestRouteDeploy_L4_UpdateUDPWithBTP_AppliesLoadBalancerOnly(t *testing.T) {
 		Timeout:      &models.BTPTimeoutConfig{TCP: &models.BTPTCPTimeoutConfig{ConnectTimeout: "5s"}},
 	})
 	f.expectDeploy(route, models.ApprovalActionUpdate)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
 	f.routeRepo.On("Update", mock.Anything).Return(nil)
-	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	f.k8s.On("UpdateUDPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	var btp *kubernetes.BackendTrafficPolicyConfig
 	f.k8s.On("UpdateBackendTrafficPolicy", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.BackendTrafficPolicyConfig")).
@@ -293,9 +298,7 @@ func TestRouteDeploy_L4_WithoutBTP_AppliesNone(t *testing.T) {
 			f := newL4Fixture(t)
 			route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusApproved)
 			f.expectDeploy(route, action)
-			f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
 			f.routeRepo.On("Update", mock.Anything).Return(nil)
-			f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			f.k8s.On("CreateTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 			f.k8s.On("UpdateTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
@@ -312,8 +315,6 @@ func TestRouteDeploy_L4_BTPApplyFailureFailsDeploy(t *testing.T) {
 	route := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusApproved)
 	f.withBTP(route, tcpBTPConfig())
 	f.expectDeploy(route, models.ApprovalActionCreate)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{}, nil)
-	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	f.k8s.On("CreateTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	f.k8s.On("UpdateBackendTrafficPolicy", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("boom"))
 
@@ -328,11 +329,9 @@ func TestRouteDeploy_L4_DeleteRemovesBackendTrafficPolicy(t *testing.T) {
 	removing := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusPendingDeploy)
 	policy := f.withBTP(removing, tcpBTPConfig())
 	f.expectDeploy(removing, models.ApprovalActionDelete)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{*removing}, nil)
 	f.approvalRepo.On("DeleteByEntityID", models.ApprovalEntityRoute, removing.ID).Return(nil)
 	f.routeRepo.On("Delete", removing.ID).Return(nil)
 	f.btpRepo.On("Delete", policy.ID).Return(nil)
-	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	f.k8s.On("DeleteTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	f.k8s.On("DeleteBackendTrafficPolicy", mock.Anything, f.stream.ProjectID, f.stream.Namespace, kubernetes.BackendTrafficPolicyName(removing.K8sRouteName)).Return(nil)
 
@@ -346,10 +345,8 @@ func TestRouteDeploy_L4_DeleteWithoutBTP_DeletesNone(t *testing.T) {
 	f := newL4Fixture(t)
 	removing := f.route("pg", models.RouteProtocolTCP, 5432, models.RouteStatusPendingDeploy)
 	f.expectDeploy(removing, models.ApprovalActionDelete)
-	f.routeRepo.On("ListActiveByStreamID", f.stream.ID).Return([]models.Route{*removing}, nil)
 	f.approvalRepo.On("DeleteByEntityID", models.ApprovalEntityRoute, removing.ID).Return(nil)
 	f.routeRepo.On("Delete", removing.ID).Return(nil)
-	f.k8s.On("UpdateGateway", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	f.k8s.On("DeleteTCPRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	_, err := f.svc.Deploy(removing.ID, uuid.New())

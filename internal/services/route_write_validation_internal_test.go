@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeL4Checker records CheckPortCollision calls and returns a canned error.
+// fakeL4Checker records CheckRoutePort calls and returns a canned error.
 type fakeL4Checker struct {
 	err   error
 	calls int
@@ -22,7 +22,7 @@ type fakeL4Checker struct {
 	exclude   *uuid.UUID
 }
 
-func (f *fakeL4Checker) CheckPortCollision(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error {
+func (f *fakeL4Checker) CheckRoutePort(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error {
 	f.calls++
 	f.streamID, f.transport, f.port, f.exclude = streamID, transport, port, excludeRouteID
 	return f.err

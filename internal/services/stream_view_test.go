@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/google/uuid"
@@ -30,13 +29,12 @@ type worldRoute struct {
 	status    models.RouteStatus
 }
 
-// portWorld is one in-memory fixture that answers BOTH the collision
-// sources CheckPortCollision reads (StreamStore, StreamPortStore,
-// DomainPortReader) and the owner-aware sources the entry point reads
-// (StreamViewStore, DomainPortOwnerReader). Every answer is derived from the
-// same rows with the repository's rule (rejected routes hold no port), so
-// the agreement test compares the two consumers, not two data sets. The
-// repository tests pin that the real SQL of the two query families agrees.
+// portWorld is one in-memory fixture that answers BOTH the claim/used-port
+// sources (StreamStore, StreamPortStore, DomainPortReader) and the owner-aware
+// sources the entry point reads (StreamViewStore, DomainPortOwnerReader).
+// Every answer is derived from the same rows with the repository's rule
+// (rejected routes hold no port). The repository tests pin that the real SQL
+// of the two query families agrees.
 type portWorld struct {
 	tmpl    *models.DomainTemplate
 	streams []models.Stream
@@ -104,18 +102,11 @@ func (w *portWorld) ExistsByName(uuid.UUID, string) (bool, error) { return false
 func (w *portWorld) Update(*models.Stream) error                  { return nil }
 func (w *portWorld) Delete(uuid.UUID) error                       { return nil }
 
-// --- services.StreamPortStore / DomainPortReader (CheckPortCollision) ---
+// --- services.StreamPortStore / DomainPortReader ---
 
 func (w *portWorld) UsedPortsByStream(streamID uuid.UUID, exclude *uuid.UUID) ([]services.PortUse, error) {
 	var out []services.PortUse
 	for _, r := range w.liveRoutes(func(r worldRoute) bool { return r.streamID == streamID && (exclude == nil || r.id != *exclude) }) {
-		out = append(out, services.PortUse{Transport: r.transport, Port: r.port})
-	}
-	return out, nil
-}
-func (w *portWorld) UsedL4Ports(_ uuid.UUID, exclude *uuid.UUID) ([]services.PortUse, error) {
-	var out []services.PortUse
-	for _, r := range w.liveRoutes(func(r worldRoute) bool { return w.onTemplate(r) && (exclude == nil || r.id != *exclude) }) {
 		out = append(out, services.PortUse{Transport: r.transport, Port: r.port})
 	}
 	return out, nil
@@ -259,13 +250,6 @@ func newViewService(w *portWorld, gw *fakeGatewayReader) *services.StreamViewSer
 	})
 }
 
-func newCollisionService(t *testing.T, w *portWorld) *services.StreamService {
-	t.Helper()
-	svc := services.NewStreamService(w, &fakeTemplateReader{tmpl: w.tmpl}, &fakeRouteCounter{}, mocks.NewMockGatewayApplier(t), allowAllNamespaces{})
-	svc.SetPortSources(w, w)
-	return svc
-}
-
 func portKeys(ep *services.StreamEntrypoint) []string {
 	var out []string
 	for _, p := range ep.Ports {
@@ -353,7 +337,7 @@ func TestStreamEntrypoint_Shared(t *testing.T) {
 	assert.Contains(t, ep.Reserved, services.EntrypointReservedPort{Transport: "TCP", Port: 80, Reason: "template_listener"})
 	assert.Contains(t, ep.Reserved, services.EntrypointReservedPort{Transport: "TCP", Port: 19443, Reason: "template_listener"})
 	assert.NotContains(t, ep.Reserved, services.EntrypointReservedPort{Transport: "UDP", Port: 19443, Reason: "template_listener"},
-		"template listeners are reserved for TCP only, as CheckPortCollision does")
+		"template listeners are reserved for TCP only, as the claim validation does")
 
 	owner := ep.Ports[1].Owner
 	require.NotNil(t, owner.StreamID)
@@ -465,68 +449,6 @@ func TestTemplateEntrypoint(t *testing.T) {
 		assert.ErrorContains(t, err, "db down")
 		assert.NotErrorIs(t, err, services.ErrStreamTemplateNotFound)
 	})
-}
-
-// listedOrOutside is the entry point's answer for (transport, port): taken by
-// a route/domain, reserved, or outside the template's range.
-func listedOrOutside(ep *services.StreamEntrypoint, transport string, port int) bool {
-	if ep.PortRange == nil || port < ep.PortRange.Min || port > ep.PortRange.Max {
-		return true
-	}
-	for _, p := range ep.Ports {
-		if p.Transport == transport && p.Port == port {
-			return true
-		}
-	}
-	for _, r := range ep.Reserved {
-		if r.Transport == transport && r.Port == port {
-			return true
-		}
-	}
-	return false
-}
-
-// TestStreamEntrypoint_AgreesWithCheckPortCollision is the spec's agreement
-// invariant: for every port in [min-1, max+1] and both transports, the
-// entry point lists the port (or it is outside portRange) if and only if
-// CheckPortCollision rejects it for that stream. The template variant is
-// checked against a stream with no routes ("fresh"), which is exactly the
-// port space a new stream starts with.
-func TestStreamEntrypoint_AgreesWithCheckPortCollision(t *testing.T) {
-	for _, merge := range []bool{false, true} {
-		w, self, _, fresh := newPortWorld(merge)
-		views := newViewService(w, &fakeGatewayReader{})
-		collisions := newCollisionService(t, w)
-
-		streamEP, err := views.StreamEntrypoint(context.Background(), self)
-		require.NoError(t, err)
-		templateEP, err := views.TemplateEntrypoint(context.Background(), w.tmpl.ProjectID, w.tmpl.ID)
-		require.NoError(t, err)
-
-		for _, check := range []struct {
-			name     string
-			ep       *services.StreamEntrypoint
-			streamID uuid.UUID
-		}{
-			{"stream variant", streamEP, self.ID},
-			{"template variant", templateEP, fresh.ID},
-		} {
-			lo, hi := check.ep.PortRange.Min, check.ep.PortRange.Max
-			var mismatches []string
-			for _, transport := range []string{"TCP", "UDP"} {
-				for port := lo - 1; port <= hi+1; port++ {
-					rejected := collisions.CheckPortCollision(check.streamID, transport, port, nil) != nil
-					if listed := listedOrOutside(check.ep, transport, port); listed != rejected {
-						mismatches = append(mismatches, transport+"/"+strconv.Itoa(port))
-						if len(mismatches) > 10 {
-							break
-						}
-					}
-				}
-			}
-			assert.Emptyf(t, mismatches, "merge=%v %s: entry point and CheckPortCollision disagree on %v", merge, check.name, mismatches)
-		}
-	}
 }
 
 func TestStreamEntrypoint_JSONContract(t *testing.T) {

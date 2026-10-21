@@ -126,12 +126,11 @@ type RouteServiceDeps struct {
 	K8sAPIKeys       APIKeySecretApplier
 	K8sRefGrants     ReferenceGrantChecker
 
-	// The L4 (TCP/UDP) deploy path. Streams resolves a route's Stream;
-	// K8sGateways applies the Stream's Gateway (recomputed from the full
-	// listener set on every L4 route change); K8sL4Routes applies/deletes the
-	// TCPRoute/UDPRoute. All three are required.
+	// The L4 (TCP/UDP) deploy path. Streams resolves a route's Stream (and
+	// its port claims); K8sL4Routes applies/deletes the TCPRoute/UDPRoute.
+	// Both are required. The Stream's Gateway is not written here: the stream
+	// owns it (StreamService.ApplyGateway).
 	Streams     StreamReader
-	K8sGateways GatewayApplier
 	K8sL4Routes L4RouteApplier
 
 	// Capabilities resolves the project's "l4RouteV1" capability so the
@@ -230,9 +229,6 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 	if deps.Streams == nil {
 		missing = append(missing, "Streams")
 	}
-	if deps.K8sGateways == nil {
-		missing = append(missing, "K8sGateways")
-	}
 	if deps.K8sL4Routes == nil {
 		missing = append(missing, "K8sL4Routes")
 	}
@@ -299,7 +295,6 @@ func NewRouteService(deps RouteServiceDeps) *RouteService {
 		clientAttachmentRepo:     deps.ClientAttachmentRepo,
 		k8sRoutes:                deps.K8sRoutes,
 		streams:                  deps.Streams,
-		k8sGateways:              deps.K8sGateways,
 		k8sL4Routes:              deps.K8sL4Routes,
 		k8sPolicies:              deps.K8sPolicies,
 		k8sBackends:              deps.K8sBackends,
@@ -425,8 +420,8 @@ func (s *RouteService) GetForStream(projectID, streamID, routeID uuid.UUID) (*mo
 	return s.query.GetForStream(projectID, streamID, routeID)
 }
 
-// SetL4PortChecker wires the L4 listener-port collision check used by route
-// create/update validation. It arrives after construction because the
+// SetL4PortChecker wires the L4 route-port check (claimed and unused) used by
+// route create/update validation. It arrives after construction because the
 // StreamService that implements it depends on repositories built later in
 // cmd/server/main.go. Never calling it makes L4 route writes fail closed.
 func (s *RouteService) SetL4PortChecker(c L4PortChecker) {

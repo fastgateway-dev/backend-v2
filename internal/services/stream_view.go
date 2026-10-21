@@ -3,11 +3,9 @@
 // by what) and the enriched stream list.
 //
 // Nothing here writes or applies anything. The entry point reads its port map
-// from the same sources CheckPortCollision validates against (the owner-aware
-// twins of UsedPortsByStream / UsedL4Ports / UsedPortsByTemplate, plus
-// DefaultReservedPorts and templateDomainDefaults), so the map can never say
-// "free" for a port that create would reject. TestStreamEntrypoint_AgreesWith
-// CheckPortCollision pins that.
+// from the owner-aware twins of the used-port queries, plus DefaultReservedPorts
+// and templateDomainDefaults. (It is rebuilt around stream port claims in a
+// later change.)
 
 package services
 
@@ -242,8 +240,7 @@ func (s *StreamViewService) buildEntrypoint(ctx context.Context, tmpl *models.Do
 		return ep, nil
 	}
 
-	// Shared: the port scope is the whole template, exactly as
-	// CheckPortCollision's merged branch.
+	// Shared: the port scope is the whole template.
 	owners, err := s.streams.L4PortOwnersByTemplate(tmpl.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load template stream ports: %w", err)
@@ -333,7 +330,7 @@ func (s *StreamViewService) gatewayAddress(ctx context.Context, projectID uuid.U
 	return addr.Value, nil
 }
 
-// reservedPorts lists what CheckPortCollision reserves: DefaultReservedPorts
+// reservedPorts lists what claim validation reserves: DefaultReservedPorts
 // for both transports (ValidateListenerPort rejects them for TCP and UDP),
 // plus, on a merged template, its hostname-routed listener ports as TCP.
 func reservedPorts(tmpl *models.DomainTemplate) []EntrypointReservedPort {

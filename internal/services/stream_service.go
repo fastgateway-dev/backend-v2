@@ -146,7 +146,7 @@ type StreamService struct {
 	k8sGateways  GatewayApplier
 	namespaces   StreamNamespaceReader
 
-	// Port sources for CheckPortCollision; set via SetPortSources.
+	// Port sources for the claim and route-port checks; set via SetPortSources.
 	portStore   StreamPortStore
 	domainPorts DomainPortReader
 

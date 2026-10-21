@@ -1,11 +1,13 @@
 package services_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
+	"github.com/fastgateway-dev/backend-v2/internal/mocks"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/services"
 	"github.com/google/uuid"
@@ -16,11 +18,13 @@ import (
 )
 
 // TestStreamYAMLs_EqualWhatDeployL4Applies is the byte-identical guard for
-// the view: deploy an update through the real deployL4 path, capture the
-// GatewayConfig / TCPRouteConfig / BackendTrafficPolicyConfig it hands the
-// cluster client, render them with the same object builders the client uses,
+// the view. The Gateway is the stream's, applied by StreamService.ApplyGateway
+// (route deploy no longer writes it): capture the GatewayConfig ApplyGateway
+// hands the cluster client. The TCPRoute and BackendTrafficPolicy are the
+// route's: deploy an update through the real deployL4 path and capture what it
+// hands the client. Render them with the same object builders the client uses
 // and require GenerateStreamYAMLs to return exactly those bytes for the same
-// live route set.
+// stream and live route set.
 func TestStreamYAMLs_EqualWhatDeployL4Applies(t *testing.T) {
 	f := newL4Fixture(t)
 	f.stream.Ports = models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "UDP", Port: 53}}
@@ -33,8 +37,15 @@ func TestStreamYAMLs_EqualWhatDeployL4Applies(t *testing.T) {
 	f.routeRepo.On("Update", mock.Anything).Return(nil)
 
 	var gw *kubernetes.GatewayConfig
-	f.k8s.On("UpdateGateway", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).
-		Run(func(args mock.Arguments) { gw = args.Get(2).(*kubernetes.GatewayConfig) }).Return(nil)
+	gateways := mocks.NewMockGatewayApplier(t)
+	gateways.EXPECT().UpdateGateway(mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.GatewayConfig")).
+		Run(func(_ context.Context, _ uuid.UUID, cfg *kubernetes.GatewayConfig) { gw = cfg }).Return(nil)
+	streamStore := mocks.NewMockStreamStore(t)
+	streamStore.EXPECT().Update(mock.Anything).Return(nil)
+	streams := services.NewStreamService(streamStore, &fakeTemplateReader{}, &fakeRouteCounter{}, gateways, allowAllNamespaces{})
+	require.NoError(t, streams.ApplyGateway(context.Background(), f.stream))
+	require.NotNil(t, gw)
+
 	var tcp *kubernetes.TCPRouteConfig
 	f.k8s.On("UpdateTCPRoute", mock.Anything, f.stream.ProjectID, mock.AnythingOfType("*kubernetes.TCPRouteConfig"), kubernetes.TCPRouteGVR).
 		Run(func(args mock.Arguments) { tcp = args.Get(2).(*kubernetes.TCPRouteConfig) }).Return(nil)
@@ -44,7 +55,7 @@ func TestStreamYAMLs_EqualWhatDeployL4Applies(t *testing.T) {
 
 	_, err := f.svc.Deploy(current.ID, uuid.New())
 	require.NoError(t, err)
-	require.NotNil(t, gw)
+	f.k8s.AssertNotCalled(t, "UpdateGateway", mock.Anything, mock.Anything, mock.Anything)
 	require.NotNil(t, tcp)
 	require.NotNil(t, btp)
 
@@ -53,7 +64,7 @@ func TestStreamYAMLs_EqualWhatDeployL4Applies(t *testing.T) {
 
 	wantGateway, err := yaml.Marshal(kubernetes.BuildGatewayObject(gw).Object)
 	require.NoError(t, err)
-	assert.Equal(t, string(wantGateway), yamls.GatewayYAML, "gatewayYaml must be the object UpdateGateway applied")
+	assert.Equal(t, string(wantGateway), yamls.GatewayYAML, "gatewayYaml must be the object the stream applies")
 
 	require.Len(t, yamls.Routes, 2)
 	assert.Equal(t, current.ID, yamls.Routes[0].RouteID)

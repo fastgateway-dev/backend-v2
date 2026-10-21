@@ -23,7 +23,7 @@ func tcpBTPInput() *routeplan.BackendTrafficPolicyInput {
 func TestPreviewCreateForStream_RendersRouteAndPolicyWithoutWriting(t *testing.T) {
 	f := newL4WriteFixture(t, true)
 	f.routeRepo.On("ExistsByStreamAndName", f.stream.ID, "pg").Return(false, nil)
-	f.ports.On("CheckPortCollision", f.stream.ID, "TCP", 9050, (*uuid.UUID)(nil)).Return(nil)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 9050, (*uuid.UUID)(nil)).Return(nil)
 	in := f.input("pg", models.RouteProtocolTCP, 9050)
 	in.BackendTrafficPolicy = tcpBTPInput()
 
@@ -41,10 +41,23 @@ func TestPreviewCreateForStream_RendersRouteAndPolicyWithoutWriting(t *testing.T
 	f.ports.AssertExpectations(t)
 }
 
+func TestPreviewCreateForStream_UnclaimedPortIs400(t *testing.T) {
+	f := newL4WriteFixture(t, true)
+	f.routeRepo.On("ExistsByStreamAndName", f.stream.ID, "pg").Return(false, nil)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 5434, (*uuid.UUID)(nil)).
+		Return(fmt.Errorf("%w: TCP/5434 is not one of the stream's TCP claims (TCP/5432)", services.ErrPortNotClaimed))
+
+	res, err := f.svc.PreviewCreateForStream(f.stream.ProjectID, f.stream.ID, f.input("pg", models.RouteProtocolTCP, 5434))
+
+	require.ErrorIs(t, err, services.ErrPortNotClaimed)
+	assert.Nil(t, res, "no manifest is shown for a port the create would reject")
+	f.routeRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
 func TestPreviewCreateForStream_NoPolicyInputMeansNoPolicyYAML(t *testing.T) {
 	f := newL4WriteFixture(t, true)
 	f.routeRepo.On("ExistsByStreamAndName", f.stream.ID, "dns").Return(false, nil)
-	f.ports.On("CheckPortCollision", f.stream.ID, "UDP", 9053, (*uuid.UUID)(nil)).Return(nil)
+	f.ports.On("CheckRoutePort", f.stream.ID, "UDP", 9053, (*uuid.UUID)(nil)).Return(nil)
 
 	res, err := f.svc.PreviewCreateForStream(f.stream.ProjectID, f.stream.ID, f.input("dns", models.RouteProtocolUDP, 9053))
 	require.NoError(t, err)
@@ -71,6 +84,7 @@ func TestPreviewCreateForStream_SameErrorsAsCreateForStream(t *testing.T) {
 		{name: "reserved port", mutate: func(in *services.CreateRouteInput) { in.Config.ListenerPort = 19000 }, is: services.ErrReservedPort},
 		{name: "invalid port", mutate: func(in *services.CreateRouteInput) { in.Config.ListenerPort = 70000 }, is: services.ErrInvalidListenerPort},
 		{name: "out of template range", checker: fmt.Errorf("%w: 9050 not in 10000-11000", services.ErrPortOutOfRange), is: services.ErrPortOutOfRange},
+		{name: "port not claimed by the stream", checker: fmt.Errorf("%w: TCP/9050 is not one of the stream's TCP claims (none)", services.ErrPortNotClaimed), is: services.ErrPortNotClaimed},
 		{name: "collision", checker: fmt.Errorf("%w: TCP/9050 is used by a stream route", services.ErrPortCollision), is: services.ErrPortCollision},
 		{name: "L7 policy on an L4 route", mutate: func(in *services.CreateRouteInput) { in.SecurityPolicy = &routeplan.SecurityPolicyInput{} }, is: services.ErrL4RejectsL7Field},
 		{name: "stream of another project", project: func(*l4WriteFixture) uuid.UUID { return uuid.New() }, is: services.ErrStreamNotFound},
@@ -81,7 +95,7 @@ func TestPreviewCreateForStream_SameErrorsAsCreateForStream(t *testing.T) {
 			run := func(call func(f *l4WriteFixture, projectID uuid.UUID, in *services.CreateRouteInput) error) error {
 				f := newL4WriteFixture(t, true)
 				f.routeRepo.On("ExistsByStreamAndName", f.stream.ID, mock.Anything).Return(tc.exists, nil).Maybe()
-				f.ports.On("CheckPortCollision", f.stream.ID, mock.Anything, mock.Anything, (*uuid.UUID)(nil)).Return(tc.checker).Maybe()
+				f.ports.On("CheckRoutePort", f.stream.ID, mock.Anything, mock.Anything, (*uuid.UUID)(nil)).Return(tc.checker).Maybe()
 				in := f.input("pg", models.RouteProtocolTCP, 9050)
 				if tc.mutate != nil {
 					tc.mutate(in)
@@ -118,7 +132,7 @@ func TestPreviewUpdateForStream_ShowsRouteAndPolicyDiffAndRechecksPort(t *testin
 	f := newL4WriteFixture(t, true)
 	route := f.existingRoute(models.RouteStatusActive)
 	f.routeRepo.On("GetByID", route.ID).Return(route, nil)
-	f.ports.On("CheckPortCollision", f.stream.ID, "TCP", 6432, &route.ID).Return(nil)
+	f.ports.On("CheckRoutePort", f.stream.ID, "TCP", 6432, &route.ID).Return(nil)
 	cfg := f.input("pg", models.RouteProtocolTCP, 6432).Config
 
 	res, err := f.svc.PreviewUpdateForStream(route.ID, &services.UpdateRouteInput{Config: cfg, BackendTrafficPolicy: tcpBTPInput()})
@@ -128,7 +142,7 @@ func TestPreviewUpdateForStream_ShowsRouteAndPolicyDiffAndRechecksPort(t *testin
 	assert.Contains(t, res.ProposedYAML, "sectionName: l4-tcp-6432")
 	assert.Empty(t, res.CurrentBackendTrafficPolicyYAML, "the route has no stored policy yet")
 	assert.Contains(t, res.ProposedBackendTrafficPolicyYAML, "maxConnections: 100")
-	f.ports.AssertCalled(t, "CheckPortCollision", f.stream.ID, "TCP", 6432, &route.ID)
+	f.ports.AssertCalled(t, "CheckRoutePort", f.stream.ID, "TCP", 6432, &route.ID)
 	f.routeRepo.AssertNotCalled(t, "Update", mock.Anything)
 	f.approvalRepo.AssertNotCalled(t, "Create", mock.Anything)
 }
@@ -142,13 +156,14 @@ func TestPreviewUpdateForStream_SameErrorsAsUpdate(t *testing.T) {
 	}{
 		{"collision on the new port", 6432, fmt.Errorf("%w: TCP/6432", services.ErrPortCollision), services.ErrPortCollision},
 		{"reserved port", 19000, nil, services.ErrReservedPort},
+		{"port not claimed", 6432, fmt.Errorf("%w: TCP/6432", services.ErrPortNotClaimed), services.ErrPortNotClaimed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			run := func(call func(f *l4WriteFixture, routeID uuid.UUID, in *services.UpdateRouteInput) error) error {
 				f := newL4WriteFixture(t, true)
 				route := f.existingRoute(models.RouteStatusActive)
 				f.routeRepo.On("GetByID", route.ID).Return(route, nil)
-				f.ports.On("CheckPortCollision", f.stream.ID, "TCP", tc.port, &route.ID).Return(tc.checker).Maybe()
+				f.ports.On("CheckRoutePort", f.stream.ID, "TCP", tc.port, &route.ID).Return(tc.checker).Maybe()
 				err := call(f, route.ID, &services.UpdateRouteInput{Config: f.input("pg", models.RouteProtocolTCP, tc.port).Config})
 				f.routeRepo.AssertNotCalled(t, "Update", mock.Anything)
 				return err

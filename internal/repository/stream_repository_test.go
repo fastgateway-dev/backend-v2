@@ -110,31 +110,6 @@ func TestStreamRepository_UsedPortsByStream(t *testing.T) {
 	assert.Equal(t, []repository.PortUse{{Transport: "UDP", Port: 53}}, got)
 }
 
-func TestStreamRepository_UsedL4Ports_AcrossStreamsOfTemplate(t *testing.T) {
-	db := requirePostgres(t)
-	projectID, _, teamID, userID := seedProject(t, db)
-	tmplID := insertTemplate(t, db, projectID, userID, true)
-	otherTmplID := insertTemplate(t, db, projectID, userID, true)
-	repo := repository.NewStreamRepository(db)
-	mk := func(name string, tmpl uuid.UUID) uuid.UUID {
-		s := &models.Stream{ProjectID: projectID, Name: name, Namespace: "fastgateway-system", GatewayTemplateID: tmpl}
-		require.NoError(t, repo.Create(s))
-		return s.ID
-	}
-	a, b, c := mk("a", tmplID), mk("b", tmplID), mk("c", otherTmplID)
-	ra := insertL4Route(t, db, a, teamID, userID, "tcp", 5432, "active")
-	insertL4Route(t, db, b, teamID, userID, "udp", 5353, "active")
-	insertL4Route(t, db, c, teamID, userID, "tcp", 6000, "active")
-
-	got, err := repo.UsedL4Ports(tmplID, nil)
-	require.NoError(t, err)
-	assert.ElementsMatch(t, []repository.PortUse{{Transport: "TCP", Port: 5432}, {Transport: "UDP", Port: 5353}}, got)
-
-	got, err = repo.UsedL4Ports(tmplID, &ra)
-	require.NoError(t, err)
-	assert.Equal(t, []repository.PortUse{{Transport: "UDP", Port: 5353}}, got)
-}
-
 func TestDomainRepository_UsedPortsByTemplate(t *testing.T) {
 	db := requirePostgres(t)
 	projectID, domainID, _, userID := seedProject(t, db)
