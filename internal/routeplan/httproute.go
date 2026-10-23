@@ -7,7 +7,6 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/fastgateway-dev/backend-v2/internal/models"
-	"sigs.k8s.io/yaml"
 )
 
 // BuildHTTPRouteConfig assembles the HTTPRouteConfig for a route.
@@ -229,7 +228,7 @@ func GenerateHTTPRouteYAML(route *models.Route, domain *models.Domain) string {
 	if route.Protocol == models.RouteProtocolGRPC {
 		config := BuildGRPCRouteConfigForYAML(route, domain)
 		grpcRoute := kubernetes.BuildGRPCRouteObject(config)
-		yamlBytes, err := yaml.Marshal(grpcRoute)
+		yamlBytes, err := kubernetes.MarshalRouteYAML(grpcRoute)
 		if err != nil {
 			return fmt.Sprintf("# Error generating YAML: %v", err)
 		}
@@ -243,7 +242,7 @@ func GenerateHTTPRouteYAML(route *models.Route, domain *models.Domain) string {
 	httpRoute := kubernetes.BuildHTTPRouteObject(config)
 
 	// Marshal to YAML
-	yamlBytes, err := yaml.Marshal(httpRoute)
+	yamlBytes, err := kubernetes.MarshalRouteYAML(httpRoute)
 	if err != nil {
 		return fmt.Sprintf("# Error generating YAML: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/fastgateway-dev/backend-v2/internal/kubernetes"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -44,4 +45,19 @@ func assertGolden(t *testing.T, name string, obj any) {
 	require.Equalf(t, string(want), string(got),
 		"golden mismatch for %s\n"+
 			"If this change is INTENDED, regenerate with -update-golden and explain it in the commit message.", path)
+}
+
+// renderedRoute returns a typed route object as it is rendered into
+// manifests and previews (kubernetes.MarshalRouteYAML: no status, no null
+// creationTimestamp), so route goldens snapshot what users actually see rather
+// than the raw struct marshalling.
+func renderedRoute(t *testing.T, obj any) any {
+	t.Helper()
+
+	b, err := kubernetes.MarshalRouteYAML(obj)
+	require.NoError(t, err)
+
+	var out map[string]any
+	require.NoError(t, yaml.Unmarshal(b, &out))
+	return out
 }

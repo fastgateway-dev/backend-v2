@@ -32,5 +32,3 @@ spec:
         method: Pong
         service: echo.Echo
         type: Exact
-status:
-  parents: null

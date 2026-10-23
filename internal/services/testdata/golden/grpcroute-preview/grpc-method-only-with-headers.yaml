@@ -29,5 +29,3 @@ spec:
       method:
         method: Ping
         type: Exact
-status:
-  parents: null

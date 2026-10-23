@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeL4Checker records CheckPortCollision calls and returns a canned error.
+// fakeL4Checker records CheckRoutePort calls and returns a canned error.
 type fakeL4Checker struct {
 	err   error
 	calls int
@@ -22,7 +22,7 @@ type fakeL4Checker struct {
 	exclude   *uuid.UUID
 }
 
-func (f *fakeL4Checker) CheckPortCollision(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error {
+func (f *fakeL4Checker) CheckRoutePort(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error {
 	f.calls++
 	f.streamID, f.transport, f.port, f.exclude = streamID, transport, port, excludeRouteID
 	return f.err
@@ -52,7 +52,7 @@ func TestValidateRouteShape_L4_RunsReservedThenCollision(t *testing.T) {
 
 func TestValidateRouteShape_L4_ReservedPortRejectedBeforeCollisionCheck(t *testing.T) {
 	streamID := uuid.New()
-	for _, port := range []int{19000, 19001, 60000, 70000} {
+	for _, port := range []int{19000, 19001, 70000} {
 		fake := &fakeL4Checker{}
 		w := &routeWrite{l4Ports: fake}
 		err := w.validateRouteShapeAndConflicts(l4Config(port), nil, models.RouteProtocolTCP, uuid.Nil, &streamID, nil)

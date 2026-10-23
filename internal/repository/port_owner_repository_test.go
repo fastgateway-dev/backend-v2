@@ -36,7 +36,7 @@ func TestStreamRepository_L4PortOwners_MatchUsedPortQueries(t *testing.T) {
 	pg := insertL4Route(t, db, a.ID, teamID, userID, "tcp", 5432, "active")
 	dns := insertL4Route(t, db, a.ID, teamID, userID, "udp", 53, "pending_create")
 	insertL4Route(t, db, a.ID, teamID, userID, "tcp", 9999, "rejected")
-	redis := insertL4Route(t, db, b.ID, teamID, userID, "tcp", 6379, "pending_update")
+	insertL4Route(t, db, b.ID, teamID, userID, "tcp", 6379, "pending_update")
 	insertL4Route(t, db, c.ID, teamID, userID, "tcp", 7000, "active")
 
 	// By stream: same rows as UsedPortsByStream, with owners filled in.
@@ -49,16 +49,6 @@ func TestStreamRepository_L4PortOwners_MatchUsedPortQueries(t *testing.T) {
 		{Transport: "UDP", Port: 53, StreamID: a.ID, StreamName: "owner-a", RouteID: dns, RouteName: "r-" + dns.String(), Status: "pending_create"},
 		{Transport: "TCP", Port: 5432, StreamID: a.ID, StreamName: "owner-a", RouteID: pg, RouteName: "r-" + pg.String(), Status: "active"},
 	}, byStream, "rejected routes hold no port; rows are ordered by port")
-
-	// By template: same rows as UsedL4Ports.
-	byTmpl, err := repo.L4PortOwnersByTemplate(tmplID)
-	require.NoError(t, err)
-	usedTmpl, err := repo.UsedL4Ports(tmplID, nil)
-	require.NoError(t, err)
-	assert.ElementsMatch(t, usedTmpl, portUsesOf(byTmpl), "owner query must match UsedL4Ports")
-	require.Len(t, byTmpl, 3)
-	assert.Equal(t, redis, byTmpl[2].RouteID)
-	assert.Equal(t, "owner-b", byTmpl[2].StreamName)
 
 	// By stream IDs: one query for many streams.
 	byIDs, err := repo.L4PortOwnersByStreamIDs([]uuid.UUID{a.ID, c.ID})

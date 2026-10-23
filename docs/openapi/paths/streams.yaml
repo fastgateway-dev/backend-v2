@@ -9,7 +9,7 @@ streams:
       - $ref: '../components/parameters.yaml#/projectId'
     responses:
       '200':
-        description: List of streams, ordered by name, each with its entry point mode, template name, route count and ports
+        description: List of streams, ordered by name, each with its entry point mode, template name, route count and port claims
         content:
           application/json:
             schema:
@@ -20,7 +20,7 @@ streams:
                   items:
                     $ref: '../schemas/stream.yaml#/StreamListItem'
       '500':
-        description: A stream's gateway template or the route ports could not be read (modes are never guessed)
+        description: A stream's gateway template or the route counts could not be read (modes are never guessed)
         content:
           application/json:
             schema:
@@ -30,8 +30,10 @@ streams:
     tags: [Streams]
     summary: Create a stream
     description: |
-      Creates a stream from a Gateway Template that has the stream capability
-      and eagerly deploys its Gateway. Requires Owner or Project Admin.
+      Creates a stream from a Gateway Template that has the stream capability,
+      claiming the given ports, and eagerly deploys its Gateway with one
+      listener per claim. An apply failure is recorded on the returned stream's
+      status, not returned as an error. Requires Owner or Project Admin.
     operationId: createStream
     security:
       - bearerAuth: []
@@ -51,7 +53,7 @@ streams:
             schema:
               $ref: '../schemas/stream.yaml#/Stream'
       '400':
-        description: Invalid name, namespace not registered for the project or lacking the deploy_gateway capability, or the Gateway Template is not enabled for streams
+        description: Invalid name, namespace not registered for the project or lacking the deploy_gateway capability, the Gateway Template is not enabled for streams, or an invalid claim (no ports, a transport other than TCP/UDP, a port listed twice, reserved or outside the template's range)
         content:
           application/json:
             schema:
@@ -65,7 +67,7 @@ streams:
             schema:
               $ref: '../schemas/common.yaml#/Error'
       '409':
-        description: A stream with this name already exists in the project
+        description: A stream with this name already exists in the project, or a claimed port collides with another stream's claim or a domain's listener on the same merged Gateway Template
         content:
           application/json:
             schema:
@@ -93,7 +95,11 @@ streams_{streamId}:
 
   patch:
     tags: [Streams]
-    summary: Rename a stream
+    summary: Rename a stream and/or change its claimed ports
+    description: |
+      Sending `ports` replaces the claim set (at least one port) and re-applies
+      the Gateway. A name-only update does not touch the cluster. Requires
+      Owner or Project Admin.
     operationId: updateStream
     security:
       - bearerAuth: []
@@ -120,7 +126,7 @@ streams_{streamId}:
       '404':
         $ref: '../components/responses.yaml#/NotFound'
       '409':
-        description: A stream with this name already exists in the project
+        description: A stream with this name already exists in the project, the new claim set drops a port a route (or pending route approval) still uses, or a claimed port collides with another stream's claim or a domain's listener on the same merged Gateway Template
         content:
           application/json:
             schema:
@@ -129,7 +135,7 @@ streams_{streamId}:
   delete:
     tags: [Streams]
     summary: Delete a stream
-    description: Fails with 409 while the stream still has routes.
+    description: Fails with 409 while the stream still has routes. Also deletes the stream's Gateway from the cluster (best effort).
     operationId: deleteStream
     security:
       - bearerAuth: []
@@ -181,9 +187,9 @@ streams_{streamId}_yamls:
     tags: [Streams]
     summary: Get a stream's manifests (Gateway and every live L4 route)
     description: |
-      The Gateway is rendered from the stream's live routes through the same
-      builders the deploy path applies; with no live routes it is the
-      placeholder Gateway. Each live route carries its TCPRoute/UDPRoute and
+      The Gateway is rendered from the stream's claimed ports through the same
+      builders the apply path uses; a stream with no claims has no Gateway, so
+      the YAML is empty. Each live route carries its TCPRoute/UDPRoute and
       BackendTrafficPolicy (empty when it has none).
     operationId: getStreamYamls
     security:

@@ -15,7 +15,7 @@ import (
 // carries L7-only fields, or that is missing a listener port / backends, at
 // write time — before anything reaches the cluster.
 func TestStreamRejectsL7Fields(t *testing.T) {
-	s := newStream(t)
+	s := newStream(t, models.StreamPort{Transport: "TCP", Port: 15200})
 
 	base := func() services.CreateRouteInput {
 		return services.CreateRouteInput{

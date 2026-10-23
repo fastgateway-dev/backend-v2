@@ -75,16 +75,32 @@ remove `status` from preview YAML.
 
 ## Design
 
-### "Used" means a route row or a pending approval
+### "Used" means a route row, a pending approval, or a deployed version
 
 A route edit does not change the `routes` row: the proposed config waits in
 the approval snapshot and the row keeps the deployed config with status
-`pending_update`. So a claim is **used** when either:
+`pending_update`. Approving the edit then copies the snapshot into the row
+(status `pending_deploy`), but deploy is a separate step: until it runs, the
+cluster's TCPRoute/UDPRoute still sits on the previously deployed port, and
+neither the row nor an approval names that port any more. So a claim is
+**used** when any of these holds:
 
 - a route row of the stream (status ≠ rejected) has that
-  `(transport, listenerPort)`, or
+  `(transport, listenerPort)`;
 - a pending approval for a route of the stream proposes it (create or
-  update snapshot, not yet deployed or rejected).
+  update snapshot, not yet deployed or rejected);
+- the latest deployed version of a route of the stream (status ≠ rejected)
+  has it: the `route_versions` row with the highest `version` for that
+  route, port at `config_snapshot->'routeConfig'->>'listenerPort'`.
+
+When a route-port check excludes the route being written, it excludes it
+from all three sources. Where the sources name different routes for the same
+port (the entry point owner, the 409 message), the route row wins over a
+pending approval, which wins over a deployed version; a port held only by a
+deployed version is reported with the route and its current status
+(`pending_deploy`), not as pending. *(Added after the final review: without
+the third source the backfill missed the live port of an approved-but-not-
+deployed route, so the startup reconcile removed its listener.)*
 
 Every "used" rule below means this: removing a claim (B2), the route-port
 check (B4), the entry point owner (B5), the backfill (B1), the edit-ports

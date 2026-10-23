@@ -2,12 +2,11 @@
 // entry point (dedicated or shared IP, who shares it, which ports are taken
 // by what) and the enriched stream list.
 //
-// Nothing here writes or applies anything. The entry point reads its port map
-// from the same sources CheckPortCollision validates against (the owner-aware
-// twins of UsedPortsByStream / UsedL4Ports / UsedPortsByTemplate, plus
-// DefaultReservedPorts and templateDomainDefaults), so the map can never say
-// "free" for a port that create would reject. TestStreamEntrypoint_AgreesWith
-// CheckPortCollision pins that.
+// Nothing here writes or applies anything. The entry point's port map is the
+// streams' port claims plus the domains' bound listener ports. For the viewed
+// stream alone, each claim is joined with the route that holds it (or the
+// approval that proposes one); other streams' claims carry no route detail.
+// DefaultReservedPorts and templateDomainDefaults give the reserved ports.
 
 package services
 
@@ -35,11 +34,10 @@ const (
 
 // Port owner kinds and reserved-port reasons in the entry point port map.
 const (
-	PortOwnerStreamRoute = "stream_route"
-	PortOwnerDomain      = "domain"
+	PortOwnerStream = "stream"
+	PortOwnerDomain = "domain"
 
 	ReservedReasonEnvoyInternal    = "envoy_internal"
-	ReservedReasonPlaceholder      = "placeholder"
 	ReservedReasonTemplateListener = "template_listener"
 )
 
@@ -96,9 +94,11 @@ type EntrypointPort struct {
 	Owner     EntrypointPortOwner `json:"owner"`
 }
 
-// EntrypointPortOwner is either a stream route (Kind "stream_route": the
-// stream and route fields are set) or a domain (Kind "domain": the domain
-// fields are set).
+// EntrypointPortOwner is either a stream (Kind "stream": the stream fields
+// are set) or a domain (Kind "domain": the domain fields are set). The route
+// fields are set only on a claim of the stream being viewed that a route
+// holds (or an approval proposes - Pending); other streams' claims name the
+// stream and nothing more.
 type EntrypointPortOwner struct {
 	Kind       string     `json:"kind"`
 	StreamID   *uuid.UUID `json:"streamId,omitempty"`
@@ -106,6 +106,7 @@ type EntrypointPortOwner struct {
 	RouteID    *uuid.UUID `json:"routeId,omitempty"`
 	RouteName  string     `json:"routeName,omitempty"`
 	Status     string     `json:"status,omitempty"`
+	Pending    bool       `json:"pending,omitempty"`
 	DomainID   *uuid.UUID `json:"domainId,omitempty"`
 	DomainName string     `json:"domainName,omitempty"`
 }
@@ -123,7 +124,8 @@ type StreamViewStore interface {
 	ListByProjectID(projectID uuid.UUID) ([]models.Stream, error)
 	ListByGatewayTemplateID(templateID uuid.UUID) ([]models.Stream, error)
 	L4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
-	L4PortOwnersByTemplate(templateID uuid.UUID) ([]L4PortOwner, error)
+	PendingL4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
+	DeployedL4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
 	L4PortOwnersByStreamIDs(streamIDs []uuid.UUID) ([]L4PortOwner, error)
 }
 
@@ -228,11 +230,11 @@ func (s *StreamViewService) buildEntrypoint(ctx context.Context, tmpl *models.Do
 
 	if ep.Mode == EntrypointModeDedicated {
 		if self != nil {
-			owners, err := s.streams.L4PortOwnersByStream(self.ID)
+			ports, err := s.ownClaimPorts(self)
 			if err != nil {
-				return nil, fmt.Errorf("failed to load stream ports: %w", err)
+				return nil, err
 			}
-			ep.Ports = appendStreamRoutePorts(ep.Ports, owners)
+			ep.Ports = append(ep.Ports, ports...)
 			addr, err := s.gatewayAddress(ctx, self.ProjectID, self.Namespace, self.K8sGatewayName)
 			if err != nil {
 				return nil, err
@@ -243,13 +245,14 @@ func (s *StreamViewService) buildEntrypoint(ctx context.Context, tmpl *models.Do
 		return ep, nil
 	}
 
-	// Shared: the port scope is the whole template, exactly as
-	// CheckPortCollision's merged branch.
-	owners, err := s.streams.L4PortOwnersByTemplate(tmpl.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load template stream ports: %w", err)
+	// Shared: the port scope is the whole template.
+	if self != nil {
+		ports, err := s.ownClaimPorts(self)
+		if err != nil {
+			return nil, err
+		}
+		ep.Ports = append(ep.Ports, ports...)
 	}
-	ep.Ports = appendStreamRoutePorts(ep.Ports, owners)
 	domainOwners, err := s.domains.PortOwnersByTemplate(tmpl.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load template domain ports: %w", err)
@@ -259,7 +262,6 @@ func (s *StreamViewService) buildEntrypoint(ctx context.Context, tmpl *models.Do
 		ep.Ports = append(ep.Ports, EntrypointPort{Transport: o.Transport, Port: o.Port,
 			Owner: EntrypointPortOwner{Kind: PortOwnerDomain, DomainID: &id, DomainName: o.DomainName}})
 	}
-	sortEntrypointPorts(ep.Ports)
 
 	members, err := s.streams.ListByGatewayTemplateID(tmpl.ID)
 	if err != nil {
@@ -272,7 +274,9 @@ func (s *StreamViewService) buildEntrypoint(ctx context.Context, tmpl *models.Do
 		}
 		others = append(others, m)
 		ep.SharedWith.Streams = append(ep.SharedWith.Streams, EntrypointStreamRef{ID: m.ID, Name: m.Name})
+		ep.Ports = append(ep.Ports, claimPorts(m, nil)...)
 	}
+	sortEntrypointPorts(ep.Ports)
 	domains, err := s.domains.ListByTemplateID(tmpl.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load template domains: %w", err)
@@ -334,7 +338,7 @@ func (s *StreamViewService) gatewayAddress(ctx context.Context, projectID uuid.U
 	return addr.Value, nil
 }
 
-// reservedPorts lists what CheckPortCollision reserves: DefaultReservedPorts
+// reservedPorts lists what claim validation reserves: DefaultReservedPorts
 // for both transports (ValidateListenerPort rejects them for TCP and UDP),
 // plus, on a merged template, its hostname-routed listener ports as TCP.
 func reservedPorts(tmpl *models.DomainTemplate) []EntrypointReservedPort {
@@ -351,9 +355,6 @@ func reservedPorts(tmpl *models.DomainTemplate) []EntrypointReservedPort {
 		for _, p := range DefaultReservedPorts.EnvoyInternal {
 			add(transport, p, ReservedReasonEnvoyInternal)
 		}
-		if DefaultReservedPorts.Placeholder != 0 {
-			add(transport, DefaultReservedPorts.Placeholder, ReservedReasonPlaceholder)
-		}
 	}
 	for _, p := range templateDomainDefaults(tmpl) {
 		add("TCP", p, ReservedReasonTemplateListener)
@@ -367,15 +368,49 @@ func reservedPorts(tmpl *models.DomainTemplate) []EntrypointReservedPort {
 	return out
 }
 
-func appendStreamRoutePorts(ports []EntrypointPort, owners []L4PortOwner) []EntrypointPort {
-	for _, o := range owners {
-		streamID, routeID := o.StreamID, o.RouteID
-		ports = append(ports, EntrypointPort{Transport: o.Transport, Port: o.Port, Owner: EntrypointPortOwner{
-			Kind: PortOwnerStreamRoute, StreamID: &streamID, StreamName: o.StreamName,
-			RouteID: &routeID, RouteName: o.RouteName, Status: o.Status,
-		}})
+// claimPorts lists a stream's claims as entry point ports owned by the
+// stream. detail, when non-nil, names the route holding (or proposing) each
+// claim, keyed by (transport, port); a claim without an entry has no route.
+func claimPorts(st models.Stream, detail map[PortUse]L4PortOwner) []EntrypointPort {
+	out := make([]EntrypointPort, 0, len(st.Ports))
+	for _, c := range st.Ports.Normalize() {
+		streamID := st.ID
+		owner := EntrypointPortOwner{Kind: PortOwnerStream, StreamID: &streamID, StreamName: st.Name}
+		if d, ok := detail[PortUse{Transport: c.Transport, Port: c.Port}]; ok {
+			routeID := d.RouteID
+			owner.RouteID, owner.RouteName, owner.Status, owner.Pending = &routeID, d.RouteName, d.Status, d.Pending
+		}
+		out = append(out, EntrypointPort{Transport: c.Transport, Port: c.Port, Owner: owner})
 	}
-	return ports
+	return out
+}
+
+// ownClaimPorts is claimPorts for the stream being viewed, joined with the
+// three "used" sources: the routes that hold its claims, the pending
+// approvals that propose them, and the routes' latest deployed versions (an
+// approved change waiting for its deploy still serves the old port). When
+// several name the same port, the route row wins over a pending approval,
+// which wins over a deployed version.
+func (s *StreamViewService) ownClaimPorts(st *models.Stream) ([]EntrypointPort, error) {
+	held, err := s.streams.L4PortOwnersByStream(st.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load stream ports: %w", err)
+	}
+	proposed, err := s.streams.PendingL4PortOwnersByStream(st.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load pending stream ports: %w", err)
+	}
+	deployed, err := s.streams.DeployedL4PortOwnersByStream(st.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load deployed stream ports: %w", err)
+	}
+	detail := make(map[PortUse]L4PortOwner, len(held)+len(proposed)+len(deployed))
+	for _, sources := range [][]L4PortOwner{deployed, proposed, held} { // later overwrites earlier
+		for _, o := range sources {
+			detail[PortUse{Transport: o.Transport, Port: o.Port}] = o
+		}
+	}
+	return claimPorts(*st, detail), nil
 }
 
 // sortEntrypointPorts orders the map by port, then transport, then owner.
@@ -396,24 +431,21 @@ func sortEntrypointPorts(ports []EntrypointPort) {
 }
 
 // StreamListItem is one row of GET /projects/:projectId/streams: the stream
-// plus its entry point mode, template name and the ports its routes hold.
-// The embedded Stream keeps every existing field at the top level.
+// plus its entry point mode, template name and route count. The embedded
+// Stream keeps every existing field at the top level, "ports" (the stream's
+// claims, TCP before UDP then by port) included.
 type StreamListItem struct {
 	models.Stream
-	Mode                string       `json:"mode"`
-	GatewayTemplateName string       `json:"gatewayTemplateName"`
-	RouteCount          int          `json:"routeCount"`
-	Ports               []StreamPort `json:"ports"`
+	Mode                string `json:"mode"`
+	GatewayTemplateName string `json:"gatewayTemplateName"`
+	RouteCount          int    `json:"routeCount"`
 }
 
-// StreamPort is a (transport, port) one of a stream's L4 routes holds.
-type StreamPort struct {
-	Transport string `json:"transport"`
-	Port      int    `json:"port"`
-}
+// StreamPort is one port claim of a stream.
+type StreamPort = models.StreamPort
 
 // ListWithSummary lists the project's streams, ordered by name, each with
-// its mode, template name, non-rejected L4 route count and their ports. It
+// its mode, template name, non-rejected L4 route count and port claims. It
 // issues one grouped route query and one template read per distinct
 // template - never a query per stream. A template lookup failure is an
 // error: the mode is never guessed.
@@ -433,11 +465,11 @@ func (s *StreamViewService) ListWithSummary(projectID uuid.UUID) ([]StreamListIt
 	}
 	owners, err := s.streams.L4PortOwnersByStreamIDs(ids)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load stream ports: %w", err)
+		return nil, fmt.Errorf("failed to load stream routes: %w", err)
 	}
-	portsByStream := make(map[uuid.UUID][]StreamPort, len(streams))
+	routeCounts := make(map[uuid.UUID]int, len(streams))
 	for _, o := range owners {
-		portsByStream[o.StreamID] = append(portsByStream[o.StreamID], StreamPort{Transport: o.Transport, Port: o.Port})
+		routeCounts[o.StreamID]++
 	}
 
 	templates := make(map[uuid.UUID]*models.DomainTemplate)
@@ -450,22 +482,12 @@ func (s *StreamViewService) ListWithSummary(projectID uuid.UUID) ([]StreamListIt
 			}
 			templates[st.GatewayTemplateID] = tmpl
 		}
-		ports := portsByStream[st.ID]
-		if ports == nil {
-			ports = []StreamPort{}
-		}
-		sort.Slice(ports, func(i, j int) bool {
-			if ports[i].Port != ports[j].Port {
-				return ports[i].Port < ports[j].Port
-			}
-			return ports[i].Transport < ports[j].Transport
-		})
+		st.Ports = st.Ports.Normalize() // sorted, and [] rather than null
 		items = append(items, StreamListItem{
 			Stream:              st,
 			Mode:                entrypointMode(tmpl),
 			GatewayTemplateName: tmpl.Name,
-			RouteCount:          len(ports),
-			Ports:               ports,
+			RouteCount:          routeCounts[st.ID],
 		})
 	}
 	return items, nil

@@ -17,7 +17,7 @@ import (
 // Stream Gateway's LoadBalancer to the l4-echo backend. DialUDP retries to the
 // deadline because UDP is lossy.
 func TestStreamUDPTraffic(t *testing.T) {
-	s := newStream(t)
+	s := newStream(t, models.StreamPort{Transport: "UDP", Port: 15101})
 	fx := harness.NewStreamFixture(t, env)
 	fx.Route(s, services.CreateRouteInput{
 		Name:     harness.UniqueName(t),

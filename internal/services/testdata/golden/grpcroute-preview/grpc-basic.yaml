@@ -23,5 +23,3 @@ spec:
         method: Ping
         service: echo.Echo
         type: Exact
-status:
-  parents: null

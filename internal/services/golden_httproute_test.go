@@ -20,7 +20,7 @@ func TestGoldenHTTPRouteDeploy(t *testing.T) {
 		}
 		t.Run(f.Name, func(t *testing.T) {
 			cfg := svc.buildHTTPRouteConfig(f.Route, f.Domain)
-			assertGolden(t, filepath.Join("httproute-deploy", f.Name), kubernetes.BuildHTTPRouteObject(cfg))
+			assertGolden(t, filepath.Join("httproute-deploy", f.Name), renderedRoute(t, kubernetes.BuildHTTPRouteObject(cfg)))
 		})
 	}
 }
@@ -38,7 +38,7 @@ func TestGoldenHTTPRoutePreview(t *testing.T) {
 		}
 		t.Run(f.Name, func(t *testing.T) {
 			cfg := routeplan.BuildHTTPRouteConfigForYAML(f.Route, f.Domain)
-			assertGolden(t, filepath.Join("httproute-preview", f.Name), kubernetes.BuildHTTPRouteObject(cfg))
+			assertGolden(t, filepath.Join("httproute-preview", f.Name), renderedRoute(t, kubernetes.BuildHTTPRouteObject(cfg)))
 		})
 	}
 }
@@ -93,7 +93,7 @@ func TestGoldenGRPCRouteDeploy(t *testing.T) {
 		}
 		t.Run(f.Name, func(t *testing.T) {
 			cfg := svc.buildGRPCRouteConfig(f.Route, f.Domain)
-			assertGolden(t, filepath.Join("grpcroute-deploy", f.Name), kubernetes.BuildGRPCRouteObject(cfg))
+			assertGolden(t, filepath.Join("grpcroute-deploy", f.Name), renderedRoute(t, kubernetes.BuildGRPCRouteObject(cfg)))
 		})
 	}
 }
@@ -105,7 +105,7 @@ func TestGoldenGRPCRoutePreview(t *testing.T) {
 		}
 		t.Run(f.Name, func(t *testing.T) {
 			cfg := routeplan.BuildGRPCRouteConfigForYAML(f.Route, f.Domain)
-			assertGolden(t, filepath.Join("grpcroute-preview", f.Name), kubernetes.BuildGRPCRouteObject(cfg))
+			assertGolden(t, filepath.Join("grpcroute-preview", f.Name), renderedRoute(t, kubernetes.BuildGRPCRouteObject(cfg)))
 		})
 	}
 }

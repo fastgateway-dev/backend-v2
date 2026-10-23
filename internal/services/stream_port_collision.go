@@ -1,15 +1,14 @@
-// Merge-aware listener port-collision check for L4 (TCP/UDP) stream routes.
+// Listener port rules for L4 (TCP/UDP) streams and their routes.
 //
 // A Gateway listener is identified by (transport, port) with transport in
 // {TCP, UDP}; HTTP/HTTPS/TLS listeners are TCP-transport, so tcp:53 and
 // udp:53 coexist but tcp:443 collides with a Domain's HTTPS port.
 //
-// Scope follows the Gateway Template's mergeGateways:
-//   - false: every Stream (and Domain) owns its own Gateway/LB, so only the
-//     stream's own L4 routes can collide with each other.
-//   - true:  all Gateways of the template are merged into one listener set, so
-//     the candidate is checked against every Stream's L4 routes AND every
-//     Domain's HTTP/HTTPS ports on that template.
+// A stream claims the ports it listens on (validateStreamPorts, which applies
+// the mergeGateways scope: a dedicated template only the static rules, a
+// merged one also other streams' claims and domain ports). A route then picks
+// one of its stream's claimed ports that no other route of the stream uses
+// (CheckRoutePort).
 
 package services
 
@@ -20,7 +19,6 @@ import (
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 	"github.com/fastgateway-dev/backend-v2/internal/repository"
-	"github.com/fastgateway-dev/backend-v2/internal/streamplan"
 	"github.com/google/uuid"
 )
 
@@ -28,13 +26,14 @@ import (
 // "TCP" or "UDP". HTTP/HTTPS/TLS listeners are counted as TCP.
 type PortUse = repository.PortUse
 
-// ErrPortCollision is returned by CheckPortCollision when the requested
-// (transport, port) is already used by another listener in scope.
+// ErrPortCollision is returned when the requested (transport, port) is already
+// used by another listener in scope: another stream's claim or a domain port
+// when claiming, another route of the stream when picking a route port.
 var ErrPortCollision = errors.New("listener port is already in use")
 
 // ErrReservedPort is returned when a listener port is reserved by the platform
-// (Envoy internal ports, the placeholder listener, or - on a merged Gateway
-// Template that serves domains - the template's HTTP/HTTPS ports).
+// (Envoy internal ports or - on a merged Gateway Template that serves domains -
+// the template's HTTP/HTTPS ports).
 var ErrReservedPort = errors.New("listener port is reserved")
 
 // ErrInvalidListenerPort is returned when a listener port is outside 1-65535.
@@ -44,9 +43,6 @@ var ErrInvalidListenerPort = errors.New("listener port must be between 1 and 655
 type ReservedPorts struct {
 	// EnvoyInternal are ports the Envoy proxy itself binds (admin/stats).
 	EnvoyInternal []int
-	// Placeholder is the port of the placeholder listener emitted for a stream
-	// with no routes.
-	Placeholder int
 	// DomainDefaults are the HTTP/HTTPS ports of a merged, domain-enabled
 	// template. They are reserved even before any Domain exists on it.
 	DomainDefaults []int
@@ -55,7 +51,6 @@ type ReservedPorts struct {
 // DefaultReservedPorts is the template-independent reserved set.
 var DefaultReservedPorts = ReservedPorts{
 	EnvoyInternal: []int{19000, 19001},
-	Placeholder:   streamplan.PlaceholderPort,
 }
 
 // ValidateListenerPort rejects a port outside 1-65535 (ErrInvalidListenerPort)
@@ -68,9 +63,6 @@ func ValidateListenerPort(port int, reserved ReservedPorts) error {
 		if p == port {
 			return fmt.Errorf("%w: %d is used internally by Envoy", ErrReservedPort, port)
 		}
-	}
-	if reserved.Placeholder != 0 && port == reserved.Placeholder {
-		return fmt.Errorf("%w: %d is the stream placeholder listener port", ErrReservedPort, port)
 	}
 	for _, p := range reserved.DomainDefaults {
 		if p == port {
@@ -116,13 +108,22 @@ func checkPortInRange(port int, tmpl *models.DomainTemplate) error {
 	return nil
 }
 
-// StreamPortStore is the slice of StreamRepository the port-collision check
-// uses. *repository.StreamRepository satisfies it structurally.
+// StreamPortStore is the slice of StreamRepository the claim and route-port
+// checks use. *repository.StreamRepository satisfies it structurally.
 type StreamPortStore interface {
-	// UsedPortsByStream returns the L4 route ports of one stream.
+	// UsedPortsByStream returns the L4 ports a stream's routes hold: route
+	// rows, pending create/update approvals, and each route's latest deployed
+	// version.
 	UsedPortsByStream(streamID uuid.UUID, excludeRouteID *uuid.UUID) ([]PortUse, error)
-	// UsedL4Ports returns the L4 route ports of every stream on a template.
-	UsedL4Ports(templateID uuid.UUID, excludeRouteID *uuid.UUID) ([]PortUse, error)
+	// ClaimedPortsByTemplate returns the ports every stream on a template has
+	// claimed, skipping excludeStreamID.
+	ClaimedPortsByTemplate(templateID uuid.UUID, excludeStreamID *uuid.UUID) ([]PortUse, error)
+	// L4PortOwnersByStream, PendingL4PortOwnersByStream and
+	// DeployedL4PortOwnersByStream name the routes behind UsedPortsByStream
+	// (rows, pending approvals, deployed versions) for error messages.
+	L4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
+	PendingL4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
+	DeployedL4PortOwnersByStream(streamID uuid.UUID) ([]L4PortOwner, error)
 }
 
 // DomainPortReader returns the HTTP/HTTPS listener ports (as TCP) of every
@@ -131,16 +132,16 @@ type DomainPortReader interface {
 	UsedPortsByTemplate(templateID uuid.UUID) ([]PortUse, error)
 }
 
-// L4PortReader returns the L4 route ports of every stream on a template.
+// L4PortReader returns the ports every stream on a template has claimed.
 // *repository.StreamRepository satisfies it structurally. It is the domain-
 // and template-side view of the stream half of the collision scope.
 type L4PortReader interface {
-	UsedL4Ports(templateID uuid.UUID, excludeRouteID *uuid.UUID) ([]PortUse, error)
+	ClaimedPortsByTemplate(templateID uuid.UUID, excludeStreamID *uuid.UUID) ([]PortUse, error)
 }
 
 // checkDomainPortsAgainstStreams rejects a domain whose bound listener ports hit a
-// stream L4 TCP port on the same merged template (the domain-side mirror of
-// CheckPortCollision). Unmerged templates give every domain its own Gateway,
+// stream-claimed TCP port on the same merged template (the domain-side mirror
+// of validateStreamPorts). Unmerged templates give every domain its own Gateway,
 // so there is nothing shared to collide with. A merged template with an
 // unwired reader fails closed rather than skipping the guard.
 func checkDomainPortsAgainstStreams(streams L4PortReader, tmpl *models.DomainTemplate, ports []int) error {
@@ -150,24 +151,24 @@ func checkDomainPortsAgainstStreams(streams L4PortReader, tmpl *models.DomainTem
 	if streams == nil {
 		return errors.New("stream port sources are not configured")
 	}
-	used, err := streams.UsedL4Ports(tmpl.ID, nil)
+	used, err := streams.ClaimedPortsByTemplate(tmpl.ID, nil)
 	if err != nil {
 		return fmt.Errorf("failed to load template stream ports: %w", err)
 	}
 	for _, port := range ports {
 		if hasPortUse(used, "TCP", port) {
-			return fmt.Errorf("%w: TCP/%d is used by a stream route on merged gateway template %q", ErrPortCollision, port, tmpl.Name)
+			return fmt.Errorf("%w: TCP/%d is claimed by a stream on merged gateway template %q", ErrPortCollision, port, tmpl.Name)
 		}
 	}
 	return nil
 }
 
 // checkMergedTemplateSet validates the listener set a merged template would
-// have after its listeners change: no stream L4 port may equal an existing
+// have after its listeners change: no stream-claimed port may equal an existing
 // domain's HTTP/HTTPS port, nor the template's own hostname-routed listener
 // ports. Returns ErrPortCollision (wrapped).
 func checkMergedTemplateSet(streams L4PortReader, domains DomainPortReader, tmpl *models.DomainTemplate) error {
-	streamUsed, err := streams.UsedL4Ports(tmpl.ID, nil)
+	streamUsed, err := streams.ClaimedPortsByTemplate(tmpl.ID, nil)
 	if err != nil {
 		return fmt.Errorf("failed to load template stream ports: %w", err)
 	}
@@ -177,40 +178,46 @@ func checkMergedTemplateSet(streams L4PortReader, domains DomainPortReader, tmpl
 	}
 	for _, u := range domainUsed {
 		if hasPortUse(streamUsed, u.Transport, u.Port) {
-			return fmt.Errorf("%w: %s/%d is used by both a stream route and a domain on merged gateway template %q", ErrPortCollision, u.Transport, u.Port, tmpl.Name)
+			return fmt.Errorf("%w: %s/%d is claimed by both a stream and a domain on merged gateway template %q", ErrPortCollision, u.Transport, u.Port, tmpl.Name)
 		}
 	}
 	for _, port := range templateDomainDefaults(tmpl) {
 		if hasPortUse(streamUsed, "TCP", port) {
-			return fmt.Errorf("%w: TCP/%d is used by a stream route and is the HTTP/HTTPS port of merged gateway template %q", ErrPortCollision, port, tmpl.Name)
+			return fmt.Errorf("%w: TCP/%d is claimed by a stream and is the HTTP/HTTPS port of merged gateway template %q", ErrPortCollision, port, tmpl.Name)
 		}
 	}
 	return nil
 }
 
+// ErrPortNotClaimed is returned when an L4 route's (transport, port) is not
+// among the ports its stream claims.
+var ErrPortNotClaimed = errors.New("listener port is not claimed by the stream")
+
 // L4PortChecker is the slice of StreamService route writes use to reject an L4
-// route whose (transport, port) collides or is reserved. *StreamService
-// satisfies it.
+// route whose (transport, port) is not claimed by its stream or is already used
+// by another of its routes. *StreamService satisfies it.
 type L4PortChecker interface {
-	CheckPortCollision(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error
+	CheckRoutePort(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error
 }
 
 var _ L4PortChecker = (*StreamService)(nil)
 
-// SetPortSources wires the repositories CheckPortCollision reads. It is kept
-// out of NewStreamService so the lifecycle-only constructor stays unchanged.
+// SetPortSources wires the repositories the claim and route-port checks read.
+// It is kept out of NewStreamService so the lifecycle-only constructor stays
+// unchanged.
 func (s *StreamService) SetPortSources(streams StreamPortStore, domains DomainPortReader) {
 	s.portStore = streams
 	s.domainPorts = domains
 }
 
-// CheckPortCollision validates that (transport, port) is free for a new or
-// updated L4 route on the stream, scoped by the template's mergeGateways (see
-// the file comment). excludeRouteID skips the route being updated so it does
-// not collide with itself. It returns ErrPortCollision (wrapped, naming the
-// conflict) on collision, nil otherwise.
-func (s *StreamService) CheckPortCollision(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error {
-	if s.portStore == nil || s.domainPorts == nil {
+// CheckRoutePort validates that (transport, port) can be used by a new or
+// updated L4 route on the stream: the stream must claim it (ErrPortNotClaimed,
+// the message lists the stream's claims for that transport) and no other route
+// of the stream may hold it - by its row, a pending create/update approval or
+// its latest deployed version (ErrPortCollision). excludeRouteID skips the route being updated so it does
+// not collide with itself.
+func (s *StreamService) CheckRoutePort(streamID uuid.UUID, transport string, port int, excludeRouteID *uuid.UUID) error {
+	if s.portStore == nil {
 		return errors.New("stream port sources are not configured")
 	}
 	transport = strings.ToUpper(transport)
@@ -222,52 +229,164 @@ func (s *StreamService) CheckPortCollision(streamID uuid.UUID, transport string,
 	if err != nil {
 		return err
 	}
-	tmpl, err := s.templateRepo.GetByID(stream.GatewayTemplateID)
+	if !stream.Ports.Has(transport, port) {
+		return fmt.Errorf("%w: %s/%d is not one of the stream's %s claims (%s)",
+			ErrPortNotClaimed, transport, port, transport, claimsOfTransport(stream.Ports, transport))
+	}
+
+	used, err := s.portStore.UsedPortsByStream(streamID, excludeRouteID)
 	if err != nil {
-		return fmt.Errorf("failed to load gateway template: %w", err)
+		return fmt.Errorf("failed to load stream ports: %w", err)
 	}
+	if hasPortUse(used, transport, port) {
+		return fmt.Errorf("%w: %s/%d is used by another route on stream %q", ErrPortCollision, transport, port, stream.Name)
+	}
+	return nil
+}
 
-	if err := ValidateListenerPort(port, DefaultReservedPorts); err != nil {
-		return err
+// claimsOfTransport renders the stream's claims for one transport as
+// "TCP/5432, TCP/5433", or "none" when it claims none.
+func claimsOfTransport(ports models.StreamPorts, transport string) string {
+	var parts []string
+	for _, c := range ports.Normalize() {
+		if c.Transport == transport {
+			parts = append(parts, fmt.Sprintf("%s/%d", c.Transport, c.Port))
+		}
 	}
-	if err := checkPortInRange(port, tmpl); err != nil {
-		return err
+	if len(parts) == 0 {
+		return "none"
 	}
+	return strings.Join(parts, ", ")
+}
 
+// Stream port claims. A stream claims (transport, port) pairs; routes then
+// pick from the claimed set. validateStreamPorts and checkUsedClaimsKept are
+// the validators stream create/update call.
+
+// ErrNoStreamPorts is returned when a stream's claim set is empty.
+var ErrNoStreamPorts = errors.New("a stream must claim at least one port")
+
+// ErrInvalidStreamPort is returned for a claim with a transport other than
+// TCP/UDP, or a (transport, port) listed twice.
+var ErrInvalidStreamPort = errors.New("invalid stream port")
+
+// ErrStreamPortInUse is returned when an update drops a claim that a route (or
+// a pending route approval) still uses.
+var ErrStreamPortInUse = errors.New("stream port is in use by a route")
+
+// validateStreamPorts checks a stream's proposed claim set against the
+// template and returns it normalized (upper-case transports, TCP before UDP,
+// then by port). selfID is the stream being updated (nil on create), so its
+// own claims never collide with themselves.
+//
+// Scope follows mergeGateways: a dedicated template
+// gives the stream its own Gateway, so only the static rules apply; a merged
+// one also collides with other streams' claims, domain ports, and (as TCP) the
+// template's own hostname-routed listener ports.
+func (s *StreamService) validateStreamPorts(tmpl *models.DomainTemplate, selfID *uuid.UUID, ports models.StreamPorts) (models.StreamPorts, error) {
+	if len(ports) == 0 {
+		return nil, ErrNoStreamPorts
+	}
+	norm := ports.Normalize()
+	for i, c := range norm {
+		if c.Transport != "TCP" && c.Transport != "UDP" {
+			return nil, fmt.Errorf("%w: transport %q must be TCP or UDP", ErrInvalidStreamPort, c.Transport)
+		}
+		if i > 0 && norm[i-1] == c {
+			return nil, fmt.Errorf("%w: %s/%d is listed more than once", ErrInvalidStreamPort, c.Transport, c.Port)
+		}
+	}
+	for _, c := range norm {
+		if err := ValidateListenerPort(c.Port, DefaultReservedPorts); err != nil {
+			return nil, err
+		}
+		if err := checkPortInRange(c.Port, tmpl); err != nil {
+			return nil, err
+		}
+	}
 	if !tmpl.MergeGateways {
-		used, err := s.portStore.UsedPortsByStream(streamID, excludeRouteID)
-		if err != nil {
-			return fmt.Errorf("failed to load stream ports: %w", err)
-		}
-		if hasPortUse(used, transport, port) {
-			return fmt.Errorf("%w: %s/%d is used by another route on stream %q", ErrPortCollision, transport, port, stream.Name)
-		}
-		return nil
+		return norm, nil
 	}
 
-	streamUsed, err := s.portStore.UsedL4Ports(tmpl.ID, excludeRouteID)
-	if err != nil {
-		return fmt.Errorf("failed to load template stream ports: %w", err)
+	if s.portStore == nil || s.domainPorts == nil {
+		return nil, errors.New("stream port sources are not configured")
 	}
-	if hasPortUse(streamUsed, transport, port) {
-		return fmt.Errorf("%w: %s/%d is used by a stream route on merged gateway template %q", ErrPortCollision, transport, port, tmpl.Name)
+	claimed, err := s.portStore.ClaimedPortsByTemplate(tmpl.ID, selfID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load template stream ports: %w", err)
 	}
 	domainUsed, err := s.domainPorts.UsedPortsByTemplate(tmpl.ID)
 	if err != nil {
-		return fmt.Errorf("failed to load template domain ports: %w", err)
+		return nil, fmt.Errorf("failed to load template domain ports: %w", err)
 	}
-	if hasPortUse(domainUsed, transport, port) {
-		return fmt.Errorf("%w: %s/%d is used by a domain HTTP/HTTPS listener on merged gateway template %q", ErrPortCollision, transport, port, tmpl.Name)
-	}
-	// An actual collision is reported above; what is left is the template's
-	// default HTTP/HTTPS ports, reserved (as TCP) even before a Domain exists
-	// so a stream cannot squat a port the first Domain would need.
-	if transport == "TCP" {
-		if err := ValidateListenerPort(port, ReservedPorts{DomainDefaults: templateDomainDefaults(tmpl)}); err != nil {
-			return err
+	for _, c := range norm {
+		if hasPortUse(claimed, c.Transport, c.Port) {
+			return nil, fmt.Errorf("%w: %s/%d is claimed by another stream on merged gateway template %q", ErrPortCollision, c.Transport, c.Port, tmpl.Name)
+		}
+		if hasPortUse(domainUsed, c.Transport, c.Port) {
+			return nil, fmt.Errorf("%w: %s/%d is used by a domain HTTP/HTTPS listener on merged gateway template %q", ErrPortCollision, c.Transport, c.Port, tmpl.Name)
+		}
+		// What is left is the template's default HTTP/HTTPS ports, reserved (as
+		// TCP) even before a Domain exists.
+		if c.Transport == "TCP" {
+			if err := ValidateListenerPort(c.Port, ReservedPorts{DomainDefaults: templateDomainDefaults(tmpl)}); err != nil {
+				return nil, err
+			}
 		}
 	}
+	return norm, nil
+}
+
+// checkUsedClaimsKept rejects a claim set that drops a port a route still
+// uses: a route row of the stream, a pending create/update approval for one
+// of its routes, or a route's latest deployed version. It returns
+// ErrStreamPortInUse (wrapped) naming the port and the route, marking the use
+// "pending" when only an approval holds it and "deployed version" when only
+// the cluster's deployed copy does.
+func (s *StreamService) checkUsedClaimsKept(stream *models.Stream, next models.StreamPorts) error {
+	if s.portStore == nil {
+		return errors.New("stream port sources are not configured")
+	}
+	used, err := s.portStore.UsedPortsByStream(stream.ID, nil)
+	if err != nil {
+		return fmt.Errorf("failed to load stream ports: %w", err)
+	}
+	keep := next.Normalize()
+	for _, u := range used {
+		if keep.Has(u.Transport, u.Port) {
+			continue
+		}
+		return s.portInUseError(stream, u)
+	}
 	return nil
+}
+
+// portInUseError builds the ErrStreamPortInUse for a dropped, used claim. The
+// owner lookups only name the route; a failed lookup degrades to an unnamed
+// message rather than hiding the conflict. When several sources name the
+// port, the route row wins over a pending approval, which wins over a
+// deployed version (the same precedence as the entry point).
+func (s *StreamService) portInUseError(stream *models.Stream, u PortUse) error {
+	rows, _ := s.portStore.L4PortOwnersByStream(stream.ID)
+	for _, o := range rows {
+		if o.Transport == u.Transport && o.Port == u.Port {
+			return fmt.Errorf("%w: %s/%d is used by route %q", ErrStreamPortInUse, u.Transport, u.Port, o.RouteName)
+		}
+	}
+	pending, _ := s.portStore.PendingL4PortOwnersByStream(stream.ID)
+	for _, o := range pending {
+		if o.Transport == u.Transport && o.Port == u.Port {
+			return fmt.Errorf("%w: %s/%d is used by route %q (pending change)", ErrStreamPortInUse, u.Transport, u.Port, o.RouteName)
+		}
+	}
+	deployed, _ := s.portStore.DeployedL4PortOwnersByStream(stream.ID)
+	for _, o := range deployed {
+		if o.Transport == u.Transport && o.Port == u.Port {
+			return fmt.Errorf("%w: %s/%d is used by route %q (deployed version, until its pending change is deployed)",
+				ErrStreamPortInUse, u.Transport, u.Port, o.RouteName)
+		}
+	}
+	return fmt.Errorf("%w: %s/%d is used by a route of stream %q", ErrStreamPortInUse, u.Transport, u.Port, stream.Name)
 }
 
 // hasPortUse reports whether used contains the exact (transport, port).

@@ -42,7 +42,8 @@ type routeWrite struct {
 	assembler *routeAssembler
 	query     *routeQuery
 
-	// l4Ports guards L4 listener-port collisions (see validateL4Listener).
+	// l4Ports checks that an L4 route uses a claimed, unused stream port
+	// (see validateL4Listener).
 	// It is wired after construction (SetL4PortChecker) because the
 	// StreamService that implements it is built after RouteService.
 	l4Ports L4PortChecker

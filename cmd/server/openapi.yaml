@@ -2237,7 +2237,7 @@ paths:
         - $ref: '#/components/parameters/projectId'
       responses:
         '200':
-          description: List of streams, ordered by name, each with its entry point mode, template name, route count and ports
+          description: List of streams, ordered by name, each with its entry point mode, template name, route count and port claims
           content:
             application/json:
               schema:
@@ -2248,7 +2248,7 @@ paths:
                     items:
                       $ref: '#/components/schemas/StreamListItem'
         '500':
-          description: A stream's gateway template or the route ports could not be read (modes are never guessed)
+          description: A stream's gateway template or the route counts could not be read (modes are never guessed)
           content:
             application/json:
               schema:
@@ -2258,8 +2258,10 @@ paths:
         - Streams
       summary: Create a stream
       description: |
-        Creates a stream from a Gateway Template that has the stream capability
-        and eagerly deploys its Gateway. Requires Owner or Project Admin.
+        Creates a stream from a Gateway Template that has the stream capability,
+        claiming the given ports, and eagerly deploys its Gateway with one
+        listener per claim. An apply failure is recorded on the returned stream's
+        status, not returned as an error. Requires Owner or Project Admin.
       operationId: createStream
       security:
         - bearerAuth: []
@@ -2279,7 +2281,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Stream'
         '400':
-          description: Invalid name, namespace not registered for the project or lacking the deploy_gateway capability, or the Gateway Template is not enabled for streams
+          description: Invalid name, namespace not registered for the project or lacking the deploy_gateway capability, the Gateway Template is not enabled for streams, or an invalid claim (no ports, a transport other than TCP/UDP, a port listed twice, reserved or outside the template's range)
           content:
             application/json:
               schema:
@@ -2293,7 +2295,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: A stream with this name already exists in the project
+          description: A stream with this name already exists in the project, or a claimed port collides with another stream's claim or a domain's listener on the same merged Gateway Template
           content:
             application/json:
               schema:
@@ -2321,7 +2323,11 @@ paths:
     patch:
       tags:
         - Streams
-      summary: Rename a stream
+      summary: Rename a stream and/or change its claimed ports
+      description: |
+        Sending `ports` replaces the claim set (at least one port) and re-applies
+        the Gateway. A name-only update does not touch the cluster. Requires
+        Owner or Project Admin.
       operationId: updateStream
       security:
         - bearerAuth: []
@@ -2348,7 +2354,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: A stream with this name already exists in the project
+          description: A stream with this name already exists in the project, the new claim set drops a port a route (or pending route approval) still uses, or a claimed port collides with another stream's claim or a domain's listener on the same merged Gateway Template
           content:
             application/json:
               schema:
@@ -2357,7 +2363,7 @@ paths:
       tags:
         - Streams
       summary: Delete a stream
-      description: Fails with 409 while the stream still has routes.
+      description: Fails with 409 while the stream still has routes. Also deletes the stream's Gateway from the cluster (best effort).
       operationId: deleteStream
       security:
         - bearerAuth: []
@@ -2452,9 +2458,9 @@ paths:
         - Streams
       summary: Get a stream's manifests (Gateway and every live L4 route)
       description: |
-        The Gateway is rendered from the stream's live routes through the same
-        builders the deploy path applies; with no live routes it is the
-        placeholder Gateway. Each live route carries its TCPRoute/UDPRoute and
+        The Gateway is rendered from the stream's claimed ports through the same
+        builders the apply path uses; a stream with no claims has no Gateway, so
+        the YAML is empty. Each live route carries its TCPRoute/UDPRoute and
         BackendTrafficPolicy (empty when it has none).
       operationId: getStreamYamls
       security:
@@ -2527,9 +2533,9 @@ paths:
         - Streams
       summary: Create L4 route (submits for approval)
       description: |
-        Creates a TCP or UDP route on the stream's Gateway and submits it through
-        the same approval flow as HTTP routes. Requires Owner, Project Admin or
-        Editor.
+        Creates a TCP or UDP route on one of the ports the stream claims and
+        submits it through the same approval flow as HTTP routes. Requires Owner,
+        Project Admin or Editor.
       operationId: createStreamRoute
       security:
         - bearerAuth: []
@@ -2550,7 +2556,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RouteResponse'
         '400':
-          description: Invalid route (non-L4 protocol, L7 field, external backend, missing listener port or backend, reserved or out-of-range port, duplicate name)
+          description: Invalid route (non-L4 protocol, L7 field, external backend, missing listener port or backend, reserved or invalid port, a port the stream does not claim, duplicate name)
           content:
             application/json:
               schema:
@@ -2564,7 +2570,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: The listener port is already used by another route on the stream (same protocol), or by a merged Gateway Template's HTTP/HTTPS port
+          description: The listener port is already used by another route on the stream (same protocol) - by its route row, a pending route approval, or its deployed version
           content:
             application/json:
               schema:
@@ -2576,8 +2582,8 @@ paths:
       summary: Preview an L4 route create (TCPRoute/UDPRoute and BackendTrafficPolicy, no write)
       description: |
         Runs the same validation as creating the route (name, tcp/udp
-        protocol, listener port validity, reserved ports, template range and
-        collisions, protocol-gated policy inputs) and returns the manifests the
+        protocol, listener port validity, reserved ports, the stream's port claims
+        and collisions with other routes, protocol-gated policy inputs) and returns the manifests the
         create would produce. Errors are the create's errors with the same
         statuses, so a preview never shows a manifest create would reject.
       operationId: previewCreateStreamRoute
@@ -2600,7 +2606,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PreviewCreateResponse'
         '400':
-          description: Invalid route (same cases as create)
+          description: Invalid route (same cases as create, including a port the stream does not claim)
           content:
             application/json:
               schema:
@@ -2612,7 +2618,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: The listener port is already in use in the stream's scope
+          description: The listener port is already used by another route of the stream
           content:
             application/json:
               schema:
@@ -2665,7 +2671,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RouteResponse'
         '400':
-          description: Invalid route configuration
+          description: Invalid route configuration, including a listener port the stream does not claim
           content:
             application/json:
               schema:
@@ -2675,7 +2681,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: The new listener port is already used by another route on the stream
+          description: The new listener port is already used by another route on the stream (its route row, a pending route approval, or its deployed version)
           content:
             application/json:
               schema:
@@ -2785,7 +2791,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PreviewUpdateResponse'
         '400':
-          description: Invalid route configuration
+          description: Invalid route configuration, including a listener port the stream does not claim
           content:
             application/json:
               schema:
@@ -2793,7 +2799,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: The new listener port is already in use in the stream's scope
+          description: The new listener port is already used by another route of the stream
           content:
             application/json:
               schema:
@@ -2827,8 +2833,10 @@ paths:
         - Streams
       summary: Deploy approved L4 route to Kubernetes
       description: |
-        Applies the stream's Gateway (recomputed from every live route's
-        listener) and then the route's TCPRoute/UDPRoute.
+        Applies the route's TCPRoute/UDPRoute (and BackendTrafficPolicy). The
+        stream's Gateway is not written here: the stream owns it and applies it
+        from its port claims, so the route's listener already exists. Fails with
+        409 if the stream no longer claims the route's port.
       operationId: deployStreamRoute
       security:
         - bearerAuth: []
@@ -2853,6 +2861,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: The stream no longer claims the route's listener port
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/streams/{streamId}/routes/{routeId}/versions:
     get:
       tags:
@@ -2934,6 +2948,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: The version's listener port is already used by another route of the stream (its route row, a pending route approval, or its deployed version)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /projects/{projectId}/domains:
     get:
       tags:
@@ -7505,6 +7525,15 @@ components:
           description: Kubernetes Gateway name, "str-" followed by the DNS-label-safe stream name.
         k8sGatewayClass:
           type: string
+        ports:
+          type: array
+          description: |
+            The (transport, port) pairs the stream claims, ordered TCP before UDP
+            then by port. The stream's Gateway has exactly one listener per claim,
+            and its routes pick their listener port from this set. Empty only for
+            a stream created before port claims existed, which has no Gateway.
+          items:
+            $ref: '#/components/schemas/StreamPort'
         status:
           type: string
           description: pending, active or error.
@@ -7525,6 +7554,7 @@ components:
         - name
         - namespace
         - gatewayTemplateId
+        - ports
       properties:
         name:
           type: string
@@ -7537,14 +7567,35 @@ components:
           type: string
           format: uuid
           description: Must belong to the project and have the stream capability enabled.
+        ports:
+          type: array
+          minItems: 1
+          description: |
+            The ports the stream claims; its Gateway listens on exactly these.
+            Transports are case-insensitive (stored upper-case). Each port must be
+            inside the template's TCP/UDP range, not reserved, listed once per
+            transport, and - on a template that merges gateways - not claimed by
+            another stream or used by a domain on that template.
+          items:
+            $ref: '#/components/schemas/StreamPort'
     UpdateStreamRequest:
       type: object
-      description: Only the name is updatable; the Gateway Template is immutable.
+      description: Only the name and the claimed ports are updatable; the Gateway Template is immutable. An omitted field is left unchanged.
       properties:
         name:
           type: string
           maxLength: 59
           pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+        ports:
+          type: array
+          minItems: 1
+          description: |
+            The full replacement claim set (not a delta). It must keep every port
+            a route, or a pending route approval, still uses (409 otherwise). The
+            Gateway is re-applied; an apply failure is recorded on the returned
+            stream's status and statusMessage, not returned as an error.
+          items:
+            $ref: '#/components/schemas/StreamPort'
     StreamEntrypoint:
       type: object
       description: |
@@ -7597,21 +7648,23 @@ components:
           type: array
           description: |
             Taken (transport, port) pairs with their owner, ordered by port.
-            Dedicated - this stream's L4 routes (empty for the template variant);
-            shared - every stream's L4 routes on the template plus every domain's
-            bound listener ports. Rejected routes hold no port.
+            Dedicated - this stream's port claims (empty for the template
+            variant); shared - every stream's port claims on the template plus
+            every domain's bound listener ports. Only a claim of the viewed
+            stream carries route detail; other streams' claims name the stream
+            and nothing more.
           items:
             $ref: '#/components/schemas/EntrypointPort'
         reserved:
           type: array
           description: |
-            Ports no route may claim. 19000/19001 (envoy_internal) and 60000
-            (placeholder) for both TCP and UDP, plus - when shared - the
-            template's hostname-routed listener ports as TCP (template_listener).
+            Ports no stream may claim. 19000/19001 (envoy_internal) for both TCP
+            and UDP, plus - when shared - the template's hostname-routed listener
+            ports as TCP (template_listener).
           items:
             $ref: '#/components/schemas/EntrypointReservedPort'
     StreamListItem:
-      description: A stream as listed, with the fields the stream list shows. Every Stream field is unchanged.
+      description: A stream as listed, with the fields the stream list shows. Every Stream field is unchanged, ports (the stream's claims) included.
       allOf:
         - $ref: '#/components/schemas/Stream'
         - type: object
@@ -7619,7 +7672,6 @@ components:
             - mode
             - gatewayTemplateName
             - routeCount
-            - ports
           properties:
             mode:
               type: string
@@ -7632,11 +7684,6 @@ components:
             routeCount:
               type: integer
               description: Non-rejected L4 routes on the stream.
-            ports:
-              type: array
-              description: (transport, port) of each non-rejected L4 route, ordered by port.
-              items:
-                $ref: '#/components/schemas/StreamPort'
     StreamYAMLs:
       type: object
       required:
@@ -7645,7 +7692,7 @@ components:
       properties:
         gatewayYaml:
           type: string
-          description: The stream's Gateway YAML, rendered from its live routes (placeholder listener when none).
+          description: The stream's Gateway YAML, rendered from its claimed ports. Empty when the stream claims none (no Gateway is deployed).
         routes:
           type: array
           items:
@@ -12548,14 +12595,19 @@ components:
                 type: string
     EntrypointPortOwner:
       type: object
-      description: kind stream_route sets the stream/route fields; kind domain sets the domain fields.
+      description: |
+        kind stream sets the stream fields; kind domain sets the domain fields.
+        The route fields (routeId, routeName, status, pending) are set only on a
+        claim of the stream being viewed that a route holds or an approval
+        proposes; they are absent on other streams' claims and on claims no
+        route uses.
       required:
         - kind
       properties:
         kind:
           type: string
           enum:
-            - stream_route
+            - stream
             - domain
         streamId:
           type: string
@@ -12570,6 +12622,9 @@ components:
         status:
           type: string
           description: The route's status (any status except rejected).
+        pending:
+          type: boolean
+          description: True when the route does not hold this port yet - a pending approval proposes it. Omitted when false.
         domainId:
           type: string
           format: uuid
@@ -12609,7 +12664,6 @@ components:
           type: string
           enum:
             - envoy_internal
-            - placeholder
             - template_listener
     NamespaceCapability:
       type: string

@@ -77,7 +77,6 @@ func newRouteServiceDeps() services.RouteServiceDeps {
 
 		// The L4 deploy path (Task 16): bare mocks, same contract as above.
 		Streams:     new(mocks.MockStreamReader),
-		K8sGateways: new(mocks.MockKubernetesService),
 		K8sL4Routes: new(mocks.MockKubernetesService),
 
 		// Capability resolver: v1alpha2 by default (l4RouteV1 false).
@@ -8520,7 +8519,6 @@ func TestNewRouteService_RequiresEveryDependency(t *testing.T) {
 		"K8sRefGrants":     func(d *services.RouteServiceDeps) { d.K8sRefGrants = nil },
 		// The L4 deploy path (Task 16).
 		"Streams":      func(d *services.RouteServiceDeps) { d.Streams = nil },
-		"K8sGateways":  func(d *services.RouteServiceDeps) { d.K8sGateways = nil },
 		"K8sL4Routes":  func(d *services.RouteServiceDeps) { d.K8sL4Routes = nil },
 		"Capabilities": func(d *services.RouteServiceDeps) { d.Capabilities = nil },
 	}

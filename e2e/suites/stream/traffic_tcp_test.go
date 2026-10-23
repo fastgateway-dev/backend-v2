@@ -17,7 +17,7 @@ import (
 // Stream Gateway's LoadBalancer to the l4-echo backend: the echoed bytes equal
 // what was sent.
 func TestStreamTCPTraffic(t *testing.T) {
-	s := newStream(t)
+	s := newStream(t, models.StreamPort{Transport: "TCP", Port: 15100})
 	fx := harness.NewStreamFixture(t, env)
 	fx.Route(s, services.CreateRouteInput{
 		Name:     harness.UniqueName(t),

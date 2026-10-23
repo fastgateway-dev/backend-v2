@@ -32,16 +32,26 @@ func (a *API) CreateStreamTemplate(ctx context.Context, projectID, name string) 
 	return dt.ID, nil
 }
 
-// CreateStream creates a Stream under a stream-enabled template. Admin only
-// (the endpoint requires CanManageDomains).
-func (a *API) CreateStream(ctx context.Context, projectID, name, namespace string, templateID uuid.UUID) (models.Stream, error) {
+// CreateStream creates a Stream under a stream-enabled template, claiming
+// ports (at least one; the stream's Gateway listens on exactly these). Admin
+// only (the endpoint requires CanManageDomains).
+func (a *API) CreateStream(ctx context.Context, projectID, name, namespace string, templateID uuid.UUID, ports []models.StreamPort) (models.Stream, error) {
 	body := map[string]any{
 		"name":              name,
 		"namespace":         namespace,
 		"gatewayTemplateId": templateID,
+		"ports":             ports,
 	}
 	var s models.Stream
 	_, err := a.Do(ctx, http.MethodPost, fmt.Sprintf("/projects/%s/streams", projectID), body, &s)
+	return s, err
+}
+
+// UpdateStreamPorts replaces a stream's claimed ports (PATCH with the full new
+// set). Admin only.
+func (a *API) UpdateStreamPorts(ctx context.Context, projectID, streamID string, ports []models.StreamPort) (models.Stream, error) {
+	var s models.Stream
+	_, err := a.Do(ctx, http.MethodPatch, fmt.Sprintf("/projects/%s/streams/%s", projectID, streamID), map[string]any{"ports": ports}, &s)
 	return s, err
 }
 

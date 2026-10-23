@@ -237,7 +237,6 @@ func main() {
 		K8sAPIKeys:               k8sService,
 		K8sRefGrants:             k8sService,
 		Streams:                  streamRepo,
-		K8sGateways:              k8sService,
 		K8sL4Routes:              k8sService,
 		Capabilities:             capabilityService,
 	})
@@ -543,6 +542,16 @@ func main() {
 		ClientCertificateHandler:  clientCertificateHandler,
 		DNSRecordHandler:          dnsRecordHandler,
 	})
+
+	// Re-apply every stream's Gateway from its port claims so streams created
+	// before they owned their Gateway converge. One-shot; idempotent.
+	go func() {
+		if err := streamService.ReconcileGateways(ctx); err != nil {
+			log.Printf("WARNING: stream gateway reconcile failed: %v", err)
+			return
+		}
+		log.Printf("Stream gateway reconcile complete")
+	}()
 
 	// Start server
 	go func() {

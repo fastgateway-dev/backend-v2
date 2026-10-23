@@ -18,5 +18,3 @@ spec:
     - name: grpc-catchall-svc
       namespace: default
       port: 9000
-status:
-  parents: null

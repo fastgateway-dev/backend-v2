@@ -12,12 +12,6 @@ import (
 	"github.com/fastgateway-dev/backend-v2/internal/models"
 )
 
-// PlaceholderPort is the reserved port of the placeholder listener emitted
-// when a stream has no active L4 routes (a Gateway needs at least one listener).
-const PlaceholderPort = 60000
-
-const placeholderListenerName = "l4-placeholder"
-
 // StreamListener is a TCP/UDP Gateway listener (Protocol is "TCP" or "UDP").
 type StreamListener = kubernetes.L4Listener
 
@@ -26,23 +20,17 @@ func ListenerName(protocol string, port int) string {
 	return fmt.Sprintf("l4-%s-%d", strings.ToLower(protocol), port)
 }
 
-// BuildStreamGatewayConfig projects the stream's active L4 routes onto Gateway
-// listeners. With no routes a single placeholder TCP listener is emitted;
-// once real routes exist the placeholder is dropped.
-func BuildStreamGatewayConfig(stream models.Stream, routes []models.Route) kubernetes.GatewayConfig {
+// BuildStreamGatewayConfig projects the stream's port claims onto Gateway
+// listeners: one per claim, in claim order. A stream with no claims yields no
+// listeners (the caller deletes the Gateway rather than applying it).
+func BuildStreamGatewayConfig(stream models.Stream) kubernetes.GatewayConfig {
 	cfg := kubernetes.GatewayConfig{
 		Name:             stream.K8sGatewayName,
 		Namespace:        stream.Namespace,
 		GatewayClassName: stream.K8sGatewayClass,
 	}
-	if len(routes) == 0 {
-		cfg.Listeners = []StreamListener{{Name: placeholderListenerName, Protocol: "TCP", Port: PlaceholderPort}}
-		return cfg
-	}
-	for _, r := range routes {
-		proto := r.Transport()
-		port := r.Config.ListenerPort
-		cfg.Listeners = append(cfg.Listeners, StreamListener{Name: ListenerName(proto, port), Protocol: proto, Port: port})
+	for _, c := range stream.Ports {
+		cfg.Listeners = append(cfg.Listeners, StreamListener{Name: ListenerName(c.Transport, c.Port), Protocol: c.Transport, Port: c.Port})
 	}
 	return cfg
 }

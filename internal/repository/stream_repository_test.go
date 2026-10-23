@@ -1,6 +1,8 @@
 package repository_test
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/fastgateway-dev/backend-v2/internal/models"
@@ -108,31 +110,6 @@ func TestStreamRepository_UsedPortsByStream(t *testing.T) {
 	assert.Equal(t, []repository.PortUse{{Transport: "UDP", Port: 53}}, got)
 }
 
-func TestStreamRepository_UsedL4Ports_AcrossStreamsOfTemplate(t *testing.T) {
-	db := requirePostgres(t)
-	projectID, _, teamID, userID := seedProject(t, db)
-	tmplID := insertTemplate(t, db, projectID, userID, true)
-	otherTmplID := insertTemplate(t, db, projectID, userID, true)
-	repo := repository.NewStreamRepository(db)
-	mk := func(name string, tmpl uuid.UUID) uuid.UUID {
-		s := &models.Stream{ProjectID: projectID, Name: name, Namespace: "fastgateway-system", GatewayTemplateID: tmpl}
-		require.NoError(t, repo.Create(s))
-		return s.ID
-	}
-	a, b, c := mk("a", tmplID), mk("b", tmplID), mk("c", otherTmplID)
-	ra := insertL4Route(t, db, a, teamID, userID, "tcp", 5432, "active")
-	insertL4Route(t, db, b, teamID, userID, "udp", 5353, "active")
-	insertL4Route(t, db, c, teamID, userID, "tcp", 6000, "active")
-
-	got, err := repo.UsedL4Ports(tmplID, nil)
-	require.NoError(t, err)
-	assert.ElementsMatch(t, []repository.PortUse{{Transport: "TCP", Port: 5432}, {Transport: "UDP", Port: 5353}}, got)
-
-	got, err = repo.UsedL4Ports(tmplID, &ra)
-	require.NoError(t, err)
-	assert.Equal(t, []repository.PortUse{{Transport: "UDP", Port: 5353}}, got)
-}
-
 func TestDomainRepository_UsedPortsByTemplate(t *testing.T) {
 	db := requirePostgres(t)
 	projectID, domainID, _, userID := seedProject(t, db)
@@ -145,4 +122,291 @@ func TestDomainRepository_UsedPortsByTemplate(t *testing.T) {
 	got, err := repository.NewDomainRepository(db).UsedPortsByTemplate(tmplID)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []repository.PortUse{{Transport: "TCP", Port: 8080}, {Transport: "TCP", Port: 8443}}, got)
+}
+
+// insertRouteApproval inserts an approval for a route whose snapshot proposes
+// listenerPort. projectID/userID must already exist.
+func insertRouteApproval(t *testing.T, db *gorm.DB, projectID, userID, routeID uuid.UUID, action, status string, port int) {
+	t.Helper()
+	id := uuid.New()
+	require.NoError(t, db.Exec(`INSERT INTO approvals (id, project_id, entity_type, entity_id, action, config_snapshot, submitted_by, status, created_at)
+		VALUES (?, ?, 'route', ?, ?, jsonb_build_object('routeConfig', jsonb_build_object('listenerPort', ?::int)), ?, ?, NOW())`,
+		id, projectID, routeID, action, port, userID, status).Error)
+	t.Cleanup(func() { _ = db.Exec(`DELETE FROM approvals WHERE id = ?`, id).Error })
+}
+
+// insertRouteVersion records a deployed version of a route whose snapshot
+// holds listenerPort, the way RouteVersionService.CreateVersion writes it.
+// userID must already exist (route_versions.deployed_by).
+func insertRouteVersion(t *testing.T, db *gorm.DB, routeID, userID uuid.UUID, version, port int) {
+	t.Helper()
+	require.NoError(t, db.Exec(`INSERT INTO route_versions (route_id, version, config_snapshot, protocol, security_mode, deployed_by)
+		VALUES (?, ?, jsonb_build_object('routeConfig', jsonb_build_object('listenerPort', ?::int)), 'tcp', 'general', ?)`,
+		routeID, version, port, userID).Error)
+}
+
+func newStream(t *testing.T, repo *repository.StreamRepository, projectID, tmplID uuid.UUID, name string, ports models.StreamPorts) *models.Stream {
+	t.Helper()
+	s := &models.Stream{ProjectID: projectID, Name: name, Namespace: "fastgateway-system", GatewayTemplateID: tmplID, Ports: ports}
+	require.NoError(t, repo.Create(s))
+	return s
+}
+
+func TestStreamRepository_UsedPortsByStream_IncludesPendingApprovals(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, teamID, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	repo := repository.NewStreamRepository(db)
+	s := newStream(t, repo, projectID, tmplID, "pending-ports", nil)
+
+	a := insertL4Route(t, db, s.ID, teamID, userID, "tcp", 5432, "active")
+	insertRouteApproval(t, db, projectID, userID, a, "update", "pending", 5433)
+
+	got, err := repo.UsedPortsByStream(s.ID, nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []repository.PortUse{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 5433}}, got)
+
+	got, err = repo.UsedPortsByStream(s.ID, &a)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestStreamRepository_UsedPortsByStream_IgnoresRejectedAndCancelledApprovals(t *testing.T) {
+	for _, status := range []string{"rejected", "cancelled"} {
+		t.Run(status, func(t *testing.T) {
+			db := requirePostgres(t)
+			projectID, _, teamID, userID := seedProject(t, db)
+			tmplID := insertTemplate(t, db, projectID, userID, true)
+			repo := repository.NewStreamRepository(db)
+			s := newStream(t, repo, projectID, tmplID, "ignored-"+status, nil)
+
+			a := insertL4Route(t, db, s.ID, teamID, userID, "tcp", 5432, "active")
+			insertRouteApproval(t, db, projectID, userID, a, "update", status, 5433)
+
+			got, err := repo.UsedPortsByStream(s.ID, nil)
+			require.NoError(t, err)
+			assert.Equal(t, []repository.PortUse{{Transport: "TCP", Port: 5432}}, got)
+		})
+	}
+}
+
+// An approved update copies its snapshot into the route row (status
+// pending_deploy) before the deploy: the row holds the new port while the
+// cluster still serves the latest deployed version's port. Both are used.
+func TestStreamRepository_UsedPortsByStream_IncludesLatestDeployedVersion(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, teamID, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	repo := repository.NewStreamRepository(db)
+	s := newStream(t, repo, projectID, tmplID, "deployed-ports", nil)
+
+	a := insertL4Route(t, db, s.ID, teamID, userID, "tcp", 5433, "pending_deploy")
+	insertRouteVersion(t, db, a, userID, 1, 5431) // superseded
+	insertRouteVersion(t, db, a, userID, 2, 5432) // latest: what the cluster serves
+	b := insertL4Route(t, db, s.ID, teamID, userID, "udp", 53, "active")
+	insertRouteVersion(t, db, b, userID, 1, 53)
+	rejected := insertL4Route(t, db, s.ID, teamID, userID, "tcp", 9999, "rejected")
+	insertRouteVersion(t, db, rejected, userID, 1, 9998)
+
+	got, err := repo.UsedPortsByStream(s.ID, nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []repository.PortUse{
+		{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 5433}, {Transport: "UDP", Port: 53},
+	}, got)
+
+	got, err = repo.UsedPortsByStream(s.ID, &a)
+	require.NoError(t, err)
+	assert.Equal(t, []repository.PortUse{{Transport: "UDP", Port: 53}}, got, "excludeRouteID skips the deployed version too")
+}
+
+func TestStreamRepository_DeployedL4PortOwnersByStream(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, teamID, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	repo := repository.NewStreamRepository(db)
+	s := newStream(t, repo, projectID, tmplID, "deployed-owners", nil)
+	other := newStream(t, repo, projectID, tmplID, "deployed-owners-other", nil)
+
+	a := insertL4Route(t, db, s.ID, teamID, userID, "tcp", 5433, "pending_deploy")
+	insertRouteVersion(t, db, a, userID, 1, 5431)
+	insertRouteVersion(t, db, a, userID, 2, 5432)
+	rejected := insertL4Route(t, db, s.ID, teamID, userID, "tcp", 9999, "rejected")
+	insertRouteVersion(t, db, rejected, userID, 1, 9998)
+	o := insertL4Route(t, db, other.ID, teamID, userID, "tcp", 7000, "active")
+	insertRouteVersion(t, db, o, userID, 1, 7000)
+
+	got, err := repo.DeployedL4PortOwnersByStream(s.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "TCP", got[0].Transport)
+	assert.Equal(t, 5432, got[0].Port)
+	assert.False(t, got[0].Pending)
+	assert.Equal(t, s.ID, got[0].StreamID)
+	assert.Equal(t, "deployed-owners", got[0].StreamName)
+	assert.Equal(t, a, got[0].RouteID)
+	assert.Equal(t, "r-"+a.String(), got[0].RouteName)
+	assert.Equal(t, "pending_deploy", got[0].Status)
+}
+
+func TestStreamRepository_ClaimedPortsByTemplate(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, _, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	otherTmplID := insertTemplate(t, db, projectID, userID, true)
+	repo := repository.NewStreamRepository(db)
+	s1 := newStream(t, repo, projectID, tmplID, "s1", models.StreamPorts{{Transport: "TCP", Port: 80}, {Transport: "UDP", Port: 53}})
+	newStream(t, repo, projectID, tmplID, "s2", models.StreamPorts{{Transport: "TCP", Port: 81}})
+	newStream(t, repo, projectID, otherTmplID, "s3", models.StreamPorts{{Transport: "TCP", Port: 82}})
+
+	got, err := repo.ClaimedPortsByTemplate(tmplID, nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []repository.PortUse{
+		{Transport: "TCP", Port: 80}, {Transport: "UDP", Port: 53}, {Transport: "TCP", Port: 81},
+	}, got)
+
+	got, err = repo.ClaimedPortsByTemplate(tmplID, &s1.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []repository.PortUse{{Transport: "TCP", Port: 81}}, got)
+}
+
+func TestStreamRepository_PendingL4PortOwnersByStream(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, teamID, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	repo := repository.NewStreamRepository(db)
+	s := newStream(t, repo, projectID, tmplID, "pending-owners", nil)
+
+	a := insertL4Route(t, db, s.ID, teamID, userID, "tcp", 5432, "active")
+	insertRouteApproval(t, db, projectID, userID, a, "update", "pending", 5433)
+	insertRouteApproval(t, db, projectID, userID, a, "update", "rejected", 5434)
+
+	got, err := repo.PendingL4PortOwnersByStream(s.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "TCP", got[0].Transport)
+	assert.Equal(t, 5433, got[0].Port)
+	assert.True(t, got[0].Pending)
+	assert.Equal(t, s.ID, got[0].StreamID)
+	assert.Equal(t, "pending-owners", got[0].StreamName)
+	assert.Equal(t, a, got[0].RouteID)
+	assert.Equal(t, "r-"+a.String(), got[0].RouteName)
+
+	// the row-based owners are not marked pending
+	rows, err := repo.L4PortOwnersByStream(s.ID)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.False(t, rows[0].Pending)
+}
+
+func TestStreamRepository_ListAll(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, _, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	repo := repository.NewStreamRepository(db)
+	s := newStream(t, repo, projectID, tmplID, "list-all", models.StreamPorts{{Transport: "TCP", Port: 80}})
+
+	got, err := repo.ListAll()
+	require.NoError(t, err)
+	var found *models.Stream
+	for i := range got {
+		if got[i].ID == s.ID {
+			found = &got[i]
+		}
+	}
+	require.NotNil(t, found)
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 80}}, found.Ports)
+}
+
+// TestMigration000052_Backfill executes the backfill statement of the real
+// migration file against seeded rows (inside a rolled-back transaction).
+func TestMigration000052_Backfill(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, teamID, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	repo := repository.NewStreamRepository(db)
+
+	routed := newStream(t, repo, projectID, tmplID, "bf-routed", nil)
+	insertL4Route(t, db, routed.ID, teamID, userID, "tcp", 5432, "active")
+	insertL4Route(t, db, routed.ID, teamID, userID, "tcp", 9999, "rejected")
+
+	withPending := newStream(t, repo, projectID, tmplID, "bf-pending", nil)
+	r := insertL4Route(t, db, withPending.ID, teamID, userID, "tcp", 5432, "active")
+	insertRouteApproval(t, db, projectID, userID, r, "update", "pending", 5433)
+	insertRouteApproval(t, db, projectID, userID, r, "update", "cancelled", 5434)
+
+	// A pending create approval for a new route: the proposal is used.
+	// (The row holds a different port here only so the assertion proves
+	// the approval branch, not the row branch, supplied 6001.)
+	withCreate := newStream(t, repo, projectID, tmplID, "bf-create", nil)
+	c := insertL4Route(t, db, withCreate.ID, teamID, userID, "tcp", 6000, "pending_create")
+	insertRouteApproval(t, db, projectID, userID, c, "create", "pending", 6001)
+
+	// Approved but not yet deployed: the row holds the new port (5433), the
+	// cluster still serves the latest deployed version's port (5432).
+	approved := newStream(t, repo, projectID, tmplID, "bf-approved", nil)
+	d := insertL4Route(t, db, approved.ID, teamID, userID, "tcp", 5433, "pending_deploy")
+	insertRouteVersion(t, db, d, userID, 1, 5431)
+	insertRouteVersion(t, db, d, userID, 2, 5432)
+
+	empty := newStream(t, repo, projectID, tmplID, "bf-empty", nil)
+
+	raw, err := os.ReadFile("../../migrations/000052_stream_ports.up.sql")
+	require.NoError(t, err)
+	sqlText := string(raw)
+	idx := strings.Index(sqlText, "UPDATE streams")
+	require.GreaterOrEqual(t, idx, 0, "backfill statement not found in migration")
+	backfill := sqlText[idx:]
+
+	tx := db.Begin()
+	require.NoError(t, tx.Error)
+	defer tx.Rollback()
+	require.NoError(t, tx.Exec(backfill).Error)
+
+	portsOf := func(id uuid.UUID) models.StreamPorts {
+		var s models.Stream
+		require.NoError(t, tx.First(&s, "id = ?", id).Error)
+		return s.Ports
+	}
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 5432}}, portsOf(routed.ID))
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 5433}}, portsOf(withPending.ID))
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 6000}, {Transport: "TCP", Port: 6001}}, portsOf(withCreate.ID))
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 5432}, {Transport: "TCP", Port: 5433}}, portsOf(approved.ID),
+		"the deployed version's port is claimed, not the superseded one")
+	assert.Equal(t, models.StreamPorts{}, portsOf(empty.ID))
+}
+
+// UpdateStatus writes only the status columns, and never inserts a missing row.
+func TestStreamRepository_UpdateStatus(t *testing.T) {
+	db := requirePostgres(t)
+	projectID, _, _, userID := seedProject(t, db)
+	tmplID := insertTemplate(t, db, projectID, userID, true)
+	repo := repository.NewStreamRepository(db)
+
+	s := &models.Stream{ProjectID: projectID, Name: "status-gw", Namespace: "fastgateway-system",
+		GatewayTemplateID: tmplID, K8sGatewayName: "str-status-gw", K8sGatewayClass: "public-lb",
+		Ports: models.StreamPorts{{Transport: "TCP", Port: 5432}}}
+	require.NoError(t, repo.Create(s))
+
+	// A concurrent edit changes name and ports after a snapshot was taken.
+	stale, err := repo.GetByID(s.ID)
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&models.Stream{}).Where("id = ?", s.ID).
+		Updates(map[string]any{"name": "renamed"}).Error)
+
+	require.NoError(t, repo.UpdateStatus(stale.ID, "active", "Gateway applied successfully"))
+	got, err := repo.GetByID(s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "active", got.Status)
+	assert.Equal(t, "Gateway applied successfully", got.StatusMessage)
+	assert.Equal(t, "renamed", got.Name, "stale snapshot fields must not be written back")
+	assert.Equal(t, models.StreamPorts{{Transport: "TCP", Port: 5432}}, got.Ports)
+
+	// A missing row stays missing.
+	missing := uuid.New()
+	require.NoError(t, repo.UpdateStatus(missing, "active", "x"))
+	_, err = repo.GetByID(missing)
+	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	var n int64
+	require.NoError(t, db.Model(&models.Stream{}).Where("id = ?", missing).Count(&n).Error)
+	assert.Zero(t, n)
 }

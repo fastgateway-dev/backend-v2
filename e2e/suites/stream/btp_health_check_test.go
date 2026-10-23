@@ -20,7 +20,7 @@ import (
 // dead-backend-ejection assertion through the kind LoadBalancer is a
 // documented follow-up.
 func TestStreamTCPHealthCheck(t *testing.T) {
-	s := newStream(t)
+	s := newStream(t, models.StreamPort{Transport: "TCP", Port: 15600})
 	fx := harness.NewStreamFixture(t, env)
 	interval := "1s"
 	unhealthy := uint32(3)

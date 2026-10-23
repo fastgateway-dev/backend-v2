@@ -27,12 +27,12 @@ type StreamRouteYAMLs struct {
 	BackendTrafficPolicyYAML string               `json:"backendTrafficPolicyYaml"`
 }
 
-// GenerateStreamYAMLs renders the stream's manifests from exactly what
-// deployL4 uses: the live route set (routeRepo.ListActiveByStreamID), the
-// listener projection (streamplan.BuildStreamGatewayConfig) and the object
-// builder UpdateGateway applies (kubernetes.BuildGatewayObject). With no live
-// routes the Gateway is the placeholder one, as on the cluster. Any read
-// failure is an error, never a partial manifest set.
+// GenerateStreamYAMLs renders the stream's manifests from what is applied: the
+// Gateway from the stream's claims (streamplan.BuildStreamGatewayConfig, the
+// object builder UpdateGateway applies: kubernetes.BuildGatewayObject) and
+// each live route (routeRepo.ListActiveByStreamID). A stream with no claims has
+// no Gateway on the cluster, so gatewayYaml is "". Any read failure is an
+// error, never a partial manifest set.
 func (q *routeQuery) GenerateStreamYAMLs(projectID, streamID uuid.UUID) (*StreamYAMLs, error) {
 	stream, err := q.streamInProject(projectID, streamID)
 	if err != nil {
@@ -43,10 +43,13 @@ func (q *routeQuery) GenerateStreamYAMLs(projectID, streamID uuid.UUID) (*Stream
 		return nil, fmt.Errorf("failed to list active routes for stream: %w", err)
 	}
 
-	gwConfig := streamplan.BuildStreamGatewayConfig(*stream, live)
-	gwYAML, err := yaml.Marshal(kubernetes.BuildGatewayObject(&gwConfig).Object)
-	if err != nil {
-		return nil, fmt.Errorf("marshal stream Gateway YAML: %w", err)
+	var gwYAML []byte
+	if len(stream.Ports) > 0 {
+		gwConfig := streamplan.BuildStreamGatewayConfig(*stream)
+		gwYAML, err = yaml.Marshal(kubernetes.BuildGatewayObject(&gwConfig).Object)
+		if err != nil {
+			return nil, fmt.Errorf("marshal stream Gateway YAML: %w", err)
+		}
 	}
 
 	out := &StreamYAMLs{GatewayYAML: string(gwYAML), Routes: make([]StreamRouteYAMLs, 0, len(live))}

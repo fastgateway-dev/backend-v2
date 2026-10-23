@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/util/retry"
 )
 
 // CreateGateway creates a Gateway resource in Kubernetes
@@ -43,6 +44,11 @@ func (s *Client) CreateGateway(ctx context.Context, projectID uuid.UUID, config 
 // UpdateGateway updates a Gateway resource in Kubernetes, preserving its
 // resourceVersion. It is idempotent: if the Gateway does not exist yet, it
 // creates it instead of erroring.
+//
+// It is the only write path for a stream's Gateway (claim changes and the
+// startup reconcile both go through it), so a Conflict - another writer
+// bumped the resourceVersion between our Get and Update - re-reads the
+// Gateway and retries (retry.DefaultRetry) instead of failing the write.
 func (s *Client) UpdateGateway(ctx context.Context, projectID uuid.UUID, config *kubernetes.GatewayConfig) error {
 	// Ensure namespace exists first
 	if err := s.EnsureNamespace(ctx, projectID, config.Namespace); err != nil {
@@ -59,31 +65,32 @@ func (s *Client) UpdateGateway(ctx context.Context, projectID uuid.UUID, config 
 		Version:  "v1",
 		Resource: "gateways",
 	}
+	gateways := client.Resource(gvr).Namespace(config.Namespace)
 
-	gateway := kubernetes.BuildGatewayObject(config)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		gateway := kubernetes.BuildGatewayObject(config)
 
-	existing, err := client.Resource(gvr).Namespace(config.Namespace).Get(ctx, config.Name, metav1.GetOptions{})
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			_, cerr := client.Resource(gvr).Namespace(config.Namespace).Create(ctx, gateway, metav1.CreateOptions{})
-			if cerr != nil {
-				return fmt.Errorf("failed to create gateway: %w", cerr)
+		existing, err := gateways.Get(ctx, config.Name, metav1.GetOptions{})
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				if _, cerr := gateways.Create(ctx, gateway, metav1.CreateOptions{}); cerr != nil {
+					return fmt.Errorf("failed to create gateway: %w", cerr)
+				}
+				return nil
 			}
-			return nil
+			return fmt.Errorf("failed to get existing gateway: %w", err)
 		}
-		return fmt.Errorf("failed to get existing gateway: %w", err)
-	}
 
-	// Preserve the resourceVersion from existing object
-	gateway.SetResourceVersion(existing.GetResourceVersion())
-	gateway.SetUID(existing.GetUID())
+		// Preserve the resourceVersion from existing object
+		gateway.SetResourceVersion(existing.GetResourceVersion())
+		gateway.SetUID(existing.GetUID())
 
-	_, err = client.Resource(gvr).Namespace(config.Namespace).Update(ctx, gateway, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to update gateway: %w", err)
-	}
-
-	return nil
+		if _, err := gateways.Update(ctx, gateway, metav1.UpdateOptions{}); err != nil {
+			// %w keeps the Conflict visible to RetryOnConflict.
+			return fmt.Errorf("failed to update gateway: %w", err)
+		}
+		return nil
+	})
 }
 
 // GetGateway reads a Gateway back from the project's cluster. Read-only: the

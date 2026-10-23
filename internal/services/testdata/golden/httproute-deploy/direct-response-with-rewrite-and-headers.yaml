@@ -24,5 +24,3 @@ spec:
     - path:
         type: PathPrefix
         value: /api
-status:
-  parents: null

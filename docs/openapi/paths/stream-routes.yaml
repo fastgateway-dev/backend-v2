@@ -40,9 +40,9 @@ stream-routes:
     tags: [Streams]
     summary: Create L4 route (submits for approval)
     description: |
-      Creates a TCP or UDP route on the stream's Gateway and submits it through
-      the same approval flow as HTTP routes. Requires Owner, Project Admin or
-      Editor.
+      Creates a TCP or UDP route on one of the ports the stream claims and
+      submits it through the same approval flow as HTTP routes. Requires Owner,
+      Project Admin or Editor.
     operationId: createStreamRoute
     security:
       - bearerAuth: []
@@ -63,7 +63,7 @@ stream-routes:
             schema:
               $ref: '../schemas/route.yaml#/RouteResponse'
       '400':
-        description: Invalid route (non-L4 protocol, L7 field, external backend, missing listener port or backend, reserved or out-of-range port, duplicate name)
+        description: Invalid route (non-L4 protocol, L7 field, external backend, missing listener port or backend, reserved or invalid port, a port the stream does not claim, duplicate name)
         content:
           application/json:
             schema:
@@ -77,7 +77,7 @@ stream-routes:
             schema:
               $ref: '../schemas/common.yaml#/Error'
       '409':
-        description: The listener port is already used by another route on the stream (same protocol), or by a merged Gateway Template's HTTP/HTTPS port
+        description: The listener port is already used by another route on the stream (same protocol) - by its route row, a pending route approval, or its deployed version
         content:
           application/json:
             schema:
@@ -130,7 +130,7 @@ stream-routes_{routeId}:
             schema:
               $ref: '../schemas/route.yaml#/RouteResponse'
       '400':
-        description: Invalid route configuration
+        description: Invalid route configuration, including a listener port the stream does not claim
         content:
           application/json:
             schema:
@@ -140,7 +140,7 @@ stream-routes_{routeId}:
       '404':
         $ref: '../components/responses.yaml#/NotFound'
       '409':
-        description: The new listener port is already used by another route on the stream
+        description: The new listener port is already used by another route on the stream (its route row, a pending route approval, or its deployed version)
         content:
           application/json:
             schema:
@@ -194,8 +194,10 @@ stream-route-deploy:
     tags: [Streams]
     summary: Deploy approved L4 route to Kubernetes
     description: |
-      Applies the stream's Gateway (recomputed from every live route's
-      listener) and then the route's TCPRoute/UDPRoute.
+      Applies the route's TCPRoute/UDPRoute (and BackendTrafficPolicy). The
+      stream's Gateway is not written here: the stream owns it and applies it
+      from its port claims, so the route's listener already exists. Fails with
+      409 if the stream no longer claims the route's port.
     operationId: deployStreamRoute
     security:
       - bearerAuth: []
@@ -220,6 +222,12 @@ stream-route-deploy:
         $ref: '../components/responses.yaml#/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: The stream no longer claims the route's listener port
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
 
 stream-route-yamls:
   get:
@@ -260,8 +268,8 @@ stream-routes-preview:
     summary: Preview an L4 route create (TCPRoute/UDPRoute and BackendTrafficPolicy, no write)
     description: |
       Runs the same validation as creating the route (name, tcp/udp
-      protocol, listener port validity, reserved ports, template range and
-      collisions, protocol-gated policy inputs) and returns the manifests the
+      protocol, listener port validity, reserved ports, the stream's port claims
+      and collisions with other routes, protocol-gated policy inputs) and returns the manifests the
       create would produce. Errors are the create's errors with the same
       statuses, so a preview never shows a manifest create would reject.
     operationId: previewCreateStreamRoute
@@ -284,7 +292,7 @@ stream-routes-preview:
             schema:
               $ref: '../schemas/route.yaml#/PreviewCreateResponse'
       '400':
-        description: Invalid route (same cases as create)
+        description: Invalid route (same cases as create, including a port the stream does not claim)
         content:
           application/json:
             schema:
@@ -296,7 +304,7 @@ stream-routes-preview:
             schema:
               $ref: '../schemas/common.yaml#/Error'
       '409':
-        description: The listener port is already in use in the stream's scope
+        description: The listener port is already used by another route of the stream
         content:
           application/json:
             schema:
@@ -330,7 +338,7 @@ stream-route-preview:
             schema:
               $ref: '../schemas/route.yaml#/PreviewUpdateResponse'
       '400':
-        description: Invalid route configuration
+        description: Invalid route configuration, including a listener port the stream does not claim
         content:
           application/json:
             schema:
@@ -338,7 +346,7 @@ stream-route-preview:
       '404':
         $ref: '../components/responses.yaml#/NotFound'
       '409':
-        description: The new listener port is already in use in the stream's scope
+        description: The new listener port is already used by another route of the stream
         content:
           application/json:
             schema:
@@ -447,3 +455,9 @@ stream-route-version-rollback:
         $ref: '../components/responses.yaml#/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: The version's listener port is already used by another route of the stream (its route row, a pending route approval, or its deployed version)
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
