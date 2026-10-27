@@ -52,11 +52,20 @@ projects_{projectId}:
           application/json:
             schema:
               $ref: '../schemas/project.yaml#/Project'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
 
   patch:
     tags: [Projects]
-    summary: Update project
+    summary: Update project (Owner or Project Admin)
     operationId: updateProject
+    description: |
+      Changing `k8sApiUrl` requires `k8sToken` in the same request, and changing
+      `metricsEndpointUrl` requires the metrics token or password (unless auth is
+      `none`); otherwise the request is rejected with 400 so a stored credential is
+      never sent to a new endpoint. A kubeconfig for a different API server
+      replaces the stored token, client certificate, key and CA. Both URLs must be
+      http(s) URLs with a host.
     security:
       - bearerAuth: []
     parameters:
@@ -74,10 +83,12 @@ projects_{projectId}:
           application/json:
             schema:
               $ref: '../schemas/project.yaml#/Project'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
 
   delete:
     tags: [Projects]
-    summary: Delete project
+    summary: Delete project (Owner or Project Admin)
     operationId: deleteProject
     security:
       - bearerAuth: []
@@ -86,11 +97,13 @@ projects_{projectId}:
     responses:
       '204':
         description: Project deleted
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
 
 test-connection:
   post:
     tags: [Projects]
-    summary: Test Kubernetes connection
+    summary: Test Kubernetes connection (Owner or Project Admin)
     operationId: testProjectConnection
     security:
       - bearerAuth: []
@@ -103,6 +116,8 @@ test-connection:
           application/json:
             schema:
               $ref: '../schemas/project.yaml#/ConnectionTestResult'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
 
 capabilities:
   get:
@@ -123,6 +138,8 @@ capabilities:
               $ref: '../schemas/project.yaml#/ProjectCapabilities'
       '400':
         $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
 
 versions:
   get:
@@ -149,6 +166,8 @@ versions:
           application/json:
             schema:
               $ref: '../schemas/common.yaml#/Error'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
 
 versions-refresh:
   post:
@@ -175,6 +194,8 @@ versions-refresh:
           application/json:
             schema:
               $ref: '../schemas/common.yaml#/Error'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
 
 permissions:
   get:
@@ -211,6 +232,8 @@ admins:
               type: array
               items:
                 $ref: '../schemas/user.yaml#/User'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
 
   post:
     tags: [Projects]

@@ -16,6 +16,8 @@ metrics-test-connection:
               $ref: '../schemas/metrics.yaml#/TestConnectionResult'
       '400':
         $ref: '../components/responses.yaml#/BadRequest'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
 
 route-metrics:
   get:

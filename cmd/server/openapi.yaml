@@ -1413,11 +1413,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Project'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     patch:
       tags:
         - Projects
-      summary: Update project
+      summary: Update project (Owner or Project Admin)
       operationId: updateProject
+      description: |
+        Changing `k8sApiUrl` requires `k8sToken` in the same request, and changing
+        `metricsEndpointUrl` requires the metrics token or password (unless auth is
+        `none`); otherwise the request is rejected with 400 so a stored credential is
+        never sent to a new endpoint. A kubeconfig for a different API server
+        replaces the stored token, client certificate, key and CA. Both URLs must be
+        http(s) URLs with a host.
       security:
         - bearerAuth: []
       parameters:
@@ -1435,10 +1444,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Project'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     delete:
       tags:
         - Projects
-      summary: Delete project
+      summary: Delete project (Owner or Project Admin)
       operationId: deleteProject
       security:
         - bearerAuth: []
@@ -1447,11 +1458,13 @@ paths:
       responses:
         '204':
           description: Project deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /projects/{projectId}/test-connection:
     post:
       tags:
         - Projects
-      summary: Test Kubernetes connection
+      summary: Test Kubernetes connection (Owner or Project Admin)
       operationId: testProjectConnection
       security:
         - bearerAuth: []
@@ -1464,6 +1477,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConnectionTestResult'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /projects/{projectId}/metrics/test-connection:
     post:
       tags:
@@ -1483,6 +1498,8 @@ paths:
                 $ref: '#/components/schemas/TestConnectionResult'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /projects/{projectId}/capabilities:
     get:
       tags:
@@ -1503,6 +1520,8 @@ paths:
                 $ref: '#/components/schemas/ProjectCapabilities'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /projects/{projectId}/versions:
     get:
       tags:
@@ -1523,6 +1542,8 @@ paths:
                 $ref: '#/components/schemas/VersionInfo'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           description: Version detection failed
           content:
@@ -1549,6 +1570,8 @@ paths:
                 $ref: '#/components/schemas/VersionInfo'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           description: Version detection failed
           content:
@@ -1591,6 +1614,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/User'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
       tags:
         - Projects

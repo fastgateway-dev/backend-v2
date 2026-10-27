@@ -272,6 +272,8 @@ func TestProjectService_Update_MetricsFields_BearerToken(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
+// The stored metrics token is kept when the endpoint does not change (the UI
+// re-sends the unchanged URL on every save without the token).
 func TestProjectService_Update_MetricsFields_UnchangedTokenPreserved(t *testing.T) {
 	svc, repo := newTestProjectService()
 
@@ -288,13 +290,36 @@ func TestProjectService_Update_MetricsFields_UnchangedTokenPreserved(t *testing.
 		return p.MetricsTokenEncrypted == "already-encrypted-value"
 	})).Return(nil)
 
-	newURL := "http://prom2:9090"
+	sameURL := "http://prom:9090"
 	_, err := svc.Update(projectID, &services.UpdateProjectInput{
-		MetricsEndpointURL: &newURL,
-		// MetricsToken not provided → preserved
+		MetricsEndpointURL: &sameURL,
+		// MetricsToken not provided -> preserved
 	})
 	require.NoError(t, err)
 	repo.AssertExpectations(t)
+}
+
+// Moving the metrics endpoint without re-entering the token must not send the
+// stored token to the new host: the update is rejected and nothing is saved.
+func TestProjectService_Update_MetricsURLChange_WithoutToken_Rejected(t *testing.T) {
+	svc, repo := newTestProjectService()
+
+	projectID := uuid.New()
+	existing := &models.Project{
+		ID:                    projectID,
+		Name:                  "test",
+		MetricsEndpointURL:    "http://prom:9090",
+		MetricsAuthType:       "bearer",
+		MetricsTokenEncrypted: "already-encrypted-value",
+	}
+	repo.On("GetByID", projectID).Return(existing, nil)
+
+	newURL := "http://prom2:9090"
+	_, err := svc.Update(projectID, &services.UpdateProjectInput{
+		MetricsEndpointURL: &newURL,
+	})
+	require.ErrorIs(t, err, services.ErrCredentialRebindRequired)
+	repo.AssertNotCalled(t, "Update", mock.Anything)
 }
 
 // ---------------------------------------------------------------------------

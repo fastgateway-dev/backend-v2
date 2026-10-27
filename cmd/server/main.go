@@ -853,17 +853,21 @@ func setupRouter(deps RouterDeps) *gin.Engine {
 			{
 				projects.GET("", deps.ProjectHandler.List)
 				projects.POST("", deps.AuthMiddleware.RequireRole("owner"), deps.ProjectHandler.Create)
-				projects.GET("/:projectId", deps.ProjectHandler.Get)
-				projects.PATCH("/:projectId", deps.ProjectHandler.Update)
-				projects.DELETE("/:projectId", deps.ProjectHandler.Delete)
-				projects.POST("/:projectId/test-connection", deps.ProjectHandler.TestConnection)
-				projects.POST("/:projectId/metrics/test-connection", deps.MetricsHandler.TestConnection)
-				projects.GET("/:projectId/capabilities", deps.ProjectHandler.GetCapabilities)
-				projects.GET("/:projectId/versions", deps.ProjectVersionHandler.Get)
-				projects.POST("/:projectId/versions/refresh", deps.ProjectVersionHandler.Refresh)
+				// Project root routes. Reads need project access (owner, project
+				// admin or a team in the project); changes to the project and
+				// calls that use its stored cluster or metrics credentials need
+				// owner or project admin, like the rest of the project settings.
+				projects.GET("/:projectId", deps.PermChecker.RequireProjectAccess(), deps.ProjectHandler.Get)
+				projects.PATCH("/:projectId", deps.PermChecker.RequireAdminAccess(), deps.ProjectHandler.Update)
+				projects.DELETE("/:projectId", deps.PermChecker.RequireAdminAccess(), deps.ProjectHandler.Delete)
+				projects.POST("/:projectId/test-connection", deps.PermChecker.RequireAdminAccess(), deps.ProjectHandler.TestConnection)
+				projects.POST("/:projectId/metrics/test-connection", deps.PermChecker.RequireAdminAccess(), deps.MetricsHandler.TestConnection)
+				projects.GET("/:projectId/capabilities", deps.PermChecker.RequireProjectAccess(), deps.ProjectHandler.GetCapabilities)
+				projects.GET("/:projectId/versions", deps.PermChecker.RequireProjectAccess(), deps.ProjectVersionHandler.Get)
+				projects.POST("/:projectId/versions/refresh", deps.PermChecker.RequireProjectAccess(), deps.ProjectVersionHandler.Refresh)
 
-				// Project admins (Owner only)
-				projects.GET("/:projectId/admins", deps.ProjectHandler.ListAdmins)
+				// Project admins (list: project access; add/remove: Owner only)
+				projects.GET("/:projectId/admins", deps.PermChecker.RequireProjectAccess(), deps.ProjectHandler.ListAdmins)
 				projects.POST("/:projectId/admins", deps.AuthMiddleware.RequireRole("owner"), deps.ProjectHandler.AddAdmin)
 				projects.DELETE("/:projectId/admins/:userId", deps.AuthMiddleware.RequireRole("owner"), deps.ProjectHandler.RemoveAdmin)
 
