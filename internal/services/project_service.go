@@ -379,6 +379,19 @@ func (s *ProjectService) Update(id uuid.UUID, input *UpdateProjectInput) (*model
 			if err != nil {
 				return nil, err
 			}
+			if err := validateEndpointURL("kubeconfig server", parsed.APIUrl); err != nil {
+				return nil, err
+			}
+
+			// The old server's token, client cert, key and CA must not carry
+			// over to a different API server. ParseKubeconfig guarantees the
+			// new kubeconfig brings its own credentials.
+			if parsed.APIUrl != project.K8sAPIURL {
+				project.K8sTokenEncrypted = ""
+				project.K8sClientCert = ""
+				project.K8sClientKeyEncrypted = ""
+				project.K8sCACert = ""
+			}
 
 			project.K8sAPIURL = parsed.APIUrl
 			project.K8sTLSSkipVerify = parsed.SkipTLS
@@ -410,6 +423,12 @@ func (s *ProjectService) Update(id uuid.UUID, input *UpdateProjectInput) (*model
 	} else {
 		// api_token type - update individual fields
 		if input.K8sAPIURL != "" {
+			if err := validateEndpointURL("k8sApiUrl", input.K8sAPIURL); err != nil {
+				return nil, err
+			}
+			if input.K8sAPIURL != project.K8sAPIURL && input.K8sToken == "" {
+				return nil, fmt.Errorf("%w: changing k8sApiUrl requires k8sToken in the same request", ErrCredentialRebindRequired)
+			}
 			project.K8sAPIURL = input.K8sAPIURL
 		}
 
@@ -442,8 +461,32 @@ func (s *ProjectService) Update(id uuid.UUID, input *UpdateProjectInput) (*model
 	}
 
 	// Metrics (observability) fields
-	if input.MetricsEndpointURL != nil {
-		project.MetricsEndpointURL = *input.MetricsEndpointURL
+	if input.MetricsEndpointURL != nil && *input.MetricsEndpointURL != project.MetricsEndpointURL {
+		newURL := *input.MetricsEndpointURL
+		if newURL != "" {
+			if err := validateEndpointURL("metricsEndpointUrl", newURL); err != nil {
+				return nil, err
+			}
+			authType := project.MetricsAuthType
+			if input.MetricsAuthType != nil {
+				authType = *input.MetricsAuthType
+			}
+			switch authType {
+			case "bearer":
+				if input.MetricsToken == nil || *input.MetricsToken == "" {
+					return nil, fmt.Errorf("%w: changing metricsEndpointUrl requires metricsToken in the same request", ErrCredentialRebindRequired)
+				}
+			case "basic":
+				if input.MetricsPassword == nil || *input.MetricsPassword == "" {
+					return nil, fmt.Errorf("%w: changing metricsEndpointUrl requires metricsPassword in the same request", ErrCredentialRebindRequired)
+				}
+			}
+		}
+		// The stored secrets belonged to the old endpoint; any secret for the
+		// new one is set from this request below.
+		project.MetricsTokenEncrypted = ""
+		project.MetricsPasswordEncrypted = ""
+		project.MetricsEndpointURL = newURL
 	}
 	if input.MetricsAuthType != nil {
 		switch *input.MetricsAuthType {
